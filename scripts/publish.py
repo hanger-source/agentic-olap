@@ -196,11 +196,11 @@ def published_integrity(name: str, version: str, *, timeout: float = 30) -> str 
 
 
 def wait_for_published_integrity(name: str, version: str, expected: str) -> None:
-    deadline = time.monotonic() + 900
+    deadline = time.monotonic() + 1800
     while True:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            raise TimeoutError("npm 提交已接受，但 900 秒内尚未可读：" + name + "@" + version)
+            raise TimeoutError("npm 提交已接受，但 1800 秒内尚未可读：" + name + "@" + version)
         actual = published_integrity(name, version, timeout=min(30, remaining))
         if actual is not None:
             require(actual == expected, "发布后 registry integrity 不符：" + name)
