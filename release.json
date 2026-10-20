@@ -1,8 +1,8 @@
 {
-  "version": "0.3.0",
+  "version": "0.4.0",
   "package": "@hanger-source/agentic-olap",
   "runtimes": {
-    "@hanger-source/agentic-olap-runtime-darwin-arm64": "0.3.0",
-    "@hanger-source/agentic-olap-runtime-linux-x64": "0.3.0"
+    "@hanger-source/agentic-olap-runtime-darwin-arm64": "0.4.0",
+    "@hanger-source/agentic-olap-runtime-linux-x64": "0.4.0"
   }
 }

@@ -4,7 +4,7 @@ description: 使用 Agentic OLAP 服务调查业务数据、建设和复用可�
 license: Apache-2.0
 metadata:
   author: hanger
-  version: "0.3.0"
+  version: "0.4.0"
   repository: https://github.com/hanger-source/agentic-olap-skill
 ---
 
@@ -17,7 +17,7 @@ metadata:
 产品由 npm 提供，Python、Java 和服务构件随平台包安装。需要 Node.js 20 或更高；支持 macOS arm64、Linux x64（glibc 2.35 或更高）。
 
 ```sh
-npm install --global @hanger-source/agentic-olap@0.3.0
+npm install --global @hanger-source/agentic-olap@0.4.0
 agentic-olap start
 ```
 
@@ -35,11 +35,11 @@ agentic-olap call list-data-sources --payload '{}'
 
 ## 接入真实来源
 
-空库没有业务指标。连接器是独立扩展；使用方提供与该后端匹配的插件组。按 `info` 返回的配置路径登记插件 manifest 和业务源，设置来源的精确连接器引用、JDBC 地址及必要的凭据环境变量，重启服务加载配置。不要修改产品源码来添加业务指标，也不要将本机插件路径作为业务工具参数。
+空库没有业务指标。连接器是独立扩展；使用方提供与该后端匹配的插件组。按 `info` 返回的配置路径登记插件 manifest 和业务源，设置来源的精确连接器引用、插件参数及必要的凭据环境变量，重启服务加载配置。不要修改产品源码来添加业务指标，也不要将本机插件路径作为业务工具参数。
 
 实际配置、现成插件取得与来源读取见[连接说明](references/connections.md)，接入业务库时再读。
 
-数据库可连接不代表业务含义已经成立。通过真实 MCP 调查来源，结合使用方提供的业务资料澄清口径；不把技术列名、几行样本或历史 SQL 直接当作完整业务定义。
+数据库可连接不代表业务含义已经成立。通过真实 MCP 调查来源或登记使用方明确提供的结构，结合业务资料澄清口径；不把技术列名、几行样本或历史 SQL 直接当作完整业务定义。
 
 ## 按实际合同使用能力
 

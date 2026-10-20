@@ -106,9 +106,19 @@ try {
   const manifestPath = join(pluginRoot, "h2/connector.json");
   const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
   config.connectors = [manifestPath];
-  config.dataSources = [{ dataSourceId: "business", connectorRef: manifest.connectorRef, dialectId: "h2", jdbcUrl, username: "sa", passwordEnvironmentVariable: null, driverClassName: "org.h2.Driver" }];
+  config.dataSources = [{ dataSourceId: "business", connectorRef: manifest.connectorRef, dialectId: "h2", parameters: { jdbcUrl, username: "sa", driverClassName: "org.h2.Driver" }, credentialEnvironmentVariables: {} }];
   await writeFile(info.configPath, JSON.stringify(config));
   await start("reopened");
+  const structure = call("write-governance", { operation: "register-source-structure", payload: {
+    dataSourceId: "business", catalog: null, schemaName: "PUBLIC", authority: "installed-product-configuration", revision: "sales-schema-v1", requestedBy: "local",
+    tables: [{ table: { ref: { catalog: null, schema: "PUBLIC", table: "SALES_ORDERS" }, tableType: "TABLE", remarks: null },
+      columns: [
+        { name: "ORDER_ID", jdbcType: -5, typeName: "BIGINT", ordinalPosition: 1, nullable: false, precision: 19, scale: 0 },
+        { name: "AMOUNT", jdbcType: 3, typeName: "DECIMAL", ordinalPosition: 2, nullable: true, precision: 18, scale: 2 }
+      ], constraints: { primaryKeyColumns: ["ORDER_ID"], uniqueKeys: [], importedKeys: [], temporalKeys: [] } }]
+  } });
+  assert.equal(structure.snapshot.structureProvenance.kind, "DECLARED");
+  assert.equal(structure.snapshot.driverName, null);
   const discovered = call("inspect-warehouse", { operation: "discover", payload: { dataSourceId: "business", schemaPattern: "PUBLIC", limit: 20 } });
   assert(JSON.stringify(discovered.tables).includes("SALES_ORDERS"), "安装包没有从实际业务库发现表");
   const readOperations = call("discover-governance-reads", {});
@@ -116,7 +126,11 @@ try {
   const listing = call("read-governance", { operation: "list-business-lines", payload: { offset: 0, limit: 20 } });
   assert(JSON.stringify(listing).includes("installed_product"), "重启后没有读到实际提交的治理资产");
   await stop("SIGINT");
-  const report = { version: command(["--version"]).stdout.trim(), target, mode, nativePackage: mode === "registry" ? `${nativeMetadata.name}@${nativeMetadata.version}` : native[0], tools: tools.tools.length, assetCreated: Boolean(asset), persistentRead: true, actualSourceRead: true, systemToolsPath: environment.PATH };
+  await start("structure-reopened");
+  const structures = call("read-governance", { operation: "list-source-discoveries", payload: { dataSourceId: "business", catalog: "", schemaName: "PUBLIC" } });
+  assert(JSON.stringify(structures).includes(structure.snapshot.id), "重启后未读到显式登记的结构");
+  await stop();
+  const report = { version: command(["--version"]).stdout.trim(), target, mode, nativePackage: mode === "registry" ? `${nativeMetadata.name}@${nativeMetadata.version}` : native[0], tools: tools.tools.length, assetCreated: Boolean(asset), persistentRead: true, actualSourceRead: true, declaredStructure: true, structurePersistentRead: true, systemToolsPath: environment.PATH };
   await writeFile(join(root, "report.json"), JSON.stringify(report, null, 2) + "\n");
   console.log(JSON.stringify(report));
 } finally {
