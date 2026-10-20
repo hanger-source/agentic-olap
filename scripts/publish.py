@@ -11,6 +11,7 @@ import re
 import subprocess
 import tarfile
 import tempfile
+import time
 from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.error import HTTPError
@@ -166,7 +167,8 @@ def check_archives(directory: Path, metadata: Path, tag: str) -> list[tuple[str,
                 "archivesChecked": len(expected),
                 "revision": next(iter(revisions)),
             }
-        )
+        ),
+        flush=True,
     )
     return packages
 
@@ -177,10 +179,10 @@ def integrity(path: Path) -> str:
     return "sha512-" + base64.b64encode(raw).decode("ascii")
 
 
-def published_integrity(name: str, version: str) -> str | None:
+def published_integrity(name: str, version: str, *, timeout: float = 30) -> str | None:
     try:
         with urlopen(
-            REGISTRY + "/" + quote(name, safe="") + "/" + quote(version, safe=""), timeout=30
+            REGISTRY + "/" + quote(name, safe="") + "/" + quote(version, safe=""), timeout=timeout
         ) as response:
             metadata = json.load(response)
     except HTTPError as failure:
@@ -191,6 +193,20 @@ def published_integrity(name: str, version: str) -> str | None:
         metadata["name"] == name and metadata["version"] == version, "registry 返回了不同包或版本"
     )
     return metadata["dist"]["integrity"]
+
+
+def wait_for_published_integrity(name: str, version: str, expected: str) -> None:
+    deadline = time.monotonic() + 900
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("npm 提交已接受，但 900 秒内尚未可读：" + name + "@" + version)
+        actual = published_integrity(name, version, timeout=min(30, remaining))
+        if actual is not None:
+            require(actual == expected, "发布后 registry integrity 不符：" + name)
+            return
+        print("npm 正在处理，等待 registry 可读：" + name + "@" + version, flush=True)
+        time.sleep(min(5, max(0, deadline - time.monotonic())))
 
 
 def publish(packages: list[tuple[str, str, Path]]) -> None:
@@ -224,7 +240,7 @@ def publish(packages: list[tuple[str, str, Path]]) -> None:
         if actual is None:
             pending.append((name, version, path, expected))
         else:
-            print("已存在且 integrity 精确匹配：" + name + "@" + version)
+            print("已存在且 integrity 精确匹配：" + name + "@" + version, flush=True)
     with tempfile.TemporaryDirectory(prefix="agentic-olap-publish-") as temporary:
         root = Path(temporary)
         user, global_config = root / "user.npmrc", root / "global.npmrc"
@@ -257,11 +273,9 @@ def publish(packages: list[tuple[str, str, Path]]) -> None:
                 env=environment,
                 check=True,
             )
-            require(
-                published_integrity(name, version) == expected,
-                "发布后 registry integrity 不符：" + name,
-            )
-            print("已发布并核对 integrity：" + name + "@" + version)
+            print("npm 已接受提交：" + name + "@" + version, flush=True)
+            wait_for_published_integrity(name, version, expected)
+            print("已发布并核对 integrity：" + name + "@" + version, flush=True)
 
 
 def main() -> None:

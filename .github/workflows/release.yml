@@ -24,7 +24,7 @@ jobs:
   publish:
     if: github.repository == 'hanger-source/agentic-olap-skill'
     runs-on: ubuntu-22.04
-    timeout-minutes: 20
+    timeout-minutes: 60
     permissions:
       # GitHub 草稿发行物只向拥有仓库写权限的主体开放。
       contents: write
@@ -32,7 +32,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: ${{ env.RELEASE_TAG }}
+          ref: ${{ github.sha }}
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
@@ -65,7 +65,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: ${{ env.RELEASE_TAG }}
+          ref: ${{ github.sha }}
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
