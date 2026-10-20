@@ -62,8 +62,8 @@ agentic-olap call describe-governance-command --payload '{"operation":"register-
 
 通过 `write-governance` 调用该命令，提供已授权 `dataSourceId`、表与字段的 SQL 类型、约束声明、`authority/revision` 及本次主体的 `requestedBy`。返回的 snapshot、tables、columns 可直接用于现有物理定义、语义建设与发布，不要求先调用 `discover-source`。主键需明确声明不可空，不能从查询返回头或样本猜测。
 
-`structureProvenance.kind=DECLARED` 表示明确提供的结构，外部目录与数据库观察分别标记来源。声明不等于已经核验的保证；查询实际依赖参数绑定、关系检查或约束快照时，插件必须兑现对应要求。缺少能力会以 `SOURCE_CAPABILITY_MISSING` 指出来源、操作和能力，只影响实际依赖它的操作。
+字段应明确提供类型、顺序与可空性；`autoIncrement/generated` 未知时可以不提供，服务保留未知。`structureProvenance.kind=DECLARED` 表示明确提供的结构，外部目录与数据库观察分别标记来源。声明不等于已经核验的保证；查询实际依赖关系或约束检查时，插件必须兑现检查与计算的一致性。事务快照是实现方式之一；来源也可通过原子 SQL 或不可变数据版本兑现。插件可明确选择安全字面量 SQL 提交，无需假称参数绑定。缺少能力会以 `SOURCE_CAPABILITY_MISSING` 指出来源、操作和能力，只影响实际依赖它的操作。
 
-`0.4.0` 使用元数据存储格式 `10`，不自动改写旧格式持久根；升级既有服务时保留旧持久根及其匹配发行构件。
+`0.4.0` 使用元数据存储格式 `11`，不自动改写旧格式持久根；升级既有服务时保留旧持久根及其匹配发行构件。
 
 有适用语义资产时直接复用；需要新增含义时，Agent 结合业务资料和来源调查，通过治理合同明确创建、组合、采用和发布定义。配置来源不要求研发指标代码。

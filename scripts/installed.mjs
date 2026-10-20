@@ -129,6 +129,12 @@ try {
   await start("structure-reopened");
   const structures = call("read-governance", { operation: "list-source-discoveries", payload: { dataSourceId: "business", catalog: "", schemaName: "PUBLIC" } });
   assert(JSON.stringify(structures).includes(structure.snapshot.id), "重启后未读到显式登记的结构");
+  const columns = call("read-governance", { operation: "read-source-discovery-columns", payload: { discoveredTableId: structure.tables[0].id, offset: 0, limit: 20 } });
+  assert.equal(columns.items.length, 2);
+  for (const column of columns.items) {
+    assert.equal(column.autoIncrement, null, "缺少声明时应保留未知的自动增长状态");
+    assert.equal(column.generated, null, "缺少声明时应保留未知的生成列状态");
+  }
   await stop();
   const report = { version: command(["--version"]).stdout.trim(), target, mode, nativePackage: mode === "registry" ? `${nativeMetadata.name}@${nativeMetadata.version}` : native[0], tools: tools.tools.length, assetCreated: Boolean(asset), persistentRead: true, actualSourceRead: true, declaredStructure: true, structurePersistentRead: true, systemToolsPath: environment.PATH };
   await writeFile(join(root, "report.json"), JSON.stringify(report, null, 2) + "\n");
