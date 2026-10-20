@@ -7,6 +7,11 @@ on:
         description: 已审核 draft release 的 tag，例如 v0.3.0
         required: true
         type: string
+      submitted:
+        description: 从失败 CI 日志确认已被 npm 受理的本次包名，空格分隔；不重发，仍核对最终摘要
+        required: false
+        default: ''
+        type: string
   release:
     types: [published]
 
@@ -46,7 +51,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/release-assets" --pattern '*.tgz' --pattern SHA256SUMS
       - name: 离线核验并使用 OIDC 发布
-        run: python3 scripts/publish.py --tag "$RELEASE_TAG" --artifacts "$RUNNER_TEMP/release-assets"
+        env:
+          SUBMITTED_PACKAGES: ${{ github.event.inputs.submitted || '' }}
+        run: python3 scripts/publish.py --tag "$RELEASE_TAG" --artifacts "$RUNNER_TEMP/release-assets" --submitted "$SUBMITTED_PACKAGES"
 
   registry-install:
     needs: publish

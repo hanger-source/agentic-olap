@@ -209,7 +209,11 @@ def wait_for_published_integrity(name: str, version: str, expected: str) -> None
         time.sleep(min(5, max(0, deadline - time.monotonic())))
 
 
-def publish(packages: list[tuple[str, str, Path]]) -> None:
+def publish(packages: list[tuple[str, str, Path]], submitted: set[str]) -> None:
+    require(
+        submitted <= {name for name, _, _ in packages},
+        "已受理包必须属于本次已审核 release",
+    )
     require(
         os.environ.get("GITHUB_ACTIONS") == "true"
         and os.environ.get("GITHUB_REPOSITORY") == REPOSITORY,
@@ -256,26 +260,34 @@ def publish(packages: list[tuple[str, str, Path]]) -> None:
             NPM_CONFIG_GLOBALCONFIG=str(global_config),
             NPM_CONFIG_CACHE=str(root / "cache"),
         )
-        for name, version, path, expected in pending:
-            subprocess.run(
-                [
-                    "npm",
-                    "publish",
-                    str(path.resolve()),
-                    "--access",
-                    "public",
-                    "--registry",
-                    REGISTRY,
-                    "--ignore-scripts",
-                    "--provenance",
-                ],
-                cwd=root,
-                env=environment,
-                check=True,
-            )
-            print("npm 已接受提交：" + name + "@" + version, flush=True)
-            wait_for_published_integrity(name, version, expected)
-            print("已发布并核对 integrity：" + name + "@" + version, flush=True)
+        for batch in (
+            [item for item in pending if item[0] != MAIN],
+            [item for item in pending if item[0] == MAIN],
+        ):
+            for name, version, path, _ in batch:
+                if name in submitted:
+                    print("按已受理记录接续，不重复提交：" + name + "@" + version, flush=True)
+                    continue
+                subprocess.run(
+                    [
+                        "npm",
+                        "publish",
+                        str(path.resolve()),
+                        "--access",
+                        "public",
+                        "--registry",
+                        REGISTRY,
+                        "--ignore-scripts",
+                        "--provenance",
+                    ],
+                    cwd=root,
+                    env=environment,
+                    check=True,
+                )
+                print("npm 已接受提交：" + name + "@" + version, flush=True)
+            for name, version, _, expected in batch:
+                wait_for_published_integrity(name, version, expected)
+                print("已发布并核对 integrity：" + name + "@" + version, flush=True)
 
 
 def main() -> None:
@@ -284,14 +296,20 @@ def main() -> None:
     parser.add_argument("--metadata", type=Path, default=Path("release.json"))
     parser.add_argument("--tag", required=True)
     parser.add_argument(
+        "--submitted",
+        default="",
+        help="从失败 CI 日志确认已被 npm 受理的本次包名，空格分隔；仍需逐包核对 registry integrity",
+    )
+    parser.add_argument(
         "--check", action="store_true", help="仅离线核验归档，不查询或写入 registry"
     )
     args = parser.parse_args()
+    require(not args.check or not args.submitted, "离线核验不能指定已受理包")
     packages = check_archives(
         args.artifacts.resolve(strict=True), args.metadata.resolve(strict=True), args.tag
     )
     if not args.check:
-        publish(packages)
+        publish(packages, set(args.submitted.split()))
 
 
 if __name__ == "__main__":
