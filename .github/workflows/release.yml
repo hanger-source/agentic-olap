@@ -1,0 +1,100 @@
+name: 发布 Agentic OLAP
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 已审核 draft release 的 tag，例如 v0.3.0
+        required: true
+        type: string
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.event.release.tag_name }}
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: ${{ github.event.inputs.tag || github.event.release.tag_name }}
+
+jobs:
+  publish:
+    if: github.repository == 'hanger-source/agentic-olap-skill'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13.7'
+      - run: npm install --global npm@11.17.0 --registry=https://registry.npmjs.org
+      - name: 下载已审核的同 tag 资产
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/release-assets" --pattern '*.tgz' --pattern SHA256SUMS
+      - name: 离线核验并使用 OIDC 发布
+        run: python3 scripts/publish.py --tag "$RELEASE_TAG" --artifacts "$RUNNER_TEMP/release-assets"
+
+  registry-install:
+    needs: publish
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            target: darwin-arm64
+          - runner: ubuntu-22.04
+            target: linux-x64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm install --global npm@11.17.0 --registry=https://registry.npmjs.org
+      - name: 下载同 tag 连接器与候选包身份
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/release-assets" --pattern '*.tgz' --pattern SHA256SUMS
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13.7'
+      - name: 核验本次安装使用的同 tag 资产
+        run: python3 scripts/publish.py --check --tag "$RELEASE_TAG" --artifacts "$RUNNER_TEMP/release-assets"
+      - name: 新缓存从官方 registry 安装主包并运行真实服务
+        run: node scripts/installed.mjs "$RUNNER_TEMP/release-assets" "$RUNNER_TEMP/registry-installed" registry
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: registry-installed-${{ matrix.target }}
+          path: |
+            ${{ runner.temp }}/registry-installed/report.json
+            ${{ runner.temp }}/registry-installed/*.log
+          if-no-files-found: ignore
+
+  release:
+    needs: [publish, registry-install]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - name: 两平台 registry 实跑成功后正式发布 GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false
