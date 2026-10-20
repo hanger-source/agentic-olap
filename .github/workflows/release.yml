@@ -26,7 +26,8 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 20
     permissions:
-      contents: read
+      # GitHub 草稿发行物只向拥有仓库写权限的主体开放。
+      contents: write
       id-token: write
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -49,6 +50,8 @@ jobs:
 
   registry-install:
     needs: publish
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
