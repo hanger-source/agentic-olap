@@ -70,7 +70,23 @@ const call = (operation, payload) => {
   assert.equal(response.success, true, JSON.stringify(response.error));
   return response.result;
 };
-const govern = (operation, payload) => call("write-governance", { operation, payload });
+const govern = (operation, payload) => {
+  const receipt = call("write-governance", { operation, payload });
+  assert.equal(receipt.formatVersion, "governance-write-receipt/v1");
+  assert.equal(receipt.operation, operation);
+  return receipt.result;
+};
+const read = (operation, payload) => call("read-governance", { operation, payload });
+const readAll = (operation, payload) => {
+  const items = [];
+  let offset = 0;
+  while (offset !== null) {
+    const page = read(operation, { ...payload, offset, limit: 200 });
+    items.push(...page.items);
+    offset = page.nextOffset;
+  }
+  return items;
+};
 const activate = (objectType, objectId) => govern("activate", {
   objectType, objectId, objectVersion: 1, activatedBy: "local", reason: "审核安装后真实订单分析定义",
 });
@@ -138,7 +154,7 @@ try {
   assert(tools.tools.some((tool) => tool.name === "write-governance"));
   assert(tools.tools.some((tool) => tool.name === "execute-query"));
   assert.deepEqual(call("list-data-sources", {}), []);
-  const asset = call("write-governance", { operation: "create-business-line", payload: { code: "installed_product", displayName: "安装后的实际治理资产", owner: "local", description: "npm包真实创建与重启读取", createdBy: "local" } });
+  const asset = govern("create-business-line", { code: "installed_product", displayName: "安装后的实际治理资产", owner: "local", description: "npm包真实创建与重启读取", createdBy: "local" });
   await stop();
   const config = JSON.parse(await readFile(info.configPath, "utf8"));
   config.connectors = [manifestPath];
@@ -149,16 +165,17 @@ try {
   assert.equal(deployed.length, 1, "本试验只部署一份business精确绑定，不代选多个绑定");
   const sourceIdentityHash = deployed[0].sourceIdentityHash;
   assert.match(sourceIdentityHash, /^[0-9a-f]{64}$/);
-  const structure = call("write-governance", { operation: "register-source-structure", payload: {
+  const structure = govern("register-source-structure", {
     dataSourceId: "business", sourceIdentityHash, catalog: null, schemaName: "PUBLIC", authority: "installed-product-configuration", revision: "sales-schema-v1", requestedBy: "local",
     tables: [{ table: { ref: { catalog: null, schema: "PUBLIC", table: "SALES_ORDERS" }, tableType: "TABLE", remarks: null },
       columns: [
         { name: "ORDER_ID", jdbcType: -5, typeName: "BIGINT", ordinalPosition: 1, nullable: false, precision: 19, scale: 0 },
         { name: "AMOUNT", jdbcType: 3, typeName: "DECIMAL", ordinalPosition: 2, nullable: true, precision: 18, scale: 2 }
       ], constraints: { primaryKeyColumns: ["ORDER_ID"], uniqueKeys: [], importedKeys: [], temporalKeys: [] } }]
-  } });
-  assert.equal(structure.snapshot.structureProvenance.kind, "DECLARED");
-  assert.equal(structure.snapshot.driverName, null);
+  });
+  const structureSnapshot = read("read-source-discovery", { snapshotId: structure.snapshotId });
+  assert.equal(structureSnapshot.structureProvenance.kind, "DECLARED");
+  assert.equal(structureSnapshot.driverName, null);
   const discovered = call("inspect-warehouse", { operation: "discover", payload: { dataSourceId: "business", sourceIdentityHash, schemaPattern: "PUBLIC", limit: 20 } });
   assert(JSON.stringify(discovered.tables).includes("SALES_ORDERS"), "安装包没有从实际业务库发现表");
   const readOperations = call("discover-governance-reads", {});
@@ -167,44 +184,51 @@ try {
   assert(JSON.stringify(listing).includes("installed_product"), "重启后没有读到实际提交的治理资产");
   await stop("SIGINT");
   await start("structure-reopened");
-  const structures = call("read-governance", { operation: "list-source-discoveries", payload: { dataSourceId: "business", catalog: "", schemaName: "PUBLIC" } });
-  assert(JSON.stringify(structures).includes(structure.snapshot.id), "重启后未读到显式登记的结构");
-  const columns = call("read-governance", { operation: "read-source-discovery-columns", payload: { discoveredTableId: structure.tables[0].id, offset: 0, limit: 20 } });
-  assert.equal(columns.items.length, 2);
-  for (const column of columns.items) {
+  const structures = readAll("list-source-discoveries", { dataSourceId: "business", catalog: "", schemaName: "PUBLIC" });
+  assert(structures.some((snapshot) => snapshot.id === structure.snapshotId), "重启后未读到显式登记的结构");
+  const observedTables = readAll("read-source-discovery-tables", { snapshotId: structure.snapshotId });
+  assert.equal(observedTables.length, 1);
+  const observed = observedTables[0];
+  const columns = readAll("read-source-discovery-columns", { discoveredTableId: observed.id });
+  assert.equal(columns.length, 2);
+  for (const column of columns) {
     assert.equal(column.autoIncrement, null, "缺少声明时应保留未知的自动增长状态");
     assert.equal(column.generated, null, "缺少声明时应保留未知的生成列状态");
   }
-  const observed = structure.tables[0];
   const physical = govern("create-physical-table", {
     code: "sales_orders", tableName: "SALES_ORDERS", displayName: "销售订单", description: "安装后真实H2订单",
     dataDomain: "sales", owner: "local", sensitivityLevel: "PUBLIC", sourceSystem: "installed-sales",
     dataSource: "business", dialectId: "h2", catalog: observed.catalogName, schemaName: observed.schemaName,
     schemaHash: observed.schemaHash, sourceConstraints: { discoveredTableId: observed.id, sourceCollectionIds: [] }, createdBy: "local",
-    columns: columns.items.map((column) => ({
+    columns: columns.map((column) => ({
       columnName: column.columnName, displayName: column.columnName, columnType: column.typeName,
       sensitivityLevel: "PUBLIC", nullable: column.nullable, description: "订单原始字段",
       jdbcColumnType: { jdbcType: column.jdbcType, typeName: column.typeName, precision: column.precision, scale: column.scale, nullable: column.nullable },
     })),
   });
-  activate("PHYSICAL_TABLE", physical.physicalTable.id);
+  activate("PHYSICAL_TABLE", physical.id);
+  const physicalColumns = readAll("read-physical-columns", { id: physical.id, version: physical.version });
   const logical = govern("create-logical-table", {
-    physicalTableId: physical.physicalTable.id, physicalTableVersion: 1, code: "sales_orders", displayName: "销售订单",
+    physicalTableId: physical.id, physicalTableVersion: physical.version, code: "sales_orders", displayName: "销售订单",
     tableRole: "FACT", description: "一条记录是一笔订单", owner: "local", createdBy: "local",
-    logicUnits: physical.physicalColumns.map((column) => ({
+    logicUnits: physicalColumns.map((column) => ({
       code: column.columnName, displayName: column.columnName, sourceKind: "COLUMN", expressionJson: null,
       logicType: "NUMBER", valueShape: null, isTime: false, isPrimaryKey: column.columnName === "ORDER_ID",
       isForeignKey: false, filterable: false, aggregatable: true,
       sourceRefs: [{ physicalColumnId: column.id, physicalColumnVersion: 1, refRole: "DIRECT_SOURCE" }],
     })),
   });
-  activate("LOGICAL_TABLE", logical.logicalTable.id);
-  const units = Object.fromEntries(logical.logicUnits.map((unit) => [unit.code, unit]));
+  activate("LOGICAL_TABLE", logical.id);
+  const unitRefs = read("read-logical-table-units", { id: logical.id, version: logical.version });
+  const units = Object.fromEntries(unitRefs.map((ref) => {
+    const unit = read("read-asset-version", { assetType: "LOGIC_UNIT", id: ref.logicUnitId, version: ref.logicUnitVersion });
+    return [unit.code, unit];
+  }));
   const topology = govern("create-topology", {
     code: "orders", displayName: "销售订单事实", topologyImplementationNamespaceCode: "installed.sales",
-    topologyImplementationNamespaceDisplayName: "安装验收销售事实", backboneLogicalTableId: logical.logicalTable.id,
+    topologyImplementationNamespaceDisplayName: "安装验收销售事实", backboneLogicalTableId: logical.id,
     backboneLogicalTableVersion: 1, owner: "local", description: "单表订单事实", createdBy: "local",
-  }).topology;
+  });
   activate("TOPOLOGY", topology.id);
   const logicRef = (unit) => ({ logicUnitId: unit.id, logicUnitVersion: 1 });
   const event = govern("create-event", {
@@ -212,7 +236,7 @@ try {
     eventTimeLogicUnitId: null, eventTimeLogicUnitVersion: null,
     identity: { recordKey: [logicRef(units.ORDER_ID)], entityRoles: {} }, roles: {}, filterableLogicUnitRefs: [],
     measureLogicUnitRefs: [logicRef(units.ORDER_ID), logicRef(units.AMOUNT)], description: "按原订单记录汇总，不声明未知的完成状态", createdBy: "local",
-  }).event;
+  });
   activate("EVENT", event.id);
   const meanings = {
     sales_amount: { definition: "所有已登记订单的金额之和", unit: "CNY", grain: "订单", limitations: ["不包含退款及状态限定"] },
@@ -230,24 +254,24 @@ try {
       businessMeaning: meanings[code], snapshotRule: null,
       valueContract: { unit: { kind: "FIXED", identity }, arithmetic: { kind: "EXACT_DECIMAL" }, result, unitEquations: {}, overflow: "FAIL" },
       aggregationRounding: "NONE", createdBy: "local",
-    }).metric;
+    });
     activate("METRIC", metric.id);
     metrics.push({ code, metric });
   }
-  activate("BUSINESS_LINE", asset.businessLine.id);
+  activate("BUSINESS_LINE", asset.id);
   const subject = govern("create-subject-area", {
-    businessLineId: asset.businessLine.id, businessLineVersion: 1, code: "sales", displayName: "销售经营",
+    businessLineId: asset.id, businessLineVersion: 1, code: "sales", displayName: "销售经营",
     owner: "local", description: "安装后订单分析", createdBy: "local",
-  }).subjectArea;
+  });
   const adoptions = metrics.map(({ code, metric }) => govern("create-subject-area-metric-ref", {
     subjectAreaId: subject.id, subjectAreaVersion: 1, code, displayName: code, businessMeaning: meanings[code],
     metricId: metric.id, metricVersion: 1,
     bindings: { dimensions: {}, members: {}, measurements: {}, groupingCandidates: {} }, fixedArguments: {}, selectedBy: "local",
-  }).subjectAreaMetricRef);
+  }));
   const scenario = govern("create-scenario", {
     subjectAreaId: subject.id, subjectAreaVersion: 1, code: "orders", displayName: "订单经营分析",
     owner: "local", description: "公开销售额和订单数", createdBy: "local",
-  }).scenario;
+  });
   adoptions.forEach((adoption, index) => govern("create-scenario-metric-ref", {
     scenarioId: scenario.id, scenarioVersion: 1, adoptionId: adoption.id, adoptionVersion: 1, requiredByDefault: true, sortOrder: index + 1,
   }));

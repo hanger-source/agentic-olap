@@ -6,9 +6,9 @@
 
 一个插件组包含 `connector.json`、连接器实现 JAR 和实现所需的依赖。JDBC 实现附带实际驱动，HTTP 实现拥有自己的访问协议和结果映射。整个目录一起保存；manifest 中的文件名与字节摘要不能手写或修改。单独数据库驱动不能替代完整连接器。
 
-插件组和连接器 SDK 须与实际服务来自同一发行或同轮构建。从 [0.5.0 GitHub Release](https://github.com/hanger-source/agentic-olap-skill/releases/tag/v0.5.0) 取得 `agentic-olap-connectors-0.5.0.tgz`（H2、DuckDB 插件组）和 `agentic-olap-connector-sdk-0.5.0.tgz`（扩展开发 SDK）。解压插件归档后使用其中实际的组目录，不根据连接器 ID 推断目录名。HTTP 或其他后端由使用方提供匹配其 SQL 后端及实际协议的插件；SQL 协议兼容不证明类型、数值、时间或一致性映射已经成立。SDK 中的 `API.md`、`SOURCE-ACCESS.md`、`LOADER.md` 面向插件实现者；业务 Agent 通过正式 MCP 使用已配置的来源。
+插件组和连接器 SDK 须与实际服务来自同一发行或同轮构建。从 [0.6.0 GitHub Release](https://github.com/hanger-source/agentic-olap-skill/releases/tag/v0.6.0) 取得 `agentic-olap-connectors-0.6.0.tgz`（H2、DuckDB 插件组）和 `agentic-olap-connector-sdk-0.6.0.tgz`（扩展开发 SDK）。解压插件归档后使用其中实际的组目录，不根据连接器 ID 推断目录名。HTTP 或其他后端由使用方提供匹配其 SQL 后端及实际协议的插件；SQL 协议兼容不证明类型、数值、时间或一致性映射已经成立。SDK 中的 `API.md`、`SOURCE-ACCESS.md`、`LOADER.md` 面向插件实现者；业务 Agent 通过正式 MCP 使用已配置的来源。
 
-连接器 API 为 `agentic-olap-connector/v5-source-sql-calcite-1.42`。`connectorRef` 是 manifest 中实际的 `{id,version,sha256}`，数据源逐项引用该完整对象。服务核验 API 和摘要，驱动只由 JDBC 实现核验。
+连接器 API 为 `agentic-olap-connector/v7-kotlin-source-sql-calcite-1.42`。`connectorRef` 是 manifest 中实际的 `{id,version,sha256}`，数据源逐项引用该完整对象。服务核验 API 和摘要，驱动只由 JDBC 实现核验。
 
 ## 登记数据源
 

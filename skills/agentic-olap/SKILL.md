@@ -4,7 +4,7 @@ description: 使用 Agentic OLAP 服务调查业务数据、建设和复用可�
 license: Apache-2.0
 metadata:
   author: hanger
-  version: "0.5.0"
+  version: "0.6.0"
   repository: https://github.com/hanger-source/agentic-olap-skill
 ---
 
@@ -14,10 +14,10 @@ metadata:
 
 ## 安装与运行
 
-本 skill 对应产品 `0.5.0`，使用连接器 API `agentic-olap-connector/v5-source-sql-calcite-1.42`、存储格式 `13`。Python、Java 和服务构件随平台包安装，需要 Node.js 20 或更高；支持 macOS arm64、Linux x64（glibc 2.35 或更高）。完整配置见[服务使用与部署](references/server.md)。安装后启动：
+连接器 API 为 `agentic-olap-connector/v7-kotlin-source-sql-calcite-1.42`，存储格式为 `13`。Go 服务程序、JVM 运行时与 Kotlin 服务构件随平台包安装，需要 Node.js 20 或更高；支持 macOS arm64、Linux x64（glibc 2.35 或更高）。完整配置见[服务使用与部署](references/server.md)。安装后启动：
 
 ```sh
-npm install --global @hanger-source/agentic-olap@0.5.0
+npm install --global @hanger-source/agentic-olap
 agentic-olap start
 ```
 

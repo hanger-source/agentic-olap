@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 已审核 draft release 的 tag，例如 v0.5.0
+        description: 已审核 draft release 的 tag，例如 v0.6.0
         required: true
         type: string
       submitted:
@@ -42,9 +42,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.13.7'
       - run: npm install --global npm@11.17.0 --registry=https://registry.npmjs.org
       - name: 下载已审核的同 tag 资产
         env:
@@ -53,7 +50,7 @@ jobs:
       - name: 离线核验并使用 OIDC 发布
         env:
           SUBMITTED_PACKAGES: ${{ github.event.inputs.submitted || '' }}
-        run: python3 scripts/publish.py --tag "$RELEASE_TAG" --artifacts "$RUNNER_TEMP/release-assets" --submitted "$SUBMITTED_PACKAGES"
+        run: node scripts/publish.mjs --tag "$RELEASE_TAG" --artifacts "$RUNNER_TEMP/release-assets" --submitted "$SUBMITTED_PACKAGES"
 
   registry-install:
     needs: publish
@@ -82,11 +79,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/release-assets" --pattern '*.tgz' --pattern SHA256SUMS
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.13.7'
       - name: 核验本次安装使用的同 tag 资产
-        run: python3 scripts/publish.py --check --tag "$RELEASE_TAG" --artifacts "$RUNNER_TEMP/release-assets"
+        run: node scripts/publish.mjs --check --tag "$RELEASE_TAG" --artifacts "$RUNNER_TEMP/release-assets"
       - name: 新缓存从官方 registry 安装主包并运行真实服务
         run: node scripts/installed.mjs "$RUNNER_TEMP/release-assets" "$RUNNER_TEMP/registry-installed" registry
       - uses: actions/upload-artifact@v4

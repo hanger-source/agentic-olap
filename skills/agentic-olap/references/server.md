@@ -4,12 +4,12 @@
 
 ## 安装与启动
 
-本说明对应 `0.5.0`，连接器 API 为 `agentic-olap-connector/v5-source-sql-calcite-1.42`，存储格式为 `13`。
+连接器 API 为 `agentic-olap-connector/v7-kotlin-source-sql-calcite-1.42`，存储格式为 `13`。服务、连接器和 SDK 使用同轮交付构件。
 
-需要 Node.js 20 或更高版本。安装自动选择匹配的平台运行包，其中包含 Python、Java 与正式服务构件；使用者无需安装这些运行时或编译源码。支持 macOS arm64、Linux x64（glibc 2.35 或更高）：
+需要 Node.js 20 或更高版本。安装自动选择匹配的平台运行包，其中包含 Go 服务程序、JVM 运行时与 Kotlin 服务构件；使用者无需安装编译工具或自行编译源码。支持 macOS arm64、Linux x64（glibc 2.35 或更高）：
 
 ~~~sh
-npm install --global @hanger-source/agentic-olap@0.5.0
+npm install --global @hanger-source/agentic-olap
 agentic-olap start
 ~~~
 
@@ -25,7 +25,7 @@ agentic-olap call describe-governance-command --payload '{"operation":"create-bu
 
 `tools` 通过官方 MCP 客户端读取可见工具；`call` 将 JSON 对象作为工具 payload 提交，输出真实 MCP 响应，业务失败以非零退出。参数合同由 `describe-operation` 及治理描述工具提供。如何建设、复用和查询语义，见随同交付的 [Agent skill](../SKILL.md)。
 
-已有适用定义或发布时直接复用；新业务含义通过服务中的治理工具沉淀，不要求修改 Java 定义、执行批量建模脚本或每次重新发布。
+已有适用定义或发布时直接复用；新业务含义通过服务中的治理工具沉淀，不要求修改产品源码、执行批量建模脚本或每次重新发布。
 
 ## 本地配置、令牌与持久数据
 
@@ -50,7 +50,7 @@ agentic-olap call describe-governance-command --payload '{"operation":"create-bu
 
 业务连接器独立提供。连接器发行方交付 manifest、插件 JAR 和具体实现需要的依赖；JDBC 实现包含实际驱动，HTTP 实现拥有自己的协议、鉴权和结果映射；基础运行包不包含使用者的业务源插件。按[插件取得说明](connections.md#取得插件组)取得与服务匹配的插件组，保持 manifest 中的实际版本与字节摘要，不能只放一个数据库驱动或猜测哈希。
 
-插件组取得、显式结构登记和原生函数的用法见[连接说明](connections.md)。以下配置适用于 `0.5.0`；服务、连接器和 SDK 必须使用同轮交付构件。
+插件组取得、显式结构登记和原生函数的用法见[连接说明](connections.md)。
 
 编辑 `info` 返回的配置文件。顶层 `connectors` 直接填写各 manifest 路径，不填写独立 JVM 使用的 connectors.json 列表文件。相对路径以配置文件所在目录解析。文件型 DuckDB 的配置关系如下：
 
