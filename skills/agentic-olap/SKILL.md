@@ -4,7 +4,7 @@ description: 使用 Agentic OLAP 服务调查业务数据、建设和复用可�
 license: Apache-2.0
 metadata:
   author: hanger
-  version: "0.4.0"
+  version: "0.5.0"
   repository: https://github.com/hanger-source/agentic-olap-skill
 ---
 
@@ -14,10 +14,10 @@ metadata:
 
 ## 安装与运行
 
-产品由 npm 提供，Python、Java 和服务构件随平台包安装。需要 Node.js 20 或更高；支持 macOS arm64、Linux x64（glibc 2.35 或更高）。
+本 skill 对应产品 `0.5.0`，使用连接器 API `agentic-olap-connector/v5-source-sql-calcite-1.42`、存储格式 `13`。Python、Java 和服务构件随平台包安装，需要 Node.js 20 或更高；支持 macOS arm64、Linux x64（glibc 2.35 或更高）。完整配置见[服务使用与部署](references/server.md)。安装后启动：
 
 ```sh
-npm install --global @hanger-source/agentic-olap@0.4.0
+npm install --global @hanger-source/agentic-olap@0.5.0
 agentic-olap start
 ```
 
@@ -37,7 +37,7 @@ agentic-olap call list-data-sources --payload '{}'
 
 空库没有业务指标。连接器是独立扩展；使用方提供与该后端匹配的插件组。按 `info` 返回的配置路径登记插件 manifest 和业务源，设置来源的精确连接器引用、插件参数及必要的凭据环境变量，重启服务加载配置。不要修改产品源码来添加业务指标，也不要将本机插件路径作为业务工具参数。
 
-实际配置、现成插件取得与来源读取见[连接说明](references/connections.md)，接入业务库时再读。
+实际配置、现成插件取得与来源读取见[连接说明](references/connections.md)，接入业务库时再读。需要提供远程服务时，使用随本 skill 交付的[完整配置模板](references/server.example.json)与[认证授权说明](references/server.md#外部认证的远程服务)。
 
 数据库可连接不代表业务含义已经成立。通过真实 MCP 调查来源或登记使用方明确提供的结构，结合业务资料澄清口径；不把技术列名、几行样本或历史 SQL 直接当作完整业务定义。
 

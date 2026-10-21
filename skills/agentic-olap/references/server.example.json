@@ -1,0 +1,59 @@
+{
+  "listen": {
+    "host": "0.0.0.0",
+    "port": 8000,
+    "allowedHosts": ["olap.example.com", "olap.example.com:*"],
+    "allowedOrigins": ["https://olap.example.com"]
+  },
+  "auth": {
+    "mode": "external-jwt",
+    "issuer": "https://issuer.example.com/",
+    "audience": "https://olap.example.com/mcp",
+    "jwksUri": "https://issuer.example.com/.well-known/jwks.json",
+    "algorithms": ["RS256"],
+    "grants": [{
+      "subjects": ["replace-with-external-token-subject"],
+      "scopes": ["olap.manage"],
+      "operations": [
+        "describe-operation", "list-data-sources", "read-connector-capabilities", "inspect-warehouse", "candidate-values",
+        "discover-governance-reads", "describe-governance-read",
+        "read-governance", "discover-governance-commands", "describe-governance-command", "write-governance",
+        "list-publications", "read-publication", "search-semantics", "read-semantic-catalog", "read-semantic-asset", "read-semantic-definition", "read-query-language-contract", "read-semantic-expression-contract",
+        "validate-query", "execute-query", "save-query", "update-query", "read-query", "list-queries",
+        "read-query-result", "read-query-result-metadata", "read-query-result-value", "profile-query-result",
+        "search-query-usage", "read-query-usage", "append-query-usage-note"
+      ],
+      "dataSources": [],
+      "subjectAreas": [],
+      "releases": [],
+      "allGovernanceAssets": true
+    }]
+  },
+  "dataRoot": "/var/lib/agentic-olap",
+  "connectors": [],
+  "dataSources": [],
+  "limits": {
+    "requestSeconds": 120.0,
+    "startupSeconds": 60.0,
+    "maxInFlight": 16,
+    "workerCount": 4,
+    "catalogEntriesPerWorker": 16,
+    "inputLineBytes": 8388608,
+    "inputDepth": 128,
+    "inputNodes": 200000,
+    "inputFileBytes": 33554432,
+    "inputFiles": 64,
+    "outputLineBytes": 33554432,
+    "pendingOutputBytes": 67108864,
+    "workerJvmHeapMiB": 512,
+    "nativeMemoryBytes": 268435456,
+    "catalogBytes": 33554432,
+    "sqlBytes": 4194304,
+    "parameters": 10000,
+    "resultRows": 100000,
+    "resultValues": 1000000,
+    "resultBytes": 16777216,
+    "resultDepth": 64
+  },
+  "history": {"enabled": true, "retentionDays": 30}
+}
