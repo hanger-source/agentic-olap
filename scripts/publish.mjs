@@ -84,7 +84,7 @@ async function archiveFiles(file) {
       require(type === '0' || type === '5', '归档含非普通文件或目录');
       require(type !== '5' || size === 0, '归档目录包含文件数据');
       const digest = createHash('sha256');
-      const collect = name === 'package/package.json' || name === 'package/build.json' || name === 'package/resources.json';
+      const collect = ['package/package.json', 'package/build.json', 'package/resources.json', 'package/jvm-dependencies.json'].includes(name);
       require(!collect || size <= 4 * 1024 * 1024, `JSON 文件超过 4 MiB：${name}`);
       const pieces = [];
       for (let remaining = size; remaining > 0;) {
@@ -112,7 +112,21 @@ async function checkPackage(file, name, version, runtimes) {
     const resources = members.get('package/resources.json')?.json;
     require(resources?.version === version && resources.sdk === 'sdk' && resources.connectorApiVersion?.startsWith('agentic-olap-connector/'), '主包必须交付同版本 SDK 与连接器 API 身份');
     require(Array.isArray(resources.connectors) && resources.connectors.length > 0 && resources.connectors.every(file => members.has(`package/${file}`)), '主包缺少实际插件 manifest');
-    require(['API.md', 'SOURCE-ACCESS.md', 'LOADER.md'].every(file => members.has(`package/sdk/${file}`)) && [...members.keys()].some(file => file.startsWith('package/sdk/maven/') && file.endsWith('.pom')), '主包缺少可直接消费的 SDK 文档或 Maven 仓库');
+    require(['API.md', 'SOURCE-ACCESS.md', 'LOADER.md'].every(file => members.has(`package/sdk/${file}`)) && ![...members.keys()].some(file => file.startsWith('package/sdk/maven/')), '主包必须交付 SDK 文档而非本地 Maven 仓库');
+    require(resources.sdkRepository === 'https://jitpack.io' && Object.values(resources.sdkArtifacts ?? {}).length > 0 && Object.values(resources.sdkArtifacts).every(coordinate => coordinate.startsWith('com.github.hanger-source.agentic-olap:') && coordinate.endsWith(`:v${version}`)), 'SDK 必须使用本版精确 JitPack 坐标');
+    const downloads = members.get('package/jvm-dependencies.json')?.json;
+    require(downloads?.formatVersion === 'agentic-olap-jvm-dependencies/v1' && downloads.version === version && downloads.runtimePackage in runtimes && downloads.artifacts.length > 0, '主包缺少同版 JVM 安装清单');
+    require(pkg.scripts?.postinstall === 'node bin/agentic-olap.mjs install-jvm-dependencies', 'JVM 下载必须属于 npm 安装阶段');
+    const targets = new Set();
+    for (const artifact of downloads.artifacts) {
+      require(/^[0-9a-f]{64}$/.test(artifact.sha256) && Number.isSafeInteger(artifact.size) && artifact.size > 0 && artifact.url.startsWith('https://repo.maven.apache.org/maven2/') && artifact.locations.length > 0, 'Maven 安装构件必须锁定地址、大小与摘要');
+      for (const location of artifact.locations) {
+        require(['runtime', 'product'].includes(location.target) && !location.path.split('/').includes('..') && location.path.endsWith('.jar'), 'Maven 安装目标不合法');
+        const key = `${location.target}/${location.path}`;
+        require(!targets.has(key), 'Maven 安装目标重复'); targets.add(key);
+        require(location.target !== 'product' || !members.has(`package/${location.path}`), '第三方 JAR 仍被打进 npm 主包');
+      }
+    }
     return null;
   }
   const target = name.slice(`${main}-runtime-`.length);
@@ -160,6 +174,12 @@ async function publish(packages, submitted) {
   require(process.env.ACTIONS_ID_TOKEN_REQUEST_URL && process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN, '发布缺少 GitHub OIDC 授权');
   require(!('NODE_AUTH_TOKEN' in process.env) && !('NPM_TOKEN' in process.env), '发布不得提供长期 npm 令牌');
   require(execFileSync('npm', ['--version'], { encoding: 'utf8' }).trim() === '11.17.0' && process.version.startsWith('v24.'), '发布要求 npm 11.17.0 和 Node.js 24');
+  const tag = `v${packages[0].version}`;
+  await Promise.all(['connector-api', 'connector-loader'].flatMap(module => ['pom', 'jar'].map(async extension => {
+    const url = `https://jitpack.io/com/github/hanger-source/agentic-olap/${module}/${tag}/${module}-${tag}.${extension}`;
+    const response = await fetch(url, { method: 'HEAD', signal: AbortSignal.timeout(60000) });
+    require(response.ok, `同版 SDK 尚未公开：${module}.${extension} HTTP ${response.status}；先完成源码仓库的“构建 JitPack SDK”工作流`);
+  })));
   const temporary = await mkdtemp(path.join(tmpdir(), 'agentic-olap-publish-'));
   const user = path.join(temporary, 'user.npmrc'), global = path.join(temporary, 'global.npmrc');
   await writeFile(user, ''); await writeFile(global, '');

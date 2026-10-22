@@ -1,6 +1,6 @@
 # Agentic OLAP
 
-安装后直接启动的语义 OLAP 服务，提供调查、可组合定义管理、发布、完整 Query、确定性执行、结果与使用记录读取。所需运行时随平台包交付，使用者无需下载或编译源码。
+安装后直接启动的语义 OLAP 服务，提供调查、可组合定义管理、发布、完整 Query、确定性执行、结果与使用记录读取。npm 安装阶段备齐运行文件，使用者无需下载或编译源码。
 
 安装并启动完整服务：
 
@@ -11,15 +11,19 @@ agentic-olap start
 
 安装包含 macOS arm64 平台运行包，需要 Node.js 20 或更高。
 
-同版本的连接器 SDK、H2 与 DuckDB 插件组也随 npm 安装，无需另外下载、找链接或手工解压：
+`npm install` 自动从 Maven Central 下载本版锁定的第三方 JVM 库和内置插件驱动，校验摘要后写入安装目录；缓存中的相同构件可复用。Go 程序、自有 Kotlin 构件和 JRE 随 npm 交付。安装完成后可直接启动，启动阶段不下载依赖。安装需要允许本包的 postinstall 脚本；下载或校验失败会使安装失败。
+
+安装后读取同版本 SDK 声明及 H2、DuckDB 插件组：
 
 ```sh
 agentic-olap sdk
-agentic-olap sdk --path
+agentic-olap sdk --repository
 agentic-olap connectors
 ```
 
-`sdk` 返回已安装 SDK 的版本、连接器 API、文档和本地 Maven 仓库路径；`--path` 只输出该仓库路径，供 Gradle 构建直接消费。SDK 对应本地安装版本，连接远程服务时须核对其实际 API。
+`sdk` 返回本版连接器 API、随包文档、JitPack 仓库地址及正式构件坐标；`--repository` 只输出仓库地址。独立插件工程配置 `maven("https://jitpack.io")`，引用返回的精确坐标；第三方依赖由 `mavenCentral()` 提供。SDK 构件公开下载，无需使用者配置令牌或从 npm 包提取本地 Maven 仓库。连接远程服务时须核对其实际 API。
+
+JVM 下载缓存默认位于系统用户缓存目录的 `agentic-olap/jvm/sha256`；设置 `AGENTIC_OLAP_CACHE=/absolute/cache` 时使用 `/absolute/cache/jvm/sha256`。缓存按内容摘要保存；安装目录仍持有完整运行文件，启动不依赖缓存目录或 Maven 网络。下载使用系统证书及 `HTTP_PROXY/HTTPS_PROXY/NO_PROXY`。
 
 `connectors` 返回 npm 已安装的 H2、DuckDB 插件组的 `manifestPath`、`connectorRef` 和 API，可直接用于服务配置。上述命令只读取本地文件，不下载、复制或安装任何内容，也不创建数据源。具体后端的业务来源及凭据仍由使用者配置。
 
@@ -42,7 +46,7 @@ agentic-olap call discover-governance-commands --payload '{}'
 
 升级使用同一正式入口：停止当前前台服务，执行 `npm install --global @hanger-source/agentic-olap@目标版本`，再用原 `--home` 或 `--config` 启动。本地服务启动后用 `agentic-olap info` 核对实际运行版本；远程服务通过 `tools` 返回的 `serverInfo.version` 核对。npm 安装不会自动重启已有进程，也不会改写业务配置或转换持久资产格式。
 
-SDK 和内置插件随 npm 一起替换。升级前核对目标发行的存储格式与连接器 API；精确插件引用发生变化时，需要明确配置对应插件并修订受影响资产，服务不会自动切换旧发布的引用。外部业务插件由使用方提供。所选发布、保存查询和历史结果可以通过 `read-deployment-availability` 核对读取或编译前提，再执行明确选择的业务查询确认；读取可用性本身不连接业务数据库。
+SDK 声明与内置插件随 npm 一起替换，独立插件工程明确采用新的 SDK Maven 版本。升级前核对目标发行的存储格式与连接器 API；精确插件引用发生变化时，需要明确配置对应插件并修订受影响资产，服务不会自动切换旧发布的引用。外部业务插件由使用方提供。所选发布、保存查询和历史结果可以通过 `read-deployment-availability` 核对读取或编译前提，再执行明确选择的业务查询确认；读取可用性本身不连接业务数据库。
 
 Agent 使用指引通过 GitHub 安装：
 

@@ -6,23 +6,23 @@
 
 一个插件组包含 `connector.json`、连接器实现 JAR 和实现所需的依赖。JDBC 实现附带实际驱动，HTTP 实现拥有自己的访问协议和结果映射。整个目录一起保存；manifest 中的文件名与字节摘要不能手写或修改。单独数据库驱动不能替代完整连接器。
 
-H2、DuckDB 插件组与连接器 SDK 随 npm 产品一起安装。直接使用产品命令，不需要查询 Git 标签、下载归档或手工校验和解压：
+H2、DuckDB 插件组在 npm 安装时就绪，所需驱动由安装脚本从 Maven Central 按精确清单下载、校验并缓存。SDK 作为正式 Maven 构件发布，产品命令提供同版坐标与随包文档，不需要查询 Git 标签、下载归档或手工解压：
 
 ```sh
 agentic-olap connectors
 agentic-olap sdk
-agentic-olap sdk --path
+agentic-olap sdk --repository
 ```
 
 `connectors` 返回 npm 已安装插件的实际 `manifestPath`、`connectorRef` 和 API。把返回值用于服务配置，不按连接器 ID 猜目录。文件已随 npm 就位，命令只读取路径与身份，不下载、解压或二次安装，不修改配置、不创建数据源，也不连接业务数据库。
 
-`sdk` 返回本地安装版本、API、文档与 Maven 仓库路径，`sdk --path` 只输出仓库路径，供插件工程的 Gradle 仓库配置直接消费。`API.md`、`SOURCE-ACCESS.md`、`LOADER.md` 面向插件实现者。使用远程服务时核对 SDK、插件与该服务的实际 API；命令报告本地安装版本，不会把运行中的服务自动升级。
+`sdk` 返回本地安装版本、API、随包文档、JitPack 仓库地址和 `artifacts` 中的精确构件坐标，`sdk --repository` 只输出仓库地址。独立插件工程配置 `maven("https://jitpack.io")` 并引用该坐标，第三方依赖使用 `mavenCentral()`。SDK 公开下载，无需令牌或本地 SDK 仓库。`API.md`、`SOURCE-ACCESS.md`、`LOADER.md` 面向插件实现者。使用远程服务时核对 SDK、插件与该服务的实际 API；命令报告本地安装版本，不会把运行中的服务自动升级。
 
 HTTP 或其他后端由使用方提供匹配其 SQL 后端及实际协议的插件；SQL 协议兼容不证明类型、数值、时间或一致性映射已经成立。业务 Agent 通过正式 MCP 使用已配置的来源。
 
 连接器 API 为 `agentic-olap-connector/v11-kotlin-native-collection-relations-calcite-1.42`。`connectorRef` 是 manifest 中实际的 `{id,version,sha256}`，数据源逐项引用该完整对象。服务核验 API 和摘要，驱动只由 JDBC 实现核验。
 
-独立插件必须使用同版 `agentic-olap sdk --path` 返回的 SDK 重新构建，并更新插件 manifest 和精确来源绑定。集合展开的 `expandCollection` 接收当前输入行的 ARRAY 表达式，返回 `CollectionExpansion(relation, element, ordinal)`，分别提供原生 FROM 关系、完整元素及从 1 开始的序号表达式。核心负责 INNER／OUTER 人口、重复度与缺行补 NULL；插件负责原生语法和类型映射。具体合同与实现入口见随 npm 安装的 SDK `API.md`。使用真实表行或聚合结果回放原 Query，常量数组成功不能替代相关展开验收。
+独立插件必须使用`agentic-olap sdk` 返回的同版正式 Maven 坐标 重新构建，并更新插件 manifest 和精确来源绑定。集合展开的 `expandCollection` 接收当前输入行的 ARRAY 表达式，返回 `CollectionExpansion(relation, element, ordinal)`，分别提供原生 FROM 关系、完整元素及从 1 开始的序号表达式。核心负责 INNER／OUTER 人口、重复度与缺行补 NULL；插件负责原生语法和类型映射。具体合同与实现入口见随 npm 安装的 SDK `API.md`。使用真实表行或聚合结果回放原 Query，常量数组成功不能替代相关展开验收。
 
 ## 登记数据源
 

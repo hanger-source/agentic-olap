@@ -25,7 +25,7 @@ const version = /^hanger-source-agentic-olap-(.+)\.tgz$/.exec(main[0])[1];
 const selection = mode === "registry"
   ? ["--include=optional", "--cache", join(root, "npm-cache"), `@hanger-source/agentic-olap@${version}`]
   : ["--omit=optional", join(tarballs, main[0]), join(tarballs, native[0])];
-const installed = spawnSync("npm", ["install", "--ignore-scripts", "--no-audit", "--no-fund", "--registry=https://registry.npmjs.org", ...selection], { cwd: root, encoding: "utf8" });
+const installed = spawnSync("npm", ["install", "--no-audit", "--no-fund", "--registry=https://registry.npmjs.org", ...selection], { cwd: root, encoding: "utf8", env: { ...process.env, AGENTIC_OLAP_CACHE: process.env.AGENTIC_OLAP_CACHE ?? join(root, "dependency-cache") } });
 assert.equal(installed.status, 0, installed.stderr);
 const cli = join(root, "node_modules/@hanger-source/agentic-olap/bin/agentic-olap.mjs");
 const nativeRoot = join(root, "node_modules/@hanger-source", `agentic-olap-runtime-${target}`);
@@ -33,7 +33,7 @@ assert.equal(JSON.parse(await readFile(join(root, "node_modules/@hanger-source/a
 const nativeMetadata = JSON.parse(await readFile(join(nativeRoot, "package.json"), "utf8"));
 assert.equal(nativeMetadata.version, version);
 const home = join(root, "persistent home");
-const environment = { PATH: join(root, "no-system-tools"), HOME: root, TMPDIR: join(root, "tmp"), LANG: "en_US.UTF-8" };
+const environment = { PATH: join(root, "no-system-tools"), HOME: root, TMPDIR: join(root, "tmp"), LANG: "en_US.UTF-8", HTTP_PROXY: "http://127.0.0.1:9", HTTPS_PROXY: "http://127.0.0.1:9", NO_PROXY: "127.0.0.1,localhost" };
 const command = (args) => spawnSync(process.execPath, [cli, ...args], { cwd: root, env: environment, encoding: "utf8", timeout: 60000 });
 const json = (args) => {
   const result = command(args);
@@ -42,7 +42,7 @@ const json = (args) => {
 };
 const sdk = json(["sdk"]);
 assert.equal(sdk.version, version);
-assert.equal(command(["sdk", "--path"]).stdout.trim(), sdk.mavenRepository);
+assert.equal(command(["sdk", "--repository"]).stdout.trim(), sdk.mavenRepository);
 const installedPlugins = json(["connectors"]);
 const groups = await Promise.all(installedPlugins.connectors.map(async ({ manifestPath }) => ({
   directory: dirname(manifestPath), manifestPath, manifest: JSON.parse(await readFile(manifestPath, "utf8")),

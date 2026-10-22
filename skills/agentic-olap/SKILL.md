@@ -4,7 +4,7 @@ description: 使用 Agentic OLAP 服务调查业务数据、建设和复用可�
 license: Apache-2.0
 metadata:
   author: hanger
-  version: "0.10.0"
+  version: "0.11.0"
   repository: https://github.com/hanger-source/agentic-olap-skill
 ---
 
@@ -14,7 +14,7 @@ metadata:
 
 ## 安装与运行
 
-连接器 API 为 `agentic-olap-connector/v11-kotlin-native-collection-relations-calcite-1.42`，存储格式为 `15`。Go 服务程序、JVM 运行时与 Kotlin 服务构件随平台包安装，需要 Node.js 20 或更高；支持 macOS arm64。完整配置见[服务使用与部署](references/server.md)。安装后启动：
+连接器 API 为 `agentic-olap-connector/v11-kotlin-native-collection-relations-calcite-1.42`，存储格式为 `15`。Go 程序、JRE 和自有 Kotlin 构件随平台包交付，第三方 JVM 库及内置驱动由 npm 安装脚本按发行清单下载、校验和缓存；下载失败会使安装失败，启动时不补下载。需要 Node.js 20 或更高并允许安装脚本，支持 macOS arm64。完整配置见[服务使用与部署](references/server.md)。安装后启动：
 
 ```sh
 npm install --global @hanger-source/agentic-olap
@@ -37,7 +37,7 @@ agentic-olap call list-data-sources --payload '{}'
 
 空库没有业务指标。连接器是独立扩展；使用方提供与该后端匹配的插件组。按 `info` 返回的配置路径登记插件 manifest 和业务源，设置来源的精确连接器引用、插件参数及必要的凭据环境变量，重启服务加载配置。不要修改产品源码来添加业务指标，也不要将本机插件路径作为业务工具参数。
 
-H2、DuckDB 插件及扩展开发 SDK 已随 npm 安装。用 `agentic-olap connectors` 读取配置需要的精确 manifest 路径与引用；`agentic-olap sdk` 给出 SDK 版本、API 与文档，`sdk --path` 返回供 Gradle 使用的 Maven 仓库路径。这些命令只读取已安装文件，没有二次安装步骤。不要再让使用者查询 GitHub 资产、手工下载或解压；其他后端仍由独立插件提供。
+H2、DuckDB 插件在 npm 安装时就绪。用 `agentic-olap connectors` 读取精确 manifest 路径与引用；`agentic-olap sdk` 给出 SDK 版本、API、随包文档、JitPack 仓库及正式坐标，`sdk --repository` 只输出仓库地址。独立插件通过 Gradle 从 JitPack 匿名取得 SDK，第三方依赖由 Maven Central 提供。上述读取命令不下载文件，不需要使用者查找链接或解压；其他后端仍由独立插件提供。
 
 实际配置、现成插件取得与来源读取见[连接说明](references/connections.md)，接入业务库时再读。需要提供远程服务时，使用随本 skill 交付的[完整配置模板](references/server.example.json)与[认证授权说明](references/server.md#外部认证的远程服务)。
 
