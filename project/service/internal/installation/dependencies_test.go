@@ -15,27 +15,15 @@ import (
 	"testing"
 )
 
-func installationRoots(t *testing.T) map[string]string {
+func installationRoots(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
-	roots := map[string]string{"runtime": filepath.Join(root, "runtime"), "product": filepath.Join(root, "product")}
-	for target, directory := range roots {
-		suffix := "connectors/backend"
-		if target == "runtime" {
-			suffix = "distribution/java/lib"
-		}
-		if err := os.MkdirAll(filepath.Join(directory, suffix), 0755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	return roots
+	return root
 }
 
 func lockedDependency(address string, body []byte) jvmDependency {
 	digest := sha256.Sum256(body)
-	return jvmDependency{Coordinate: "test:library:1.0", URL: address, SHA256: hex.EncodeToString(digest[:]), Size: int64(len(body)), Locations: []dependencyLocation{
-		{Target: "runtime", Path: "distribution/java/lib/library.jar"}, {Target: "product", Path: "connectors/backend/library.jar"},
-	}}
+	return jvmDependency{Coordinate: "test:library:1.0", URL: address, SHA256: hex.EncodeToString(digest[:]), Size: int64(len(body)), Locations: []string{"java/lib/library.jar", "connectors/backend/library.jar"}}
 }
 
 func TestJVMInstallDownloadsOnceAndReusesCacheWithoutNetwork(t *testing.T) {

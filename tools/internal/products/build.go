@@ -53,11 +53,10 @@ type ServiceBuild struct {
 	SHA256  string            `json:"sha256"`
 }
 type Package struct {
-	Name                 string            `json:"name"`
-	Version              string            `json:"version"`
-	OptionalDependencies map[string]string `json:"optionalDependencies"`
-	Repository           json.RawMessage   `json:"repository"`
-	PublishConfig        json.RawMessage   `json:"publishConfig"`
+	Name          string          `json:"name"`
+	Version       string          `json:"version"`
+	Repository    json.RawMessage `json:"repository"`
+	PublishConfig json.RawMessage `json:"publishConfig"`
 }
 
 func (w Workspace) Package() (Package, error) {

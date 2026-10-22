@@ -9,9 +9,9 @@ npm install --global @hanger-source/agentic-olap
 agentic-olap start
 ```
 
-安装包含 macOS arm64 平台运行包，需要 Node.js 20 或更高。
+一个 npm 包交付 macOS arm64 产品，需要 Node.js 20 或更高。
 
-`npm install` 自动从 Maven Central 下载本版锁定的第三方 JVM 库和内置插件驱动，校验摘要后写入安装目录；缓存中的相同构件可复用。Go 程序、自有 Kotlin 构件和 JRE 随 npm 交付。安装完成后可直接启动，启动阶段不下载依赖。安装需要允许本包的 postinstall 脚本；下载或校验失败会使安装失败。
+Go 程序和 JRE 随 npm 交付，命令直接运行 Go 程序。`npm install` 自动从 JitPack 取得本版自有 Kotlin 运行构件和内置连接器，从 Maven Central 取得第三方 JVM 库与驱动。所有产品和依赖 JAR 都在安装阶段下载，按发行清单校验大小和摘要后写入安装目录；缓存中的相同字节可复用。需要允许本包的 postinstall 脚本，下载或校验失败使安装失败。安装完成后直接启动，启动阶段不下载依赖。
 
 安装后读取同版本 SDK 声明及 H2、DuckDB 插件组：
 

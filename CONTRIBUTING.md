@@ -4,7 +4,7 @@
 
 ## 环境与唯一入口
 
-研发环境使用 JDK 21 与 Go 1.26，npm 平台包另需 Node.js。Kotlin 和 Gradle 的版本由仓库版本目录、构建声明与 Wrapper 固定，不要求安装系统 Gradle 或 Kotlin 编译器。统一研发 CLI 与外部 MCP 业务试验由 Go 编写；生产和必需研发链路均不要求 Python、uv 或虚拟环境。
+研发环境使用 JDK 21 与 Go 1.26，npm 产品装配另需 Node.js。Kotlin 和 Gradle 的版本由仓库版本目录、构建声明与 Wrapper 固定，不要求安装系统 Gradle 或 Kotlin 编译器。统一研发 CLI 与外部 MCP 业务试验由 Go 编写；生产和必需研发链路均不要求 Python、uv 或虚拟环境。
 
 在仓库根执行：
 
@@ -28,7 +28,7 @@ go -C tools run ./cmd/olap-dev test --distribution .tmp/dev-distribution
 | 聚焦 Go 试验 | `go -C tools run ./cmd/olap-dev test-go --distribution .tmp/dev-distribution --go-test '函数表达式'` |
 | 服务发行目录 | `go -C tools run ./cmd/olap-dev server-distribution --artifacts .tmp/server-distribution` |
 | 按正式坐标装配本地 SDK 验收构件 | `./project/gradlew -p project stageSdk` |
-| 当前平台运行包与 npm 包 | `go -C tools run ./cmd/olap-dev binary --distribution .tmp/server-distribution --artifacts .tmp/binary` |
+| 精确标签的 npm 产品包 | `go -C tools run ./cmd/olap-dev binary --distribution .tmp/server-distribution --artifacts .tmp/binary` |
 | 正式 MCP 业务用法 | `go -C tools run ./cmd/olap-dev example --example orders --distribution .tmp/server-distribution --artifacts .tmp/orders` |
 
 `example` 可以明确选择 `orders`、`procurement`、`subscriptions` 或研发内核用法 `kernel`。需要独立输出根的命令要求目标尚不存在，消费时传入该次确切目录，不从旧产物或本机安装版本猜测输入。
@@ -61,15 +61,15 @@ Go 是唯一进程监督者，拥有 JVM 启动、工作池、期限、取消及
 
 Gradle 的实际解析结果生成 `project/build/jvm-artifacts.json`；研发入口记录源码输入、精确构件、依赖与摘要。Go 构建记录保存自身源码、模块依赖和二进制摘要。记录中的 HEAD 是源码起点，未提交内容仍由输入摘要识别，不能冒称已提交版本。
 
-服务发行清单为 `agentic-olap-distribution/v2`，包含一个 Go 服务程序和 JVM 主类的精确 JAR 列表。装配只消费同轮记录，运行时逐项核验路径与摘要，不扫描目录选取旧包。平台运行包另包含 JDK 21 工具生成的 JRE；用户通过 npm 安装后直接启动，无需源码或构建工具。
+服务发行清单为 `agentic-olap-distribution/v2`，包含一个 Go 服务程序和 JVM 主类的精确 JAR 列表。装配只消费同轮记录，运行时逐项核验路径与摘要，不扫描目录选取旧包。npm 产品包另包含 JDK 21 工具生成的 JRE；用户通过 npm 安装后直接启动，无需源码或构建工具。
 
-`project/cli/package.json` 拥有 npm 版本和精确平台依赖。平台包通过实际安装试验后才能作为发行证据；skill 直接从本仓库的 `skills/agentic-olap` 交付。源码、文档、skill、SDK 和发布工作流采用同一精确标签。构建、安装、源码 push 和公开发布是不同动作，不自动互相授予权限。
+`project/cli/package.json` 拥有单一 npm 包的版本、平台限制和原生命令入口。产品包通过实际安装试验后才能作为发行证据；skill 直接从本仓库的 `skills/agentic-olap` 交付。源码、文档、skill、SDK 和发布工作流采用同一精确标签。构建、安装、源码 push 和公开发布是不同动作，不自动互相授予权限。
 
-Gradle 构件清单的 `externalArtifacts` 记录已解析的第三方 JAR 坐标、Maven Central 地址、长度和摘要；npm 装配据此生成 `jvm-dependencies.json`，不在包内重复携带这些 JAR。`postinstall` 调用 Go 安装器并行下载、验证并复用内容缓存，填充运行 classpath 与内置插件组。完整源码研发发行目录仍直接使用 Gradle 构件，产品启动没有下载或依赖解析路径。
+Gradle 构件清单的 `externalArtifacts` 记录已解析的第三方 JAR 坐标、Maven Central 地址、长度和摘要；npm 装配同时从 JitPack 取得自有运行构件的实际字节，生成覆盖全部运行库和插件的 `jvm-dependencies.json`，产品与依赖 JAR 均不进入 npm 归档。`postinstall` 调用 Go 安装器并行下载、验证并复用内容缓存，填充运行 classpath 与内置插件组。完整源码研发发行目录仍直接使用 Gradle 构件，产品启动没有下载或依赖解析路径。
 
-根 `jitpack.yml` 固定 JDK 21，并调用 `publishSdkToMavenLocal`，只构建和发布内核 SDK 及 `connector-loader`，不构建 Go 服务。SDK 模块及传递依赖由 Gradle 项目关系决定。`./project/gradlew -p project stageSdk` 将同版 SDK 按正式坐标装配到 `project/build/sdk/maven`，供隔离的独立插件构建验收；本地验收不能替代 JitPack 远程构建。
+根 `jitpack.yml` 固定 JDK 21，并调用 `publishProductToMavenLocal`，发布服务运行模块、内置连接器和 SDK，不编译 Go 或生成 npm 包。SDK 模块及传递依赖由 Gradle 项目关系决定。`./project/gradlew -p project stageSdk` 将同版 SDK 按正式坐标装配到 `project/build/sdk/maven`，供隔离的独立插件构建验收；本地验收不能替代 JitPack 远程构建。
 
-本仓库的手动 `构建 JitPack SDK` 工作流按已推送的发行标签请求公开源码构建，再确认 SDK 入口可以匿名下载。构建无需私有仓库访问令牌、JitPack 私有订阅、Sonatype 命名空间或 GPG 签名。先完成同版 SDK，再由本仓库的 `发布 Agentic OLAP` 工作流并行发布 npm 主包和 macOS arm64 运行包。完整顺序见[安装与发布](docs/installation-release.md)。
+本仓库的手动 `构建 JitPack JVM 构件` 工作流按已推送的发行标签请求公开源码构建，再确认 SDK 入口可以匿名下载。构建无需私有仓库访问令牌、JitPack 私有订阅、Sonatype 命名空间或 GPG 签名。先完成同标签 JVM 构件，再装配和验收单个 macOS arm64 npm 包，由 `发布 Agentic OLAP` 工作流通过 OIDC 发布。完整顺序见[安装与发布](docs/installation-release.md)。
 
 根 Apache 2.0 许可证适用于本项目。JVM 依赖保留实际 LICENSE/NOTICE，Go 依赖许可按实际编译依赖收集；分发资源保存在 `project/distribution-resources/`，构件清单与许可均随相应发行物交付。新增依赖或驱动需要核对自身分发内容。
 

@@ -1,4 +1,4 @@
 jdk:
   - openjdk21
 install:
-  - ./project/gradlew -p project --no-daemon --console=plain publishSdkToMavenLocal
+  - ./project/gradlew -p project --no-daemon --console=plain publishProductToMavenLocal

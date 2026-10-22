@@ -68,9 +68,10 @@ val sdkProjects = subprojects.filter { it.projectDir.parentFile.name == "kernel"
 configure(sdkProjects) {
     extensions.configure<JavaPluginExtension> { withJavadocJar() }
 }
-tasks.register("publishSdkToMavenLocal") {
-    description = "为 JitPack 发布连接器 SDK 及其完整模块依赖，不构建服务或运行包。"
-    dependsOn(sdkProjects.map { "${it.path}:publishLibraryPublicationToMavenLocal" })
+tasks.register("publishProductToMavenLocal") {
+    description = "为 JitPack 发布 JVM 服务、连接器与 SDK；不构建 Go 或 npm 包。"
+    dependsOn(subprojects.filter { it.name != "integration-tests" && it.name != "examples" }
+        .map { "${it.path}:publishLibraryPublicationToMavenLocal" })
 }
 tasks.register<Sync>("stageSdk") {
     description = "按正式 Maven 坐标装配 SDK 仓库，供独立插件构建验收。"

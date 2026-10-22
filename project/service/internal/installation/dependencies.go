@@ -17,35 +17,22 @@ import (
 	"time"
 )
 
-type dependencyLocation struct {
-	Target string `json:"target"`
-	Path   string `json:"path"`
-}
 type jvmDependency struct {
-	Coordinate string               `json:"coordinate"`
-	URL        string               `json:"url"`
-	SHA256     string               `json:"sha256"`
-	Size       int64                `json:"size"`
-	Locations  []dependencyLocation `json:"locations"`
+	Coordinate string   `json:"coordinate"`
+	URL        string   `json:"url"`
+	SHA256     string   `json:"sha256"`
+	Size       int64    `json:"size"`
+	Locations  []string `json:"locations"`
 }
 type jvmDependencies struct {
-	FormatVersion  string          `json:"formatVersion"`
-	Version        string          `json:"version"`
-	RuntimePackage string          `json:"runtimePackage"`
-	Artifacts      []jvmDependency `json:"artifacts"`
+	FormatVersion string          `json:"formatVersion"`
+	Version       string          `json:"version"`
+	Artifacts     []jvmDependency `json:"artifacts"`
 }
 
 // InstallDependencies 仅由 npm postinstall 调用；启动、SDK 读取和查询均不调用它。
 func InstallDependencies(ctx context.Context, version string) error {
 	product, err := Read(version)
-	if err != nil {
-		return err
-	}
-	home := os.Getenv("AGENTIC_OLAP_HOME")
-	if !filepath.IsAbs(home) {
-		return errors.New("npm 平台运行目录缺失")
-	}
-	runtimeRoot, err := filepath.EvalSymlinks(filepath.Dir(home))
 	if err != nil {
 		return err
 	}
@@ -57,21 +44,20 @@ func InstallDependencies(ctx context.Context, version string) error {
 	if err = json.Unmarshal(data, &manifest); err != nil {
 		return err
 	}
-	var native struct {
+	var installed struct {
 		Name    string `json:"name"`
 		Version string `json:"version"`
 	}
-	data, err = os.ReadFile(filepath.Join(runtimeRoot, "package.json"))
+	data, err = os.ReadFile(filepath.Join(product.root, "package.json"))
 	if err != nil {
 		return err
 	}
-	if err = json.Unmarshal(data, &native); err != nil {
+	if err = json.Unmarshal(data, &installed); err != nil {
 		return err
 	}
-	if manifest.FormatVersion != "agentic-olap-jvm-dependencies/v1" || manifest.Version != version || native.Version != version || native.Name != manifest.RuntimePackage || len(manifest.Artifacts) == 0 {
+	if manifest.FormatVersion != "agentic-olap-jvm-dependencies/v2" || manifest.Version != version || installed.Version != version || installed.Name != "@hanger-source/agentic-olap" || len(manifest.Artifacts) == 0 {
 		return errors.New("npm JVM 依赖清单与安装版本不一致")
 	}
-	roots := map[string]string{"product": product.root, "runtime": runtimeRoot}
 	cache := os.Getenv("AGENTIC_OLAP_CACHE")
 	if cache == "" {
 		cache, err = os.UserCacheDir()
@@ -89,10 +75,10 @@ func InstallDependencies(ctx context.Context, version string) error {
 		}
 		return nil
 	}}
-	return installJVMDependencies(ctx, manifest.Artifacts, roots, filepath.Join(cache, "jvm", "sha256"), client, os.Stderr)
+	return installJVMDependencies(ctx, manifest.Artifacts, product.root, filepath.Join(cache, "jvm", "sha256"), client, os.Stderr)
 }
 
-func installJVMDependencies(ctx context.Context, artifacts []jvmDependency, roots map[string]string, cache string, client *http.Client, log io.Writer) error {
+func installJVMDependencies(ctx context.Context, artifacts []jvmDependency, root string, cache string, client *http.Client, log io.Writer) error {
 	seen := map[string]bool{}
 	for _, artifact := range artifacts {
 		digest, err := hex.DecodeString(artifact.SHA256)
@@ -104,12 +90,12 @@ func installJVMDependencies(ctx context.Context, artifacts []jvmDependency, root
 			return errors.New("Maven 安装地址必须是无凭据的 HTTPS 构件地址")
 		}
 		for _, location := range artifact.Locations {
-			path, err := dependencyPath(roots, location)
+			path, err := dependencyPath(root, location)
 			if err != nil {
 				return err
 			}
 			if seen[path] {
-				return fmt.Errorf("JVM 安装目标重复：%s", location.Path)
+				return fmt.Errorf("JVM 安装目标重复：%s", location)
 			}
 			seen[path] = true
 		}
@@ -133,7 +119,7 @@ func installJVMDependencies(ctx context.Context, artifacts []jvmDependency, root
 				return
 			}
 			defer func() { <-capacity }()
-			if err := installJVMDependency(ctx, artifact, roots, cache, client, log); err != nil {
+			if err := installJVMDependency(ctx, artifact, root, cache, client, log); err != nil {
 				first.Do(func() { failure = fmt.Errorf("安装 JVM 依赖 %s 失败：%w", artifact.Coordinate, err); cancel() })
 			}
 		}()
@@ -145,31 +131,32 @@ func installJVMDependencies(ctx context.Context, artifacts []jvmDependency, root
 	return ctx.Err()
 }
 
-func dependencyPath(roots map[string]string, location dependencyLocation) (string, error) {
-	root, exists := roots[location.Target]
-	if !exists || !filepath.IsAbs(root) || strings.Contains(location.Path, "\\") || filepath.IsAbs(location.Path) || filepath.ToSlash(filepath.Clean(location.Path)) != location.Path || !strings.HasSuffix(location.Path, ".jar") {
+func dependencyPath(root, location string) (string, error) {
+	if !filepath.IsAbs(root) || strings.Contains(location, "\\") || filepath.IsAbs(location) || filepath.ToSlash(filepath.Clean(location)) != location || !strings.HasSuffix(location, ".jar") {
 		return "", errors.New("JVM 安装目标必须是包内精确 JAR 路径")
 	}
-	prefix := "connectors/"
-	if location.Target == "runtime" {
-		prefix = "distribution/java/lib/"
-	}
-	if !strings.HasPrefix(location.Path, prefix) {
+	if !strings.HasPrefix(location, "java/lib/") && !strings.HasPrefix(location, "connectors/") {
 		return "", errors.New("JVM 安装目标不属于运行库或插件")
-	}
-	parent, err := filepath.EvalSymlinks(filepath.Join(root, filepath.Dir(filepath.FromSlash(location.Path))))
-	if err != nil {
-		return "", err
 	}
 	resolvedRoot, err := filepath.EvalSymlinks(root)
 	if err != nil {
 		return "", err
 	}
-	relative, err := filepath.Rel(resolvedRoot, parent)
-	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-		return "", errors.New("JVM 安装目标越出 npm 包")
+	parent := resolvedRoot
+	for _, part := range strings.Split(filepath.ToSlash(filepath.Dir(location)), "/") {
+		parent = filepath.Join(parent, part)
+		if err = os.Mkdir(parent, 0755); err != nil && !errors.Is(err, os.ErrExist) {
+			return "", err
+		}
+		info, err := os.Lstat(parent)
+		if err != nil {
+			return "", err
+		}
+		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return "", errors.New("JVM 安装目录必须是 npm 包内的真实目录")
+		}
 	}
-	return filepath.Join(parent, filepath.Base(location.Path)), nil
+	return filepath.Join(parent, filepath.Base(location)), nil
 }
 
 func verifyDependency(path string, artifact jvmDependency) error {
@@ -195,10 +182,10 @@ func verifyDependency(path string, artifact jvmDependency) error {
 	return nil
 }
 
-func installJVMDependency(ctx context.Context, artifact jvmDependency, roots map[string]string, cache string, client *http.Client, log io.Writer) error {
+func installJVMDependency(ctx context.Context, artifact jvmDependency, root string, cache string, client *http.Client, log io.Writer) error {
 	missing := []string{}
 	for _, location := range artifact.Locations {
-		path, err := dependencyPath(roots, location)
+		path, err := dependencyPath(root, location)
 		if err != nil {
 			return err
 		}

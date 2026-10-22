@@ -195,6 +195,9 @@ func (w Workspace) ReferenceConnectors(directory string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	return referenceConnectors(directory, build)
+}
+func referenceConnectors(directory string, build JVMBuild) (string, error) {
 	plugins := []Plugin{}
 	for _, id := range []string{"h2", "duckdb"} {
 		module, err := build.Module("connector-" + id)

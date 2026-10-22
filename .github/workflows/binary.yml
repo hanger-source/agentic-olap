@@ -1,17 +1,12 @@
-name: npm 平台运行包
+name: 构建 npm 产品包
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/binary.yml'
-      - 'examples/**'
-      - 'project/**'
-      - 'skills/**'
-      - 'tools/**'
-      - 'LICENSE'
-      - 'docs/source-access.md'
+    inputs:
+      tag:
+        description: JVM 构件已在 JitPack 发布的精确标签
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -22,6 +17,9 @@ jobs:
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
       - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00
         with:
           distribution: temurin
@@ -44,7 +42,7 @@ jobs:
         run: node project/cli/tests/installed.mjs .tmp/release-binary/tarballs .tmp/installed-product
       - uses: actions/upload-artifact@v4
         with:
-          name: npm-darwin-arm64
+          name: npm-product-darwin-arm64
           path: |
             .tmp/release-binary/tarballs/*.tgz
             .tmp/release-binary/tarballs/SHA256SUMS

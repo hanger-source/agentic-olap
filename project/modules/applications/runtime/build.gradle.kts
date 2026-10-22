@@ -6,13 +6,16 @@ application { mainClass.set("com.olap.prototype.runtime.ApplicationMainKt") }
 sourceSets.main { proto.srcDir(rootProject.file("protocol")) }
 protobuf {
     protoc { artifact = "com.google.protobuf:protoc:4.33.2" }
-    plugins {
-        create("go") { path = rootProject.layout.buildDirectory.file("tools/protoc-gen-go").get().asFile.absolutePath }
-    }
-    generateProtoTasks {
-        ofSourceSet("main").configureEach {
-            dependsOn(rootProject.tasks.named("buildProtocGenGo"))
-            plugins { create("go") { option("paths=source_relative") } }
+    // JitPack 只发布 JVM 构件；本地产品构建同时生成 Go 协议。
+    if (System.getenv("JITPACK") != "true") {
+        plugins {
+            create("go") { path = rootProject.layout.buildDirectory.file("tools/protoc-gen-go").get().asFile.absolutePath }
+        }
+        generateProtoTasks {
+            ofSourceSet("main").configureEach {
+                dependsOn(rootProject.tasks.named("buildProtocGenGo"))
+                plugins { create("go") { option("paths=source_relative") } }
+            }
         }
     }
 }

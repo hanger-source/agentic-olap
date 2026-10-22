@@ -17,24 +17,22 @@ await mkdir(join(root, "tmp"));
 const target = `${process.platform}-${process.arch}`;
 const files = await readdir(tarballs);
 const main = files.filter((file) => /^hanger-source-agentic-olap-\d.*\.tgz$/.test(file));
-const native = files.filter((file) => file.startsWith(`hanger-source-agentic-olap-runtime-${target}-`));
 assert.equal(main.length, 1);
-assert.equal(native.length, 1);
 await writeFile(join(root, "package.json"), JSON.stringify({ private: true }));
 const version = /^hanger-source-agentic-olap-(.+)\.tgz$/.exec(main[0])[1];
 const selection = mode === "registry"
-  ? ["--include=optional", "--cache", join(root, "npm-cache"), `@hanger-source/agentic-olap@${version}`]
-  : ["--omit=optional", join(tarballs, main[0]), join(tarballs, native[0])];
+  ? ["--cache", join(root, "npm-cache"), `@hanger-source/agentic-olap@${version}`]
+  : [join(tarballs, main[0])];
 const installed = spawnSync("npm", ["install", "--no-audit", "--no-fund", "--registry=https://registry.npmjs.org", ...selection], { cwd: root, encoding: "utf8", env: { ...process.env, AGENTIC_OLAP_CACHE: process.env.AGENTIC_OLAP_CACHE ?? join(root, "dependency-cache") } });
 assert.equal(installed.status, 0, installed.stderr);
-const cli = join(root, "node_modules/@hanger-source/agentic-olap/bin/agentic-olap.mjs");
-const nativeRoot = join(root, "node_modules/@hanger-source", `agentic-olap-runtime-${target}`);
+const cli = join(root, "node_modules/.bin/agentic-olap");
+const nativeRoot = join(root, "node_modules/@hanger-source/agentic-olap");
 assert.equal(JSON.parse(await readFile(join(root, "node_modules/@hanger-source/agentic-olap/package.json"), "utf8")).version, version);
 const nativeMetadata = JSON.parse(await readFile(join(nativeRoot, "package.json"), "utf8"));
 assert.equal(nativeMetadata.version, version);
 const home = join(root, "persistent home");
 const environment = { PATH: join(root, "no-system-tools"), HOME: root, TMPDIR: join(root, "tmp"), LANG: "en_US.UTF-8", HTTP_PROXY: "http://127.0.0.1:9", HTTPS_PROXY: "http://127.0.0.1:9", NO_PROXY: "127.0.0.1,localhost" };
-const command = (args) => spawnSync(process.execPath, [cli, ...args], { cwd: root, env: environment, encoding: "utf8", timeout: 60000 });
+const command = (args) => spawnSync(cli, args, { cwd: root, env: environment, encoding: "utf8", timeout: 60000 });
 const json = (args) => {
   const result = command(args);
   assert.equal(result.status, 0, result.stderr + result.stdout);
@@ -114,7 +112,7 @@ let server;
 let log;
 async function start(name) {
   log = await open(join(root, `${name}.log`), "a");
-  server = spawn(process.execPath, [cli, "start", "--home", home, "--port", String(port)], { cwd: root, env: environment, stdio: ["ignore", log.fd, log.fd] });
+  server = spawn(cli, ["start", "--home", home, "--port", String(port)], { cwd: root, env: environment, stdio: ["ignore", log.fd, log.fd] });
   server.on("error", (error) => { throw error; });
   const deadline = Date.now() + 60000;
   while (Date.now() < deadline) {

@@ -1,4 +1,4 @@
-// Package installation reads resources already delivered by npm; it does not install or download files.
+// Package installation 负责 npm 安装及已安装资源读取。
 package installation
 
 import (
@@ -22,9 +22,9 @@ type Resources struct {
 
 func Read(version string) (Resources, error) {
 	var resources Resources
-	root := os.Getenv("AGENTIC_OLAP_PACKAGE_ROOT")
-	if !filepath.IsAbs(root) {
-		return resources, errors.New("npm 产品位置缺失；请通过 agentic-olap 命令使用已安装产品")
+	root, err := Root()
+	if err != nil {
+		return resources, err
 	}
 	data, err := os.ReadFile(filepath.Join(root, "resources.json"))
 	if err != nil {
@@ -38,6 +38,34 @@ func Read(version string) (Resources, error) {
 	}
 	resources.root = root
 	return resources, nil
+}
+
+// Root 从 npm 命令符号链接解析到包内原生程序，取得唯一产品根。
+func Root() (string, error) {
+	executable, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	executable, err = filepath.EvalSymlinks(executable)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Dir(filepath.Dir(executable)), nil
+}
+
+// Configure 接受研发明确指定的发行目录；npm 命令直接使用包内发行和 JRE。
+func Configure() error {
+	if os.Getenv("AGENTIC_OLAP_HOME") != "" {
+		return nil
+	}
+	root, err := Root()
+	if err != nil {
+		return err
+	}
+	if err = os.Setenv("AGENTIC_OLAP_HOME", root); err != nil {
+		return err
+	}
+	return os.Setenv("JAVA_HOME", filepath.Join(root, "jre"))
 }
 
 func (r Resources) path(relative string) (string, error) {

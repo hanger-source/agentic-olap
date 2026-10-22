@@ -58,7 +58,7 @@ flowchart LR
 
 ## 快速开始
 
-安装并启动完整服务，所需运行时由平台包提供：
+通过一个 npm 包安装并启动完整服务：
 
 ```sh
 npm install --global @hanger-source/agentic-olap
@@ -79,9 +79,9 @@ Agent 使用说明与完整配置模板位于本仓 [skill](skills/agentic-olap/
 npx skills add hanger-source/agentic-olap --skill agentic-olap
 ```
 
-源码、skill 与发行记录都在本仓库。Node.js 需要 20 或更高；平台运行包支持 macOS arm64。已有远程服务的使用者可以直接连接 MCP。
+源码、skill 与发行记录都在本仓库。Node.js 需要 20 或更高；产品支持 macOS arm64。已有远程服务的使用者可以直接连接 MCP。
 
-`npm install` 自动从 Maven Central 下载并校验本版锁定的第三方 JVM 库及内置插件驱动，安装完成即可启动；启动时不下载依赖。`agentic-olap sdk` 返回 JitPack SDK 坐标和随包文档，独立插件用 Gradle 匿名取得；`agentic-olap connectors` 返回已安装插件的 manifest 路径与精确引用。使用者无需查找链接、解压或执行第二个安装命令，具体用法见[产品安装与配置](project/cli/README.md)，构建及发行顺序见[安装与发布](docs/installation-release.md)。
+`npm install` 自动从 JitPack 取得本版自有 Kotlin 运行构件和内置连接器，从 Maven Central 取得第三方 JVM 库与驱动，按精确清单校验并备齐全部运行 JAR。npm 包携带 Go 程序、JRE 和必要资源，安装完成即可启动；启动时不下载依赖。`agentic-olap sdk` 返回 JitPack SDK 坐标和随包文档，独立插件用 Gradle 匿名取得；`agentic-olap connectors` 返回已安装插件的 manifest 路径与精确引用。使用者无需查找链接、解压或执行第二个安装命令，具体用法见[产品安装与配置](project/cli/README.md)，构建及发行顺序见[安装与发布](docs/installation-release.md)。
 
 | 你现在要做什么 | 入口 |
 | --- | --- |
@@ -161,7 +161,7 @@ Kotlin 模块由 `project/settings.gradle.kts` 统一登记，Go 服务由 `proj
 | 产品入口 | 统一远程 MCP 服务，提供调查、语义资产管理、查询、执行和结果读取 |
 | Agent 接入 | 外部客户端通过官方 MCP Streamable HTTP 消费服务；客户端代码与依赖保持独立 |
 | 使用形态 | 单实例服务器；外部业务 Agent 通过 MCP 建设并使用语义资产，业务项目承载 Agent 与交互 |
-| 产品发行 | `@hanger-source/agentic-olap`、同版本平台运行包与 GitHub skill；连接器 SDK、内部协议及语义资产各自声明版本 |
+| 产品发行 | `@hanger-source/agentic-olap` 与同标签 GitHub skill；连接器 SDK、内部协议及语义资产各自声明版本 |
 
 实际源条件、类型、单位、历史规则与权限决定一份查询是否成立。业务事实不足时需要补充业务信息；当前后端或语言未支持的能力明确报告给调用者。
 

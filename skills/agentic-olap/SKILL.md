@@ -4,7 +4,7 @@ description: 使用 Agentic OLAP 服务调查业务数据、建设和复用可�
 license: Apache-2.0
 metadata:
   author: hanger
-  version: "0.11.0"
+  version: "0.11.1"
   repository: https://github.com/hanger-source/agentic-olap
 ---
 
@@ -14,7 +14,7 @@ metadata:
 
 ## 安装与运行
 
-连接器 API 为 `agentic-olap-connector/v11-kotlin-native-collection-relations-calcite-1.42`，存储格式为 `15`。Go 程序、JRE 和自有 Kotlin 构件随平台包交付，第三方 JVM 库及内置驱动由 npm 安装脚本按发行清单下载、校验和缓存；下载失败会使安装失败，启动时不补下载。需要 Node.js 20 或更高并允许安装脚本，支持 macOS arm64。完整配置见[服务使用与部署](references/server.md)。安装后启动：
+连接器 API 为 `agentic-olap-connector/v11-kotlin-native-collection-relations-calcite-1.42`，存储格式为 `15`。一个 npm 包携带 Go 程序和 JRE；自有 Kotlin 运行构件及内置连接器从 JitPack 取得，第三方 JVM 库及驱动从 Maven Central 取得，均由 npm 安装脚本按精确清单下载、校验和缓存；下载失败会使安装失败，启动时不补下载。需要 Node.js 20 或更高并允许安装脚本，支持 macOS arm64。完整配置见[服务使用与部署](references/server.md)。安装后启动：
 
 ```sh
 npm install --global @hanger-source/agentic-olap

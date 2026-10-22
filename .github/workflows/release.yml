@@ -4,13 +4,8 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 已审核 draft release 的 tag，例如 v0.11.0
+        description: 已审核 draft release 的 tag，例如 v0.11.1
         required: true
-        type: string
-      submitted:
-        description: 从 CI 日志确认已被 npm 受理的本次包名，空格分隔；这些包不重复提交
-        required: false
-        default: ''
         type: string
 
 permissions:
@@ -45,10 +40,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/release-assets" --pattern '*.tgz' --pattern SHA256SUMS
-      - name: 使用 OIDC 并行发布 npm 包
-        env:
-          SUBMITTED_PACKAGES: ${{ github.event.inputs.submitted || '' }}
-        run: node project/cli/release/publish.mjs --tag "$RELEASE_TAG" --artifacts "$RUNNER_TEMP/release-assets" --submitted "$SUBMITTED_PACKAGES"
+      - name: 使用 OIDC 发布 npm 产品包
+        run: node project/cli/release/publish.mjs --tag "$RELEASE_TAG" --artifacts "$RUNNER_TEMP/release-assets"
 
       - name: 公开 GitHub release
         env:

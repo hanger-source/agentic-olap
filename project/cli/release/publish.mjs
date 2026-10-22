@@ -84,7 +84,7 @@ async function archiveFiles(file) {
       require(type === '0' || type === '5', '归档含非普通文件或目录');
       require(type !== '5' || size === 0, '归档目录包含文件数据');
       const digest = createHash('sha256');
-      const collect = ['package/package.json', 'package/build.json', 'package/resources.json', 'package/jvm-dependencies.json'].includes(name);
+      const collect = ['package/package.json', 'package/build.json', 'package/resources.json', 'package/jvm-dependencies.json', 'package/distribution.json'].includes(name) || name.endsWith('/connector.json');
       require(!collect || size <= 4 * 1024 * 1024, `JSON 文件超过 4 MiB：${name}`);
       const pieces = [];
       for (let remaining = size; remaining > 0;) {
@@ -100,53 +100,54 @@ async function archiveFiles(file) {
   } finally { stream.destroy(); }
 }
 
-async function checkPackage(file, name, version, runtimes) {
+async function checkPackage(file, name, version) {
   const members = await archiveFiles(file);
   require([...members.keys()].every(name => name.startsWith('package/')), 'npm 文件必须位于 package/ 内');
   const pkg = members.get('package/package.json')?.json;
   require(pkg?.name === name && pkg.version === version, 'npm 归档实际名称或版本不符');
   require(pkg.repository?.url === `git+https://github.com/${repository}.git`, '包 repository.url 与公开发布仓库不同');
   require(equal(pkg.publishConfig, { access: 'public', registry }) || equal(pkg.publishConfig, { access: 'public', registry: `${registry}/` }), '包 publishConfig 不符');
-  if (name === main) {
-    require(equal(pkg.optionalDependencies, runtimes), '主包必须引用发行声明的精确版本平台包');
-    const resources = members.get('package/resources.json')?.json;
-    require(resources?.version === version && resources.sdk === 'sdk' && resources.connectorApiVersion?.startsWith('agentic-olap-connector/'), '主包必须交付同版本 SDK 与连接器 API 身份');
-    require(Array.isArray(resources.connectors) && resources.connectors.length > 0 && resources.connectors.every(file => members.has(`package/${file}`)), '主包缺少实际插件 manifest');
-    require(['API.md', 'SOURCE-ACCESS.md', 'LOADER.md'].every(file => members.has(`package/sdk/${file}`)) && ![...members.keys()].some(file => file.startsWith('package/sdk/maven/')), '主包必须交付 SDK 文档而非本地 Maven 仓库');
-    require(resources.sdkRepository === 'https://jitpack.io' && Object.values(resources.sdkArtifacts ?? {}).length > 0 && Object.values(resources.sdkArtifacts).every(coordinate => coordinate.startsWith('com.github.hanger-source.agentic-olap:') && coordinate.endsWith(`:v${version}`)), 'SDK 必须使用本版精确 JitPack 坐标');
-    const downloads = members.get('package/jvm-dependencies.json')?.json;
-    require(downloads?.formatVersion === 'agentic-olap-jvm-dependencies/v1' && downloads.version === version && downloads.runtimePackage in runtimes && downloads.artifacts.length > 0, '主包缺少同版 JVM 安装清单');
-    require(pkg.scripts?.postinstall === 'node bin/agentic-olap.mjs install-jvm-dependencies', 'JVM 下载必须属于 npm 安装阶段');
-    const targets = new Set();
-    for (const artifact of downloads.artifacts) {
-      require(/^[0-9a-f]{64}$/.test(artifact.sha256) && Number.isSafeInteger(artifact.size) && artifact.size > 0 && artifact.url.startsWith('https://repo.maven.apache.org/maven2/') && artifact.locations.length > 0, 'Maven 安装构件必须锁定地址、大小与摘要');
-      for (const location of artifact.locations) {
-        require(['runtime', 'product'].includes(location.target) && !location.path.split('/').includes('..') && location.path.endsWith('.jar'), 'Maven 安装目标不合法');
-        const key = `${location.target}/${location.path}`;
-        require(!targets.has(key), 'Maven 安装目标重复'); targets.add(key);
-        require(location.target !== 'product' || !members.has(`package/${location.path}`), '第三方 JAR 仍被打进 npm 主包');
-      }
+  require(!pkg.optionalDependencies && !pkg.dependencies, '产品必须由一个 npm 包完整交付');
+  require(JSON.stringify(pkg.os) === '["darwin"]' && JSON.stringify(pkg.cpu) === '["arm64"]', '产品仅支持 macOS arm64');
+  require(pkg.bin?.['agentic-olap'] === 'runtime/agentic-olap-runtime' && members.has('package/runtime/agentic-olap-runtime'), '命令必须直接使用随包 Go 程序');
+  require(pkg.scripts?.postinstall === './runtime/agentic-olap-runtime install-jvm-dependencies', 'JVM 下载必须属于 npm 安装阶段');
+  require(![...members.keys()].some(file => file.endsWith('.jar') && !file.startsWith('package/jre/')), '产品或依赖 JAR 仍被打进 npm 包');
+  const resources = members.get('package/resources.json')?.json;
+  require(resources?.version === version && resources.sdk === 'sdk' && resources.connectorApiVersion?.startsWith('agentic-olap-connector/'), '缺少同版本 SDK 与连接器 API 身份');
+  require(['API.md', 'SOURCE-ACCESS.md', 'LOADER.md'].every(file => members.has(`package/sdk/${file}`)), '缺少 SDK 文档');
+  require(resources.sdkRepository === 'https://jitpack.io' && Object.values(resources.sdkArtifacts ?? {}).length > 0 && Object.values(resources.sdkArtifacts).every(coordinate => coordinate.startsWith('com.github.hanger-source.agentic-olap:') && coordinate.endsWith(`:v${version}`)), 'SDK 必须使用本版精确 JitPack 坐标');
+  const downloads = members.get('package/jvm-dependencies.json')?.json;
+  require(downloads?.formatVersion === 'agentic-olap-jvm-dependencies/v2' && downloads.version === version && downloads.artifacts.length > 0, '缺少同版 JVM 安装清单');
+  const targets = new Map();
+  for (const artifact of downloads.artifacts) {
+    require(/^[0-9a-f]{64}$/.test(artifact.sha256) && Number.isSafeInteger(artifact.size) && artifact.size > 0 && artifact.locations.length > 0, 'Maven 构件必须锁定大小与摘要');
+    require(artifact.url.startsWith('https://repo.maven.apache.org/maven2/') || artifact.url.startsWith(`https://jitpack.io/com/github/hanger-source/agentic-olap/`) && artifact.url.includes(`/v${version}/`), 'Maven 构件必须来自正式仓库的精确版本');
+    for (const location of artifact.locations) {
+      require((location.startsWith('java/lib/') || location.startsWith('connectors/')) && !location.split('/').includes('..') && location.endsWith('.jar'), 'Maven 安装目标不合法');
+      require(!targets.has(location), 'Maven 安装目标重复'); targets.set(location, artifact.sha256);
     }
-    return null;
   }
-  const target = name.slice(`${main}-runtime-`.length);
-  require(/^[a-z]+-[a-z0-9]+$/.test(target), '平台包目标格式无效');
-  const [system, cpu] = target.split('-');
-  require(JSON.stringify(pkg.os) === JSON.stringify([system]) && JSON.stringify(pkg.cpu) === JSON.stringify([cpu]), '平台包 os/cpu 不符');
+  const distribution = members.get('package/distribution.json')?.json;
+  require(distribution?.formatVersion === 'agentic-olap-distribution/v2' && distribution.version === version, '缺少精确服务发行清单');
+  const required = [...distribution.runtime.classpath];
+  require(Array.isArray(resources.connectors) && resources.connectors.length > 0, '缺少内置插件声明');
+  for (const file of resources.connectors) {
+    const plugin = members.get(`package/${file}`)?.json;
+    require(plugin?.apiVersion === resources.connectorApiVersion && plugin.jars?.length, '缺少实际插件 manifest');
+    required.push(...plugin.jars.map(jar => ({ path: path.posix.join(path.posix.dirname(file), jar.file), sha256: jar.sha256 })));
+  }
+  require(required.length === targets.size && required.every(item => targets.get(item.path) === item.sha256), '安装清单未精确覆盖全部运行库和插件');
   const build = members.get('package/build.json')?.json;
-  require(build?.version === version && build.target === target && /^[0-9a-f]{40}$/.test(build.revision), '平台缺少精确版本、目标或 revision');
-  require(/^[0-9a-f]{64}$/.test(build.goModSha256) && /^[0-9a-f]{64}$/.test(build.goSumSha256), '平台缺少 Go 构建依赖身份');
-  require(build.files && Object.keys(build.files).length > 0, '平台没有实际文件清单');
-  require(members.size === Object.keys(build.files).length + 1, '平台实际文件与 build.json 清单不同');
-  for (const [item, expected] of Object.entries(build.files)) require(/^[0-9a-f]{64}$/.test(expected) && members.get(`package/${item}`)?.sha256 === expected, `平台文件摘要不符：${item}`);
+  require(build?.version === version && build.target === 'darwin-arm64' && /^[0-9a-f]{40}$/.test(build.revision), '缺少精确版本、目标或 revision');
+  require(/^[0-9a-f]{64}$/.test(build.goModSha256) && /^[0-9a-f]{64}$/.test(build.goSumSha256), '缺少 Go 构建依赖身份');
+  require(build.files && members.size === Object.keys(build.files).length + 1, '实际文件与 build.json 清单不同');
+  for (const [item, expected] of Object.entries(build.files)) require(/^[0-9a-f]{64}$/.test(expected) && members.get(`package/${item}`)?.sha256 === expected, `文件摘要不符：${item}`);
   return build.revision;
 }
 async function checkArchives(directory, metadata, tag) {
   const release = JSON.parse(await readFile(metadata, 'utf8'));
   require(/^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/.test(release.version) && tag === `v${release.version}` && release.name === main, 'package.json 版本、tag 或包身份不符');
-  const runtimes = release.optionalDependencies;
-  require(runtimes && Object.keys(runtimes).length > 0 && Object.entries(runtimes).every(([name, version]) => name.startsWith(`${main}-runtime-`) && version === release.version), 'release 平台包身份或版本无效');
-  const packages = [...Object.keys(runtimes), main].map(name => ({ name, version: release.version, file: path.join(directory, `${name.replace(/^@/, '').replace('/', '-')}-${release.version}.tgz`) }));
+  const packages = [{ name: main, version: release.version, file: path.join(directory, `hanger-source-agentic-olap-${release.version}.tgz`) }];
   const expected = new Set(packages.map(item => path.basename(item.file)));
   const sums = new Map();
   for (const line of (await readFile(path.join(directory, 'SHA256SUMS'), 'utf8')).trimEnd().split('\n')) {
@@ -162,41 +163,28 @@ async function checkArchives(directory, metadata, tag) {
     require(stat.isFile() && !stat.isSymbolicLink() && await hashFile(file) === expectedHash, `release 资产摘要不符：${name}`);
   }
   const revisions = new Set();
-  for (const item of packages) { const revision = await checkPackage(item.file, item.name, item.version, runtimes); if (revision) revisions.add(revision); }
-  require(revisions.size === 1, '平台包必须包含精确源码 revision');
+  for (const item of packages) { const revision = await checkPackage(item.file, item.name, item.version); if (revision) revisions.add(revision); }
+  require(revisions.size === 1, '产品必须包含精确源码 revision');
   console.log(JSON.stringify({ version: release.version, archivesChecked: expected.size, revision: [...revisions][0] }));
-  return packages;
+  return packages[0];
 }
-async function publish(packages, submitted) {
-  require([...submitted].every(name => packages.some(item => item.name === name)), '已受理包不属于本次发行');
+async function publish(item) {
   require(process.env.GITHUB_ACTIONS === 'true' && process.env.GITHUB_REPOSITORY === repository, '正式发布只允许指定公开仓库的 GitHub Actions');
   require(process.env.ACTIONS_ID_TOKEN_REQUEST_URL && process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN, '发布缺少 GitHub OIDC 授权');
   require(!('NODE_AUTH_TOKEN' in process.env) && !('NPM_TOKEN' in process.env), '发布不得提供长期 npm 令牌');
   require(execFileSync('npm', ['--version'], { encoding: 'utf8' }).trim() === '11.17.0' && process.version.startsWith('v24.'), '发布要求 npm 11.17.0 和 Node.js 24');
-  const tag = `v${packages[0].version}`;
-  await Promise.all(['connector-api', 'connector-loader'].flatMap(module => ['pom', 'jar'].map(async extension => {
-    const url = `https://jitpack.io/com/github/hanger-source/agentic-olap/${module}/${tag}/${module}-${tag}.${extension}`;
-    const response = await fetch(url, { method: 'HEAD', signal: AbortSignal.timeout(60000) });
-    require(response.ok, `同版 SDK 尚未公开：${module}.${extension} HTTP ${response.status}；先完成源码仓库的“构建 JitPack SDK”工作流`);
-  })));
   const temporary = await mkdtemp(path.join(tmpdir(), 'agentic-olap-publish-'));
   const user = path.join(temporary, 'user.npmrc'), global = path.join(temporary, 'global.npmrc');
   await writeFile(user, ''); await writeFile(global, '');
   const environment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.toLowerCase().startsWith('npm_config_')));
   Object.assign(environment, { NPM_CONFIG_USERCONFIG: user, NPM_CONFIG_GLOBALCONFIG: global, NPM_CONFIG_CACHE: path.join(temporary, 'cache') });
-  const outcomes = await Promise.allSettled(packages.map(async item => {
-    if (submitted.has(item.name)) { console.log(`按明确已受理记录继续，不重复提交：${item.name}@${item.version}`); return; }
     await new Promise((resolve, reject) => {
       const child = spawn('npm', ['publish', item.file, '--access', 'public', '--registry', registry, '--ignore-scripts', '--provenance', '--loglevel=error'], { cwd: temporary, env: environment, stdio: 'inherit' });
       child.once('error', reject); child.once('exit', (code, signal) => code === 0 ? resolve() : reject(new Error(`${item.name} 发布失败：${code ?? signal}`)));
     });
     console.log(`npm 已接受提交：${item.name}@${item.version}`);
-  }));
-  const failures = outcomes.filter(outcome => outcome.status === 'rejected');
-  if (failures.length) throw new AggregateError(failures.map(outcome => outcome.reason), 'npm 发布失败');
 }
-const { values } = parseArgs({ options: { artifacts: { type: 'string' }, metadata: { type: 'string', default: 'project/cli/package.json' }, tag: { type: 'string' }, submitted: { type: 'string', default: '' }, check: { type: 'boolean', default: false } } });
+const { values } = parseArgs({ options: { artifacts: { type: 'string' }, metadata: { type: 'string', default: 'project/cli/package.json' }, tag: { type: 'string' }, check: { type: 'boolean', default: false } } });
 require(values.artifacts && values.tag, '需要 --artifacts 与 --tag');
-require(!values.check || !values.submitted, '离线核验不能指定已受理包');
-const packages = await checkArchives(path.resolve(values.artifacts), path.resolve(values.metadata), values.tag);
-if (!values.check) await publish(packages, new Set(values.submitted.split(/\s+/).filter(Boolean)));
+const product = await checkArchives(path.resolve(values.artifacts), path.resolve(values.metadata), values.tag);
+if (!values.check) await publish(product);

@@ -55,6 +55,9 @@ func run(args []string) (int, error) {
 		return 1, errors.New("expected start, info, token, tools or call")
 	}
 	command, args := args[0], args[1:]
+	if err := installation.Configure(); err != nil {
+		return 1, err
+	}
 	if command == "install-jvm-dependencies" {
 		if len(args) != 0 {
 			return 1, errors.New("npm JVM 安装不接受额外参数")
@@ -131,7 +134,11 @@ func run(args []string) (int, error) {
 		}
 		if command == "info" {
 			information := local.Information(path, c)
-			information["installation"] = map[string]any{"version": version, "packageRoot": os.Getenv("AGENTIC_OLAP_PACKAGE_ROOT"),
+			packageRoot, err := installation.Root()
+			if err != nil {
+				return 1, err
+			}
+			information["installation"] = map[string]any{"version": version, "packageRoot": packageRoot,
 				"runtimeRoot": os.Getenv("AGENTIC_OLAP_HOME"), "javaHome": os.Getenv("JAVA_HOME")}
 			token, err := auth.ReadLocalToken(c.Auth.TokenFile)
 			if err != nil {

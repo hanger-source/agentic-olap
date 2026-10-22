@@ -1,10 +1,10 @@
-name: 构建 JitPack SDK
+name: 构建 JitPack JVM 构件
 
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 已推送到源码仓库的精确发行标签，例如 v0.11.0
+        description: 已推送到源码仓库的精确发行标签，例如 v0.11.1
         required: true
         type: string
 
@@ -27,7 +27,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - name: 请求 JitPack 构建，并确认 SDK 可匿名下载
+      - name: 请求 JitPack 构建，并确认 JVM 入口可匿名下载
         env:
           RELEASE_TAG: ${{ inputs.tag }}
         run: |
@@ -38,16 +38,18 @@ jobs:
           if (tag !== `v${version}`) throw new Error('发行标签必须与源码产品版本一致');
           const base = `https://jitpack.io/com/github/hanger-source/agentic-olap`;
           const artifact = (module, extension) => `${base}/${module}/${tag}/${module}-${tag}.${extension}`;
-          const response = await fetch(artifact('connector-api', 'pom'), {
+          const response = await fetch(artifact('runtime', 'pom'), {
             signal: AbortSignal.timeout(30 * 60 * 1000),
           });
           if (!response.ok) throw new Error(`JitPack 构建未完成：HTTP ${response.status}；查看 https://jitpack.io/#hanger-source/agentic-olap/${tag}`);
           await response.text();
-          for (const module of ['connector-api', 'connector-loader']) {
+          for (const module of ['runtime', 'connector-api', 'connector-loader', 'connector-h2', 'connector-duckdb']) {
             for (const extension of ['pom', 'jar']) {
-              const result = await fetch(artifact(module, extension), { method: 'HEAD', signal: AbortSignal.timeout(60000) });
-              if (!result.ok) throw new Error(`SDK 不可读取：${module}.${extension} HTTP ${result.status}；查看该标签的 JitPack 构建日志`);
+              const selected = ['connector-h2', 'connector-duckdb'].includes(module) && extension === 'jar'
+                ? artifact(module, extension).replace('.jar', '-plugin.jar') : artifact(module, extension);
+              const result = await fetch(selected, { method: 'HEAD', signal: AbortSignal.timeout(60000) });
+              if (!result.ok) throw new Error(`JVM 构件不可读取：${module}.${extension} HTTP ${result.status}；查看该标签的 JitPack 构建日志`);
             }
           }
-          console.log(`JitPack SDK ${tag} 已构建，公开入口可匿名下载`);
+          console.log(`JitPack JVM 产品 ${tag} 已构建，运行时、插件和 SDK 入口可匿名下载`);
           JS
