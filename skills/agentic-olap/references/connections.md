@@ -20,7 +20,9 @@ agentic-olap sdk --path
 
 HTTP 或其他后端由使用方提供匹配其 SQL 后端及实际协议的插件；SQL 协议兼容不证明类型、数值、时间或一致性映射已经成立。业务 Agent 通过正式 MCP 使用已配置的来源。
 
-连接器 API 为 `agentic-olap-connector/v10-kotlin-typed-collections-text-identity-calcite-1.42`。`connectorRef` 是 manifest 中实际的 `{id,version,sha256}`，数据源逐项引用该完整对象。服务核验 API 和摘要，驱动只由 JDBC 实现核验。
+连接器 API 为 `agentic-olap-connector/v11-kotlin-native-collection-relations-calcite-1.42`。`connectorRef` 是 manifest 中实际的 `{id,version,sha256}`，数据源逐项引用该完整对象。服务核验 API 和摘要，驱动只由 JDBC 实现核验。
+
+独立插件必须使用同版 `agentic-olap sdk --path` 返回的 SDK 重新构建，并更新插件 manifest 和精确来源绑定。集合展开的 `expandCollection` 接收当前输入行的 ARRAY 表达式，返回 `CollectionExpansion(relation, element, ordinal)`，分别提供原生 FROM 关系、完整元素及从 1 开始的序号表达式。核心负责 INNER／OUTER 人口、重复度与缺行补 NULL；插件负责原生语法和类型映射。具体合同与实现入口见随 npm 安装的 SDK `API.md`。使用真实表行或聚合结果回放原 Query，常量数组成功不能替代相关展开验收。
 
 ## 登记数据源
 
@@ -70,7 +72,11 @@ agentic-olap call read-connector-capabilities --payload '{}'
 agentic-olap call inspect-warehouse --payload '{"operation":"discover","payload":{"dataSourceId":"business","sourceIdentityHash":"替换为所选绑定的实际64位摘要","limit":20}}'
 ```
 
-`read-connector-capabilities` 的 `connectors` 返回当前主体可访问来源所用的 `{connectorRef,nativeScalarFunctions}`；它描述运行中服务，与本地 `connectors` 报告的随包文件分别读取。来源支持调查时，按 `describe-operation` 和 `read-inspection-capability` 读取结构与必要样本；除读取能力合同外，调查请求均须带精确 `dataSourceId/sourceIdentityHash`。表列表截断、样本缺少记录或当前唯一不能被推断为完整总体、历史保证或业务口径。
+`read-connector-capabilities` 的 `connectors` 返回当前主体可访问来源所用的 `connectorRef`、`nativeScalarFunctions`、`compilationCapabilities`、`parameterSubmission` 和 `configurationParameters`；它描述运行中服务，与本地 `connectors` 报告的随包文件分别读取。这些声明不代替真实后端验证。若编译返回 `NATIVE_COMPILATION_CAPABILITY_MISSING`，按错误中的 `capability/operation` 检查精确插件；例如数值绑定要求的 `CORRELATED_DERIVED_PROJECTION` 与普通 EXISTS 条件相关是不同能力。来源支持调查时，按 `describe-operation` 和 `read-inspection-capability` 读取结构与必要样本；除读取能力合同外，调查请求均须带精确 `dataSourceId/sourceIdentityHash`。表列表截断、样本缺少记录或当前唯一不能被推断为完整总体、历史保证或业务口径。
+
+组织 AVG 等数值聚合时，先用 `describe-operation` 读取 `read-connector-capabilities` 的完整输入合同，再提交 `aggregate={connectorRef,aggregation,inputType,grouped}`。`inputType` 是聚合输入表达式的原生类型，例如 `{"name":"BIGINT","precision":null,"scale":null,"nullable":true}`；DECIMAL 必须有完整 precision、scale，文本须有实际长度。`grouped=false` 表示全局聚合，`true` 表示普通非空分组键，空分组集合按全局查询。`aggregate.mapping` 的 `MAPPED` 给出原生 `resultType` 与 `aggregationRounding`，`UNAVAILABLE` 表示插件未为此输入兑现映射。该读取不连接来源，也不证明完整查询可执行。
+
+AVG 仍须提供非空数量合同。`aggregationRounding` 明确接受原生 AVG 自身的舍入，必须匹配该输入的插件声明；`valueContract.result.rounding` 是额外的最终输出舍入，两者不能互换。原生浮点 AVG 不能据此声明 Exact；原 SQL 没写 ROUND 也不能推出原生舍入为 NONE。遇到映射未实现，由插件查明真实后端类型和舍入，不能猜 DECIMAL 容量、转 DOUBLE 或在客户端重算。
 
 ## 显式提供结构
 
