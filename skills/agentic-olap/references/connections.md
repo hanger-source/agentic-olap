@@ -6,9 +6,9 @@
 
 一个插件组包含 `connector.json`、连接器实现 JAR 和实现所需的依赖。JDBC 实现附带实际驱动，HTTP 实现拥有自己的访问协议和结果映射。整个目录一起保存；manifest 中的文件名与字节摘要不能手写或修改。单独数据库驱动不能替代完整连接器。
 
-插件组和连接器 SDK 须与实际服务来自同一发行或同轮构建。从 [0.6.0 GitHub Release](https://github.com/hanger-source/agentic-olap-skill/releases/tag/v0.6.0) 取得 `agentic-olap-connectors-0.6.0.tgz`（H2、DuckDB 插件组）和 `agentic-olap-connector-sdk-0.6.0.tgz`（扩展开发 SDK）。解压插件归档后使用其中实际的组目录，不根据连接器 ID 推断目录名。HTTP 或其他后端由使用方提供匹配其 SQL 后端及实际协议的插件；SQL 协议兼容不证明类型、数值、时间或一致性映射已经成立。SDK 中的 `API.md`、`SOURCE-ACCESS.md`、`LOADER.md` 面向插件实现者；业务 Agent 通过正式 MCP 使用已配置的来源。
+插件组和连接器 SDK 须与实际服务来自同一发行或同轮构建。按服务实际版本从 [GitHub Releases](https://github.com/hanger-source/agentic-olap-skill/releases) 取得对应版本的 `agentic-olap-connectors-<version>.tgz`（H2、DuckDB 插件组）和 `agentic-olap-connector-sdk-<version>.tgz`（扩展开发 SDK）。解压插件归档后使用其中实际的组目录，不根据连接器 ID 推断目录名。HTTP 或其他后端由使用方提供匹配其 SQL 后端及实际协议的插件；SQL 协议兼容不证明类型、数值、时间或一致性映射已经成立。SDK 中的 `API.md`、`SOURCE-ACCESS.md`、`LOADER.md` 面向插件实现者；业务 Agent 通过正式 MCP 使用已配置的来源。
 
-连接器 API 为 `agentic-olap-connector/v7-kotlin-source-sql-calcite-1.42`。`connectorRef` 是 manifest 中实际的 `{id,version,sha256}`，数据源逐项引用该完整对象。服务核验 API 和摘要，驱动只由 JDBC 实现核验。
+连接器 API 为 `agentic-olap-connector/v9-kotlin-source-sql-calcite-1.42`。`connectorRef` 是 manifest 中实际的 `{id,version,sha256}`，数据源逐项引用该完整对象。服务核验 API 和摘要，驱动只由 JDBC 实现核验。
 
 ## 登记数据源
 
@@ -25,18 +25,19 @@
       "sha256": "从实际manifest复制"
     },
     "dialectId": "duckdb",
-    "parameters": {
+    "identityParameters": {
       "jdbcUrl": "jdbc:duckdb:/absolute/warehouse/business.duckdb",
       "driverClassName": "org.duckdb.DuckDBDriver"
     },
+    "runtimeParameters": {},
     "credentialEnvironmentVariables": {}
   }]
 }
 ```
 
-以上是要修改的两个配置项，不是完整服务器配置。使用实际存在的业务库；不要拿示例路径创建空库后当作已接入业务。H2 对应 `dialectId=h2`、`parameters.driverClassName=org.h2.Driver`。JDBC 用户名使用 `parameters.username`；密码引用使用 `credentialEnvironmentVariables.password`。启动服务前注入引用的环境变量，配置中不保存凭据值。
+以上是要修改的两个配置项，不是完整服务器配置。使用实际存在的业务库；不要拿示例路径创建空库后当作已接入业务。H2 对应 `dialectId=h2`、`identityParameters.driverClassName=org.h2.Driver`。JDBC 用户名使用 `identityParameters.username`；密码引用使用 `credentialEnvironmentVariables.password`。启动服务前注入引用的环境变量，配置中不保存凭据值。
 
-HTTP 来源同样使用 `parameters` 和具名凭据引用，具体字段由实际插件定义。例如插件可以接受 `parameters.endpoint` 和 `credentialEnvironmentVariables.authorization`；不填写虚假的 JDBC URL 或驱动。`dialectId` 表示实际 SQL 后端，HTTP 本身不是 SQL 方言。
+HTTP 来源同样使用两类参数和具名凭据引用，具体允许项由精确插件的 `configurationParameters` 声明。例如真实入口可放入 `identityParameters.endpoint`，等待预算可放入插件声明的 `runtimeParameters.timeoutMillis`；参数不能任意换类。`credentialEnvironmentVariables.authorization` 引用鉴权值，不填写虚假的 JDBC 字段。`dialectId` 表示实际 SQL 后端，HTTP 本身不是 SQL 方言。
 
 本机初始化主体 `local` 获准管理该服务的全部语义资产及已登记源。远程服务通过显式授权控制主体、工具和来源范围；业务 Agent 不自行改写权限。
 
@@ -71,7 +72,7 @@ agentic-olap call describe-governance-command --payload '{"operation":"register-
 
 字段应明确提供类型、顺序与可空性；`autoIncrement/generated` 未知时可以不提供，服务保留未知。`structureProvenance.kind=DECLARED` 表示明确提供的结构，外部目录与数据库观察分别标记来源。声明不等于已经核验的保证；查询实际依赖关系或约束检查时，插件必须兑现检查与计算的一致性。事务快照是实现方式之一；来源也可通过原子 SQL 或不可变数据版本兑现。插件可明确选择安全字面量 SQL 提交，无需假称参数绑定。缺少能力会以 `SOURCE_CAPABILITY_MISSING` 指出来源、操作和能力，只影响实际依赖它的操作。
 
-同一物理表身份的新版本可以显式采用同一稳定业务来源的另一绑定；已有版本和发布仍保留原绑定。旧发布的绑定必须继续部署，缺失时执行明确失败，不自动选用同 ID 的其他绑定。服务使用存储格式 `13`，不自动改写旧格式持久根，恢复时使用匹配发行构件及精确插件。
+同一物理表身份的新版本可以显式采用同一稳定业务来源的另一绑定；已有版本和发布仍保留原绑定。旧发布的绑定必须继续部署，缺失时执行明确失败，不自动选用同 ID 的其他绑定。运行参数调整不改变绑定，重启后使用实际部署策略。服务使用存储格式 `14`，不自动改写旧格式持久根，恢复时使用匹配发行构件及精确插件；所选资产可通过 `read-deployment-availability` 分别核验读取和执行前提。
 
 ## 使用已声明的原生函数
 

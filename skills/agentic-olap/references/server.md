@@ -4,7 +4,7 @@
 
 ## 安装与启动
 
-连接器 API 为 `agentic-olap-connector/v7-kotlin-source-sql-calcite-1.42`，存储格式为 `13`。服务、连接器和 SDK 使用同轮交付构件。
+连接器 API 为 `agentic-olap-connector/v9-kotlin-source-sql-calcite-1.42`，存储格式为 `14`。服务、连接器和 SDK 使用同轮交付构件。
 
 需要 Node.js 20 或更高版本。安装自动选择匹配的平台运行包，其中包含 Go 服务程序、JVM 运行时与 Kotlin 服务构件；使用者无需安装编译工具或自行编译源码。支持 macOS arm64、Linux x64（glibc 2.35 或更高）：
 
@@ -60,10 +60,11 @@ agentic-olap call describe-governance-command --payload '{"operation":"create-bu
 | `dataSources[].dataSourceId` | 明确的源身份，例如 `business` |
 | `dataSources[].connectorRef` | 从同组 manifest 原样复制实际 `{id,version,sha256}` |
 | `dataSources[].dialectId` | `duckdb` |
-| `dataSources[].parameters.jdbcUrl` | 例如 `jdbc:duckdb:/absolute/warehouse/business.duckdb`，数据库须实际存在 |
-| `dataSources[].parameters.username` | 无用户名时省略 |
+| `dataSources[].identityParameters.jdbcUrl` | 例如 `jdbc:duckdb:/absolute/warehouse/business.duckdb`，数据库须实际存在 |
+| `dataSources[].identityParameters.username` | 无用户名时省略 |
 | `dataSources[].credentialEnvironmentVariables` | 无凭据时为 `{}`；JDBC 密码为 `{"password":"BUSINESS_DB_PASSWORD"}` |
-| `dataSources[].parameters.driverClassName` | `org.duckdb.DuckDBDriver` |
+| `dataSources[].identityParameters.driverClassName` | `org.duckdb.DuckDBDriver` |
+| `dataSources[].runtimeParameters` | 插件声明的超时、预算或诊断策略；没有时为 `{}`，不进入来源身份 |
 
 密码值通过启动服务的环境提供，不写入业务工具输入。网络型数据库使用自己的插件、真实 JDBC 地址和数据库访问条件。连接器、凭据与路径由服务配置管理，业务 Agent 只引用授权源身份。
 

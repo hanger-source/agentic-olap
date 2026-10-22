@@ -19,7 +19,7 @@
         "discover-governance-reads", "describe-governance-read",
         "read-governance", "discover-governance-commands", "describe-governance-command", "write-governance",
         "list-publications", "read-publication", "search-semantics", "read-semantic-catalog", "read-semantic-asset", "read-semantic-definition", "read-query-language-contract", "read-semantic-expression-contract",
-        "validate-query", "execute-query", "save-query", "update-query", "read-query", "list-queries",
+        "validate-query", "explain-query", "execute-query", "save-query", "update-query", "read-query", "list-queries", "read-deployment-availability",
         "read-query-result", "read-query-result-metadata", "read-query-result-value", "profile-query-result",
         "search-query-usage", "read-query-usage", "append-query-usage-note"
       ],

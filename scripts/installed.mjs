@@ -158,7 +158,7 @@ try {
   await stop();
   const config = JSON.parse(await readFile(info.configPath, "utf8"));
   config.connectors = [manifestPath];
-  config.dataSources = [{ dataSourceId: "business", connectorRef: manifest.connectorRef, dialectId: "h2", parameters: { jdbcUrl, username: "sa", driverClassName: "org.h2.Driver" }, credentialEnvironmentVariables: {} }];
+  config.dataSources = [{ dataSourceId: "business", connectorRef: manifest.connectorRef, dialectId: "h2", identityParameters: { jdbcUrl, username: "sa", driverClassName: "org.h2.Driver" }, runtimeParameters: {}, credentialEnvironmentVariables: {} }];
   await writeFile(info.configPath, JSON.stringify(config));
   await start("reopened");
   const deployed = call("list-data-sources", {}).filter((source) => source.dataSourceId === "business");
