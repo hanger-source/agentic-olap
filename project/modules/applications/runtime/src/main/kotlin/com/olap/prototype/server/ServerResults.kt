@@ -66,20 +66,23 @@ internal class ServerResults(private val usage: QueryUsageRepository,
         require(confirmation.sha256 == expected.sha256 && confirmation.bytes == expected.bytes && confirmation.rows == expected.rows) {
             "delivery facts differ from the exact prepared artifact"
         }
-        val saved = when (confirmation.status) {
-            DeliveryStatus.SAVED -> { require(run.saveRequested); usage.resultSaved(id, expected.sha256, expected.bytes, expected.rows); true }
-            DeliveryStatus.DIRECT -> { require(!run.saveRequested); usage.directProduced(id); false }
-            DeliveryStatus.FAILED -> { usage.resultFailed(id, "result delivery failed"); false }
+        val delivery = when (confirmation.status) {
+            DeliveryStatus.SAVED -> { require(run.saveRequested); QueryUsageRepository.Delivery.SAVED }
+            DeliveryStatus.DIRECT -> { require(!run.saveRequested); QueryUsageRepository.Delivery.DIRECT }
+            DeliveryStatus.FAILED -> QueryUsageRepository.Delivery.FAILED
             else -> throw ProducerContractException("actual result delivery status is required")
         }
-        pending.remove(id)
-        usage.recordServiceObservation(id, QueryServiceObservation("SERVER_BEFORE_DELIVERY_CONFIRMATION",
+        val saved = delivery == QueryUsageRepository.Delivery.SAVED
+        val receipt = expected.receipt.copy(saved = saved, resultReference = if (saved) QueryResultReference(id, expected.sha256) else null,
+            result = if (delivery == QueryUsageRepository.Delivery.DIRECT) expected.receipt.result else null,
+            timingNanos = expected.receipt.timingNanos + confirmation.timingNanosMap)
+        val manifest = if (saved) QueryUsageRepository.ResultManifest(id, expected.sha256, expected.bytes, expected.rows, Instant.now()) else null
+        usage.completeDelivery(delivery, receipt.copy(result = null), manifest, QueryServiceObservation("SERVER_BEFORE_DELIVERY_CONFIRMATION",
             confirmation.timingNanosMap.toMap(), confirmation.workersList.map {
                 QueryWorkerAcquisition(it.kind,it.outcome,it.queueNanos,it.startupNanos)
             }))
-        return expected.receipt.copy(saved = saved, resultReference = if (saved) QueryResultReference(id, expected.sha256) else null,
-            result = if (confirmation.status == DeliveryStatus.DIRECT) expected.receipt.result else null,
-            timingNanos = expected.receipt.timingNanos + confirmation.timingNanosMap)
+        pending.remove(id)
+        return receipt
     }
 
     fun invoke(operation: String, request: ServerRequest, input: Any): Any {

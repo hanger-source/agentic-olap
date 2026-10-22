@@ -9,6 +9,7 @@ import com.olap.prototype.query.contract.QueryCapabilityRequest
 import com.olap.prototype.query.contract.QueryExecutionReceipt
 import com.olap.prototype.query.contract.QueryExecutionStatus
 import com.olap.prototype.query.contract.QueryClientOutcome
+import com.olap.prototype.query.contract.QueryServiceObservation
 import com.olap.prototype.codec.ProtoBytes
 import com.olap.prototype.codec.QueryProto
 import com.olap.prototype.engine.executable.ExecutableExecutionResult
@@ -59,11 +60,14 @@ class PublishedQueryHistoryTest {
                 usage.accept(direct, "analyst", provider.require(coordinate), original.intent, reference, false, false, null)
                 assertFalse(usage.require(direct).saveRequested); assertEquals(QueryUsageRepository.Delivery.PENDING, usage.require(direct).delivery)
                 usage.dispatched(direct)
+                val directStarted = System.nanoTime()
                 val directExecution = c.f.execute(publication, original.intent.computation)
+                val directNanos = System.nanoTime() - directStarted
                 assertEquals(1, directExecution.result.resultFrame.rows.size)
                 val receipt = receipt(direct, directExecution)
                 usage.complete(direct, QueryUsageRepository.Execution.SUCCEEDED, null, receipt)
-                if (produceDirect) usage.directProduced(direct)
+                if (produceDirect) usage.completeDelivery(QueryUsageRepository.Delivery.DIRECT, receipt.copy(result = null), null,
+                    QueryServiceObservation("SERVER_BEFORE_DELIVERY_CONFIRMATION", mapOf("DIRECT_EXECUTION" to directNanos), emptyList()))
                 else {
                     val failure = assertThrows(IllegalArgumentException::class.java) { ProtoBytes.encode(QueryProto.toProto(receipt), 1) }
                     usage.resultFailed(direct, requireNotNull(failure.message))

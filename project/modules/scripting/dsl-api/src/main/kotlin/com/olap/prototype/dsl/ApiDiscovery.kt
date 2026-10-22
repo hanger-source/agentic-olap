@@ -6,24 +6,31 @@ import com.olap.prototype.query.QueryComputation
 import com.olap.prototype.calculation.Calculation
 import java.lang.reflect.Type
 import kotlin.reflect.KClass
+import kotlin.reflect.KFunction
+import kotlin.reflect.KParameter
 import kotlin.reflect.KType
+import kotlin.reflect.full.companionObject
+import kotlin.reflect.full.declaredMemberFunctions
 import kotlin.reflect.full.primaryConstructor
 import kotlin.reflect.full.memberProperties
 import kotlin.reflect.KMutableProperty
 import kotlin.reflect.KVisibility
-import kotlin.reflect.jvm.jvmErasure
 
 data class ApiOperation(val operationId: String, val receiver: String, val function: String, val input: String,
     val output: String, val permission: String, val effect: String)
-data class ApiParameter(val name: String, val type: String, val optional: Boolean)
+data class ApiParameter(val name: String, val type: String, val optional: Boolean, val variableArguments: Boolean)
 data class ApiConstructor(val parameters: List<ApiParameter>)
-data class ApiProperty(val name: String, val type: String, val mutable: Boolean)
-data class ApiType(val name: String, val kotlinName: String, val kind: String, val constructors: List<ApiConstructor>, val properties: List<ApiProperty>, val variants: List<String>, val enumValues: List<String>)
+data class ApiProperty(val name: String, val type: String, val mutable: Boolean, val access: String?)
+data class ApiFunction(val name: String, val access: String, val parameters: List<ApiParameter>, val output: String,
+    val typeParameters: Map<String, List<String>>)
+data class ApiCompanion(val name: String, val access: String, val properties: List<ApiProperty>, val functions: List<ApiFunction>)
+data class ApiType(val name: String, val kotlinName: String, val kind: String, val enclosingType: String?, val constructors: List<ApiConstructor>, val properties: List<ApiProperty>,
+    val functions: List<ApiFunction>, val companion: ApiCompanion?, val variants: List<String>, val enumValues: List<String>)
 data class ApiExample(val name: String, val purpose: String, val source: String)
 data class ApiOverview(val formatVersion: String, val dslApiVersion: String, val properties: Map<String, String>, val imports: List<String>,
     val operations: List<ApiOperation>, val examples: List<ApiExample>)
 
-/** 从实际公开函数、正式构造器及封闭变体读取，不维护另一份 JSON 节点表。 */
+/** 从真实公开声明读取构造器、对象与伴生对象成员及封闭变体，不执行 getter 或工厂。 */
 object ApiDiscovery {
     const val VERSION = "agentic-olap-kotlin-dsl/v1"
     val imports: List<String> = listOf("com.olap.prototype.dsl.*", "com.olap.prototype.governance.contract.*",
@@ -68,12 +75,20 @@ object ApiDiscovery {
             val name = type.qualifiedName ?: return
             if (!name.startsWith("com.olap.prototype.") || found.putIfAbsent(name, type) != null) return
             require(found.size <= 4096) { "public API type graph exceeds its discovery budget" }
+            fun add(value: KType) {
+                (value.classifier as? KClass<*>)?.let(::addClass)
+                value.arguments.forEach { it.type?.let(::add) }
+            }
             type.primaryConstructor?.parameters?.forEach { parameter ->
-                fun add(value: KType) {
-                    (value.classifier as? KClass<*>)?.let(::addClass)
-                    value.arguments.forEach { it.type?.let(::add) }
-                }
                 add(parameter.type)
+            }
+            type.memberProperties.filter { it.visibility == KVisibility.PUBLIC }.forEach { add(it.returnType) }
+            type.java.enclosingClass?.kotlin?.takeIf { it.visibility == KVisibility.PUBLIC }?.let(::addClass)
+            type.companionObject?.takeIf { it.visibility == KVisibility.PUBLIC }?.let(::addClass)
+            if (type.objectInstance != null) publicFunctions(type).forEach { function ->
+                function.parameters.filter { it.kind == KParameter.Kind.VALUE }.forEach { add(it.type) }
+                function.typeParameters.flatMap { it.upperBounds }.forEach(::add)
+                add(function.returnType)
             }
             type.sealedSubclasses.forEach(::addClass)
         }
@@ -99,12 +114,31 @@ object ApiDiscovery {
             type.isData -> "DATA_CLASS"
             else -> "CLASS"
         },
-        listOfNotNull(type.primaryConstructor?.takeIf { it.visibility == KVisibility.PUBLIC }?.let { constructor -> ApiConstructor(constructor.parameters.map { parameter ->
-            ApiParameter(requireNotNull(parameter.name), parameter.type.toString(), parameter.isOptional)
-        }) }), type.memberProperties.filter { it.visibility == KVisibility.PUBLIC }
-            .map { ApiProperty(it.name, it.returnType.toString(), (it as? KMutableProperty<*>)?.setter?.visibility == KVisibility.PUBLIC) }.sortedBy { it.name },
+        type.java.enclosingClass?.kotlin?.qualifiedName,
+        listOfNotNull(type.primaryConstructor?.takeIf { it.visibility == KVisibility.PUBLIC }?.let { constructor -> ApiConstructor(constructor.parameters.map(::parameter)) }),
+        properties(type, if (type.objectInstance != null) access(type) else null),
+        if (type.objectInstance != null) functions(type, access(type)) else emptyList(),
+        type.companionObject?.takeIf { it.visibility == KVisibility.PUBLIC }?.let { companion ->
+            val access = access(companion)
+            ApiCompanion(requireNotNull(companion.qualifiedName), access, properties(companion, access), functions(companion, access))
+        },
         type.sealedSubclasses.mapNotNull { it.qualifiedName }.sorted(),
         type.java.enumConstants?.map { (it as Enum<*>).name } ?: emptyList())
+
+    private fun parameter(value: KParameter) = ApiParameter(requireNotNull(value.name), value.type.toString(), value.isOptional, value.isVararg)
+
+    private fun properties(type: KClass<*>, access: String?): List<ApiProperty> = type.memberProperties.filter { it.visibility == KVisibility.PUBLIC }
+        .map { ApiProperty(it.name, it.returnType.toString(), (it as? KMutableProperty<*>)?.setter?.visibility == KVisibility.PUBLIC, access?.let { owner -> "$owner.${it.name}" }) }
+        .sortedBy { it.name }
+
+    private fun publicFunctions(type: KClass<*>): List<KFunction<*>> = type.declaredMemberFunctions.filter { it.visibility == KVisibility.PUBLIC }
+
+    private fun functions(type: KClass<*>, access: String): List<ApiFunction> = publicFunctions(type).map { function ->
+        ApiFunction(function.name, "$access.${function.name}", function.parameters.filter { it.kind == KParameter.Kind.VALUE }.map(::parameter),
+            function.returnType.toString(), function.typeParameters.associate { it.name to it.upperBounds.map(KType::toString) })
+    }.sortedWith(compareBy({ it.name }, { it.parameters.joinToString { parameter -> parameter.type } }))
+
+    private fun access(type: KClass<*>): String = requireNotNull(if (type.isCompanion) type.java.enclosingClass?.kotlin?.qualifiedName else type.qualifiedName)
 
     private fun examples(): List<ApiExample> = listOf(
         ApiExample("读取后决定", "一次脚本读取获准定义，并用普通 Kotlin 分支处理真实返回。", """

@@ -122,6 +122,8 @@ try {
   await start("initial");
   const info = json(["info", "--home", home]);
   assert.equal(info.url, "http://127.0.0.1:" + port + "/mcp");
+  assert.equal(info.service.checks["read-connector-capabilities"].status, "AVAILABLE");
+  assert.equal(info.service.checks["list-data-sources"].status, "AVAILABLE");
   const tools = json(["tools", "--home", home]);
   assert(tools.tools.some(tool => tool.name === "describe-script-api"));
   assert(tools.tools.some(tool => tool.name === "execute-script"));
@@ -139,6 +141,14 @@ try {
     runtimeParameters: {}, credentialEnvironmentVariables: {} }];
   await writeFile(info.configPath, JSON.stringify(config));
   await start("source-reopened");
+  const sourceInfo = json(["info", "--home", home]);
+  const sourceCheck = sourceInfo.service.checks["list-data-sources"];
+  const connectorCheck = sourceInfo.service.checks["read-connector-capabilities"];
+  assert.equal(sourceCheck.status, "AVAILABLE");
+  assert.equal(sourceCheck.result.items.length, 1);
+  assert.equal(sourceCheck.result.items[0].binding.dataSourceId, "business");
+  assert.equal(connectorCheck.status, "AVAILABLE");
+  assert(connectorCheck.result.connectors.some(item => item.connectorRef.id === "h2"));
   const structure = program({ phase: "structure", businessLineId });
   const snapshotId = structure.snapshotId.text;
   const sourceIdentityHash = structure.sourceIdentityHash.text;

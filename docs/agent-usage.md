@@ -21,7 +21,9 @@ agentic-olap call describe-script-api --payload '{"operation":"create-event"}'
 agentic-olap call describe-script-api --payload '{"type":"com.olap.prototype.calculation.Calculation"}'
 ~~~
 
-`operation` 和 `type` 二选一。类型说明包括种类、公开构造器参数、可读属性、封闭变体和枚举值；`OBJECT` 使用对象本身，例如 `EmptyRequest`，无需 `()`。嵌套类型沿返回的完整 Kotlin 名继续读取。未知类型或操作明确拒绝，不从名字猜字段或版本。
+`operation` 和 `type` 二选一。类型说明包括种类、公开构造器参数、可读属性、封闭变体和枚举值。`functions` 给出对象的公开函数，`companion` 给出伴生对象的公开属性与函数；成员的 `access` 是可直接使用的完整 Kotlin 访问表达式，参数同时说明可省略项与可变参数。发现只读取声明，不执行属性 getter 或函数。
+
+`OBJECT` 使用对象本身，例如 `EmptyRequest`，无需 `()`。嵌套类型的 `enclosingType` 指向外层公开声明，可以继续读取其工厂；字段、参数和返回类型也沿实际完整名称继续发现。例如 `RowPopulationContract.Selection` 的外层对象公开 `calls` 和 `contract`，`MetricValueContract` 的伴生对象公开 `ONE`、`PERCENT`。未知类型或操作明确拒绝，不从名字猜字段或版本。
 
 `describe-operation` 描述 MCP 工具本身，例如 `execute-script` 的提交封套、参数与预算；`describe-script-api` 描述脚本中可调用的方法和正式业务模型。前者不代替后者。
 
@@ -78,6 +80,82 @@ olap.output(result)
 主题、场景和采用的读取、延续、修订及依赖影响均在 `olap.semantics`、`olap.governance` 中发现。延续旧上下文时读取精确源版本的选择，再显式提交 `carry`；四类选择及其依赖一起核验，不自动扩大授权或切到 latest。共享成员或指标采用的更新指定精确定义版本及完整绑定，历史发布保持冻结。
 
 每个正式写操作保有自己的事务与失败责任。整段脚本不是覆盖所有调用的一个数据库事务：后续报错不会撤销之前已完成的写入、发布或来源查询。先读真实状态再决定继续，不盲目重放有副作用的脚本。
+
+## 数量合同与人口
+
+数量合同分别声明单位、算术保证、结果容量与溢出行为。`COUNT` 的单位必须是 `MetricValueContract.Fixed(MetricValueContract.ONE)`：它产生无量纲计数，不能改成自定义的“订单”或“访客”单位。数的是哪类对象、是否去重以及选择哪批人口，由事件、输入、`distinct` 和计算人口表达。
+
+以下程序完整构造一项记录计数和一项金额求和，不写入元数据。事件与逻辑字段引用由参数提供，必须先从实际定义读取精确身份。金额例子假设来源是精确 DECIMAL、业务单位已确认为人民币元；结果声明 `DECIMAL(24,2)`，超出容量时失败，不额外舍入。来源为浮点或业务单位尚未确认时，应根据真实来源及业务含义选择合同。
+
+~~~kotlin
+val event = EventRef(
+    parameters.text("eventId"),
+    parameters.decimal("eventVersion").longValueExact()
+)
+val countValue = MetricValueContract(
+    unit = MetricValueContract.Fixed(MetricValueContract.ONE),
+    arithmetic = MetricValueContract.Exact(),
+    result = MetricValueContract.Integer(64),
+    unitEquations = emptyMap(),
+    overflow = MetricValueContract.Overflow.FAIL
+)
+val recordCount = MetricDefinition.FactMeasure(
+    event = event,
+    input = SemanticExpression.Reference(
+        SemanticExpression.ReferenceKind.LOGIC_UNIT,
+        parameters.text("recordIdFieldId"),
+        parameters.decimal("recordIdFieldVersion").longValueExact()
+    ),
+    aggregation = MetricAggregation.COUNT,
+    distinct = false,
+    privatePredicate = null,
+    roles = emptyMap(),
+    snapshotRule = null,
+    valueContract = countValue,
+    aggregationRounding = MetricValueContract.Rounding.NONE
+)
+val amountValue = MetricValueContract(
+    unit = MetricValueContract.Fixed(MetricValueContract.UnitIdentity("example.billing", "CNY", 1)),
+    arithmetic = MetricValueContract.Exact(),
+    result = MetricValueContract.Decimal(24, 2, MetricValueContract.Rounding.NONE),
+    unitEquations = emptyMap(),
+    overflow = MetricValueContract.Overflow.FAIL
+)
+val amountSum = MetricDefinition.FactMeasure(
+    event = event,
+    input = SemanticExpression.Reference(
+        SemanticExpression.ReferenceKind.LOGIC_UNIT,
+        parameters.text("amountFieldId"),
+        parameters.decimal("amountFieldVersion").longValueExact()
+    ),
+    aggregation = MetricAggregation.SUM,
+    distinct = false,
+    privatePredicate = null,
+    roles = emptyMap(),
+    snapshotRule = null,
+    valueContract = amountValue,
+    aggregationRounding = MetricValueContract.Rounding.NONE
+)
+Unit
+~~~
+
+`recordIdFieldId` 必须指向实际不可空的记录身份，以上 `COUNT` 才等于记录数；一般的 `COUNT(input)` 忽略 NULL，`distinct=true` 则对非 NULL 输入去重。金额单位的 `authority/id/version` 是业务方明确采用的身份，示例不会进行币种或倍率转换。
+
+查询人口也使用正式公开入口。普通测量组合可用 `RowPopulationContract.calls(listOf("paid", "refunds"))`，其中两个名字必须是本作用域真实完成的调用。它只选择输出组人口，不把缺组金额改成零，也不证明来源完整性。其他人口模式及必填字段可以从现有公开合同读取：
+
+~~~kotlin
+val contract = RowPopulationContract.contract()
+ScriptValue.ArrayValue(contract.modes.map { mode ->
+    ScriptValue.ObjectValue(mapOf(
+        "mode" to ScriptValue.Text(mode.mode),
+        "fields" to ScriptValue.ArrayValue(mode.fields.map { ScriptValue.Text(it) }),
+        "groups" to ScriptValue.Text(mode.groups),
+        "inputs" to (mode.inputs?.let { ScriptValue.Text(it) } ?: ScriptValue.Null)
+    ))
+})
+~~~
+
+`SCOPED_UNION` 还要求明确的直接输入及其完整共同粒度；按返回合同构造 `Selection`，不猜字符串、隐式并入其他输入或忽略键检查。
 
 ## 组织本次完整 Query
 

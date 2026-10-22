@@ -144,7 +144,7 @@ func run(args []string) (int, error) {
 			if err != nil {
 				return 1, err
 			}
-			ctx, cancel := context.WithTimeout(context.Background(), min(5*time.Second, time.Duration(*timeout*float64(time.Second))))
+			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(*timeout*float64(time.Second)))
 			defer cancel()
 			service, observed := client.Information(ctx, c.URL(), token, version)
 			information["service"] = service

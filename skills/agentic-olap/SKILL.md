@@ -4,7 +4,7 @@ description: 使用 Agentic OLAP 服务调查业务数据、建设和复用可�
 license: Apache-2.0
 metadata:
   author: hanger
-  version: "0.12.1"
+  version: "0.12.2"
   repository: https://github.com/hanger-source/agentic-olap
 ---
 
@@ -35,14 +35,14 @@ agentic-olap call describe-script-api --payload '{}'
 
 ## 从服务发现 Kotlin API
 
-`describe-script-api` 的概览给出实际 `dslApiVersion`、入口属性、默认 imports、方法与完整 Kotlin 类型；继续按方法或类型读取构造器、属性、封闭变体及枚举：
+`describe-script-api` 的概览给出实际 `dslApiVersion`、入口属性、默认 imports、方法与完整 Kotlin 类型；继续按方法或类型读取构造器、属性、对象函数、伴生对象成员、封闭变体及枚举：
 
 ~~~sh
 agentic-olap call describe-script-api --payload '{"operation":"create-event"}'
 agentic-olap call describe-script-api --payload '{"type":"com.olap.prototype.calculation.Calculation"}'
 ~~~
 
-`operation/type` 二选一，完整名称按实际返回继续读取。类型的 `kind=OBJECT` 表示直接使用对象，例如 `EmptyRequest`，不调用构造器。`describe-operation` 仅描述 MCP 工具的外层提交合同。不要从旧 JSON 节点表、方法名或历史版本猜当前作者输入，也不需要阅读源码才能正常构造模型。
+`operation/type` 二选一，完整名称按实际返回继续读取。类型的 `kind=OBJECT` 表示直接使用对象，例如 `EmptyRequest`，不调用构造器。`functions/companion` 的 `access` 给出实际公开访问表达式，例如 `MetricValueContract.ONE`；嵌套类型的 `enclosingType` 可继续发现外层对象及工厂，例如 `RowPopulationContract.calls/contract`。发现不执行 getter 或工厂。`describe-operation` 仅描述 MCP 工具的外层提交合同。不要从旧 JSON 节点表、方法名或历史版本猜当前作者输入，也不需要阅读源码才能正常构造模型。
 
 `execute-script` 一次提交完整 kts 程序。先从概览取得精确版本，再调用：
 
@@ -77,6 +77,8 @@ CLI 的 `--payload` 是参数对象；直接用 MCP SDK 时，arguments 包为 `
 完整查询使用 `QueryIntent(publication, computation)`；`scope/query/input/stage` 帮助构造现有 `QueryComputation.Scope`、根、输入与有序阶段。成员槽保留对象身份和属性角色；测量槽接收可调用实例；关系槽接收显式 ROOT 完成关系并核对列、维度、数量及完整键。金额和人数不能为了传参伪装为成员属性。
 
 来源条件通过定义声明的 CONDITION 参数显式传给指定事实，不自动继承到子树。长期人口与资格规则沉淀到定义，本次期间与选择由调用者明确。保留单位、算术、缺组、NULL、重复度与贡献关系，不补零、加 MAX、拼身份或去重来制造通过。
+
+`COUNT` 使用 `MetricValueContract.Fixed(MetricValueContract.ONE)`，对象身份及去重政策由测量本身表达，不能给计数另造实体单位。完整 COUNT、精确金额数量合同及人口合同读取示例见[数量合同与人口](https://github.com/hanger-source/agentic-olap/blob/main/docs/agent-usage.md#数量合同与人口)。
 
 一次完整计算限同一精确来源绑定、方言与连接器；不等于跨来源联邦。保存结果不能直接充当后续 Query 的关系输入。
 

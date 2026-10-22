@@ -88,16 +88,6 @@ class QueryUsageRepository(private val database: PlatformDatabase, private val l
 
     fun dispatched(runId: String) = transition(runId, "execution_state='RUNNING'", "execution_state='ACCEPTED'")
 
-    /** 交付观察不改写冻结结果字节；历史读取可区分内核执行与服务准备交付的耗时。 */
-    fun recordServiceObservation(runId: String, observation: QueryServiceObservation) {
-        requireRun(runId)
-        val run = require(runId)
-        check(run.execution !in setOf(Execution.ACCEPTED, Execution.RUNNING)) { "service observation requires a committed execution outcome" }
-        if (!run.historyEnabled && !run.saveRequested) return
-        check(update("cannot record service observation", "UPDATE query_run SET service_observation_proto=? WHERE run_id=? AND execution_state NOT IN ('ACCEPTED','RUNNING') AND (history_enabled=TRUE OR save_requested=TRUE)",
-            ProtoBytes.storage(com.olap.prototype.codec.QueryUsageProto.toProto(observation)), runId) == 1) { "run is unavailable for service observation" }
-    }
-
     fun complete(runId: String, outcome: Execution, error: String?, receipt: QueryExecutionReceipt) {
         requireRun(runId)
         require(receipt.runId == runId) { "execution receipt differs from its actual run identity" }
@@ -109,18 +99,42 @@ class QueryUsageRepository(private val database: PlatformDatabase, private val l
         """.trimIndent(), outcome, error, Instant.now(), ProtoBytes.storage(QueryProto.toProto(receipt)), runId, outcome) == 1) { "run execution outcome cannot replace its committed state" }
     }
 
-    fun resultSaved(runId: String, sha256: String, bytes: Long, rows: Long): ResultManifest {
-        val manifest = ResultManifest(runId, sha256, bytes, rows, Instant.now())
-        return database.inTransaction {
-            transition(runId, "delivery_state='SAVED'", "save_requested=TRUE AND $DELIVERABLE")
-            update("cannot attach actual result manifest", "INSERT INTO query_result_manifest(run_id,sha256,byte_count,row_count,saved_at) VALUES(?,?,?,?,?)",
-                runId, sha256, bytes, rows, manifest.savedAt)
-            manifest
+    /** 实际交付、最终回执及服务观察一起提交，不改写冻结结果字节或声称客户端已收到响应。 */
+    fun completeDelivery(delivery: Delivery, receipt: QueryExecutionReceipt, manifest: ResultManifest?, observation: QueryServiceObservation) {
+        val runId = receipt.runId
+        requireRun(runId)
+        require(delivery != Delivery.PENDING) { "actual delivery terminal outcome is required" }
+        require(receipt.result == null) { "usage receipt does not retain direct business result values" }
+        require(receipt.saved == (delivery == Delivery.SAVED) && (manifest != null) == receipt.saved) {
+            "delivery receipt and actual saved manifest differ"
+        }
+        require(receipt.resultReference == manifest?.let { QueryResultReference(it.runId, it.sha256) } &&
+            (manifest == null || manifest.runId == runId && manifest.rows == receipt.rows)) {
+            "delivery receipt differs from its exact result manifest"
+        }
+        database.inTransaction {
+            when (delivery) {
+                Delivery.SAVED -> {
+                    val saved = requireNotNull(manifest)
+                    transition(runId, "delivery_state='SAVED'", "save_requested=TRUE AND $DELIVERABLE")
+                    update("cannot attach actual result manifest", "INSERT INTO query_result_manifest(run_id,sha256,byte_count,row_count,saved_at) VALUES(?,?,?,?,?)",
+                        runId, saved.sha256, saved.bytes, saved.rows, saved.savedAt)
+                }
+                Delivery.DIRECT -> transition(runId, "delivery_state='DIRECT'", "save_requested=FALSE AND $DELIVERABLE")
+                Delivery.FAILED -> resultFailed(runId, "result delivery failed")
+                Delivery.PENDING -> error("pending delivery cannot be committed")
+            }
+            check(update("cannot record actual delivery receipt", """
+                UPDATE query_run SET
+                execution_receipt_proto=CASE WHEN history_enabled=TRUE OR save_requested=TRUE THEN ? ELSE NULL END,
+                service_observation_proto=CASE WHEN history_enabled=TRUE OR save_requested=TRUE THEN ? ELSE NULL END
+                WHERE run_id=? AND delivery_state=?
+            """.trimIndent(), ProtoBytes.storage(QueryProto.toProto(receipt)),
+                ProtoBytes.storage(com.olap.prototype.codec.QueryUsageProto.toProto(observation)), runId, delivery) == 1) {
+                "actual delivery receipt cannot replace an unavailable delivery"
+            }
         }
     }
-
-    /** 已生成直接业务封套；不表示客户端已收到响应。 */
-    fun directProduced(runId: String) = transition(runId, "delivery_state='DIRECT'", "save_requested=FALSE AND $DELIVERABLE")
 
     fun resultFailed(runId: String, error: String) {
         requireRun(runId)
