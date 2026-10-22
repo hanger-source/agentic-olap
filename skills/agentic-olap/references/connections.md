@@ -20,7 +20,7 @@ agentic-olap sdk --path
 
 HTTP 或其他后端由使用方提供匹配其 SQL 后端及实际协议的插件；SQL 协议兼容不证明类型、数值、时间或一致性映射已经成立。业务 Agent 通过正式 MCP 使用已配置的来源。
 
-连接器 API 为 `agentic-olap-connector/v9-kotlin-source-sql-calcite-1.42`。`connectorRef` 是 manifest 中实际的 `{id,version,sha256}`，数据源逐项引用该完整对象。服务核验 API 和摘要，驱动只由 JDBC 实现核验。
+连接器 API 为 `agentic-olap-connector/v10-kotlin-typed-collections-text-identity-calcite-1.42`。`connectorRef` 是 manifest 中实际的 `{id,version,sha256}`，数据源逐项引用该完整对象。服务核验 API 和摘要，驱动只由 JDBC 实现核验。
 
 ## 登记数据源
 

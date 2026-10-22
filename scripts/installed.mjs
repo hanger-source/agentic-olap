@@ -81,8 +81,8 @@ const readAll = (operation, payload) => {
   }
   return items;
 };
-const activate = (objectType, objectId) => govern("activate", {
-  objectType, objectId, objectVersion: 1, activatedBy: "local", reason: "审核安装后真实订单分析定义",
+const activate = (objectType, objectId, objectVersion = 1) => govern("activate", {
+  objectType, objectId, objectVersion, activatedBy: "local", reason: "审核安装后真实订单分析定义",
 });
 
 function verifySalesResult(reference) {
@@ -286,6 +286,57 @@ try {
       sourceCondition: { kind: "TRUE" }, outputCondition: { kind: "TRUE" }, sourceEventConditions: [],
       population: { mode: "CALLS", callIds: calls.map((invocation) => invocation.callId) } }, inputs: {}, stages: [],
   } };
+  const invalidIntent = structuredClone(intent);
+  invalidIntent.computation.root.calls[0].arguments.flag = { kind: "SCALAR", scalarType: "BOOLEAN", value: true };
+  const invalidCall = command(["call", "validate-query", "--payload", JSON.stringify({ intent: invalidIntent }), "--home", home]);
+  assert.equal(invalidCall.status, 1);
+  const invalid = JSON.parse(JSON.parse(invalidCall.stdout).content[0].text);
+  assert.equal(invalid.success, false);
+  assert.equal(invalid.error.code, "INVALID_REQUEST");
+  assert.equal(invalid.error.stage, "DECODE_INPUT");
+  assert.deepEqual(invalid.error.details.fieldPath, ["computation", "root", "calls", 0, "arguments", "flag", "value"]);
+  assert.equal(invalid.error.details.expectedType, "string");
+  assert.equal(invalid.error.details.actualType, "boolean");
+  const missingCondition = structuredClone(intent);
+  delete missingCondition.computation.root.calls[0].sourceCondition;
+  const missingCall = command(["call", "validate-query", "--payload", JSON.stringify({ intent: missingCondition }), "--home", home]);
+  assert.equal(missingCall.status, 1);
+  const missing = JSON.parse(JSON.parse(missingCall.stdout).content[0].text);
+  assert.equal(missing.error.code, "INVALID_REQUEST");
+  assert.deepEqual(missing.error.details.fieldPath, ["computation", "root", "calls", 0, "sourceCondition"]);
+  assert.equal(missing.error.details.actualType, "missing");
+  const wrongRoot = structuredClone(intent);
+  wrongRoot.computation = { root: { kind: "INPUT", inputId: "basis" },
+    inputs: { basis: { mode: "RELATION", computation: structuredClone(intent.computation) } }, stages: [] };
+  const rootCall = command(["call", "validate-query", "--payload", JSON.stringify({ intent: wrongRoot }), "--home", home]);
+  assert.equal(rootCall.status, 1);
+  const rootFailure = JSON.parse(JSON.parse(rootCall.stdout).content[0].text);
+  assert.equal(rootFailure.error.code, "ROOT_INPUT_REQUIRED");
+  assert.deepEqual(rootFailure.error.details.fieldPath, ["computation", "inputs", "basis", "mode"]);
+  assert.equal(rootFailure.error.details.expectedKind, "ROOT");
+  assert.equal(rootFailure.error.details.actualKind, "RELATION");
+  const invalidCalculation = { code: "invalid_dimension_algorithm", displayName: "维度槽合同检查", owner: "local", createdBy: "local",
+    description: null, businessMeaning: meanings.order_count, definition: { kind: "CALCULATION",
+      calculation: { dimensionSlots: [], memberSlots: [], measurementSlots: [], parameters: {},
+        relationSlots: [{ name: "completed", outputs: [{ name: "seller", shape: { kind: "DIMENSION",
+          dimension: { id: "unadopted-dimension", version: "1", levelCode: "seller" } } }], keys: ["seller"] }],
+        computation: { root: { kind: "RELATION", slot: "completed" }, inputs: {}, stages: [] } },
+      measureOutput: "quantity", keyOutputs: [], valueContract: { unit: { kind: "FIXED", identity: { authority: "olap", id: "dimensionless", version: 1 } },
+        arithmetic: { kind: "EXACT_DECIMAL" }, result: { kind: "INTEGER", bits: 64 }, unitEquations: {}, overflow: "FAIL" } } };
+  const calculationCall = command(["call", "write-governance", "--payload", JSON.stringify({ operation: "create-metric-calculation", payload: invalidCalculation }), "--home", home]);
+  assert.equal(calculationCall.status, 1);
+  const calculationFailure = JSON.parse(JSON.parse(calculationCall.stdout).content[0].text);
+  assert.equal(calculationFailure.error.code, "CALCULATION_DIMENSION_SLOT_REQUIRED");
+  assert.deepEqual(calculationFailure.error.details.fieldPath, ["definition", "calculation", "relationSlots", 0, "outputs", 0, "shape", "kind"]);
+  assert.equal(calculationFailure.error.details.expectedKind, "DIMENSION_SLOT");
+  assert.equal(calculationFailure.error.details.actualKind, "DIMENSION");
+  const unauthorizedIntent = structuredClone(intent);
+  unauthorizedIntent.computation.root.calls[0].instance.id = `metric-instance-${"0".repeat(64)}`;
+  const unauthorizedCall = command(["call", "validate-query", "--payload", JSON.stringify({ intent: unauthorizedIntent }), "--home", home]);
+  assert.equal(unauthorizedCall.status, 1);
+  const unauthorized = JSON.parse(JSON.parse(unauthorizedCall.stdout).content[0].text);
+  assert.equal(unauthorized.error.stage, "AUTHORIZE_INPUT");
+  assert.equal(unauthorized.error.code, "EXECUTABLE_QUERY_NOT_PUBLISHED");
   call("validate-query", { intent });
   const savedQuery = call("save-query", {
     definitionId: "installed-sales-summary", sourceVersion: null, capabilityHash: publication.capability.capabilityHash,
@@ -294,7 +345,32 @@ try {
   const execution = call("execute-query", { intent, saveResult: true, question: "全部已登记订单销售额和订单数是多少？" });
   assert.equal(execution.status, "SUCCEEDED");
   assert(execution.runId);
+  assert(execution.timingNanos.SERVICE_TOTAL >= execution.timingNanos.ENGINE_TOTAL);
+  assert(execution.timingNanos.RESOLVE_COMPILE_RESOLVE_SOURCE >= 0);
+  assert(execution.workers.some((worker) => worker.kind === "ENGINE" && ["STARTED", "REUSED"].includes(worker.outcome)));
+  const observedRun = call("read-query-usage", { runId: execution.runId }).run;
+  assert.deepEqual(observedRun.executionEvidence.serviceObservation.workers, execution.workers);
+  assert(observedRun.executionEvidence.serviceObservation.timingNanos.RESULT_STORE >= 0);
   verifySalesResult(execution.resultReference);
+  const carry = read("read-subject-context-selection", { objectId: subject.id, sourceVersion: 1 }).selection;
+  govern("revise-subject-area", {
+    objectId: subject.id, sourceVersion: 1,
+    definition: { businessLineId: asset.id, businessLineVersion: 1, code: "sales", displayName: "销售经营",
+      owner: "local", description: "通过正式 MCP 延续既有订单分析", createdBy: "local" }, carry,
+  });
+  activate("SUBJECT_AREA", subject.id, 2);
+  govern("build-release", { releaseId: "installed-sales", releaseVersion: "2", releaseDisplayName: "延续订单分析",
+    subjectAreaId: subject.id, subjectAreaVersion: 2, createdBy: "local" });
+  const nextCoordinate = { ...coordinate, scenarioVersion: 2, releaseVersion: "2" };
+  const nextPublication = call("read-publication", nextCoordinate);
+  const nextIntent = structuredClone(intent);
+  Object.assign(nextIntent, nextCoordinate);
+  nextIntent.computation.root.calls.forEach((invocation) => {
+    invocation.instance = nextPublication.capability.metricCandidates.find((candidate) => candidate.code === invocation.callId).instance;
+  });
+  const continued = call("execute-query", { intent: nextIntent, saveResult: true });
+  assert.equal(continued.status, "SUCCEEDED");
+  verifySalesResult(continued.resultReference);
   await stop();
   await start("analysis-reopened");
   verifySalesResult(execution.resultReference);
@@ -303,7 +379,7 @@ try {
   assert.notEqual(repeated.runId, execution.runId);
   verifySalesResult(repeated.resultReference);
   await stop();
-  const report = { version: command(["--version"]).stdout.trim(), target, mode, nativePackage: mode === "registry" ? `${nativeMetadata.name}@${nativeMetadata.version}` : native[0], tools: tools.tools.length, assetCreated: Boolean(asset), persistentRead: true, actualSourceRead: true, declaredStructure: true, structurePersistentRead: true, analysisPersistentRead: true, sourceIdentityHash, publication: coordinate, queryReference: savedQuery.queryReference, runIds: [execution.runId, repeated.runId], expected: { sales_amount: "175.00", order_count: "3" }, systemToolsPath: environment.PATH };
+  const report = { version: command(["--version"]).stdout.trim(), target, mode, nativePackage: mode === "registry" ? `${nativeMetadata.name}@${nativeMetadata.version}` : native[0], tools: tools.tools.length, assetCreated: Boolean(asset), persistentRead: true, actualSourceRead: true, declaredStructure: true, structurePersistentRead: true, analysisPersistentRead: true, contextRevision: nextCoordinate, sourceIdentityHash, publication: coordinate, queryReference: savedQuery.queryReference, runIds: [execution.runId, continued.runId, repeated.runId], expected: { sales_amount: "175.00", order_count: "3" }, systemToolsPath: environment.PATH };
   await writeFile(join(root, "report.json"), JSON.stringify(report, null, 2) + "\n");
   console.log(JSON.stringify(report));
 } catch (failure) {

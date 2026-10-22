@@ -4,7 +4,7 @@ description: 使用 Agentic OLAP 服务调查业务数据、建设和复用可�
 license: Apache-2.0
 metadata:
   author: hanger
-  version: "0.8.1"
+  version: "0.9.0"
   repository: https://github.com/hanger-source/agentic-olap-skill
 ---
 
@@ -14,7 +14,7 @@ metadata:
 
 ## 安装与运行
 
-连接器 API 为 `agentic-olap-connector/v9-kotlin-source-sql-calcite-1.42`，存储格式为 `15`。Go 服务程序、JVM 运行时与 Kotlin 服务构件随平台包安装，需要 Node.js 20 或更高；支持 macOS arm64。完整配置见[服务使用与部署](references/server.md)。安装后启动：
+连接器 API 为 `agentic-olap-connector/v10-kotlin-typed-collections-text-identity-calcite-1.42`，存储格式为 `15`。Go 服务程序、JVM 运行时与 Kotlin 服务构件随平台包安装，需要 Node.js 20 或更高；支持 macOS arm64。完整配置见[服务使用与部署](references/server.md)。安装后启动：
 
 ```sh
 npm install --global @hanger-source/agentic-olap
@@ -67,11 +67,27 @@ CLI 的 `--payload` 是业务参数对象；直接用 MCP SDK 时，arguments �
 
 不要用研发 Java 模板或批量建模脚本预制业务理解来替代这条使用过程。业务含义不足时，只询问实际缺少的口径；安装方式、工具入口和参数合同应自行从产品查清。
 
+需要在新主题版本中延续既有分析时，通过 `read-governance` 的 `read-subject-context-selection` 提供精确 `objectId/sourceVersion`，读取四类已有选择的身份列表。`write-governance` 的 `revise-subject-area` 接收相同坐标、完整主题 `definition` 及明确的 `carry`，后者包含 `metrics/members/dimensions/scenarios` 四个数组；可从读取结果删去不需要的选择，空数组表示不延续。选中对象仍依赖被省略对象时整次操作拒绝，不自动扩大选择。
+
+该命令在一个事务内修订主题及选中的维度、场景，重绑采用中的维度、映射、成员与测量实例，保留共享定义的精确版本。写入回执的 `carried` 给出原、新版本对应关系；新增业务算法随后按普通治理命令采用。新上下文保持草稿，由作者明确激活和发布；已有场景规则内容不自动升级或扩大授权，规则合同已变化时需要明确审核刷新。旧发布与保存查询继续使用原坐标。只替换父定义、准备自行组织子项时，仍调用同一命令，并明确提供四个空数组。
+
 ## 查询、结果与持续积累
 
 `list-publications` 发现获准的精确发布；受限授权需要明确查询范围。`search-semantics` 分页找业务摘要，`read-semantic-asset` 读取口径与形参，`read-semantic-definition` 按精确引用读取一层定义并可继续展开。
 
 读取 `read-query-language-contract` 与 `read-semantic-expression-contract` 后组织完整查询。intent 的格式与字段取 `intentContract`，不把外层合同版本当作查询版本，不添加合同以外字段。公开实例、成员、维度、参数、时间、单位及权限均来自所选精确发布。
+
+保存计算的阶段表达式可使用 `{"kind":"ARGUMENT","name":"days","valueType":"NUMBER"}` 引用自身声明的同名 SCALAR 参数；调用时显式传入参数，绑定后再分析阶段。NUMBER 参数声明数量合同时，替换保留采用后的数量合同。普通 Query 不能留下未绑定的 ARGUMENT。
+
+不同表达位置使用各自的 BOOLEAN 合同。计算实参或成员条件值使用 `{"kind":"SCALAR","scalarType":"BOOLEAN","value":"true"}`，其中 `value` 必须是字符串；完成结果表达式的布尔常量使用 `{"kind":"LITERAL","value":true}`。不能把两种形态互换。输入解码失败返回 `DECODE_INPUT / INVALID_REQUEST`，`details.fieldPath` 按字段名和数组索引定位：治理路径相对于命令或读取的输入对象，查询路径相对于 intent。`expectedType/actualType` 描述形态；结合外层 `requestId` 修正请求，不需要服务器堆栈。
+
+算法定义把公开 DIMENSION 硬编码到要求语义槽的位置时，返回 `CALCULATION_DIMENSION_SLOT_REQUIRED`；引用本地 ROOT 输入却未声明 ROOT 时，返回 `ROOT_INPUT_REQUIRED`。`fieldPath` 定位错误声明，`expectedKind/actualKind` 说明要求与实际模式。缺少调用的 `sourceCondition` 属于解码错误；无限制条件也应明确写为 `{"kind":"TRUE"}`，不会隐式继承外层条件。不要为消除错误放宽维度身份、输入模式或条件合同。
+
+已解码的作者输入违反定义或采用合同，返回 `CONTRACT_VIOLATION` 及所属合同的拒绝原因；查询使用未获所选发布授权的构造，返回 `AUTHORIZE_INPUT / EXECUTABLE_QUERY_NOT_PUBLISHED`。这些拒绝不应被当成 worker 内部故障，也不表示来源已经执行。
+
+`explain-query` 的 scopes 中，完成关系导入给出 `relationInputMatch`：实际输入作用域、输出含义及完整键，与各层形参要求、投影映射一起呈现。MATCHED 只说明这些合同已匹配；人口继承实际输入，不隐式归约、去重或补组。关系不匹配返回 `RELATION_INPUT_CONTRACT_MISMATCH`，包含消费者及输入作用域、形参要求和实际输出，不能靠改列名或伪装成员属性绕过。
+
+执行响应的 `timingNanos` 保留来源解析 `RESOLVE_*`、编译、来源执行、元数据处理、worker 获取和结果交付计时。`SERVICE_TOTAL` 衡量服务内本次业务操作到封套准备，不包含客户端启动、MCP 会话建立或网络交付；`ENGINE_TOTAL` 包含编译和来源执行，worker 获取包含排队及必要启动，不能把嵌套阶段直接相加。`workers` 区分实际启动、复用及失败，并给出排队和启动耗时。`read-query-usage` 的 `run.executionEvidence.serviceObservation` 保留交付确认前的观察，冻结结果字节不随后续交付计时改写。一次观察不能作为稳定平均性能结论。
 
 按输入本身的含义选择形参：成员输入保对象与属性角色，测量槽采用可调用实例，`relationParameters` 接收调用者 ROOT 输入中的已完成关系。关系通过 `relations` 的 LOCAL 映射传入，按真实列、数量合同与完整观察键检查，不能把普通测量伪装为成员属性。需要本次来源条件时，使用定义明确声明的 CONDITION 参数，由计算体传给指定事实；不猜测外层条件会被继承。长期资格和人口规则沉淀为成员或计算定义，不把本次发布的过滤授权引用固定进采用。
 

@@ -36,7 +36,7 @@ agentic-olap call discover-governance-commands --payload '{}'
 
 业务连接器由使用者独立提供。在 `info` 指出的配置文件中登记插件 manifest、来源身份、插件参数和凭据引用。来源支持 HTTP 等访问实现，结构可由调查取得，也可通过 MCP 显式登记；catalog 权限不是必备条件。同一来源 ID 可以部署多个不同绑定；从 `list-data-sources` 选择并原样使用其 `sourceIdentityHash`，不按同名来源自动切换。业务定义由 Agent 使用 MCP 建设和复用，服务不启动模型。
 
-源码构建的连接器 API 为 `agentic-olap-connector/v9-kotlin-source-sql-calcite-1.42`，元数据存储格式为 `15`。使用同轮插件及 SDK；安装发行物时遵循该发行声明的接口版本。既有持久根不会被自动改写。
+源码构建的连接器 API 为 `agentic-olap-connector/v10-kotlin-typed-collections-text-identity-calcite-1.42`，元数据存储格式为 `15`。使用同轮插件及 SDK；安装发行物时遵循该发行声明的接口版本。既有持久根不会被自动改写。
 
 需要自己的工作目录时，相关命令使用同一 `--home /absolute/path`。已有远程服务的客户端使用 `--url https://your-service/mcp --token-env OLAP_TOKEN`。服务器远程访问使用显式 `start --config /absolute/server.json` 和外部 JWT 认证配置；默认本机令牌模式只允许回环监听。
 
