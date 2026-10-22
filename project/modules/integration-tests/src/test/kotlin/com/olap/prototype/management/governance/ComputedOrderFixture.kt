@@ -85,10 +85,9 @@ internal class ComputedOrderFixture(val database: PlatformDatabase, directory: P
     fun createMetric(code: String, definition: MetricCalculation): MetricRecord = f.metrics.createMetricCalculation(MetricCalculationCreateRequest(code, code, "trade", definition, "真实成员聚合", meaning, "golden")).metric.also { f.activate("METRIC", it.id) }
     fun freeze(scope: QueryComputation.Scope): QueryDefinitionView {
         val publication = publication()
-        return queries.save(QueryDefinitionCommand("computed_members_${++sequence}", null, requireNotNull(publication.queryCapability.capabilityHash), "实际形成订单",
-            "travel.trade.formed", 1, "formed_orders", "1", f.intent(publication, scope)), "golden").let { queries.requireByIdAndVersion(it.definitionId, it.definitionVersion) }
+        return queries.save(QueryDefinitionCommand("computed_members_${++sequence}", null, requireNotNull(publication.queryCapability.capabilityHash), "实际形成订单", f.intent(publication, scope), null), "golden").let { queries.requireByIdAndVersion(it.definitionId, it.definitionVersion) }
     }
-    fun execute(scope: QueryComputation.Scope) = f.execute(publication(), QueryComputation.parse(freeze(scope).intent.required("computation")))
+    fun execute(scope: QueryComputation.Scope) = f.execute(publication(), freeze(scope).intent.computation)
     fun formed(arguments: Map<String, Calculation.Value>, outputs: List<QueryComputation.Slot> = listOf(QueryComputation.Slot("order", "order"), QueryComputation.Slot("amount", "amount")),
         condition: MemberCondition = MemberCondition.Unrestricted()) = QueryComputation.Members("formed", MemberRef(publicRows.id, 1), arguments, outputs, null, emptyMap(), condition, emptyMap(), emptyMap())
     fun source(source: MemberSourceRecord, window: Calculation.Range) = CalculationBindings.SourceCall(MemberRef(source.id, 1), mapOf("window" to window), OrderMemberDefinitions.slots, emptyMap(), emptyMap())

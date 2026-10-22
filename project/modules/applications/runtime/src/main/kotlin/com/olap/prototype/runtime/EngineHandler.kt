@@ -1,7 +1,9 @@
 package com.olap.prototype.runtime
 
-import com.fasterxml.jackson.databind.JsonNode
-import com.fasterxml.jackson.databind.node.ObjectNode
+import com.olap.prototype.codec.GovernanceProto
+import com.olap.prototype.codec.ProtoBytes
+import com.olap.prototype.codec.PublicationProto
+import com.olap.prototype.codec.QueryProto
 import com.olap.prototype.connector.ConnectorRegistry
 import com.olap.prototype.contract.InputContractException
 import com.olap.prototype.connector.loader.DeployedSources
@@ -13,9 +15,6 @@ import com.olap.prototype.engine.executable.*
 import com.olap.prototype.engine.catalog.ExecutableCatalogManifest
 import com.olap.prototype.query.QueryStageAnalysis
 import com.olap.prototype.query.contract.*
-import com.olap.prototype.server.ServerInputs.fields
-import com.olap.prototype.server.ServerInputs.text
-import com.olap.prototype.util.OlapJsonUtils
 import com.olap.prototype.warehouse.WarehouseExecutionControl
 import com.olap.prototype.warehouse.contract.SourceConfiguration
 import com.olap.prototype.warehouse.contract.SourceReadEvidence
@@ -25,94 +24,73 @@ import java.util.HexFormat
 /** 精确发布的编译与实际执行；不拥有进程、元数据库或凭据选择。 */
 internal class EngineHandler(private val connectors: ConnectorRegistry, private val budgets: RuntimeBudgets,
     private val configured: List<SourceConfiguration>) {
-    private val mapper = OlapJsonUtils.mapper()
     private data class Loaded(val publication: PublishedExecutableCatalog, val artifactHash: String,
         val contentHash: String, val bytes: Long)
     private val catalogs = linkedMapOf<String, Loaded>()
     private var catalogBytes = 0L
 
-    fun execute(command: ObjectNode, control: WarehouseExecutionControl, sourceCompleted: (SourceReadEvidence) -> Unit): Any = when (text(command, "operation")) {
-        "load-catalog" -> {
-            fields(command, setOf("operation", "catalog")); load(command.required("catalog"), control)
-        }
-        "unload-catalog" -> {
-            fields(command, setOf("operation", "catalogId", "contentHash"))
-            val id = text(command, "catalogId")
+    fun execute(command: EngineWorkerCommand, control: WarehouseExecutionControl, sourceCompleted: (SourceReadEvidence) -> Unit): EngineWorkerResult = when (command) {
+        is EngineWorkerCommand.Load -> load(command.publication, control)
+        is EngineWorkerCommand.Unload -> {
+            val id = command.catalogId
             val current = catalogs[id] ?: error("exact catalog is not loaded")
-            require(current.contentHash == text(command, "contentHash")) { "unload must name exact immutable content" }
+            require(current.contentHash == command.contentHash) { "unload must name exact immutable content" }
             catalogs.remove(id); catalogBytes -= current.bytes
-            mapOf("unloaded" to true, "catalogId" to id, "contentHash" to current.contentHash)
+            EngineWorkerResult.Unloaded(id, current.contentHash)
         }
-        "resolve-input", "validate" -> {
-            fields(command, setOf("operation", "catalogId", "queryDefinition"))
-            resolve(text(command, "catalogId"), command.required("queryDefinition"), control, text(command, "operation"))
-        }
-        "explain" -> {
-            fields(command, setOf("operation", "catalogId", "queryDefinition"))
-            resolve(text(command, "catalogId"), command.required("queryDefinition"), control, "explain")
-        }
-        "execute" -> {
-            fields(command, setOf("operation", "catalogId", "queryDefinition", "dataSources", "readBasis"))
-            require(command.required("dataSources").isArray) { "dataSources must be an array" }
-            val requested = mapper.treeToValue(command.required("dataSources"), Array<SourceConfiguration>::class.java).toList()
-            require(requested == configured) { "execution sources differ from the supervisor's exact worker capability" }
-            val readBasis = command.get("readBasis")?.takeUnless { it.isNull }?.let {
-                fields(it, setOf("kind", "authority", "version", "partitions", "pinning"))
-                require(it.required("kind").textValue() == "VERSIONED") { "pinned execution requires a versioned read basis" }
-                mapper.treeToValue((it.deepCopy<JsonNode>() as ObjectNode).apply { remove("kind") },
-                    com.olap.prototype.warehouse.contract.SourceReadBasis.Versioned::class.java)
+        is EngineWorkerCommand.Inspect -> EngineWorkerResult.Resolved(resolve(command, control))
+        is EngineWorkerCommand.Execute -> {
+            require(command.bindings == configured.map { com.olap.prototype.warehouse.contract.SourceBindingRef(it.dataSourceId, it.sourceIdentityHash()) }) {
+                "execution sources differ from the supervisor's exact worker capability"
             }
-            run(text(command, "catalogId"), command.required("queryDefinition"), control, readBasis, sourceCompleted)
+            EngineWorkerResult.Executed(run(command, control, sourceCompleted))
         }
-        else -> throw IllegalArgumentException("unsupported engine operation")
     }
 
-    private fun load(payload: JsonNode, control: WarehouseExecutionControl): Any {
-        val encoded = mapper.writeValueAsBytes(payload)
-        if (encoded.size > budgets.catalogBytes) throw RuntimeResourceLimitException("CATALOG_BYTES_EXCEEDED")
-        require(payload.path("formatVersion").textValue() == PublishedExecutableCatalog.FORMAT_VERSION) { "unsupported published executable catalog" }
-        ExecutableCatalogManifest.requireSupportedSchema(payload.path("catalog").path("manifest").path("schemaVersion").textValue())
-        val id = text(payload.path("catalog").path("manifest"), "catalogId")
+    private fun load(publication: PublishedExecutableCatalog, control: WarehouseExecutionControl): EngineWorkerResult.Loaded {
+        val wire = GovernanceProto.toProto(publication)
+        if (wire.serializedSize > budgets.catalogBytes) throw RuntimeResourceLimitException("CATALOG_BYTES_EXCEEDED")
+        val encoded = ProtoBytes.encode(wire, budgets.catalogBytes.coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
+        require(publication.formatVersion == PublishedExecutableCatalog.FORMAT_VERSION) { "unsupported published executable catalog" }
+        ExecutableCatalogManifest.requireSupportedSchema(publication.catalog.manifest.schemaVersion)
+        val id = publication.catalog.manifest.catalogId
         val artifactHash = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(encoded))
         catalogs[id]?.let {
             check(it.artifactHash == artifactHash) { "catalog ID already loaded with different immutable content" }
             control.checkCancellation()
-            return mapOf("catalogId" to id, "contentHash" to it.contentHash)
+            return EngineWorkerResult.Loaded(id, it.contentHash)
         }
-        val publication = mapper.treeToValue(payload, PublishedExecutableCatalog::class.java)
         publication.validate()
-        val contentHash = PublicationContentHash.compute(payload)
+        val contentHash = PublicationProto.contentHash(publication)
         control.checkCancellation()
         while (catalogs.isNotEmpty() && (catalogs.size >= budgets.catalogEntries || encoded.size > budgets.catalogBytes - catalogBytes)) {
             val oldest = catalogs.entries.first(); catalogBytes -= oldest.value.bytes; catalogs.remove(oldest.key)
         }
         catalogs[id] = Loaded(publication, artifactHash, contentHash, encoded.size.toLong())
         catalogBytes += encoded.size
-        return mapOf("catalogId" to id, "contentHash" to contentHash)
+        return EngineWorkerResult.Loaded(id, contentHash)
     }
 
-    private fun authorize(publication: PublishedExecutableCatalog, id: String, definition: JsonNode): ExecutableQueryRequest = try {
-        require(definition.isObject) { "queryDefinition must be an object" }
-        fields(definition, setOf("requestId", "formatVersion", "scenarioId", "scenarioVersion", "releaseId", "releaseVersion", "computation"))
-        val intent = (definition as ObjectNode).deepCopy()
-        val requestId = text(intent, "requestId"); intent.remove("requestId")
-        val computation = PublishedQueryContract.parseIntent(intent, publication.queryCapability)
-        PublishedQueryContract.authorize(intent.path("formatVersion").textValue(), publication.coordinate, computation, publication.queryCapability)
-        ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION, requestId, id, computation)
+    private fun authorize(publication: PublishedExecutableCatalog, id: String, requestId: String, intent: QueryIntent): ExecutableQueryRequest = try {
+        require(requestId.isNotBlank()) { "query request identity is required" }
+        require(intent.publication == publication.coordinate) { "query publication differs from the frozen catalog" }
+        PublishedQueryContract.authorize(intent, publication.queryCapability)
+        ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION, requestId, id, intent.computation)
     } catch (failure: InputContractException) {
         throw failure
     } catch (failure: IllegalArgumentException) {
         throw EngineExecutionException("AUTHORIZE_INPUT", "EXECUTABLE_QUERY_NOT_PUBLISHED",
-            "Query is outside the frozen publication: ${failure.message}", failure)
+            "Query is outside the frozen publication: ${failure.message}", failure, sourceExecutionStarted = false)
     }
 
-    private fun resolve(id: String, definition: JsonNode, control: WarehouseExecutionControl, operation: String): Any {
+    private fun resolve(command: EngineWorkerCommand.Inspect, control: WarehouseExecutionControl): EngineInputResolution {
+        val id = command.catalogId
         val loaded = catalogs[id] ?: error("exact catalog is not loaded")
-        val request = authorize(loaded.publication, id, definition)
+        val request = authorize(loaded.publication, id, command.requestId, command.intent)
         control.checkCancellation()
         val context = com.olap.prototype.engine.context.OlapQueryContext(request.requestId)
         val compiler = OlapSemanticCompiler(CalciteRelCompiler(connectors))
-        val compiled = if (operation == "resolve-input") null else compiler.compile(loaded.publication.catalog, request, context, observer(control))
+        val compiled = if (command.mode == InspectionMode.RESOLVE) null else compiler.compile(loaded.publication.catalog, request, context, observer(control))
         val (dataSourceId, sourceIdentityHash, connectorRef) = if (compiled == null) {
             val source = compiler.resolveSource(loaded.publication.catalog, request, context, observer(control))
             Triple(source.dataSourceId, source.sourceConstraints.sourceIdentityHash, source.connectorRef)
@@ -121,11 +99,9 @@ internal class EngineHandler(private val connectors: ConnectorRegistry, private 
             Triple(lowered.dataSourceId, com.olap.prototype.contract.JdbcSourceRequirement.requireSingleBinding(lowered.sourceRequirements).sourceIdentityHash, lowered.connectorRef)
         }
         control.checkCancellation()
-        return mapOf("formatVersion" to "olap-input-resolution/v2", "publication" to loaded.publication.coordinate,
-            "catalogId" to id, "catalogHash" to loaded.contentHash, "intentHash" to PublicationContentHash.compute(definition),
-            "dataSourceId" to dataSourceId, "sourceIdentityHash" to sourceIdentityHash, "connectorRef" to connectorRef,
-            "explanation" to if (operation == "explain") QueryExplanation.describe(requireNotNull(compiled)) else null,
-            "timingNanos" to context.stageTimes)
+        return EngineInputResolution(loaded.publication.coordinate, request.requestId, id, loaded.contentHash,
+            QueryProto.digest(command.intent), com.olap.prototype.warehouse.contract.SourceBindingRef(dataSourceId, sourceIdentityHash), connectorRef,
+            context.stageTimes, if (command.mode == InspectionMode.EXPLAIN) QueryExplanation.describe(requireNotNull(compiled)) else null)
     }
 
     private fun observer(control: WarehouseExecutionControl): ExecutableExecutionObserver = object : ExecutableExecutionObserver {
@@ -141,48 +117,50 @@ internal class EngineHandler(private val connectors: ConnectorRegistry, private 
         }
     }
 
-    private fun run(id: String, intent: JsonNode, control: WarehouseExecutionControl,
-        readBasis: com.olap.prototype.warehouse.contract.SourceReadBasis.Versioned?, sourceCompleted: (SourceReadEvidence) -> Unit): Any {
+    private fun run(command: EngineWorkerCommand.Execute, control: WarehouseExecutionControl, sourceCompleted: (SourceReadEvidence) -> Unit): EngineExecutionPayload {
+        val id = command.catalogId
         val started = System.nanoTime()
         val stages = linkedMapOf<String, Long>()
         val loaded = catalogs[id] ?: throw IllegalArgumentException("catalog is not loaded: $id")
         val publication = loaded.publication
         var completedReadEvidence: SourceReadEvidence? = null
+        var sourceExecutionStarted: Boolean? = false
         try {
             control.checkCancellation()
             val authorizationStart = System.nanoTime()
-            val definition = try { authorize(publication, id, intent) }
+            val definition = try { authorize(publication, id, command.requestId, command.intent) }
             finally { stages["COMPILE_AUTHORIZE"] = System.nanoTime() - authorizationStart }
             val sources = DeployedSources(configured, connectors)
             val engine = OlapEngine(OlapSemanticCompiler(CalciteRelCompiler(connectors)),
-                SourceExecutableSqlExecutor(sources::requireProvider, budgets.materialization, budgets.nativeMemoryBytes, readBasis))
+                SourceExecutableSqlExecutor(sources::requireProvider, budgets.materialization, budgets.nativeMemoryBytes, command.readBasis))
+            sourceExecutionStarted = null
             val computation = engine.execute(publication.catalog, definition, observer(control), control)
             completedReadEvidence = computation.sourceReadEvidence
+            sourceExecutionStarted = true
             sourceCompleted(computation.sourceReadEvidence)
             stages.putAll(computation.result.stageNanos); stages["ENGINE_TOTAL"] = System.nanoTime() - started
-            return mapOf("formatVersion" to "olap-published-execution-result/v2", "publication" to publication.coordinate,
-                "computation" to computation, "stageNanos" to stages.toMap(),
-                "explanation" to QueryExplanation.describe(computation.compiledQuery))
+            return EngineExecutionPayload(publication.coordinate, command.requestId, computation.businessResult, computation.sourceReadEvidence,
+                stages.toMap(), EngineExecutionDiagnostics(computation.result.sql, computation.result.aliasMapping, computation.result.auditReport),
+                QueryExplanation.describe(computation.compiledQuery))
         } catch (failure: EngineExecutionException) {
             val evidence = failure.evidenceContext.toMutableMap()
-            val kernel = evidence["stageNanos"]
-            if (kernel is Map<*, *>) kernel.forEach { (stage, nanos) -> stages[stage as String] = nanos as Long }
+            stages.putAll(failure.stageNanos)
             stages["ENGINE_TOTAL"] = System.nanoTime() - started
             evidence["publication"] = publication.coordinate; evidence["catalogId"] = id
-            evidence["requestId"] = text(intent, "requestId"); evidence["stageNanos"] = stages.toMap()
+            evidence["requestId"] = command.requestId; evidence["stageNanos"] = stages.toMap()
             throw EngineExecutionException(failure.stage, failure.code, failure.message, failure.cause, evidence, failure.compiledQuery,
-                failure.sourceFailure, completedReadEvidence ?: failure.sourceReadEvidence)
+                failure.sourceFailure, completedReadEvidence ?: failure.sourceReadEvidence, failure.sourceExecutionStarted ?: sourceExecutionStarted, stages)
         } catch (failure: RuntimeResourceLimitException) {
             stages["ENGINE_TOTAL"] = System.nanoTime() - started
             throw EngineExecutionException("EXECUTION_RESOURCE", failure.code, "Execution resource budget exceeded", failure,
-                mapOf("publication" to publication.coordinate, "catalogId" to id, "requestId" to text(intent, "requestId"), "stageNanos" to stages.toMap()),
-                sourceReadEvidence = completedReadEvidence)
+                mapOf("publication" to publication.coordinate, "catalogId" to id, "requestId" to command.requestId, "stageNanos" to stages.toMap()),
+                sourceReadEvidence = completedReadEvidence, sourceExecutionStarted = sourceExecutionStarted, stageNanos = stages)
         } catch (failure: Exception) {
             val evidence = completedReadEvidence ?: throw failure
             stages["ENGINE_TOTAL"] = System.nanoTime() - started
             throw EngineExecutionException("PREPARE_RESULT", "EXECUTABLE_RESULT_PREPARATION_FAILED", "source execution succeeded but result preparation failed", failure,
-                mapOf("publication" to publication.coordinate, "catalogId" to id, "requestId" to text(intent, "requestId"), "stageNanos" to stages.toMap()),
-                sourceReadEvidence = evidence)
+                mapOf("publication" to publication.coordinate, "catalogId" to id, "requestId" to command.requestId, "stageNanos" to stages.toMap()),
+                sourceReadEvidence = evidence, sourceExecutionStarted = true, stageNanos = stages)
         }
     }
 }

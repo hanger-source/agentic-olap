@@ -1,6 +1,8 @@
 package com.olap.prototype.management.governance
 
-import com.fasterxml.jackson.core.type.TypeReference
+import com.olap.prototype.codec.ProtoBytes
+import com.olap.prototype.codec.SemanticProto
+import com.olap.prototype.codec.GovernanceProto
 import com.olap.prototype.calculation.*
 import com.olap.prototype.contract.ProducerContractException
 import com.olap.prototype.contract.ProducerContracts.requireText
@@ -16,7 +18,6 @@ import com.olap.prototype.metric.MetricBusinessMeaning
 import com.olap.prototype.query.ScopedInputContract
 import com.olap.prototype.query.contract.MetricAdoption
 import com.olap.prototype.storage.PlatformDatabase
-import com.olap.prototype.util.OlapJsonUtils
 import java.sql.ResultSet
 
 class SubjectAreaAdoptionRepository(private val database: PlatformDatabase) {
@@ -27,12 +28,12 @@ class SubjectAreaAdoptionRepository(private val database: PlatformDatabase) {
         requireVersion(record.metricVersion, "subject_area_metric_ref.metric_version"); requireText(record.status, "subject_area_metric_ref.status")
         requireText(record.selectedBy, "subject_area_metric_ref.selected_by"); GovernanceContract.requireInstant(record.selectedAt, "subject_area_metric_ref.selected_at")
         val changed = storage("cannot replace exact DRAFT metric adoption") {
-            execute(database, "UPDATE subject_area_metric_ref SET status=?,selected_by=?,selected_at=?,display_name=?,business_meaning_json=?,metric_id=?,metric_version=? WHERE id=? AND subject_area_id=? AND subject_area_version=? AND code=?",
-                listOf(record.status, record.selectedBy, record.selectedAt, record.displayName, json(record.businessMeaning), record.metricId, record.metricVersion, record.id, record.subjectAreaId, record.subjectAreaVersion, record.code))
+            execute(database, "UPDATE subject_area_metric_ref SET status=?,selected_by=?,selected_at=?,display_name=?,business_meaning_proto=?,metric_id=?,metric_version=? WHERE id=? AND subject_area_id=? AND subject_area_version=? AND code=?",
+                listOf(record.status, record.selectedBy, record.selectedAt, record.displayName, encodeProto(record.businessMeaning), record.metricId, record.metricVersion, record.id, record.subjectAreaId, record.subjectAreaVersion, record.code))
         }
         if (changed == 1) return
         storage("Failed to save subject_area_metric_ref: ${record.id}") { insert(database, "subject_area_metric_ref", linkedMapOf("id" to record.id, "subject_area_id" to record.subjectAreaId,
-            "subject_area_version" to record.subjectAreaVersion, "code" to record.code, "display_name" to record.displayName, "business_meaning_json" to json(record.businessMeaning),
+            "subject_area_version" to record.subjectAreaVersion, "code" to record.code, "display_name" to record.displayName, "business_meaning_proto" to encodeProto(record.businessMeaning),
             "metric_id" to record.metricId, "metric_version" to record.metricVersion, "status" to record.status, "selected_by" to record.selectedBy, "selected_at" to record.selectedAt,
             "instance_id" to MetricAdoption.instance(record.id, record.subjectAreaVersion).id)) }
     }
@@ -41,7 +42,7 @@ class SubjectAreaAdoptionRepository(private val database: PlatformDatabase) {
         return storage("Failed to list subject_area_metric_ref: $id#$version") { query(database, "SELECT * FROM subject_area_metric_ref WHERE subject_area_id=? AND subject_area_version=? ORDER BY code", listOf(id, version), ::metricRef) }
     }
     private fun metricRef(rs: ResultSet) = SubjectAreaMetricRefRecord(rs.getString("id"), rs.getString("subject_area_id"), requireNotNull(nullableLong(rs, "subject_area_version")),
-        rs.getString("code"), rs.getString("display_name"), OlapJsonUtils.mapper().readValue(rs.getString("business_meaning_json"), MetricBusinessMeaning::class.java),
+        rs.getString("code"), rs.getString("display_name"), meaning(rs.getString("business_meaning_proto")),
         rs.getString("metric_id"), requireNotNull(nullableLong(rs, "metric_version")), rs.getString("status"), rs.getString("selected_by"), requireNotNull(instant(rs, "selected_at")))
 
     fun replaceCalculationBindings(id: String, version: Long, bindings: CalculationBindings, fixedArguments: Map<String, Calculation.Value>) {
@@ -49,7 +50,7 @@ class SubjectAreaAdoptionRepository(private val database: PlatformDatabase) {
         update("DELETE FROM subject_area_metric_measurement_binding WHERE adoption_id=? AND adoption_version=?", id, version)
         update("DELETE FROM subject_area_metric_fixed_argument WHERE adoption_id=? AND adoption_version=?", id, version)
         bindings.measurements.forEach { (slot, target) -> update("INSERT INTO subject_area_metric_measurement_binding(adoption_id,adoption_version,slot,target_instance_id) VALUES (?,?,?,?)", id, version, slot, target.id) }
-        fixedArguments.forEach { (name, value) -> update("INSERT INTO subject_area_metric_fixed_argument(adoption_id,adoption_version,parameter_name,value_json) VALUES (?,?,?,?)", id, version, name, json(value)) }
+        fixedArguments.forEach { (name, value) -> update("INSERT INTO subject_area_metric_fixed_argument(adoption_id,adoption_version,parameter_name,value_proto) VALUES (?,?,?,?)", id, version, name, encodeProto(value)) }
         update("DELETE FROM subject_area_metric_dimension_mapping WHERE adoption_id=? AND adoption_version=?", id, version)
         update("DELETE FROM subject_area_metric_dimension_binding WHERE adoption_id=? AND adoption_version=?", id, version)
         update("DELETE FROM subject_area_metric_grouping_parameter WHERE adoption_id=? AND adoption_version=?", id, version)
@@ -62,11 +63,11 @@ class SubjectAreaAdoptionRepository(private val database: PlatformDatabase) {
         }
         bindings.members.forEach { (slot, binding) ->
             val call = binding as? CalculationBindings.SourceCall
-            update("INSERT INTO subject_area_metric_member_binding(adoption_id,adoption_version,slot,binding_kind,source_id,source_version,binding_json) VALUES (?,?,?,?,?,?,?)",
-                id, version, slot, memberKind(binding), call?.source?.id, call?.source?.version, json(binding))
+            update("INSERT INTO subject_area_metric_member_binding(adoption_id,adoption_version,slot,binding_kind,source_id,source_version,binding_proto) VALUES (?,?,?,?,?,?,?)",
+                id, version, slot, memberKind(binding), call?.source?.id, call?.source?.version, encodeProto(binding))
         }
         bindings.relations.forEach { (slot, binding) ->
-            update("INSERT INTO subject_area_metric_relation_binding(adoption_id,adoption_version,slot,binding_json) VALUES (?,?,?,?)", id, version, slot, json(binding))
+            update("INSERT INTO subject_area_metric_relation_binding(adoption_id,adoption_version,slot,binding_proto) VALUES (?,?,?,?)", id, version, slot, encodeProto(binding))
         }
     }
     private fun saveDimension(id: String, version: Long, slot: String, kind: String, index: Int, value: CalculationBindings.Dimension) {
@@ -89,14 +90,14 @@ class SubjectAreaAdoptionRepository(private val database: PlatformDatabase) {
             if (kind == "INTERNAL") dimensions[slot] = value else requireNotNull(groups[slot]) { "grouping declaration is missing" }.add(value)
         }
         val members = query(database, "SELECT * FROM subject_area_metric_member_binding WHERE adoption_id=? AND adoption_version=? ORDER BY slot", args) { row ->
-            val binding = OlapJsonUtils.mapper().readValue(row.getString("binding_json"), CalculationBindings.Member::class.java)
+            val binding = SemanticProto.fromProto(ProtoBytes.decode(ProtoBytes.stored(row.getString("binding_proto")), com.olap.prototype.wire.semantic.MemberBinding.getDefaultInstance()))
             if (memberKind(binding) != row.getString("binding_kind")) throw ProducerContractException("stored member binding kind differs from its exact content")
             if (binding is CalculationBindings.SourceCall && (binding.source.id != row.getString("source_id") || binding.source.version != row.getLong("source_version"))) throw ProducerContractException("stored member source differs from its exact binding")
             row.getString("slot") to binding
         }.toMap(linkedMapOf())
         val measurements = query(database, "SELECT slot,target_instance_id FROM subject_area_metric_measurement_binding WHERE adoption_id=? AND adoption_version=? ORDER BY slot", args) { it.getString(1) to MetricInstanceRef(it.getString(2)) }.toMap(linkedMapOf())
-        val relations = query(database, "SELECT slot,binding_json FROM subject_area_metric_relation_binding WHERE adoption_id=? AND adoption_version=? ORDER BY slot", args) {
-            it.getString(1) to OlapJsonUtils.mapper().readValue(it.getString(2), CalculationBindings.Relation::class.java)
+        val relations = query(database, "SELECT slot,binding_proto FROM subject_area_metric_relation_binding WHERE adoption_id=? AND adoption_version=? ORDER BY slot", args) {
+            it.getString(1) to SemanticProto.fromProto(ProtoBytes.decode(ProtoBytes.stored(it.getString(2)), com.olap.prototype.wire.semantic.RelationBinding.getDefaultInstance()))
         }.toMap(linkedMapOf())
         CalculationBindings(dimensions, members, groups, measurements, relations)
     }
@@ -113,13 +114,13 @@ class SubjectAreaAdoptionRepository(private val database: PlatformDatabase) {
     }
     fun metricInstance(reference: MetricInstanceRef): MetricAdoption = metricInstanceReference(reference).let { metricAdoption(it.id, it.subjectAreaVersion) }
     private fun fixedArguments(id: String, version: Long): Map<String, Calculation.Value> = storage("cannot read adopted fixed arguments") {
-        query(database, "SELECT parameter_name,value_json FROM subject_area_metric_fixed_argument WHERE adoption_id=? AND adoption_version=? ORDER BY parameter_name", listOf(id, version)) {
-            it.getString(1) to OlapJsonUtils.mapper().readValue(it.getString(2), Calculation.Value::class.java)
+        query(database, "SELECT parameter_name,value_proto FROM subject_area_metric_fixed_argument WHERE adoption_id=? AND adoption_version=? ORDER BY parameter_name", listOf(id, version)) {
+            it.getString(1) to (SemanticProto.fromProto(ProtoBytes.decode(ProtoBytes.stored(it.getString(2)), com.olap.prototype.wire.semantic.CalculationBinding.getDefaultInstance())) as? Calculation.Value ?: error("stored fixed argument must be a concrete value"))
         }.toMap().let { java.util.Map.copyOf(it) }
     }
     fun metricAdoption(id: String, version: Long): MetricAdoption = checkedRead("cannot read exact metric adoption") {
         val rows = query(database, "SELECT * FROM subject_area_metric_ref WHERE id=? AND subject_area_version=?", listOf(id, version)) { row ->
-            val adoption = MetricAdoption(id, row.getString("subject_area_id"), version, row.getString("code"), row.getString("display_name"), OlapJsonUtils.mapper().readValue(row.getString("business_meaning_json"), MetricBusinessMeaning::class.java),
+            val adoption = MetricAdoption(id, row.getString("subject_area_id"), version, row.getString("code"), row.getString("display_name"), meaning(row.getString("business_meaning_proto")),
                 MetricRef(row.getString("metric_id"), row.getString("metric_version")), metricAdoptionBindings(id, version), fixedArguments(id, version))
             if (adoption.instance.id != row.getString("instance_id")) throw ProducerContractException("stored adopted instance differs from its exact adoption identity")
             adoption
@@ -128,16 +129,16 @@ class SubjectAreaAdoptionRepository(private val database: PlatformDatabase) {
     }
 
     fun saveMemberSource(source: MemberSourceRecord) {
-        update("INSERT INTO subject_area_member_source(id,subject_area_id,subject_area_version,code,display_name,definition_origin_json,definition_json,bindings_json,fixed_arguments_json) VALUES (?,?,?,?,?,?,?,?,?)",
-            source.id, source.subjectAreaId, source.subjectAreaVersion, source.code, source.displayName, json(source.origin),
-            if (source.origin is MemberDefinitionOrigin.Local) json(source.definition) else null, json(source.bindings), fixedMemberJson(source.fixedArguments))
+        update("INSERT INTO subject_area_member_source(id,subject_area_id,subject_area_version,code,display_name,definition_origin_proto,definition_proto,bindings_proto,fixed_arguments_proto) VALUES (?,?,?,?,?,?,?,?,?)",
+            source.id, source.subjectAreaId, source.subjectAreaVersion, source.code, source.displayName, encodeProto(source.origin),
+            if (source.origin is MemberDefinitionOrigin.Local) encodeProto(source.definition) else null, encodeProto(source.bindings), encodeFixedArguments(source.fixedArguments))
         saveMemberOutputs(source)
     }
     fun replaceMemberAdoption(source: MemberSourceRecord) {
         require(source.origin is MemberDefinitionOrigin.Shared) { "member adoption revision requires a shared definition" }
         storage("cannot replace exact member adoption") {
-            if (execute(database, "UPDATE subject_area_member_source SET display_name=?,definition_origin_json=?,bindings_json=?,fixed_arguments_json=? WHERE id=? AND subject_area_id=? AND subject_area_version=? AND code=?",
-                listOf(source.displayName, json(source.origin), json(source.bindings), fixedMemberJson(source.fixedArguments),
+            if (execute(database, "UPDATE subject_area_member_source SET display_name=?,definition_origin_proto=?,bindings_proto=?,fixed_arguments_proto=? WHERE id=? AND subject_area_id=? AND subject_area_version=? AND code=?",
+                listOf(source.displayName, encodeProto(source.origin), encodeProto(source.bindings), encodeFixedArguments(source.fixedArguments),
                     source.id, source.subjectAreaId, source.subjectAreaVersion, source.code)) != 1)
                 throw IllegalStateException("member adoption revision requires one exact existing source")
             execute(database, "DELETE FROM subject_area_member_output WHERE source_id=? AND source_version=?", listOf(source.id, source.subjectAreaVersion))
@@ -165,21 +166,27 @@ class SubjectAreaAdoptionRepository(private val database: PlatformDatabase) {
         query(database, "SELECT * FROM subject_area_member_source WHERE id=? AND subject_area_version=?", listOf(id, version), ::memberSource).firstOrNull() ?: throw ProducerContractException("exact member source is missing: $id@$version")
     }
     private fun memberSource(row: ResultSet): MemberSourceRecord {
-        val origin = OlapJsonUtils.mapper().readValue(row.getString("definition_origin_json"), MemberDefinitionOrigin::class.java)
+        val origin = GovernanceProto.fromProto(ProtoBytes.decode(ProtoBytes.stored(row.getString("definition_origin_proto")), com.olap.prototype.wire.governance.MemberDefinitionOrigin.getDefaultInstance()))
         val definition = when (origin) {
-            is MemberDefinitionOrigin.Local -> OlapJsonUtils.mapper().readValue(requireNotNull(row.getString("definition_json")) { "local member definition is required" }, MemberSourceDefinition::class.java)
+            is MemberDefinitionOrigin.Local -> SemanticProto.fromProto(ProtoBytes.decode(ProtoBytes.stored(requireNotNull(row.getString("definition_proto")) { "local member definition is required" }), com.olap.prototype.wire.semantic.MemberSourceDefinition.getDefaultInstance()))
             is MemberDefinitionOrigin.Shared -> {
-                if (row.getString("definition_json") != null) throw ProducerContractException("shared member adoption cannot own a second definition body")
+                if (row.getString("definition_proto") != null) throw ProducerContractException("shared member adoption cannot own a second definition body")
                 MemberDefinitionRepository(database).read(origin.reference.id, origin.reference.version).definition
             }
         }
         return MemberSourceRecord(row.getString("id"), row.getString("subject_area_id"), row.getLong("subject_area_version"), row.getString("code"), row.getString("display_name"), origin, definition,
-            OlapJsonUtils.mapper().readValue(row.getString("bindings_json"), CalculationBindings::class.java), OlapJsonUtils.mapper().readValue(row.getString("fixed_arguments_json"), argumentType))
+            SemanticProto.fromProto(ProtoBytes.decode(ProtoBytes.stored(row.getString("bindings_proto")), com.olap.prototype.wire.semantic.CalculationBindings.getDefaultInstance())),
+            SemanticProto.arguments(ProtoBytes.decode(ProtoBytes.stored(row.getString("fixed_arguments_proto")), com.olap.prototype.wire.semantic.CalculationArguments.getDefaultInstance())))
     }
-    private val argumentType = object : TypeReference<Map<String, Calculation.Value>>() {}
-    private fun fixedMemberJson(arguments: Map<String, Calculation.Value>): String = try { OlapJsonUtils.mapper().writerFor(argumentType).writeValueAsString(arguments) }
-        catch (failure: Exception) { throw ProducerContractException("invalid fixed member arguments", failure) }
-    private fun json(value: Any): String = try { OlapJsonUtils.mapper().writeValueAsString(value) } catch (failure: Exception) { throw ProducerContractException("invalid semantic adoption value", failure) }
+    private fun encodeFixedArguments(arguments: Map<String, Calculation.Value>): String = ProtoBytes.storage(SemanticProto.arguments(arguments))
+    private fun encodeProto(value: MetricBusinessMeaning): String = ProtoBytes.storage(SemanticProto.toProto(value))
+    private fun encodeProto(value: Calculation.Binding): String = ProtoBytes.storage(SemanticProto.toProto(value))
+    private fun encodeProto(value: CalculationBindings.Member): String = ProtoBytes.storage(SemanticProto.toProto(value))
+    private fun encodeProto(value: CalculationBindings.Relation): String = ProtoBytes.storage(SemanticProto.toProto(value))
+    private fun encodeProto(value: CalculationBindings): String = ProtoBytes.storage(SemanticProto.toProto(value))
+    private fun encodeProto(value: MemberSourceDefinition): String = ProtoBytes.storage(SemanticProto.toProto(value))
+    private fun encodeProto(value: MemberDefinitionOrigin): String = ProtoBytes.storage(GovernanceProto.toProto(value))
+    private fun meaning(encoded: String): MetricBusinessMeaning = SemanticProto.fromProto(ProtoBytes.decode(ProtoBytes.stored(encoded), com.olap.prototype.wire.semantic.MetricBusinessMeaning.getDefaultInstance()))
     private fun update(sql: String, vararg values: Any?) { storage("cannot persist exact subject-area input or binding") { execute(database, sql, values.toList()) } }
     private fun <T> checkedRead(message: String, action: () -> T): T = try { action() } catch (failure: ProducerContractException) { throw failure } catch (failure: Exception) { throw IllegalStateException(message, failure) }
     private fun <T> storage(message: String, action: () -> T): T = try { action() } catch (failure: Exception) { throw IllegalStateException(message, failure) }

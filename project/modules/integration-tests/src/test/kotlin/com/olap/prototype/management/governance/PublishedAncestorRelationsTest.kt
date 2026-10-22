@@ -72,11 +72,9 @@ class PublishedAncestorRelationsTest {
                 NativeValidator { intent, capability -> QueryNativeValidation.validate(intent, capability, f.connectors) })
             for (includeSelf in listOf(false, true)) {
                 val scope = QueryComputation.Scope(QueryComputation.Members("members", MemberRef(member.id, 1), emptyMap(), listOf(QueryComputation.Slot("employee", "employee"), QueryComputation.Slot("manager", "manager")), null, emptyMap(), MemberCondition.Unrestricted(), emptyMap(), emptyMap()),
-                    emptyMap(), listOf(PostOperationCodec.parse(PostOperationContract.ANCESTOR_CLOSURE, mapOf("sourceKeys" to listOf("employee"), "parentKeys" to listOf("manager"),
-                        "descendantAliases" to listOf("descendant"), "ancestorAliases" to listOf("ancestor"), "includeSelf" to includeSelf))))
-                val saved = definitions.save(QueryDefinitionCommand(if (includeSelf) "ancestors_with_self" else "ancestors", null,
-                    requireNotNull(publication.queryCapability.capabilityHash), "可达祖先", scenario.id, 1, "staff_ancestor_release", "1", f.intent(publication, scope)), "golden")
-                val persisted = QueryComputation.parse(definitions.requireByIdAndVersion(saved.definitionId, saved.definitionVersion).intent.required("computation"))
+                    emptyMap(), listOf(PostOperationContract.AncestorClosure(listOf("employee"), listOf("manager"), listOf("descendant"), listOf("ancestor"), includeSelf)))
+                val saved = definitions.save(QueryDefinitionCommand(if (includeSelf) "ancestors_with_self" else "ancestors", null, requireNotNull(publication.queryCapability.capabilityHash), "可达祖先", f.intent(publication, scope), null), "golden")
+                val persisted = definitions.requireByIdAndVersion(saved.definitionId, saved.definitionVersion).intent.computation
                 val expected = mutableSetOf(listOf("e1", "e2"), listOf("e1", "e3"), listOf("e1", "e4"), listOf("e2", "e4"), listOf("e3", "e4"), listOf("e5", "e99"))
                 if (includeSelf) listOf("e1", "e2", "e3", "e4", "e5", "e6", "e99").forEach { expected.add(listOf(it, it)) }
                 val rows = f.execute(publication, persisted).result.resultFrame.rows

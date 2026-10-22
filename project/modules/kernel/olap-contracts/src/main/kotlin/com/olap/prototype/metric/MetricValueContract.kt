@@ -1,8 +1,5 @@
 package com.olap.prototype.metric
 
-import com.fasterxml.jackson.annotation.JsonSubTypes
-import com.fasterxml.jackson.annotation.JsonTypeInfo
-import com.fasterxml.jackson.annotation.JsonTypeName
 import com.olap.prototype.calculation.Calculation
 import com.olap.prototype.calculation.CalculationBindings
 import com.olap.prototype.calculation.MetricDefinition
@@ -48,8 +45,6 @@ class MetricValueContract(val unit: Unit, val arithmetic: Arithmetic, val result
         override fun hashCode(): Int = listOf(dimensionId, dimensionVersion, role, memberType, members).hashCode()
     }
 
-    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "kind")
-    @JsonSubTypes(JsonSubTypes.Type(value = Fixed::class, name = "FIXED"), JsonSubTypes.Type(value = EventDimension::class, name = "EVENT_DIMENSION"), JsonSubTypes.Type(value = SlotDimension::class, name = "DIMENSION_SLOT"), JsonSubTypes.Type(value = AnalysisDimension::class, name = "ANALYSIS_DIMENSION"))
     sealed interface Unit
     data class Fixed(val identity: UnitIdentity) : Unit
     data class EventDimension(val bindingId: String, val bindingVersion: Long, val axis: UnitAxis) : Unit {
@@ -83,8 +78,6 @@ class MetricValueContract(val unit: Unit, val arithmetic: Arithmetic, val result
             require(number >= decimal(arithmetic.minimum) && number <= decimal(arithmetic.maximum)) { "numeric scalar lies outside its declared approximation domain" }
     }
 
-    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "kind")
-    @JsonSubTypes(JsonSubTypes.Type(value = Exact::class, name = "EXACT_DECIMAL"), JsonSubTypes.Type(value = Approximate::class, name = "NATIVE_APPROXIMATION"), JsonSubTypes.Type(value = NativeFloating::class, name = "NATIVE_FLOATING"))
     sealed interface Arithmetic
     class Exact : Arithmetic { override fun equals(other: Any?): Boolean = other is Exact; override fun hashCode(): Int = 0 }
     /** 沿用原生浮点，不声明业务域或误差界限；仍核容量、有限值与溢出。 */
@@ -93,8 +86,6 @@ class MetricValueContract(val unit: Unit, val arithmetic: Arithmetic, val result
         init { require(decimal(minimum) <= decimal(maximum) && decimal(absoluteTolerance).signum() >= 0 && decimal(relativeTolerance).signum() >= 0) { "approximation requires an ordered evaluation domain and nonnegative tolerances" } }
     }
 
-    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "kind")
-    @JsonSubTypes(JsonSubTypes.Type(value = Decimal::class, name = "DECIMAL"), JsonSubTypes.Type(value = Integer::class, name = "INTEGER"), JsonSubTypes.Type(value = BinaryFloat::class, name = "BINARY_FLOAT"))
     sealed interface Result
     data class Decimal(val precision: Int, val scale: Int, val rounding: Rounding) : Result {
         init { require(precision > 0 && scale in 0..precision) { "decimal result needs explicit precision, scale and output rounding" } }
@@ -108,11 +99,8 @@ class MetricValueContract(val unit: Unit, val arithmetic: Arithmetic, val result
 
     enum class BinaryOperator { MULTIPLY, DIVIDE }
     enum class Operand { LEFT, RIGHT }
-    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "kind")
-    @JsonSubTypes(JsonSubTypes.Type(value = FixedBinary::class, name = "FIXED_BINARY"), JsonSubTypes.Type(value = SameUnitRatio::class, name = "SAME_UNIT_RATIO"), JsonSubTypes.Type(value = Scale::class, name = "UNIT_SCALE"), JsonSubTypes.Type(value = PreserveUnitScale::class, name = "PRESERVE_UNIT_SCALE"), JsonSubTypes.Type(value = PreserveUnit::class, name = "PRESERVE_UNIT"))
     sealed interface UnitEquation
 
-    @JsonTypeName("PRESERVE_UNIT")
     data class PreserveUnit(val operator: BinaryOperator, val operand: Operand) : UnitEquation {
         init { require(operator != BinaryOperator.DIVIDE || operand == Operand.LEFT) { "division preserves its numerator unit only for a dimensionless denominator" } }
     }

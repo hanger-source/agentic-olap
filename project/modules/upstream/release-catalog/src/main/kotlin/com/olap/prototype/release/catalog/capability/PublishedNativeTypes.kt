@@ -83,7 +83,7 @@ class PublishedNativeTypes(mappings: List<ReleaseDimensionMapping>, private val 
     fun definitions(): QueryNativeDefinitions = QueryNativeDefinitions(QueryCompilationCatalog.project(assets, connectors))
     private fun nativeDimension(mapping: ReleaseDimensionMapping): QueryExecutionTypes.Dimension {
         val context = eventContext(EventRef(mapping.eventId, mapping.eventVersion))
-        val value = expression(builder(context), context, SemanticExpressionCodec.parse(mapping.expressionJson, "frozen dimension expression"))
+        val value = expression(builder(context), context, mapping.expression)
         return QueryExecutionTypes.Dimension(ScopedInputContract.DimensionRef(mapping.analysisDimensionId, mapping.analysisDimensionVersion.toString(), mapping.levelCode),
             mapping.eventId, mapping.eventVersion, context, SemanticNativeTypes.describe(value.type))
     }
@@ -122,7 +122,7 @@ class PublishedNativeTypes(mappings: List<ReleaseDimensionMapping>, private val 
         fact.snapshotRule?.keys()?.forEach { expression(builder, context, it.expression()) }
         val unit = fact.valueContract.unit
         if (unit is MetricValueContract.EventDimension && unit.axis.memberType == ScalarValueType.NUMBER) mappings.filter { it.dimensionBindingId == unit.bindingId && it.dimensionBindingVersion == unit.bindingVersion }.forEach {
-            SemanticNumericRex.requireExactMemberCode(expression(builder, context, SemanticExpressionCodec.parse(it.expressionJson, "frozen numeric unit dimension")))
+            SemanticNumericRex.requireExactMemberCode(expression(builder, context, it.expression))
         }
         var input = SemanticNumericRex.factInput(builder, expression(builder, context, fact.input), fact.aggregation, fact.valueContract)
         val snapshot = fact.snapshotRule

@@ -1,9 +1,10 @@
 package com.olap.prototype.release.catalog
 
-import com.fasterxml.jackson.databind.JsonNode
-import com.fasterxml.jackson.databind.node.ObjectNode
 import com.olap.prototype.calculation.*
 import com.olap.prototype.engine.catalog.ExecutableCatalog
+import com.olap.prototype.engine.catalog.ExecutableDimensionBinding
+import com.olap.prototype.engine.catalog.ExecutableEvent
+import com.olap.prototype.engine.catalog.ExecutableJoinPath
 import com.olap.prototype.engine.catalog.ExecutableTopology
 import com.olap.prototype.event.RelationAccessPath
 import com.olap.prototype.expression.SemanticExpression
@@ -24,7 +25,6 @@ import com.olap.prototype.release.catalog.FrozenPublicationFixture.Companion.eq
 import com.olap.prototype.release.catalog.FrozenPublicationFixture.Companion.execute
 import com.olap.prototype.release.catalog.FrozenPublicationFixture.Companion.fact
 import com.olap.prototype.release.catalog.FrozenPublicationFixture.Companion.frozen
-import com.olap.prototype.release.catalog.FrozenPublicationFixture.Companion.mapper
 import com.olap.prototype.release.catalog.FrozenPublicationFixture.Companion.metricReferences
 import com.olap.prototype.release.catalog.FrozenPublicationFixture.Companion.money
 import com.olap.prototype.release.catalog.FrozenPublicationFixture.Companion.records
@@ -72,23 +72,22 @@ class FrozenRelationExecutionTest {
         FrozenPublicationFixture(directory, "duckdb", true).use { fixture ->
             val release = fixture.release(amount(), true)
             val assets = assembler.compileAssets(release, metricReferences(release))
-            val base = mapper.valueToTree<ObjectNode>(assets)
             val topology = assets.topologies.getValue("payment_topology@1")
-            (base.get("topologies") as ObjectNode).set<JsonNode>("unrelated@1", mapper.valueToTree(ExecutableTopology("unrelated", topology.topologyVersion,
+            val unrelated = ExecutableTopology("unrelated", topology.topologyVersion,
                 topology.topologyImplementationNamespaceCode, topology.topologyImplementationNamespaceDisplayName, topology.backboneLogicalTableId,
-                topology.backboneLogicalTableVersion, emptyList(), emptyList())))
-            val valid = mapper.treeToValue(base, ExecutableCatalog::class.java)
+                topology.backboneLogicalTableVersion, emptyList(), emptyList())
+            val valid = withAssets(assets, topologies = assets.topologies + ("unrelated@1" to unrelated))
             valid.validate()
-            val wrongTopology = changed(valid) { objectAt(it, "joinPaths", "destination_path@1").put("topologyId", "unrelated") }
+            val wrongTopology = withAssets(valid, joinPaths = valid.joinPaths + ("destination_path@1" to
+                valid.joinPaths.getValue("destination_path@1").copy(topologyId = "unrelated")))
             assertThrows(IllegalArgumentException::class.java) { wrongTopology.validate() }
-            val brokenPath = changed(valid) { objectAt(it, "dimensionBindings", "city_binding@1").set<JsonNode>("accessPath",
-                mapper.valueToTree(RelationAccessPath(listOf(DESTINATION.joinPathRefs.first(), DESTINATION.joinPathRefs.first())))) }
+            val brokenPath = withAssets(valid, dimensionBindings = valid.dimensionBindings + ("city_binding@1" to
+                valid.dimensionBindings.getValue("city_binding@1").copy(accessPath = RelationAccessPath(
+                    listOf(DESTINATION.joinPathRefs.first(), DESTINATION.joinPathRefs.first())))))
             assertThrows(IllegalArgumentException::class.java) { brokenPath.validate() }
-            val misplacedRole = changed(valid) {
-                objectAt(it, "events", "payment@1").set<JsonNode>("roles", mapper.valueToTree(mapOf("destination" to DESTINATION)))
-                objectAt(it, "events", "payment@1").set<JsonNode>("baseFilter", mapper.valueToTree(eq(SemanticExpression.Reference(
-                    SemanticExpression.ReferenceKind.ROLE_LOGIC_UNIT, "orders.amount", 1, "destination"), SemanticExpression.Literal(BigDecimal.ONE))))
-            }
+            val misplacedRole = withAssets(valid, events = valid.events + ("payment@1" to valid.events.getValue("payment@1").copy(
+                roles = mapOf("destination" to DESTINATION), baseFilter = eq(SemanticExpression.Reference(
+                    SemanticExpression.ReferenceKind.ROLE_LOGIC_UNIT, "orders.amount", 1, "destination"), SemanticExpression.Literal(BigDecimal.ONE)))))
             assertThrows(IllegalArgumentException::class.java) { misplacedRole.validate() }
         }
     }
@@ -131,7 +130,8 @@ class FrozenRelationExecutionTest {
             val predicate = DimensionCondition.Predicate("compound", CITY, MemberCondition.Operator.EQ, listOf(Calculation.Scalar(ScalarValueType.NUMBER, "17.00")))
             val input = request(listOf(call(catalog, "payment_total", "amount")), events = listOf(QueryComputation.EventCondition("payment", "1", predicate)))
             assertEquals(listOf(listOf(BigDecimal("10.00"))), execute(fixture, catalog, input))
-            val damaged = changed(catalog.catalog) { objectAt(it, "dimensionBindings", "city_binding@1").set<JsonNode>("roles", mapper.createObjectNode()) }
+            val damaged = withAssets(catalog.catalog, dimensionBindings = catalog.catalog.dimensionBindings + ("city_binding@1" to
+                catalog.catalog.dimensionBindings.getValue("city_binding@1").copy(roles = emptyMap())))
             assertThrows(RuntimeException::class.java) { bind(damaged, input) }
         }
     }
@@ -161,6 +161,13 @@ class FrozenRelationExecutionTest {
         }
     }
 
-    private fun changed(catalog: ExecutableCatalog, change: (ObjectNode) -> Unit): ExecutableCatalog = mapper.treeToValue(mapper.valueToTree<ObjectNode>(catalog).also(change), ExecutableCatalog::class.java)
-    private fun objectAt(root: ObjectNode, vararg path: String): ObjectNode = path.fold(root as JsonNode) { node, field -> node.required(field) } as ObjectNode
+    private fun withAssets(catalog: ExecutableCatalog, topologies: Map<String, ExecutableTopology> = catalog.topologies,
+        joinPaths: Map<String, ExecutableJoinPath> = catalog.joinPaths,
+        dimensionBindings: Map<String, ExecutableDimensionBinding> = catalog.dimensionBindings,
+        events: Map<String, ExecutableEvent> = catalog.events): ExecutableCatalog = ExecutableCatalog(
+        manifest = catalog.manifest, metrics = catalog.metrics, metricInstances = catalog.metricInstances,
+        memberSources = catalog.memberSources, relationFilters = catalog.relationFilters, analysisDimensions = catalog.analysisDimensions,
+        events = events, topologies = topologies, dimensions = catalog.dimensions, dimensionBindings = dimensionBindings,
+        logicUnits = catalog.logicUnits, timeAnchors = catalog.timeAnchors, joinPaths = joinPaths,
+        physicalExecutionBindings = catalog.physicalExecutionBindings)
 }

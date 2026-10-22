@@ -1,12 +1,13 @@
 package com.olap.prototype.management.governance
 
+import com.olap.prototype.metric.MetricAggregation
+import com.olap.prototype.calculation.MetricDefinition
 import com.olap.prototype.calculation.CalculationBindings
 import com.olap.prototype.connector.SourceExecutionException
 import com.olap.prototype.connector.SourceProvider
 import com.olap.prototype.engine.context.OlapQueryContext
 import com.olap.prototype.engine.executable.*
 import com.olap.prototype.event.EventIdentity
-import com.olap.prototype.expression.SemanticExpressionCodec
 import com.olap.prototype.governance.contract.*
 import com.olap.prototype.integration.RuntimeDeploymentLimits
 import com.olap.prototype.integration.TestConnectors
@@ -84,9 +85,25 @@ class PublishedSourceBindingTest {
                     listOf(EventCreateRequest.LogicUnitRefInput("binding_orders.pay_amount", version)), "调查订单", "golden")
                 if (version == 1L) f.events.createEvent(event) else f.events.reviseEvent(GovernanceRevisionRequest("trade.binding.orders.observed", 1, event))
                 f.activate("EVENT", "trade.binding.orders.observed", version)
-                val metric = MetricCreateRequest("trade.binding.orders.observed", version, "amount", "金额", "trade", SemanticExpressionCodec.write(GovernanceOrderFixture.ref("binding_orders.pay_amount", version)),
-                    "SUM", false, "BASE", "ADDITIVE", null, emptyMap(), "实收金额", MetricBusinessMeaning("来源订单金额", "元", "订单", emptyList()), null,
-                    GovernanceOrderFixture.money(), MetricValueContract.Rounding.NONE, "golden")
+                val metric = MetricCreateRequest(
+                    code = "amount",
+                    displayName = "金额",
+                    owner = "trade",
+                    definition = MetricDefinition.FactMeasure(
+                        event = com.olap.prototype.event.EventRef("trade.binding.orders.observed", version),
+                        input = GovernanceOrderFixture.ref("binding_orders.pay_amount", version),
+                        aggregation = MetricAggregation.SUM,
+                        distinct = false,
+                        privatePredicate = null,
+                        roles = emptyMap(),
+                        snapshotRule = null,
+                        valueContract = GovernanceOrderFixture.money(),
+                        aggregationRounding = MetricValueContract.Rounding.NONE
+                    ),
+                    description = "实收金额",
+                    businessMeaning = MetricBusinessMeaning("来源订单金额", "元", "订单", emptyList()),
+                    createdBy = "golden"
+                )
                 if (version == 1L) metricId = f.metrics.createMetric(metric).metric.id else f.metrics.reviseMetric(GovernanceRevisionRequest(requireNotNull(metricId), 1, metric))
                 f.activate("METRIC", requireNotNull(metricId), version)
                 val subject = SubjectAreaCreateRequest("travel", 1, "bindings", "绑定经营", "trade", "精确绑定", "golden")

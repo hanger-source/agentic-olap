@@ -1,4 +1,7 @@
 dependencies {
+    implementation(project(":json-io"))
+    implementation(project(":olap-codec"))
+    implementation(project(":dsl-api"))
     api(project(":release-catalog"))
     api(project(":warehouse-onboarding"))
     api(project(":engine-core"))

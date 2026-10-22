@@ -30,8 +30,8 @@ class GovernanceLifecycleReleaseTest {
             }
             database.connection().use { connection -> connection.createStatement().use { sql ->
                 sql.executeUpdate("""
-                    INSERT INTO logic_unit_version (id,logic_unit_id,version,version_status,content_json,diagnostic_json,source_version,created_by,created_at,activated_by,activated_at)
-                    SELECT 'order_fact.order_id:v2',logic_unit_id,2,'DRAFT',content_json,diagnostic_json,1,created_by,created_at,NULL,NULL
+                    INSERT INTO logic_unit_version (id,logic_unit_id,version,version_status,content_proto,diagnostic_json,source_version,created_by,created_at,activated_by,activated_at)
+                    SELECT 'order_fact.order_id:v2',logic_unit_id,2,'DRAFT',content_proto,diagnostic_json,1,created_by,created_at,NULL,NULL
                     FROM logic_unit_version WHERE logic_unit_id='order_fact.order_id' AND version=1
                 """.trimIndent())
                 sql.executeUpdate("UPDATE event_logic_unit_ref SET logic_unit_version=2 WHERE event_id='${GovernanceOrderFixture.EVENT}' AND ref_role='RECORD_KEY'")

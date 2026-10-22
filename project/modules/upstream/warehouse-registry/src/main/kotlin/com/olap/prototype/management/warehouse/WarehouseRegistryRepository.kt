@@ -3,6 +3,8 @@ package com.olap.prototype.management.warehouse
 import com.olap.prototype.contract.ProducerContractException
 import com.olap.prototype.contract.ProducerContracts.requireText
 import com.olap.prototype.storage.PlatformDatabase
+import com.olap.prototype.codec.GovernanceProto
+import com.olap.prototype.codec.ProtoBytes
 import com.olap.prototype.util.OlapJsonUtils
 import com.olap.prototype.warehouse.contract.JdbcTableConstraints
 import com.olap.prototype.warehouse.contract.SnapshotUniqueKey
@@ -49,7 +51,7 @@ class WarehouseRegistryRepository(private val database: PlatformDatabase) : Ware
         "database_product_name" to record.databaseProductName, "database_product_version" to record.databaseProductVersion, "driver_name" to record.driverName,
         "driver_version" to record.driverVersion, "read_only" to record.readOnly, "status" to record.status, "table_count" to record.tableCount,
         "error_message" to record.errorMessage, "requested_by" to record.requestedBy, "requested_at" to record.requestedAt, "discovered_at" to record.discoveredAt,
-        "source_identity_hash" to record.sourceIdentityHash, "structure_provenance_json" to record.structureProvenance?.let(json::writeValueAsString))
+        "source_identity_hash" to record.sourceIdentityHash, "structure_provenance_proto" to record.structureProvenance?.let { ProtoBytes.storage(GovernanceProto.toProto(it)) })
     override fun findDiscoverySnapshot(id: String): WarehouseDiscoverySnapshotRecord? {
         requireText(id, "warehouse_discovery_snapshot.id")
         return query("SELECT * FROM warehouse_discovery_snapshot WHERE id=?", listOf(id), ::snapshot).firstOrNull()
@@ -62,7 +64,7 @@ class WarehouseRegistryRepository(private val database: PlatformDatabase) : Ware
     fun saveDiscoveredTable(record: WarehouseDiscoveredTableRecord) = save("warehouse_discovered_table", record.id,
         "discovery_snapshot_id" to record.discoverySnapshotId, "catalog_name" to record.catalogName, "schema_name" to record.schemaName, "table_name" to record.tableName,
         "table_comment" to record.tableComment, "row_count" to record.rowCount, "schema_hash" to record.schemaHash, "registered_physical_table_id" to record.registeredPhysicalTableId,
-        "status" to record.status, "created_at" to record.createdAt, "constraints_json" to json.writeValueAsString(record.constraints))
+        "status" to record.status, "created_at" to record.createdAt, "constraints_proto" to ProtoBytes.storage(GovernanceProto.toProto(record.constraints)))
     override fun findDiscoveredTable(id: String): WarehouseDiscoveredTableRecord? {
         requireText(id, "warehouse_discovered_table.id")
         return query("SELECT * FROM warehouse_discovered_table WHERE id=?", listOf(id), ::table).firstOrNull()
@@ -80,12 +82,12 @@ class WarehouseRegistryRepository(private val database: PlatformDatabase) : Ware
         return query("SELECT * FROM warehouse_discovered_column WHERE discovered_table_id=? ORDER BY ordinal_position,column_name", listOf(discoveredTableId), ::column)
     }
     fun insertDiscoveredUniqueKey(record: WarehouseDiscoveredUniqueKeyRecord) = insert("cannot record immutable source unique proof",
-        "INSERT INTO warehouse_discovered_unique_key(id,discovered_table_id,rule_name,proof_json) VALUES (?,?,?,?)",
-        record.id, record.discoveredTableId, record.key.rule.name, json.writeValueAsString(record.key))
+        "INSERT INTO warehouse_discovered_unique_key(id,discovered_table_id,rule_name,proof_proto) VALUES (?,?,?,?)",
+        record.id, record.discoveredTableId, record.key.rule.name, ProtoBytes.storage(GovernanceProto.toProto(record.key)))
     override fun listDiscoveredUniqueKeys(discoveredTableId: String): List<WarehouseDiscoveredUniqueKeyRecord> {
         requireText(discoveredTableId, "unique proof table")
         return query("SELECT * FROM warehouse_discovered_unique_key WHERE discovered_table_id=? ORDER BY rule_name", listOf(discoveredTableId)) {
-            WarehouseDiscoveredUniqueKeyRecord(it.text("id"), it.text("discovered_table_id"), json.readValue(it.text("proof_json"), SnapshotUniqueKey::class.java))
+            WarehouseDiscoveredUniqueKeyRecord(it.text("id"), it.text("discovered_table_id"), GovernanceProto.fromProto(ProtoBytes.decode(ProtoBytes.stored(it.text("proof_proto")), com.olap.prototype.wire.governance.SnapshotUniqueKey.getDefaultInstance())))
         }
     }
     fun insertSourceCollection(record: SourceCollectionRecord) {
@@ -95,19 +97,19 @@ class WarehouseRegistryRepository(private val database: PlatformDatabase) : Ware
             return
         }
         insert("cannot register sealed source collection",
-            "INSERT INTO warehouse_source_collection(id,data_source_id,source_identity_hash,declaration_sha256,collection_code,record_json) VALUES (?,?,?,?,?,?)",
-            record.id, record.dataSourceId, record.sourceIdentityHash, record.declarationSha256, record.collection.code, json.writeValueAsString(record))
+            "INSERT INTO warehouse_source_collection(id,data_source_id,source_identity_hash,declaration_sha256,collection_code,record_proto) VALUES (?,?,?,?,?,?)",
+            record.id, record.dataSourceId, record.sourceIdentityHash, record.declarationSha256, record.collection.code, ProtoBytes.storage(GovernanceProto.toProto(record)))
     }
     override fun findSourceCollection(id: String): SourceCollectionRecord? {
         requireText(id, "source collection id")
-        return query("SELECT record_json FROM warehouse_source_collection WHERE id=?", listOf(id)) {
-            json.readValue(it.text("record_json"), SourceCollectionRecord::class.java)
+        return query("SELECT record_proto FROM warehouse_source_collection WHERE id=?", listOf(id)) {
+            GovernanceProto.fromProto(ProtoBytes.decode(ProtoBytes.stored(it.text("record_proto")), com.olap.prototype.wire.governance.SourceCollectionRecord.getDefaultInstance()))
         }.firstOrNull()
     }
     fun listSourceCollections(dataSourceId: String): List<SourceCollectionRecord> {
         requireText(dataSourceId, "source collection datasource")
-        return query("SELECT record_json FROM warehouse_source_collection WHERE data_source_id=? ORDER BY id", listOf(dataSourceId)) {
-            json.readValue(it.text("record_json"), SourceCollectionRecord::class.java)
+        return query("SELECT record_proto FROM warehouse_source_collection WHERE data_source_id=? ORDER BY id", listOf(dataSourceId)) {
+            GovernanceProto.fromProto(ProtoBytes.decode(ProtoBytes.stored(it.text("record_proto")), com.olap.prototype.wire.governance.SourceCollectionRecord.getDefaultInstance()))
         }
     }
     fun savePhysicalColumnProfile(record: PhysicalColumnProfileRecord) = save("physical_column_profile", record.id,
@@ -130,9 +132,9 @@ class WarehouseRegistryRepository(private val database: PlatformDatabase) : Ware
     private fun snapshot(row: ResultSet) = WarehouseDiscoverySnapshotRecord(row.text("id"), row.text("data_source"), row.text("dialect_id"), row.text("source_identity_hash"),
         row.text("catalog_name"), row.text("schema_name"), row.getString("database_product_name"), row.getString("database_product_version"), row.getString("driver_name"),
         row.getString("driver_version"), row.getObject("read_only", Boolean::class.javaObjectType), row.text("status"), row.requiredInt("table_count"), row.getString("error_message"),
-        row.text("requested_by"), row.instant("requested_at"), row.instant("discovered_at"), row.getString("structure_provenance_json")?.let { json.readValue(it, StructureProvenance::class.java) })
+        row.text("requested_by"), row.instant("requested_at"), row.instant("discovered_at"), row.getString("structure_provenance_proto")?.let { GovernanceProto.fromProto(ProtoBytes.decode(ProtoBytes.stored(it), com.olap.prototype.wire.governance.StructureProvenance.getDefaultInstance())) })
     private fun table(row: ResultSet) = WarehouseDiscoveredTableRecord(row.text("id"), row.text("discovery_snapshot_id"), row.text("catalog_name"), row.text("schema_name"), row.text("table_name"),
-        row.getString("table_comment"), row.getObject("row_count", Long::class.javaObjectType), row.getString("schema_hash"), json.readValue(row.text("constraints_json"), JdbcTableConstraints::class.java),
+        row.getString("table_comment"), row.getObject("row_count", Long::class.javaObjectType), row.getString("schema_hash"), GovernanceProto.fromProto(ProtoBytes.decode(ProtoBytes.stored(row.text("constraints_proto")), com.olap.prototype.wire.governance.JdbcTableConstraints.getDefaultInstance())),
         row.getString("registered_physical_table_id"), row.text("status"), row.instant("created_at"))
     private fun column(row: ResultSet) = WarehouseDiscoveredColumnRecord(row.text("id"), row.text("discovered_table_id"), row.text("column_name"), row.requiredInt("jdbc_type"), row.text("type_name"),
         row.getObject("precision_value", Int::class.javaObjectType), row.getObject("scale_value", Int::class.javaObjectType), row.getObject("auto_increment", Boolean::class.javaObjectType),

@@ -1,4 +1,5 @@
 dependencies {
+    testImplementation(project(":json-io"))
     testImplementation(project(":connector-loader"))
     testImplementation(project(":connector-h2"))
     testImplementation(project(":connector-duckdb"))

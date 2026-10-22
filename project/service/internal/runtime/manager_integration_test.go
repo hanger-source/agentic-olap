@@ -12,6 +12,11 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	pb "github.com/hanger-source/agentic-olap/service/internal/protocol"
+	gov "github.com/hanger-source/agentic-olap/service/internal/protocol/governance"
+	query "github.com/hanger-source/agentic-olap/service/internal/protocol/query"
+	"google.golang.org/protobuf/types/known/anypb"
 )
 
 // These trials run the actual distribution; they never install a test JVM main
@@ -30,12 +35,13 @@ func actualRuntime(t *testing.T, inFlight int) *Manager {
 	}
 	grants := []any{map[string]any{
 		"subjects": []string{"runtime-trial"}, "scopes": []string{"runtime-test"},
-		"operations":  []string{"inspect-warehouse", "list-data-sources", "read-query-language-contract"},
+		"operations":  []string{"inspect-warehouse", "list-data-sources"},
 		"dataSources": []string{}, "subjectAreas": []string{}, "releases": []string{}, "allGovernanceAssets": false,
 	}}
 	deployment, err := json.Marshal(map[string]any{
 		"dataRoot": filepath.Join(directory, "data"), "connectors": []string{}, "dataSources": []any{},
 		"auth": map[string]any{"grants": grants}, "history": map[string]any{"enabled": false, "retentionDays": 1},
+		"scripting": map[string]any{"workerCount": 1, "jvmHeapMiB": 768, "maxCalls": 100, "nativeLogBytes": 1048576},
 		"limits": map[string]any{
 			"requestSeconds": 30, "startupSeconds": 60, "maxInFlight": inFlight, "workerCount": 1,
 			"catalogEntriesPerWorker": 2, "requestBytes": 8192, "inputDepth": 16, "inputNodes": 200000,
@@ -69,7 +75,12 @@ func actualRuntime(t *testing.T, inFlight int) *Manager {
 		log.Close()
 		if t.Failed() {
 			bytes, _ := os.ReadFile(log.Name())
-			t.Logf("actual runtime diagnostics:\n%s", bytes)
+			const maximumDiagnosticBytes = 8 * 1024
+			if len(bytes) > maximumDiagnosticBytes {
+				t.Logf("actual runtime diagnostics truncated: %d bytes total; showing final %d bytes; full log: %s\n%s", len(bytes), maximumDiagnosticBytes, log.Name(), bytes[len(bytes)-maximumDiagnosticBytes:])
+			} else {
+				t.Logf("actual runtime diagnostics:\n%s", bytes)
+			}
 		}
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -81,28 +92,35 @@ func actualRuntime(t *testing.T, inFlight int) *Manager {
 }
 
 var trialPrincipal = Principal{Subject: "runtime-trial", Scopes: []string{"runtime-test"}}
-var inspectionCapability = []byte(`{"operation":"read-inspection-capability","payload":{}}`)
+
+func inspectionCapability() *pb.CapabilityInvocation {
+	input, err := anypb.New(&gov.SourceInspection{Kind: &gov.SourceInspection_Capabilities{Capabilities: &gov.SourceInspectionCapabilities{}}})
+	if err != nil {
+		panic(err)
+	}
+	return &pb.CapabilityInvocation{OperationId: "inspect-warehouse", Input: input}
+}
 
 func capabilityRequest(t *testing.T, m *Manager) Reply {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	reply, err := m.Call(ctx, trialPrincipal, "inspect-warehouse", inspectionCapability)
+	reply, err := m.CallCapability(ctx, trialPrincipal, inspectionCapability())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !reply.Success {
 		t.Fatalf("real inspection worker failed: %s", reply.Error)
 	}
-	var body struct {
-		Version    string   `json:"formatVersion"`
-		Operations []string `json:"operations"`
+	var body gov.SourceInspectionResult
+	if reply.Model == nil {
+		t.Fatal("actual worker omitted its concrete result")
 	}
-	if err := json.Unmarshal(reply.Result, &body); err != nil {
+	if err := reply.Model.UnmarshalTo(&body); err != nil {
 		t.Fatal(err)
 	}
-	if body.Version != "olap-inspection-capability/v2" || len(body.Operations) == 0 {
-		t.Fatalf("unexpected actual worker result: %s", reply.Result)
+	if body.GetCapabilities() == nil || len(body.GetCapabilities().GetOperations()) == 0 {
+		t.Fatalf("unexpected actual worker result: %v", &body)
 	}
 	return reply
 }
@@ -120,6 +138,15 @@ func runtimePIDs(m *Manager) []int {
 			pids = append(pids, slot.process.cmd.Process.Pid)
 		}
 		slot.mu.Unlock()
+	}
+	if m.scripts != nil {
+		m.scripts.mu.Lock()
+		for _, slot := range m.scripts.slots {
+			if slot.worker != nil && slot.worker.process != nil {
+				pids = append(pids, slot.worker.process.cmd.Process.Pid)
+			}
+		}
+		m.scripts.mu.Unlock()
 	}
 	return pids
 }
@@ -160,17 +187,15 @@ func TestActualDuplexWorkerBudgetFailureAndSubsequentRequests(t *testing.T) {
 	if worker.cmd.Process.Pid == m.metadata.cmd.Process.Pid {
 		t.Fatal("worker reused metadata process")
 	}
-	oversized := []byte(`{"text":"` + strings.Repeat("é", 5000) + `"}`)
-	if _, err := m.Call(context.Background(), trialPrincipal, "inspect-warehouse", oversized); err == nil {
-		t.Fatal("actual request byte budget was ignored")
-	}
-	deep := []byte(`{"nested":` + strings.Repeat("[", 20) + `0` + strings.Repeat("]", 20) + `}`)
-	refused, err := m.Call(context.Background(), trialPrincipal, "inspect-warehouse", deep)
+	pattern := strings.Repeat("é", 5000)
+	oversized, err := anypb.New(&gov.SourceInspection{Kind: &gov.SourceInspection_Discover{Discover: &gov.SourceInspectionDiscover{
+		Binding: &query.SourceBinding{DataSourceId: "unused", SourceIdentityHash: strings.Repeat("0", 64)}, SchemaPattern: &pattern,
+	}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if refused.Success {
-		t.Fatal("actual JVM input depth budget was ignored")
+	if _, err := m.CallCapability(context.Background(), trialPrincipal, &pb.CapabilityInvocation{OperationId: "inspect-warehouse", Input: oversized}); err == nil {
+		t.Fatal("actual request byte budget was ignored")
 	}
 	// Concurrent results retain distinct parent IDs on the same duplex channel.
 	type outcome struct {
@@ -180,7 +205,7 @@ func TestActualDuplexWorkerBudgetFailureAndSubsequentRequests(t *testing.T) {
 	results := make(chan outcome, 4)
 	for range 4 {
 		go func() {
-			reply, err := m.Call(context.Background(), trialPrincipal, "inspect-warehouse", inspectionCapability)
+			reply, err := m.CallCapability(context.Background(), trialPrincipal, inspectionCapability())
 			results <- outcome{reply, err}
 		}()
 	}
@@ -211,12 +236,12 @@ func TestActualWorkerCancellationReclaimsAdmissionAndProcess(t *testing.T) {
 	defer cancel()
 	finished := make(chan error, 1)
 	go func() {
-		_, err := m.Call(ctx, trialPrincipal, "inspect-warehouse", inspectionCapability)
+		_, err := m.CallCapability(ctx, trialPrincipal, inspectionCapability())
 		finished <- err
 	}()
 	waitForWorkerRequest(t, worker)
 	queued, stopQueued := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	_, err := m.Call(queued, trialPrincipal, "inspect-warehouse", inspectionCapability)
+	_, err := m.CallCapability(queued, trialPrincipal, inspectionCapability())
 	stopQueued()
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("bounded admission did not respect queued deadline: %v", err)
@@ -253,7 +278,7 @@ func TestActualMetadataExitIsTerminalAndOwnedWorkersClose(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	if _, err := m.Call(ctx, trialPrincipal, "inspect-warehouse", inspectionCapability); err == nil {
+	if _, err := m.CallCapability(ctx, trialPrincipal, inspectionCapability()); err == nil {
 		t.Fatal("dead metadata accepted work or was silently restarted")
 	}
 	if m.metadata.cmd.Process.Pid != metadataPID {
@@ -274,7 +299,7 @@ func TestActualWorkerDeadlineTerminatesBlockedProcessAndReleasesCapacity(t *test
 	defer cancel()
 	finished := make(chan error, 1)
 	go func() {
-		_, err := m.Call(ctx, trialPrincipal, "inspect-warehouse", inspectionCapability)
+		_, err := m.CallCapability(ctx, trialPrincipal, inspectionCapability())
 		finished <- err
 	}()
 	waitForWorkerRequest(t, worker)

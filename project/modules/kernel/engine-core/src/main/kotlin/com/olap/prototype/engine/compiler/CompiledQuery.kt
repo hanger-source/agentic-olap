@@ -9,6 +9,7 @@ import com.olap.prototype.event.EventIdentity
 import com.olap.prototype.member.MemberCondition
 import com.olap.prototype.query.DimensionCondition
 import com.olap.prototype.query.QueryStageAnalysis
+import com.olap.prototype.query.QueryExplanationView
 import com.olap.prototype.query.ScopedInputContract
 import com.olap.prototype.query.TemporalClockBindings
 import com.olap.prototype.time.TemporalWindow
@@ -21,7 +22,8 @@ data class CompiledQuery(val requestId: String, val catalogId: String,
     val rawRelationalPlanJson: String? = null, val optimizedRelationalPlanJson: String? = null,
     val scopes: List<CompiledScopeExplanation> = emptyList(),
     val sqlRelationalPlan: String? = null, val sqlRelationalPlanJson: String? = null,
-    val compilationScale: CompilationScale? = null) {
+    val compilationScale: CompilationScale? = null,
+    val sqlPlan: List<QueryExplanationView.PlanNode> = emptyList()) {
     val formatVersion: String get() = "olap-compiled-query/v10"
     data class InvocationEvidence(val scope: QueryStageAnalysis.ScopeId, val callId: String, val owner: CalculationOwner,
         val metric: MetricRef, val outputAlias: String, val arguments: Map<String, Calculation.Value>, val bindings: CalculationBindings) {

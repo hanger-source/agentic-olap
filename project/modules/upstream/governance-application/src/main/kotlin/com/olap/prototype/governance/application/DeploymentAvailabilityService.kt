@@ -1,6 +1,6 @@
 package com.olap.prototype.governance.application
 
-import com.fasterxml.jackson.databind.JsonNode
+import com.olap.prototype.codec.ProtoBytes
 import com.olap.prototype.connector.ConnectorRegistry
 import com.olap.prototype.connector.OlapConnector
 import com.olap.prototype.contract.JdbcSourceRequirement
@@ -17,7 +17,6 @@ import com.olap.prototype.query.definition.QueryDefinitionArtifact
 import com.olap.prototype.query.usage.QueryUsageRepository
 import com.olap.prototype.release.catalog.JdbcPublishedQueryEntryProvider
 import com.olap.prototype.release.catalog.ReleaseArtifactRepository
-import com.olap.prototype.runtime.BoundedJson
 import com.olap.prototype.runtime.JsonResourceLimits
 import com.olap.prototype.storage.PlatformDatabase
 import com.olap.prototype.storage.schema.PlatformSchemaInitializer
@@ -60,9 +59,9 @@ class DeploymentAvailabilityService(private val database: PlatformDatabase, priv
             val coordinate = mapOf<String, Any>("definitionId" to reference.definitionId, "definitionVersion" to reference.definitionVersion, "sha256" to reference.sha256)
             var definition: QueryDefinitionView? = null
             val stored = check(Kind.DEFINITION, coordinate) {
-                val raw = textRow("SELECT artifact_json FROM query_definition_version WHERE definition_id=? AND version=?", listOf(reference.definitionId, reference.definitionVersion), "SAVED_QUERY_MISSING")
-                val envelope = json(raw)
-                format("definitionFormat", envelope.path("formatVersion").asText(), QueryDefinitionArtifact.FORMAT_VERSION)
+                val raw = textRow("SELECT artifact_proto FROM query_definition_version WHERE definition_id=? AND version=?", listOf(reference.definitionId, reference.definitionVersion), "SAVED_QUERY_MISSING")
+                val envelope = ProtoBytes.decode(ProtoBytes.stored(raw), com.olap.prototype.wire.query.QueryDefinitionArtifact.getDefaultInstance(), limits.inputFileBytes)
+                format("definitionFormat", envelope.formatVersion, QueryDefinitionArtifact.FORMAT_VERSION)
                 val view = requireNotNull(definitions.findByIdAndVersion(reference.definitionId, reference.definitionVersion)) { "saved query disappeared from read snapshot" }
                 val exact = definitions.requireReference(reference.definitionId, reference.definitionVersion)
                 if (exact.sha256 != reference.sha256) problem(Status.INVALID, "SAVED_QUERY_HASH_MISMATCH", "saved query reference differs from its stored artifact")
@@ -70,11 +69,11 @@ class DeploymentAvailabilityService(private val database: PlatformDatabase, priv
             }
             checks.add(stored)
             checks.add(definition?.let { view -> check(Kind.QUERY_EXECUTION, coordinate + ("basis" to "AUTHORIZED_COMPILE_WITHOUT_SOURCE_EXECUTION")) {
-                format("intentFormat", view.intent.path("formatVersion").asText(), PublishedQueryContract.FORMAT_VERSION)
+                format("intentFormat", view.intent.formatVersion, PublishedQueryContract.FORMAT_VERSION)
                 val selected = publication(QueryCapabilityRequest(view.scenarioId, view.scenarioVersion, view.releaseId, view.releaseVersion))
                 require(view.catalogHash == selected.entry.catalogHash && view.capabilityHash == selected.entry.capability.capabilityHash) { "saved query differs from its exact frozen publication" }
                 PublishedQueryContract.authorize(view.intent, selected.entry.capability)
-                val computation = PublishedQueryContract.parseIntent(view.intent, selected.entry.capability)
+                val computation = view.intent.computation
                 val queryId = "availability:${view.definitionId}@${view.definitionVersion}"
                 control.checkCancellation()
                 val compiled = OlapSemanticCompiler(CalciteRelCompiler(connectors)).compile(selected.executable.catalog,
@@ -116,12 +115,12 @@ class DeploymentAvailabilityService(private val database: PlatformDatabase, priv
     }
 
     private fun publication(coordinate: QueryCapabilityRequest): JdbcPublishedQueryEntryProvider.Publication {
-        val raw = textRow("SELECT executable_catalog_json FROM release_executable_catalog WHERE scenario_id=? AND scenario_version=? AND release_id=? AND release_version=?",
+        val raw = textRow("SELECT executable_catalog_proto FROM release_executable_catalog WHERE scenario_id=? AND scenario_version=? AND release_id=? AND release_version=?",
             listOf(coordinate.scenarioId, coordinate.scenarioVersion, coordinate.releaseId, coordinate.releaseVersion), "PUBLICATION_MISSING")
-        val envelope = json(raw)
-        format("publicationFormat", envelope.path("formatVersion").asText(), PublishedExecutableCatalog.FORMAT_VERSION)
-        format("catalogSchema", envelope.path("catalog").path("manifest").path("schemaVersion").asText(), ExecutableCatalogManifest.SCHEMA_VERSION)
-        format("executionTypesFormat", envelope.path("queryCapability").path("executionTypes").path("formatVersion").asText(), QueryExecutionTypes.FORMAT_VERSION)
+        val envelope = ProtoBytes.decode(ProtoBytes.stored(raw), com.olap.prototype.wire.governance.PublishedExecutableCatalog.getDefaultInstance(), limits.inputFileBytes)
+        format("publicationFormat", envelope.formatVersion, PublishedExecutableCatalog.FORMAT_VERSION)
+        format("catalogSchema", envelope.catalog.manifest.schemaVersion, ExecutableCatalogManifest.SCHEMA_VERSION)
+        format("executionTypesFormat", envelope.queryCapability.executionTypes.formatVersion, QueryExecutionTypes.FORMAT_VERSION)
         artifacts.loadArtifact(coordinate.releaseId, coordinate.releaseVersion)
         return publications.readPublication(coordinate).also { it.executable.validate() }
     }
@@ -193,7 +192,6 @@ class DeploymentAvailabilityService(private val database: PlatformDatabase, priv
             statement.executeQuery().use { rows -> buildList { while (rows.next()) add(read(rows)) } }
         }
     }
-    private fun json(value: String): JsonNode = BoundedJson.decode(value.toByteArray(Charsets.UTF_8), limits)
     private fun format(name: String, actual: String, supported: String) {
         if (actual != supported) problem(Status.UNSUPPORTED, "UNSUPPORTED_ASSET_FORMAT", "$name is unsupported; no migration or compatibility reader is applied", mapOf("format" to name, "actual" to actual, "supported" to supported))
     }

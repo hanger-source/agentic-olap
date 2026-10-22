@@ -5,6 +5,8 @@ import com.olap.prototype.contract.ProducerContracts.requireVersion
 import com.olap.prototype.governance.contract.*
 import com.olap.prototype.storage.PlatformDatabase
 import java.sql.ResultSet
+import com.olap.prototype.codec.SemanticProto
+import com.olap.prototype.codec.ProtoBytes
 
 class GovernanceRepository(private val database: PlatformDatabase) {
     private val snapshots = GovernanceSnapshotReader(database)
@@ -90,8 +92,8 @@ class GovernanceRepository(private val database: PlatformDatabase) {
     }
     fun listEvents(): List<EventRecord> = working.list("event_version", "event_id").map { snapshots.event(it.objectId, it.version) }.sortedBy { it.code }
     fun saveEventVersion(r: EventVersionRecord) {
-        GovernanceContract.requireVersionObject("event_version", "event_id", r.id, r.eventId, r.version, r.versionStatus, r.createdBy, r.createdAt); requireText(r.contentJson, "event_version.content_json")
-        try { GovernanceJdbcSupport.insert(database, "event_version", linkedMapOf("id" to r.id, "event_id" to r.eventId, "version" to r.version, "version_status" to r.versionStatus, "content_json" to r.contentJson, "diagnostic_json" to r.diagnosticJson, "source_version" to r.sourceVersion, "created_by" to r.createdBy, "created_at" to r.createdAt, "activated_by" to r.activatedBy, "activated_at" to r.activatedAt, "deprecated_by" to r.deprecatedBy, "deprecated_at" to r.deprecatedAt, "archived_by" to r.archivedBy, "archived_at" to r.archivedAt)) }
+        GovernanceContract.requireVersionObject("event_version", "event_id", r.id, r.eventId, r.version, r.versionStatus, r.createdBy, r.createdAt); requireText(r.contentProto, "event_version.content_proto")
+        try { GovernanceJdbcSupport.insert(database, "event_version", linkedMapOf("id" to r.id, "event_id" to r.eventId, "version" to r.version, "version_status" to r.versionStatus, "content_proto" to r.contentProto, "diagnostic_json" to r.diagnosticJson, "source_version" to r.sourceVersion, "created_by" to r.createdBy, "created_at" to r.createdAt, "activated_by" to r.activatedBy, "activated_at" to r.activatedAt, "deprecated_by" to r.deprecatedBy, "deprecated_at" to r.deprecatedAt, "archived_by" to r.archivedBy, "archived_at" to r.archivedAt)) }
         catch (failure: Exception) { throw IllegalStateException("Failed to save event_version: ${r.id}", failure) }
     }
     fun findEventVersion(id: String, version: Long): EventVersionRecord? {
@@ -115,17 +117,18 @@ class GovernanceRepository(private val database: PlatformDatabase) {
     fun listEventLogicUnitRefs(id: String, version: Long): List<EventLogicUnitRefRecord> = refs.listEventLogicUnitRefs(id, version)
     fun saveEventSliceFilter(r: EventSliceFilterRecord) {
         val table = "event_slice_filter"
-        requireText(r.id, "$table.id"); requireText(r.eventId, "$table.event_id"); requireVersion(r.eventVersion, "$table.event_version"); requireText(r.filterJson, "$table.filter_json")
+        requireText(r.id, "$table.id"); requireText(r.eventId, "$table.event_id"); requireVersion(r.eventVersion, "$table.event_version")
+        val encoded = ProtoBytes.storage(SemanticProto.toProto(r.predicate))
         try {
-            val count = GovernanceJdbcSupport.execute(database, "UPDATE event_slice_filter SET event_id=?, event_version=?, filter_json=?, created_at=? WHERE id=?", listOf(r.eventId, r.eventVersion, r.filterJson, r.createdAt, r.id))
-            if (count == 0) GovernanceJdbcSupport.insert(database, table, linkedMapOf("id" to r.id, "event_id" to r.eventId, "event_version" to r.eventVersion, "filter_json" to r.filterJson, "created_at" to r.createdAt))
+            val count = GovernanceJdbcSupport.execute(database, "UPDATE event_slice_filter SET event_id=?, event_version=?, predicate_proto=?, created_at=? WHERE id=?", listOf(r.eventId, r.eventVersion, encoded, r.createdAt, r.id))
+            if (count == 0) GovernanceJdbcSupport.insert(database, table, linkedMapOf("id" to r.id, "event_id" to r.eventId, "event_version" to r.eventVersion, "predicate_proto" to encoded, "created_at" to r.createdAt))
         } catch (failure: Exception) { throw IllegalStateException("Failed to save $table: ${r.id}", failure) }
     }
     fun listEventSliceFilters(id: String, version: Long): List<EventSliceFilterRecord> {
         requireText(id, "event_slice_filter.event_id"); requireVersion(version, "event_slice_filter.event_version")
-        return try { GovernanceJdbcSupport.query(database, "SELECT * FROM event_slice_filter WHERE event_id=? AND event_version=? ORDER BY id", listOf(id, version)) { r -> EventSliceFilterRecord(r.getString("id"), r.getString("event_id"), r.getLong("event_version"), r.getString("filter_json"), r.getTimestamp("created_at").toInstant()) } }
+        return try { GovernanceJdbcSupport.query(database, "SELECT * FROM event_slice_filter WHERE event_id=? AND event_version=? ORDER BY id", listOf(id, version)) { r -> EventSliceFilterRecord(r.getString("id"), r.getString("event_id"), r.getLong("event_version"), SemanticProto.fromProto(ProtoBytes.decode(ProtoBytes.stored(r.getString("predicate_proto")), com.olap.prototype.wire.semantic.SemanticExpression.getDefaultInstance())), r.getTimestamp("created_at").toInstant()) } }
         catch (failure: Exception) { throw IllegalStateException("Failed to list event_slice_filter: $id", failure) }
     }
     private fun physicalRef(r: ResultSet): PhysicalLogicalTableRefRecord = PhysicalLogicalTableRefRecord(r.getString("id"), r.getString("physical_table_id"), r.getLong("physical_table_version"), r.getString("logical_table_id"), r.getLong("logical_table_version"), r.getString("ref_role"), r.getTimestamp("created_at").toInstant())
-    private fun eventVersion(r: ResultSet): EventVersionRecord = EventVersionRecord(r.getString("id"), r.getString("event_id"), r.getLong("version"), r.getString("version_status"), r.getString("content_json"), r.getString("diagnostic_json"), GovernanceJdbcSupport.nullableLong(r, "source_version"), r.getString("created_by"), r.getTimestamp("created_at").toInstant(), r.getString("activated_by"), GovernanceJdbcSupport.instant(r, "activated_at"), r.getString("deprecated_by"), GovernanceJdbcSupport.instant(r, "deprecated_at"), r.getString("archived_by"), GovernanceJdbcSupport.instant(r, "archived_at"))
+    private fun eventVersion(r: ResultSet): EventVersionRecord = EventVersionRecord(r.getString("id"), r.getString("event_id"), r.getLong("version"), r.getString("version_status"), r.getString("content_proto"), r.getString("diagnostic_json"), GovernanceJdbcSupport.nullableLong(r, "source_version"), r.getString("created_by"), r.getTimestamp("created_at").toInstant(), r.getString("activated_by"), GovernanceJdbcSupport.instant(r, "activated_at"), r.getString("deprecated_by"), GovernanceJdbcSupport.instant(r, "deprecated_at"), r.getString("archived_by"), GovernanceJdbcSupport.instant(r, "archived_at"))
 }

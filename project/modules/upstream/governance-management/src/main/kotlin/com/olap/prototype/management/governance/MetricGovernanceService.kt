@@ -1,6 +1,5 @@
 package com.olap.prototype.management.governance
 
-import com.fasterxml.jackson.databind.node.ObjectNode
 import com.olap.prototype.calculation.Calculation
 import com.olap.prototype.calculation.MetricCalculation
 import com.olap.prototype.calculation.MetricDefinition
@@ -15,7 +14,6 @@ import com.olap.prototype.query.ScalarValueType
 import com.olap.prototype.query.ScopedInputContract
 import com.olap.prototype.query.SetOutputContract
 import com.olap.prototype.storage.PlatformDatabase
-import com.olap.prototype.util.OlapJsonUtils
 import java.time.Instant
 import java.util.UUID
 
@@ -26,7 +24,7 @@ class MetricGovernanceService(private val database: PlatformDatabase, private va
     private val snapshots = GovernanceSnapshotReader(database)
     private val memberSources = SubjectAreaAdoptionRepository(database)
     fun metricSnapshot(id: String, version: Long): MetricRecord = snapshots.metric(id, version)
-    fun metricExecutionDefinition(id: String, version: Long): ObjectNode = snapshots.metricExecutionDefinition(id, version)
+    fun metricExecutionDefinition(id: String, version: Long): MetricDefinition = snapshots.metricExecutionDefinition(id, version)
     fun dimensionSnapshot(id: String, version: Long): DimensionRecord = snapshots.dimension(id, version)
     fun dimensionEventBindingSnapshot(id: String, version: Long): DimensionEventBindingRecord = snapshots.dimensionEventBinding(id, version)
     fun subjectAreaSnapshot(id: String, version: Long): SubjectAreaRecord = snapshots.subjectArea(id, version)
@@ -161,34 +159,22 @@ class MetricGovernanceService(private val database: PlatformDatabase, private va
         definition.calculation.declaredDimensions().forEach { (position, slot) -> add(dependency(metric, position, position, "DIMENSION", slot.dimensionId, slot.dimensionVersion, slot.role)) }
     }
     private fun createFact(request: MetricCreateRequest, revision: GovernanceRevisionRequest<MetricCreateRequest>?): MetricCreateResult {
-        val eventVersion = positive(request.sourceEventVersion, "metric.source_event_version")
-        val event = events.requireEvent(request.sourceEventId, eventVersion)
+        val definition = request.definition
+        val event = events.requireEvent(definition.event.eventId, definition.event.eventVersion)
         val code = code(request.code)
         val id = revision?.objectId ?: "metric-${UUID.randomUUID()}"
         val draft = GovernanceDraftVersions(database).start(GovernanceDraftVersions.Asset.METRIC, id, revision, request.createdBy)
-        val expression = parseExpression(request.inputExpressionJson, "metric.input_expression_json")
-        val aggregation = try { MetricAggregation.parse(request.aggregation, "metric.aggregation").name }
-            catch (invalid: IllegalArgumentException) { throw ProducerContractException(requireNotNull(invalid.message), invalid) }
-        val kind = text(request.metricKind, "metric.metric_kind")
-        if (kind !in MetricCreateRequest.METRIC_KINDS) throw ProducerContractException("metric.metric_kind unsupported by base metric command: $kind")
-        val merge = try { MetricMergePolicy.parse(request.mergePolicy, "metric.merge_policy").also { if (!it.publishable()) throw ProducerContractException("metric.merge_policy is not publishable: ${request.mergePolicy}") }.name }
-            catch (invalid: IllegalArgumentException) { throw ProducerContractException(requireNotNull(invalid.message), invalid) }
-        if (request.distinct && (aggregation != MetricCreateRequest.DISTINCT_AGGREGATION || merge != MetricCreateRequest.DISTINCT_MERGE_POLICY))
-            throw ProducerContractException("distinct metrics require COUNT and DISTINCT_NON_ADDITIVE; distinct counts cannot be added across groups")
         val actor = text(request.createdBy, "metric.created_by")
         val now = Instant.now()
-        validateInput(event, expression, request.roles)
-        validateSnapshot(event, merge, request.snapshotRule, request.distinct, aggregation)
-        val predicate = request.privatePredicateJson?.let { parseExpression(it, "metric.private_predicate_json") }
-        val definition = MetricDefinition.FactMeasure(EventRef(event.id, eventVersion), expression, MetricAggregation.valueOf(aggregation), request.distinct, predicate,
-            request.roles, request.snapshotRule, request.valueContract, request.aggregationRounding)
+        validateInput(event, definition.input, definition.roles)
+        validateSnapshot(event, definition.snapshotRule, definition.distinct, definition.aggregation.name)
         val metric = MetricRecord(id, code, text(request.displayName, "metric.display_name"), definition, request.description, text(request.owner, "metric.owner"), "DRAFT", draft.version, actor, now, actor, now)
         val version = version(metric, request.businessMeaning, draft.sourceVersion)
         persist(metric, version, factDependencies(metric))
         return MetricCreateResult(metric, version)
     }
     private fun version(metric: MetricRecord, meaning: MetricBusinessMeaning, sourceVersion: Long?) = MetricVersionRecord("${metric.id}:v${metric.currentVersion}", metric.id, metric.currentVersion, "DRAFT",
-        json(MetricSnapshots.metricVersionContent(metric, meaning)), "{}", sourceVersion, metric.createdBy, metric.createdAt, null, null, null, null, null, null)
+        encodeDefinition(MetricSnapshots.metricVersionContent(metric, meaning)), "{}", sourceVersion, metric.createdBy, metric.createdAt, null, null, null, null, null, null)
     private fun dependency(metric: MetricRecord, suffix: String, scope: String, type: String, id: String, version: Long?, symbol: String?) =
         MetricDependencyRecord("${metric.id}:v${metric.currentVersion}:$suffix", metric.id, metric.currentVersion, scope, type, id, version, symbol, "BOUND", null, metric.createdAt)
 
@@ -202,7 +188,7 @@ class MetricGovernanceService(private val database: PlatformDatabase, private va
             val binding = dimensionBindings.dimensionEventBindingSnapshot(unit.bindingId, unit.bindingVersion)
             if (binding.dimensionId != unit.axis.dimensionId || binding.dimensionVersion != unit.axis.dimensionVersion || binding.eventId != event.id || binding.eventVersion != fact.event.eventVersion)
                 throw ProducerContractException("metric unit axis differs from its exact event dimension binding")
-            val expression = SemanticExpressionCodec.parse(text(binding.expressionJson, "metric unit axis expression"), "metric unit axis expression")
+            val expression = requireNotNull(binding.expression) { "metric unit axis expression is required" }
             val memberType = SemanticExpressionValueType.resolve(expression, { ScalarValueType.fromLogicType(requireNotNull(snapshots.logicUnit(it.id, it.version).logicType)) }, nativeExpressions::function)
             if (memberType != unit.axis.memberType) throw ProducerContractException("metric unit member type differs from its exact semantic expression")
             add(dependency(metric, "UNIT_DIMENSION", "UNIT_DIMENSION", "DIMENSION_BINDING", unit.bindingId, unit.bindingVersion, unit.axis.role))
@@ -224,8 +210,7 @@ class MetricGovernanceService(private val database: PlatformDatabase, private va
         java.util.Map.copyOf(roles).forEach { (role, path) -> ScopedInputContract.requireId(role); topologies.requireAccessPath(event.topologyId, event.topologyVersion, path, "metric input role $role") }
         events.requirePositionedExpression(event.id, event.currentVersion, RelationAccessPath(emptyList()), roles, expression, "MEASURE", "metric input")
     }
-    private fun validateSnapshot(event: EventRecord, merge: String, rule: MetricSnapshotRule?, distinct: Boolean, aggregation: String) {
-        if ((merge == MetricMergePolicy.SEMI_ADDITIVE.name) != (rule != null)) throw ProducerContractException("SEMI_ADDITIVE requires snapshotRule; other base merge policies forbid it")
+    private fun validateSnapshot(event: EventRecord, rule: MetricSnapshotRule?, distinct: Boolean, aggregation: String) {
         if (rule == null) return
         rule.keys().forEach {
             topologies.requireReachableLogicUnit(event.topologyId, event.topologyVersion, it.id, it.version, "metric.snapshotRule")
@@ -323,10 +308,8 @@ class MetricGovernanceService(private val database: PlatformDatabase, private va
         }
         return MetricBindingContextRecord(event, candidates)
     }
-    private fun parseExpression(value: String?, field: String): SemanticExpression = try { SemanticExpressionCodec.parse(text(value, field), field) }
-        catch (invalid: IllegalArgumentException) { throw ProducerContractException(requireNotNull(invalid.message)) }
     private fun text(value: String?, field: String): String = value?.trim()?.takeUnless { it.isEmpty() } ?: throw ProducerContractException("$field is required")
     private fun positive(value: Long?, field: String): Long = value?.takeIf { it > 0 } ?: throw ProducerContractException("$field is required and must be a positive version")
     private fun code(value: String): String = text(value, "metric.code").also { if (!it.matches(Regex("[a-z][a-z0-9_]*"))) throw ProducerContractException("metric.code must be lower snake case and start with a letter") }
-    private fun json(value: Any): String = try { OlapJsonUtils.mapper().writeValueAsString(value) } catch (failure: Exception) { throw ProducerContractException("canonical governance content_json invalid", failure) }
+    private fun encodeDefinition(value: GovernanceDefinition): String = com.olap.prototype.codec.ProtoBytes.storage(com.olap.prototype.codec.GovernanceProto.definition(value))
 }

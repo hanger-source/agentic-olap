@@ -1,6 +1,5 @@
 package com.olap.prototype.query.contract
 
-import com.fasterxml.jackson.annotation.JsonProperty
 import com.olap.prototype.calculation.MetricCalculation
 import com.olap.prototype.calculation.MetricInstance
 import com.olap.prototype.calculation.MetricSource
@@ -15,14 +14,14 @@ import java.util.Collections
 
 /** 上游不可变发布封套；批准与业务所属不进入内核目录。 */
 class PublishedExecutableCatalog(
-    @param:JsonProperty(required = true) val formatVersion: String,
-    @param:JsonProperty(required = true) val coordinate: QueryCapabilityRequest,
-    @param:JsonProperty(required = true) val queryCapability: QueryCapabilityView,
-    @param:JsonProperty(required = true) val catalog: ExecutableCatalog,
-    @param:JsonProperty(required = true) metricAdoptions: Map<String, MetricAdoption>,
-    @param:JsonProperty(required = true) objectVersionRefs: List<PublishedObjectVersionRef>,
-    @param:JsonProperty(required = true) val generatedAt: Instant?,
-    @param:JsonProperty(required = true) val diagnosticRunId: String?,
+     val formatVersion: String,
+     val coordinate: QueryCapabilityRequest,
+     val queryCapability: QueryCapabilityView,
+     val catalog: ExecutableCatalog,
+     metricAdoptions: Map<String, MetricAdoption>,
+     objectVersionRefs: List<PublishedObjectVersionRef>,
+     val generatedAt: Instant?,
+     val diagnosticRunId: String?,
 ) {
     val metricAdoptions: Map<String, MetricAdoption> = Collections.unmodifiableMap(LinkedHashMap(metricAdoptions))
     val objectVersionRefs: List<PublishedObjectVersionRef> = java.util.List.copyOf(objectVersionRefs)
@@ -36,9 +35,9 @@ class PublishedExecutableCatalog(
         return closure
     }
     private fun requireEnvelopeIdentity() {
-        QueryCapabilityHash.requireValid(queryCapability)
-        require(coordinate == FrozenQueryCapabilityFiles.key(queryCapability)) { "published capability coordinate differs from its envelope" }
-        require(catalog.manifest.catalogId == queryCapability.nativeDefinitions.catalog.required("manifest").required("catalogId").textValue()) { "native compilation catalog identity differs from execution catalog" }
+        require((queryCapability.capabilityHash?.matches(Regex("[a-f0-9]{64}")) == true)) { "exact capability hash is required" }
+        require(coordinate == PublishedQueryEntry.key(queryCapability)) { "published capability coordinate differs from its envelope" }
+        require(catalog.manifest.catalogId == queryCapability.nativeDefinitions.catalog.manifest.catalogId) { "native compilation catalog identity differs from execution catalog" }
     }
     private fun requireAdoptions() {
         val adopted = linkedMapOf<String, MetricInstance>()

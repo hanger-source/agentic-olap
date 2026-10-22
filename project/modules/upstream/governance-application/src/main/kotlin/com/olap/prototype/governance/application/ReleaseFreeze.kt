@@ -5,8 +5,6 @@ import com.olap.prototype.governance.contract.SubjectAreaReleaseBuildResult
 import com.olap.prototype.management.governance.CanonicalReleaseRepository.*
 import com.olap.prototype.query.contract.QueryScenarioRef
 import com.olap.prototype.release.contract.*
-import com.olap.prototype.util.OlapJsonUtils
-import java.io.IOException
 
 /** 一次冻结的完整输出，编译与持久化消费同一批行，不携带解析过程缓存。 */
 class ReleaseFreeze(val release: SubjectAreaReleaseRecord, objects: List<ReleaseObjectRefRecord>, capabilities: List<ReleaseMetricDimensionCapabilityRecord>,
@@ -40,17 +38,12 @@ class ReleaseFreeze(val release: SubjectAreaReleaseRecord, objects: List<Release
         it.eventId == capability.metricEventId && it.eventVersion == capability.metricEventVersion && it.analysisDimensionId == capability.analysisDimensionId &&
             it.analysisDimensionVersion == capability.analysisDimensionVersion && it.levelCode == capability.levelCode
     }.minOfOrNull { it.levelDisplayName }
-    private fun joinPaths(json: String): List<ReleaseJoinPathRef> = try {
-        val mapper = OlapJsonUtils.mapper()
-        mapper.readValue(json, mapper.typeFactory.constructCollectionType(List::class.java, ReleaseJoinPathRef::class.java))
-    } catch (failure: IOException) { throw ProducerContractException("frozen mapping join paths are invalid", failure) }
-
     fun result(): SubjectAreaReleaseBuildResult = SubjectAreaReleaseBuildResult(release.releaseId, release.releaseVersion, release.subjectAreaId, release.subjectAreaVersion,
         "BUILT", 1, objects.size, count("METRIC"), count("ANALYSIS_DIMENSION"), count("SCENARIO"), count("EVENT"), count("TOPOLOGY"), count("JOIN_PATH"),
         count("LOGIC_UNIT"), count("DIMENSION"), count("DIMENSION_EVENT_BINDING"), capabilities.size, unavailable.size)
     private fun count(kind: String): Int = objects.count { it.objectType == kind }
     private fun project(row: ReleaseObjectRefRecord) = ReleaseObjectRef(row.id, row.releaseId, row.releaseVersion, row.objectType, row.objectId, row.objectVersion,
-        row.objectCode, row.objectDisplayName, row.refRole, row.snapshotSummaryJson, row.createdAt)
+        row.objectCode, row.objectDisplayName, row.refRole, row.snapshotProto, row.createdAt)
     private fun project(row: ReleaseMetricDimensionCapabilityRecord) = ReleaseMetricDimensionCapability(row.id, row.releaseId, row.releaseVersion, row.subjectAreaId,
         row.scenarioId, row.scenarioVersion, row.adoptionId, row.adoptionVersion, row.metricId, row.metricVersion, display("METRIC", row.metricId, row.metricVersion),
         row.metricEventId, row.metricEventVersion, row.analysisDimensionId, row.analysisDimensionVersion, display("ANALYSIS_DIMENSION", row.analysisDimensionId, row.analysisDimensionVersion),
@@ -60,14 +53,14 @@ class ReleaseFreeze(val release: SubjectAreaReleaseRecord, objects: List<Release
         row.eventVersion, row.analysisDimensionId, row.analysisDimensionVersion, display("ANALYSIS_DIMENSION", row.analysisDimensionId, row.analysisDimensionVersion), row.levelCode,
         row.levelDisplayName, row.dimensionId, row.dimensionVersion, row.dimensionCodeNamespace, row.dimensionCodeNamespaceDisplayName, row.dimensionDisplayName, row.bindingId,
         row.bindingVersion, row.valueAlignmentKey, row.valueAlignmentStatus, row.topologyId, row.topologyVersion, row.topologyImplementationNamespaceCode,
-        row.topologyImplementationNamespaceDisplayName, row.logicUnitId, row.logicUnitVersion, row.logicUnitDisplayName, joinPaths(row.joinPathRefsJson), row.expressionJson, row.createdAt)
+        row.topologyImplementationNamespaceDisplayName, row.logicUnitId, row.logicUnitVersion, row.logicUnitDisplayName, row.joinPathRefs, row.expression, row.createdAt)
     private fun project(row: ReleaseTimeAnchorRuleRecord) = ReleaseTimeAnchorRule(row.id, row.releaseId, row.releaseVersion, row.subjectAreaId, row.scenarioId, row.scenarioVersion,
         row.eventId, row.eventVersion, row.topologyId, row.topologyVersion, row.topologyImplementationNamespaceCode, row.topologyImplementationNamespaceDisplayName,
         row.effectiveTimeLogicUnitId, row.effectiveTimeLogicUnitVersion, row.effectiveTimeLogicUnitDisplayName, row.timeRole,
         requireNotNull(row.analysisDimensionId) { "release time anchor analysis dimension is required" },
         requireNotNull(row.analysisDimensionVersion) { "release time anchor analysis dimension version is required" },
         display("ANALYSIS_DIMENSION", row.analysisDimensionId, row.analysisDimensionVersion),
-        requireNotNull(row.levelCode) { "release time anchor level is required" }, row.aliasSymbolsJson, row.partitionLogicUnitId,
+        requireNotNull(row.levelCode) { "release time anchor level is required" }, row.partitionLogicUnitId,
         row.partitionLogicUnitVersion, row.diagnosticJson, row.createdAt)
     private fun project(row: ReleaseUnavailableReasonRecord) = ReleaseUnavailableReason(row.id, row.releaseId, row.releaseVersion, row.scopeType, row.scenarioId, row.scenarioVersion,
         row.metricId, row.metricVersion, row.analysisDimensionId, row.analysisDimensionVersion, row.levelCode, row.code, row.reason, row.producerStage, row.targetRef,

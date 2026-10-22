@@ -1,6 +1,5 @@
 package com.olap.prototype.query.contract
 
-import com.fasterxml.jackson.annotation.JsonProperty
 import com.olap.prototype.calculation.CalculationInstantiation
 import com.olap.prototype.calculation.MetricDefinition
 import com.olap.prototype.calculation.MetricInstanceRef
@@ -11,17 +10,16 @@ import com.olap.prototype.member.MemberSource
 import com.olap.prototype.member.MemberSourceDefinition
 import com.olap.prototype.query.contract.catalog.PublishedSemanticCatalog
 import com.olap.prototype.query.contract.catalog.PublishedSemanticCatalog.*
-import com.olap.prototype.util.OlapJsonUtils
 
 /** 可查询批准、可执行目录身份和可解释语义闭包必须来自同一精确发布。 */
 data class PublishedQueryEntry(
-    @param:JsonProperty(required = true) val capability: QueryCapabilityView,
-    @param:JsonProperty(required = true) val catalogHash: String,
-    @param:JsonProperty(required = true) val semanticCatalogHash: String,
-    @param:JsonProperty(required = true) val semanticCatalog: PublishedSemanticCatalog,
+     val capability: QueryCapabilityView,
+     val catalogHash: String,
+     val semanticCatalogHash: String,
+     val semanticCatalog: PublishedSemanticCatalog,
 ) {
     init {
-        QueryCapabilityHash.requireValid(capability)
+        require((capability.capabilityHash?.matches(Regex("[a-f0-9]{64}")) == true)) { "exact capability hash is required" }
         require(catalogHash.matches(Regex("[a-f0-9]{64}")) && semanticCatalogHash.matches(Regex("[a-f0-9]{64}")) && semanticCatalogHash == semanticCatalog.sha256) { "capability, executable and semantic catalog hashes are required" }
         requireSemanticDefinitions(semanticCatalog.catalog)
     }
@@ -78,15 +76,15 @@ data class PublishedQueryEntry(
             val filter = rows.single()
             equalValue(filter.displayName, candidate.filterTargetDisplayName)
             equalValue(filter.dimensionRef, AssetReference(candidate.filterTargetObjectId, candidate.filterTargetObjectVersion))
-            equalValue(filter.operators, candidate.operators); equalValue(filter.valueTypes, candidate.filterValueTypes)
+            equalValue(filter.operators, candidate.operators)
+            equalValue(filter.valueTypes, candidate.filterValueTypes.mapValues { com.olap.prototype.query.ScalarValueType.valueOf(it.value) })
             equalValue(filter.requiredByDefault, candidate.requiredByDefault)
             equalValue(filter.eventMappings, candidate.eventMappings.map { FilterMapping(it.levelCode, it.eventId, it.eventVersion) })
         }
     }
 
     private fun requireSemanticDependencies(semantic: Catalog) {
-        val native = try { OlapJsonUtils.mapper().treeToValue(capability.nativeDefinitions.catalog, ExecutableCatalog::class.java) }
-        catch (failure: java.io.IOException) { throw IllegalArgumentException("frozen semantic dependency catalog is invalid", failure) }
+        val native = capability.nativeDefinitions.catalog
         val closure = PublishedInstanceContract.require(native, capability)
         val actual = linkedSetOf<MetricSource.Dependency>()
         semantic.semanticDependencies.forEach { dependency ->
@@ -166,7 +164,7 @@ data class PublishedQueryEntry(
     }
     companion object {
         private fun equalValue(value: Any?, expected: Any?) {
-            require(QueryIntentHash.compute(OlapJsonUtils.mapper().valueToTree(value)) == QueryIntentHash.compute(OlapJsonUtils.mapper().valueToTree(expected))) { "frozen semantic value differs from capability" }
+            require(value == expected) { "frozen semantic value differs from capability" }
         }
         fun key(capability: QueryCapabilityView): QueryCapabilityRequest = QueryCapabilityRequest(capability.scenario.scenarioId, capability.scenario.scenarioVersion, capability.releaseId, capability.releaseVersion)
     }

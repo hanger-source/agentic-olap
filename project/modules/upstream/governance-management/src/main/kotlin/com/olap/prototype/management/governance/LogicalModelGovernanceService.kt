@@ -9,7 +9,6 @@ import com.olap.prototype.expression.*
 import com.olap.prototype.governance.contract.*
 import com.olap.prototype.query.ScalarValueType
 import com.olap.prototype.storage.PlatformDatabase
-import com.olap.prototype.util.OlapJsonUtils
 import org.apache.calcite.rex.RexNode
 import org.apache.calcite.sql.type.SqlTypeUtil
 import java.time.Instant
@@ -48,7 +47,7 @@ class LogicalModelGovernanceService(
             GovernanceContract.requireEnumValue(request.tableRole, "logical_table.table_role"), request.description, requireText(request.owner, "logical_table.owner").trim(),
             "DRAFT", draft.version, actor, now, actor, now)
         val version = LogicalTableVersionRecord("$id:v${draft.version}", id, draft.version, "DRAFT",
-            json(LogicalModelSnapshots.logicalTableVersionContent(table, physicalId, physicalVersion, request.logicUnits.size)), "{}", draft.sourceVersion, actor, now, null, null, null, null, null, null)
+            encodeDefinition(LogicalModelSnapshots.logicalTableVersionContent(table, physicalId, physicalVersion, request.logicUnits.size)), "{}", draft.sourceVersion, actor, now, null, null, null, null, null, null)
         val physical = PhysicalLogicalTableRefRecord("$id:v${draft.version}:physical-table:$physicalId:v$physicalVersion:SOURCE", physicalId, physicalVersion, id, draft.version, "SOURCE", now)
         // Children need the stable parent identity, while all version contents remain in this transaction.
         if (revision == null) saveLogicalTable(table)
@@ -69,7 +68,7 @@ class LogicalModelGovernanceService(
             val id = "$tableId.$code"
             val draft = GovernanceDraftVersions(database).owned(GovernanceDraftVersions.Asset.LOGIC_UNIT, id, actor)
             val unit = LogicUnitRecord(id, tableId, code, requireText(input.displayName, "logic_unit.display_name").trim(),
-                GovernanceContract.requireEnumValue(input.sourceKind, "logic_unit.source_kind"), input.expressionJson,
+                GovernanceContract.requireEnumValue(input.sourceKind, "logic_unit.source_kind"), input.expression,
                 input.logicType?.let { GovernanceContract.requireEnumValue(it, "logic_unit.logic_type") }, input.valueShape,
                 flag(input.isTime, "logic_unit.is_time"), flag(input.isPrimaryKey, "logic_unit.is_primary_key"), flag(input.isForeignKey, "logic_unit.is_foreign_key"),
                 flag(input.filterable, "logic_unit.filterable"), flag(input.aggregatable, "logic_unit.aggregatable"), "DRAFT", draft.version, actor, now, actor, now)
@@ -105,7 +104,7 @@ class LogicalModelGovernanceService(
             val unit = candidate.expansion.root
             val draft = candidate.draft
             val sources = candidate.expansion.sourceRefs(unit.sourceKind)
-            val unitVersion = LogicUnitVersionRecord("${unit.id}:v${draft.version}", unit.id, draft.version, "DRAFT", json(LogicalModelSnapshots.logicUnitVersionContent(unit, sources)),
+            val unitVersion = LogicUnitVersionRecord("${unit.id}:v${draft.version}", unit.id, draft.version, "DRAFT", encodeDefinition(LogicalModelSnapshots.logicUnitVersionContent(unit, sources)),
                 "{}", draft.sourceVersion, actor, now, null, null, null, null, null, null)
             saveLogicUnit(unit); saveLogicUnitVersion(unitVersion)
             val ref = LogicalTableLogicUnitRefRecord("${table.id}:v${table.currentVersion}:logic-unit:${unit.id}:v${draft.version}", table.id, table.currentVersion, unit.id, draft.version, now)
@@ -175,8 +174,7 @@ class LogicalModelGovernanceService(
                     if (direct.size != 1) throw ProducerContractException("COLUMN requires one exact physical source: $key")
                     SemanticExpression.Reference(SemanticExpression.ReferenceKind.PHYSICAL_COLUMN, direct.single().physicalColumnId, direct.single().physicalColumnVersion)
                 }
-                "EXPRESSION" -> try { SemanticExpressionCodec.parse(requireText(unit.expressionJson, "logic_unit.expressionJson"), "logic_unit.expressionJson") }
-                    catch (invalid: IllegalArgumentException) { throw ProducerContractException(requireNotNull(invalid.message), invalid) }
+                "EXPRESSION" -> requireNotNull(unit.expression) { "expression LogicUnit requires its authored expression" }
                 else -> throw ProducerContractException("unsupported LogicUnit sourceKind: ${unit.sourceKind}")
             }
             if (SemanticExpressionInspector.quantifiers(expression).isNotEmpty()) throw ProducerContractException("relationship quantifiers belong to using inputs, not LogicUnit definitions")
@@ -285,6 +283,5 @@ class LogicalModelGovernanceService(
         if (!versions.logicUnitVersionExists(id, requireVersion(version, field))) throw ProducerContractException("$field not found: $id#$version")
     }
     private fun flag(value: Boolean?, field: String): Boolean = value ?: throw ProducerContractException("$field is required")
-    private fun json(value: Any): String = try { OlapJsonUtils.mapper().writeValueAsString(value) }
-        catch (failure: Exception) { throw ProducerContractException("logical model content_json invalid", failure) }
+    private fun encodeDefinition(value: GovernanceDefinition): String = com.olap.prototype.codec.ProtoBytes.storage(com.olap.prototype.codec.GovernanceProto.definition(value))
 }

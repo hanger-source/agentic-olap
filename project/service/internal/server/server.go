@@ -134,7 +134,7 @@ func (b *responseBuffer) Flush() {}
 func (s *HTTP) session(r *http.Request) *mcp.Server {
 	principal := r.Context().Value(principalKey{}).(runtime.Principal)
 	operations, err := s.app.Operations(r.Context(), principal)
-	server := mcp.NewServer(&mcp.Implementation{Name: "agentic-olap", Version: s.version}, &mcp.ServerOptions{Instructions: "通过已部署连接器调查来源、管理语义定义，并对精确发布执行完整查询。各工具接收payload，describe-operation给准确合同。", Logger: slog.Default()})
+	server := mcp.NewServer(&mcp.Implementation{Name: "agentic-olap", Version: s.version}, &mcp.ServerOptions{Instructions: "先用 describe-script-api 发现正式 Kotlin 类型和能力，再通过 execute-script 提交完整 kts 程序。脚本可调查来源、管理定义、采用发布并组合查询；每次能力调用照常授权。工具参数放在 payload 中。", Logger: slog.Default()})
 	if err != nil {
 		slog.Warn("authorized operation discovery failed", "error", err)
 		return nil
@@ -165,6 +165,9 @@ func (s *HTTP) session(r *http.Request) *mcp.Server {
 		}
 		destructive, open := !contract.ReadOnly, false
 		schema := json.RawMessage(`{"type":"object","properties":{"payload":{"type":"object"}},"required":["payload"],"additionalProperties":false}`)
+		if operation == "execute-script" {
+			schema = json.RawMessage(`{"type":"object","properties":{"payload":{"type":"object","properties":{"source":{"type":"string","description":"完整 Kotlin 脚本源码"},"sourceName":{"type":"string","description":"用于错误定位的 .kts 名称"},"dslApiVersion":{"type":"string","description":"describe-script-api 返回的精确 DSL API 版本"},"parameters":{"type":"object","description":"本次脚本的显式参数；无参数时传空对象"}},"required":["source","sourceName","dslApiVersion","parameters"],"additionalProperties":false}},"required":["payload"],"additionalProperties":false}`)
+		}
 		server.AddTool(&mcp.Tool{Name: operation, Description: contract.Description, InputSchema: schema, Annotations: &mcp.ToolAnnotations{ReadOnlyHint: contract.ReadOnly, DestructiveHint: &destructive, OpenWorldHint: &open}}, func(ctx context.Context, request *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			var args struct {
 				Payload json.RawMessage `json:"payload"`

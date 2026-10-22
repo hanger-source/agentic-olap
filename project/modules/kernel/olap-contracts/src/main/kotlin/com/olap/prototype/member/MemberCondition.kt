@@ -1,15 +1,11 @@
 package com.olap.prototype.member
 
-import com.fasterxml.jackson.annotation.JsonSubTypes
-import com.fasterxml.jackson.annotation.JsonTypeInfo
 import com.olap.prototype.calculation.Calculation
 import com.olap.prototype.calculation.MetricDefinition
 import com.olap.prototype.metric.MetricValueContract
 import com.olap.prototype.query.ScalarValueType
 
 /** 对成员输出槽位的条件，值直接使用共同Calculation.Binding，不接受SQL。 */
-@JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "kind")
-@JsonSubTypes(JsonSubTypes.Type(value = MemberCondition.Unrestricted::class, name = "TRUE"), JsonSubTypes.Type(value = MemberCondition.Predicate::class, name = "LEAF"), JsonSubTypes.Type(value = MemberCondition.All::class, name = "AND"), JsonSubTypes.Type(value = MemberCondition.Any::class, name = "OR"), JsonSubTypes.Type(value = MemberCondition.Not::class, name = "NOT"))
 sealed interface MemberCondition {
     class Unrestricted : MemberCondition { override fun equals(other: kotlin.Any?): Boolean = other is Unrestricted; override fun hashCode(): Int = 0 }
     enum class Operator {

@@ -128,15 +128,24 @@ async function checkPackage(file, name, version) {
     }
   }
   const distribution = members.get('package/distribution.json')?.json;
-  require(distribution?.formatVersion === 'agentic-olap-distribution/v2' && distribution.version === version, '缺少精确服务发行清单');
-  const required = [...distribution.runtime.classpath];
+  require(distribution?.formatVersion === 'agentic-olap-distribution/v3' && distribution.version === version, '缺少精确服务发行清单');
+  require(distribution.scripting?.dslApiVersion === 'agentic-olap-kotlin-dsl/v1', '缺少本版脚本 DSL 身份');
+  const classpaths = [distribution.runtime?.classpath, distribution.scripting.runtime, distribution.scripting.dsl];
+  require(classpaths.every(group => Array.isArray(group) && group.length > 0), '服务、脚本运行及 DSL 类路径必须完整');
+  const required = new Map();
+  const include = item => {
+    require(typeof item.path === 'string' && /^[0-9a-f]{64}$/.test(item.sha256), '类路径必须保存精确路径与摘要');
+    require(!required.has(item.path) || required.get(item.path) === item.sha256, '同一运行文件具有冲突摘要');
+    required.set(item.path, item.sha256);
+  };
+  classpaths.forEach(group => group.forEach(include));
   require(Array.isArray(resources.connectors) && resources.connectors.length > 0, '缺少内置插件声明');
   for (const file of resources.connectors) {
     const plugin = members.get(`package/${file}`)?.json;
     require(plugin?.apiVersion === resources.connectorApiVersion && plugin.jars?.length, '缺少实际插件 manifest');
-    required.push(...plugin.jars.map(jar => ({ path: path.posix.join(path.posix.dirname(file), jar.file), sha256: jar.sha256 })));
+    plugin.jars.forEach(jar => include({ path: path.posix.join(path.posix.dirname(file), jar.file), sha256: jar.sha256 }));
   }
-  require(required.length === targets.size && required.every(item => targets.get(item.path) === item.sha256), '安装清单未精确覆盖全部运行库和插件');
+  require(required.size === targets.size && [...required].every(([file, digest]) => targets.get(file) === digest), '安装清单未精确覆盖全部服务、脚本运行、DSL和插件');
   const build = members.get('package/build.json')?.json;
   require(build?.version === version && build.target === 'darwin-arm64' && /^[0-9a-f]{40}$/.test(build.revision), '缺少精确版本、目标或 revision');
   require(/^[0-9a-f]{64}$/.test(build.goModSha256) && /^[0-9a-f]{64}$/.test(build.goSumSha256), '缺少 Go 构建依赖身份');

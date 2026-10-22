@@ -1,13 +1,8 @@
 package com.olap.prototype.query
 
-import com.fasterxml.jackson.annotation.JsonProperty
-import com.fasterxml.jackson.annotation.JsonSubTypes
-import com.fasterxml.jackson.annotation.JsonTypeInfo
 import com.olap.prototype.metric.MetricValueContract
 
 /** 编译符号的值含义；多值结果在元素位置保留单位，消费者不重放表达式。 */
-@JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "kind")
-@JsonSubTypes(JsonSubTypes.Type(value = QueryValue.Plain::class, name = "PLAIN"), JsonSubTypes.Type(value = QueryValue.Measure::class, name = "QUANTITY"), JsonSubTypes.Type(value = QueryValue.Row::class, name = "ROW"), JsonSubTypes.Type(value = QueryValue.Array::class, name = "ARRAY"))
 sealed interface QueryValue {
     sealed interface Source {
         fun bind(id: QueryStageAnalysis.SymbolId, symbols: Map<String, QueryStageAnalysis.SymbolId>, imports: Map<ValuePosition, ValuePosition>): QueryValue
@@ -31,7 +26,7 @@ sealed interface QueryValue {
     data class Imported(val owner: QueryStageAnalysis.SymbolId, val value: QueryValue) : Source {
         override fun bind(id: QueryStageAnalysis.SymbolId, symbols: Map<String, QueryStageAnalysis.SymbolId>, imports: Map<ValuePosition, ValuePosition>): QueryValue = remap(value, imports)
     }
-    class Plain(@param:JsonProperty(value = "source", required = true) val source: ValuePosition?, positions: List<ValuePosition>) : QueryValue {
+    class Plain(val source: ValuePosition?, positions: List<ValuePosition>) : QueryValue {
         val positions: List<ValuePosition> = java.util.List.copyOf(positions)
         init { require(this.positions.distinct().size == this.positions.size) { "categorical value repeats a proved coordinate" } }
         override fun equals(other: Any?): Boolean = other is Plain && source == other.source && positions == other.positions

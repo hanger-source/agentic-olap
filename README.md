@@ -70,7 +70,8 @@ agentic-olap start
 ```sh
 agentic-olap info
 agentic-olap tools
-agentic-olap call list-data-sources --payload '{}'
+agentic-olap call describe-script-api --payload '{}'
+agentic-olap call execute-script --payload '{"source":"olap.output(olap.sources.list(EmptyRequest))","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v1","parameters":{}}'
 ```
 
 Agent 使用说明与完整配置模板位于本仓 [skill](skills/agentic-olap/SKILL.md)，通过 GitHub 安装：
@@ -81,7 +82,7 @@ npx skills add hanger-source/agentic-olap --skill agentic-olap
 
 源码、skill 与发行记录都在本仓库。Node.js 需要 20 或更高；产品支持 macOS arm64。已有远程服务的使用者可以直接连接 MCP。
 
-`npm install` 自动从 JitPack 取得本版自有 Kotlin 运行构件和内置连接器，从 Maven Central 取得第三方 JVM 库与驱动，按精确清单校验并备齐全部运行 JAR。npm 包携带 Go 程序、JRE 和必要资源，安装完成即可启动；启动时不下载依赖。`agentic-olap sdk` 返回 JitPack SDK 坐标和随包文档，独立插件用 Gradle 匿名取得；`agentic-olap connectors` 返回已安装插件的 manifest 路径与精确引用。使用者无需查找链接、解压或执行第二个安装命令，具体用法见[产品安装与配置](project/cli/README.md)，构建及发行顺序见[安装与发布](docs/installation-release.md)。
+`npm install` 自动从 JitPack 取得本版自有 Kotlin 运行构件和内置连接器，从 Maven Central 取得第三方 JVM 库与驱动，按精确清单校验并备齐服务、脚本编译运行和插件所需的 JAR。npm 包携带 Go 程序、JRE 和必要资源，安装完成即可启动；启动时不下载依赖。`agentic-olap sdk` 返回 JitPack SDK 坐标和随包文档，独立插件用 Gradle 匿名取得；`agentic-olap connectors` 返回已安装插件的 manifest 路径与精确引用。使用者无需查找链接、解压或执行第二个安装命令，具体用法见[产品安装与配置](project/cli/README.md)，构建及发行顺序见[安装与发布](docs/installation-release.md)。
 
 | 你现在要做什么 | 入口 |
 | --- | --- |
@@ -118,13 +119,13 @@ npx skills add hanger-source/agentic-olap --skill agentic-olap
 | 候选值 | 通过服务按批准字段只读提供实际候选页 | [Agent 使用指引](docs/agent-usage.md) |
 | 运行机制 | 有界进程通道、取消、资源回收与部署权限 | [运行机制](docs/architecture.md#服务与运行机制) |
 
-Query 接收 `olap-query-intent/v6`，包含精确发布坐标和 `computation={root,inputs,stages}`。根计算可使用 `MEASURES`、`MEMBERS`、`INPUT`、`SET` 或 `COMPUTE`；输入本身可以是完整计算。调用者可以选择与组合定义、绑定参数、对象集合及已完成关系，并组织本次计算阶段。已采用定义的固定业务口径仍由定义与采用拥有。
+Agent 用 `describe-script-api` 发现实际 Kotlin 方法、构造器、属性、封闭变体及枚举，再通过 `execute-script` 提交完整 kts 程序。脚本固定提供 `olap` 和 `parameters`；可以用普通 Kotlin 分支、循环和局部函数读取真实回执后继续构造输入。构造与执行分离，正式调用仍通过 Go 按原主体和实际资源授权。
 
-共同计算分别声明成员、可调用测量和完成关系输入。完成关系按真实列、数量合同和观察键传入，可继续交给其他定义使用；不要求把金额或计数伪装为成员属性。调用中的来源条件沿显式参数传给指定事实测量，仍受本次发布的过滤权限约束，不自动向所有子计算继承。
+Query 使用正式 `QueryIntent(publication, computation)`，计算由根、独立输入和有序阶段构成。DSL 的 `scope/query/input/stage` 构造已有语义模型；根可使用测量、成员、输入、集合或共同计算，输入自身也可以是完整计算。定义内部与本次查询共同保留粒度、数量、单位、NULL 和来源含义。
 
-远程客户端调用 `execute-query`，在 `intent` 中提交完整查询；也可用 `queryReference` 执行已保存的精确版本。查询无需先保存或先调用校验工具。服务返回本次真实执行与交付状态；小结果可以直接读取，保存后的结果可通过 MCP 按引用分页读取。
+共同计算分别声明成员、可调用测量和完成关系输入。完成关系按真实列、数量合同和观察键传入，可继续交给其他定义使用；不把金额或计数伪装为成员属性。调用中的来源条件沿显式参数传给指定事实，仍受本次发布的过滤权限约束，不自动向所有子计算继承。
 
-需要保存结果时，在工具 payload 中显式传入 `saveResult: true`，再用成功交付返回的 `resultReference` 调用结果读取工具。保存查询与保存结果分别服务复用和交付，各自独立选择。完整调用见[远程业务用法](examples/README.md)，客户端接入见[外部 Agent 示例](examples/agent-client/README.md)。
+脚本通过 `olap.queries.execute` 选择完整查询或精确保存引用，无需先保存或先校验。保存查询的正式回执含正文与精确 `reference`，后续执行使用该引用；保存结果则显式选择 `saveResult=true`，按实际返回的 `resultReference` 分页读取。小结果也可直接返回。完整程序见[AI 使用指引](docs/agent-usage.md)，外部客户端见[接入示例](examples/agent-client/README.md)。
 
 部署方提供实际连接器、来源参数、凭据、可访问目录和资源预算。业务工具只取得明确授权的能力；查询客户端不持有数据库口令。可选技术诊断由日志与部署配置负责，显式业务写入和结果保存保留真实失败语义。
 
@@ -138,6 +139,8 @@ project/
     kernel/             通用语义、计算与来源访问合同、Calcite 编译
     upstream/           业务组织、语义治理、采用、发布与授权
     applications/       Kotlin 元数据应用、工作操作与插件装载
+    scripting/          类型化 DSL、整段 kts 编译与求值
+    protocol/           纯 Protobuf 生成物与显式领域转换
     connectors/         独立版本的具体后端插件
     integration-tests/  跨模块与真实进程试验
   gradle/               JVM 版本目录与 Gradle Wrapper
@@ -150,7 +153,7 @@ tools/                  构建、分发与开发入口
 
 通用内核不依赖主题域、场景或 Agent 工作流；产品上游把业务空间中的采用与授权映射为内核可消费的定义、实例和绑定。这是产品内部的依赖分层。业务接入使用完整服务；内核的直接调用示例用于研发时检查这一依赖边界，见[内核工程试验](examples/kernel/README.md)。
 
-Kotlin 模块由 `project/settings.gradle.kts` 统一登记，Go 服务由 `project/service/go.mod` 管理依赖。`project/protocol/runtime.proto` 是内部通信的唯一来源。服务发行包含 Go 程序、JVM 应用及其精确依赖和运行时；示例、研发脚本与使用者业务资产各自独立。依赖方向和调用边界见[架构说明](docs/architecture.md)。
+Kotlin 模块由 `project/settings.gradle.kts` 统一登记，Go 服务由 `project/service/go.mod` 管理依赖。`project/protocol/` 的正式 schema 分别拥有运行监督、语义、治理、查询与 worker 消息，生成物与领域模型在编码边界显式转换；纯合同不依赖通信实现。服务发行包含 Go 程序、JVM 应用及其精确依赖和运行时；示例、研发脚本与使用者业务资产各自独立。依赖方向和调用边界见[架构说明](docs/architecture.md)。
 
 ## 支持范围
 

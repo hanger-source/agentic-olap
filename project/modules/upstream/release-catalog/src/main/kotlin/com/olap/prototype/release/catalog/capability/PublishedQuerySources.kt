@@ -1,6 +1,5 @@
 package com.olap.prototype.release.catalog.capability
 
-import com.fasterxml.jackson.core.JsonProcessingException
 import com.olap.prototype.calculation.CalculationInstantiation
 import com.olap.prototype.calculation.MetricDefinition
 import com.olap.prototype.calculation.MetricRef
@@ -77,7 +76,7 @@ class PublishedQuerySources(private val snapshots: ReleaseObjectIndex, private v
         objects.forEach { reference -> when (reference.objectType) {
             "EVENT" -> {
                 val event = readFrozen(reference, EventExecutionSnapshot::class.java, "frozen event")
-                val expressions = event.baseFilterJson?.let { listOf(SemanticExpressionCodec.parse(it, "frozen event predicate")) } ?: emptyList()
+                val expressions = event.baseFilter?.let { listOf(it) } ?: emptyList()
                 discovery.expression("event", RelationAccessPath(emptyList()), event.roles, expressions)
             }
             "METRIC" -> {
@@ -133,8 +132,8 @@ class PublishedQuerySources(private val snapshots: ReleaseObjectIndex, private v
     private fun clockDiscovery(): RelationClockDiscovery = RelationClockDiscovery { ref ->
         val path = readFrozen(snapshots.require("JOIN_PATH", ref.joinPathId, ref.joinPathVersion), ReleaseJoinPathSnapshot::class.java, "frozen positioned clock path")
         if (path.joinPathId != ref.joinPathId || path.joinPathVersion != ref.joinPathVersion) throw ProducerContractException("frozen clock path differs from its exact version reference")
-        TemporalJoinContract.parse(requireNotNull(path.temporalConfigJson), "frozen positioned clock")
+        path.temporal
     }
     private fun <T : Any> readFrozen(reference: ReleaseObjectRef, type: Class<T>, field: String): T = try { snapshots.read(reference, type) }
-    catch (failure: JsonProcessingException) { throw ProducerContractException("$field is invalid", failure) }
+    catch (failure: com.google.protobuf.InvalidProtocolBufferException) { throw ProducerContractException("$field is invalid", failure) }
 }

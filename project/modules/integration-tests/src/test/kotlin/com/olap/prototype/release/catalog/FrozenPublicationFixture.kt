@@ -1,7 +1,8 @@
 package com.olap.prototype.release.catalog
 
-import com.fasterxml.jackson.databind.JsonNode
-import com.fasterxml.jackson.databind.node.ObjectNode
+import com.olap.prototype.codec.GovernanceProto
+import com.olap.prototype.codec.SemanticProto
+import com.olap.prototype.codec.ProtoBytes
 import com.olap.prototype.calculation.*
 import com.olap.prototype.connector.JdbcAccess
 import com.olap.prototype.contract.JdbcColumnType
@@ -62,38 +63,36 @@ internal class FrozenPublicationFixture(directory: Path, dialect: String, unique
 
     fun release(definitions: Map<String, MetricDefinition>, timed: Boolean, cityExpression: SemanticExpression = ref("destination.name"),
         cityPath: RelationAccessPath = DESTINATION, cityRoles: Map<String, RelationAccessPath> = emptyMap(), direction: String = "LEFT"): ReleaseCatalogView {
-        val refs = mutableListOf(objectRef("ANALYSIS_DIMENSION", "city", emptyMap<String, Any>(), "目的地"), objectRef("ANALYSIS_DIMENSION", "business_date", emptyMap<String, Any>(), "业务日期"))
-        units.forEach { (table, names) -> names.keys.forEach { unit -> refs += objectRef("LOGIC_UNIT", unit, logicUnit(table, unit)) } }
-        refs += objectRef("EVENT", "payment", EventExecutionSnapshot("payment_topology", 1, "orders.time", 1,
-            EventIdentity(listOf(EventIdentity.LogicUnitRef("orders.id", 1)), emptyMap()), emptyMap(), null))
-        refs += objectRef("TOPOLOGY", "payment_topology", TopologyExecutionSnapshot("payment_topology", 1, "payment", "支付", "orders", 1,
-            listOf(ReleaseJoinPathRef("destination_path", 1))))
-        refs += objectRef("JOIN_PATH", "destination_path", mapOf(
-            "joinPathId" to "destination_path", "joinPathVersion" to 1, "topologyId" to "payment_topology", "topologyVersion" to 1,
-            "sourceLogicalTableId" to "orders", "sourceLogicalTableVersion" to 1, "targetLogicalTableId" to "destinations", "targetLogicalTableVersion" to 1,
-            "joinType" to direction, "cardinality" to "MANY_TO_ONE", "nullPolicy" to "SQL_EQUALS_NULL_NEVER_MATCHES", "temporalConfigJson" to "{}",
-            "keys" to listOf(mapOf("order" to 0, "sourceLogicUnitId" to "orders.destination", "sourceLogicUnitVersion" to 1, "targetLogicUnitId" to "destination.id", "targetLogicUnitVersion" to 1))))
+        val refs = mutableListOf(objectRef("ANALYSIS_DIMENSION", "city", GovernanceProto.toProto(FrozenAnalysisDimensionMeaning(null, emptyList())), "目的地"), objectRef("ANALYSIS_DIMENSION", "business_date", GovernanceProto.toProto(FrozenAnalysisDimensionMeaning(null, emptyList())), "业务日期"))
+        units.forEach { (table, names) -> names.keys.forEach { unit -> refs += objectRef("LOGIC_UNIT", unit, GovernanceProto.toProto(logicUnit(table, unit))) } }
+        refs += objectRef("EVENT", "payment", GovernanceProto.toProto(EventExecutionSnapshot("payment_topology", 1, "orders.time", 1,
+            EventIdentity(listOf(EventIdentity.LogicUnitRef("orders.id", 1)), emptyMap()), emptyMap(), null)))
+        refs += objectRef("TOPOLOGY", "payment_topology", GovernanceProto.toProto(TopologyExecutionSnapshot("payment_topology", 1, "payment", "支付", "orders", 1,
+            listOf(ReleaseJoinPathRef("destination_path", 1)))))
+        refs += objectRef("JOIN_PATH", "destination_path", GovernanceProto.toProto(ReleaseJoinPathSnapshot("destination_path", 1, "payment_topology", 1,
+            "orders", 1, "destinations", 1, direction, "MANY_TO_ONE", null, "SQL_EQUALS_NULL_NEVER_MATCHES",
+            listOf(ReleaseJoinPathSnapshot.Key(0, "orders.destination", 1, "destination.id", 1)))))
         definitions.forEach { (code, definition) ->
-            refs += objectRef("METRIC", code, MetricExecutionSnapshot(definition, meaning()))
+            refs += objectRef("METRIC", code, GovernanceProto.toProto(MetricExecutionSnapshot(definition, meaning())))
             val adoption = MetricAdoption(MetricAdoption.identity("subject", code), "subject", 1, code, code, meaning(), MetricRef(code, "1"), CalculationBindings.empty(), emptyMap())
-            refs += objectRef("METRIC_ADOPTION", adoption.adoptionId, adoption)
+            refs += objectRef("METRIC_ADOPTION", adoption.adoptionId, GovernanceProto.toProto(adoption))
         }
         val logicUnit = if (cityPath == LOCAL) "orders.amount" else "destination.name"
-        refs += objectRef("DIMENSION_EVENT_BINDING", "city_binding", PublishedDimensionBinding("city_binding", 1, "destination", 1,
-            EVENT, "payment_topology", 1, logicUnit, 1, cityExpression, cityPath, cityRoles))
+        refs += objectRef("DIMENSION_EVENT_BINDING", "city_binding", GovernanceProto.toProto(PublishedDimensionBinding("city_binding", 1, "destination", 1,
+            EVENT, "payment_topology", 1, logicUnit, 1, cityExpression, cityPath, cityRoles)))
         val mappings = mutableListOf(ReleaseDimensionMapping("release_city_mapping", CITY_MAPPING_ID, "release", "1", "subject", "payment", 1,
             "city", 1, "目的地", "value", "值", "destination", 1, "global", "全局", "目的地", "city_binding", 1, "aligned_city", "PROVEN_SAME_KEY",
             "payment_topology", 1, "payment", "支付", logicUnit, 1, "目的地表达式", cityPath.joinPathRefs.map { ReleaseJoinPathRef(it.joinPathId, it.joinPathVersion) },
-            SemanticExpressionCodec.write(cityExpression), NOW))
+            cityExpression, NOW))
         if (timed) {
-            refs += objectRef("DIMENSION_EVENT_BINDING", "time_binding", PublishedDimensionBinding("time_binding", 1, "business_time", 1,
-                EVENT, "payment_topology", 1, "orders.time", 1, ref("orders.time"), LOCAL, emptyMap()))
+            refs += objectRef("DIMENSION_EVENT_BINDING", "time_binding", GovernanceProto.toProto(PublishedDimensionBinding("time_binding", 1, "business_time", 1,
+                EVENT, "payment_topology", 1, "orders.time", 1, ref("orders.time"), LOCAL, emptyMap())))
             mappings += ReleaseDimensionMapping("release_time_mapping", TIME_MAPPING_ID, "release", "1", "subject", "payment", 1,
                 "business_date", 1, "业务日期", "day", "日", "business_time", 1, "common", "公共", "业务时间", "time_binding", 1, "aligned_time", "PROVEN_SAME_KEY",
-                "payment_topology", 1, "payment", "支付", "orders.time", 1, "业务时间", emptyList(), SemanticExpressionCodec.write(ref("orders.time")), NOW)
+                "payment_topology", 1, "payment", "支付", "orders.time", 1, "业务时间", emptyList(), ref("orders.time"), NOW)
         }
         val anchor = ReleaseTimeAnchorRule("business_time", "release", "1", "subject", "scenario", 1, "payment", 1, "payment_topology", 1,
-            "payment", "支付", "orders.time", 1, "支付日期", "ANALYSIS_DIMENSION:business_date:day", "business_date", 1, "业务日期", "day", "[]", null, null, "{}", NOW)
+            "payment", "支付", "orders.time", 1, "支付日期", "ANALYSIS_DIMENSION:business_date:day", "business_date", 1, "业务日期", "day", null, null, "{}", NOW)
         return ReleaseCatalogView("scenario", 1, "发布试验", "release", "1", "发布试验", refs, emptyList(), mappings,
             if (timed) listOf(anchor) else emptyList(), emptyList(), emptyList())
     }
@@ -101,7 +100,7 @@ internal class FrozenPublicationFixture(directory: Path, dialect: String, unique
     private fun logicUnit(table: String, unit: String): LogicUnitExecutionSnapshot {
         val observed = metadata.getValue(table)
         val names = units.getValue(table)
-        val logic = names.map { (id, _) -> "$id@1" to mapper.valueToTree<JsonNode>(SemanticExpression.Reference(SemanticExpression.ReferenceKind.PHYSICAL_COLUMN, "$id.physical", 1)) }.toMap()
+        val logic = names.map { (id, _) -> "$id@1" to SemanticExpression.Reference(SemanticExpression.ReferenceKind.PHYSICAL_COLUMN, "$id.physical", 1) }.toMap()
         val columns = names.map { (id, name) -> "$id.physical@1" to name }.toMap()
         val types = names.map { (id, name) ->
             val column = observed.columns.single { it.name == name }
@@ -109,7 +108,7 @@ internal class FrozenPublicationFixture(directory: Path, dialect: String, unique
         }.toMap()
         val refs = names.map { (id, name) -> name to "$id.physical@1" }.toMap()
         val source = observed.source
-        val evidence = PhysicalSourceConstraints("actual_frozen_source", PublicationContentHash.compute(mapper.valueToTree(observed)), spec.sourceIdentityHash(), spec.connectorRef,
+        val evidence = PhysicalSourceConstraints("actual_frozen_source", ProtoBytes.digest(GovernanceProto.toProto(com.olap.prototype.warehouse.onboarding.SourceStructureRegistrationRequest.Table(observed.table, observed.columns, observed.constraints))), spec.sourceIdentityHash(), spec.connectorRef,
             source.databaseProductName, source.databaseProductVersion, source.driverName, source.driverVersion, observed.constraints, refs, emptyList(),
             StructureProvenance(StructureProvenance.Kind.DATABASE_CATALOG, "integration-test-catalog", "fixture-v1"))
         return LogicUnitExecutionSnapshot(LogicUnitExecutionSnapshot.FORMAT_VERSION, "${table}_binding", "1", unit, 1,
@@ -117,8 +116,8 @@ internal class FrozenPublicationFixture(directory: Path, dialect: String, unique
             "source", observed.table.ref.catalog, observed.table.ref.schema, table, spec.dialectId, logic, columns, types, emptyMap(), evidence)
     }
 
-    fun objectRef(kind: String, id: String, value: Any, displayName: String = id) = ReleaseObjectRef("${kind}_$id", "release", "1", kind, id, 1, id, displayName,
-        ReleaseObjectKind.require(kind).refRole, mapper.writeValueAsString(value), NOW)
+    fun objectRef(kind: String, id: String, value: com.google.protobuf.Message, displayName: String = id) = ReleaseObjectRef("${kind}_$id", "release", "1", kind, id, 1, id, displayName,
+        ReleaseObjectKind.require(kind).refRole, ProtoBytes.storage(value), NOW)
 
     override fun close() = connection.close()
 
@@ -143,7 +142,7 @@ internal class FrozenPublicationFixture(directory: Path, dialect: String, unique
         fun amount(): Map<String, MetricDefinition> = mapOf("amount" to fact(ref("orders.amount"), MetricAggregation.SUM))
 
         fun metricReferences(view: ReleaseCatalogView): List<ScenarioMetricReference> = view.objectVersionRefs.filter { it.objectType == "METRIC_ADOPTION" }.mapIndexed { index, reference ->
-            val adoption = mapper.readValue(reference.snapshotSummaryJson, MetricAdoption::class.java)
+            val adoption = GovernanceProto.fromProto(ProtoBytes.decode(ProtoBytes.stored(requireNotNull(reference.snapshotProto)), com.olap.prototype.wire.governance.MetricAdoption.getDefaultInstance()))
             ScenarioMetricReference(adoption.adoptionId, adoption.subjectAreaVersion, "ACTIVE", "scenario_${adoption.code}", reference.id, false, index)
         }
 
@@ -156,25 +155,23 @@ internal class FrozenPublicationFixture(directory: Path, dialect: String, unique
                 SubjectAreaCapabilityContext("subject", 1, "subject_scenario", "ACTIVE"), "release", "1", "发布试验", candidates, members,
                 emptyList(), emptyList(), emptyList(), emptyList(), emptyList(), stages, emptyList(), emptyList(), emptyList(), nativeTypes.produce(candidates, members, emptyList()), nativeTypes.definitions(), null))
             val published = ReleaseExecutableCatalogAssembler(connectors).assemble(view, assets, capability)
-            return mapper.readValue(mapper.writeValueAsBytes(published), PublishedExecutableCatalog::class.java)
+            return GovernanceProto.fromProto(ProtoBytes.decode(ProtoBytes.encode(GovernanceProto.toProto(published)), com.olap.prototype.wire.governance.PublishedExecutableCatalog.getDefaultInstance()))
         }
 
         fun request(calls: List<QueryComputation.Invocation>, grouping: List<ScopedInputContract.DimensionRef> = emptyList(),
-            events: List<QueryComputation.EventCondition> = emptyList(), timed: Boolean = true): ObjectNode {
+            events: List<QueryComputation.EventCondition> = emptyList(), timed: Boolean = true): QueryComputation.Scope {
             val measures = QueryComputation.Measures(calls, grouping, if (timed) QueryComputation.TimeRange(ScopedInputContract.DimensionRef("business_date", "1", "day"),
                 TemporalWindow(TemporalWindow.ValueType.DATE, TemporalWindow.BOUNDARY, "2026-06-01", "2026-06-08")) else null, emptyMap(),
                 DimensionCondition.Unrestricted(), DimensionCondition.Unrestricted(), events, RowPopulationContract.calls(calls.map { it.callId }), null)
-            return mapper.createObjectNode().put("formatVersion", PublishedQueryContract.FORMAT_VERSION).put("requestId", "frozen_catalog")
-                .put("releaseId", "release").put("releaseVersion", "1").put("scenarioId", "scenario").put("scenarioVersion", 1L)
-                .set("computation", mapper.valueToTree(QueryComputation.Scope(measures, emptyMap(), emptyList())))
+            return QueryComputation.Scope(measures, emptyMap(), emptyList())
         }
 
-        fun computation(request: ObjectNode): QueryComputation.Scope = mapper.convertValue(request.get("computation"), QueryComputation.Scope::class.java)
-        fun bindFrozen(publication: PublishedExecutableCatalog, request: ObjectNode): ExecutableInputScope = bind(publication.catalog, request)
-        fun bind(catalog: ExecutableCatalog, request: ObjectNode): ExecutableInputScope = ExecutableSemanticBinder(connectors).bind(catalog,
-            ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION, request.path("requestId").asText(), catalog.manifest.catalogId, computation(request)))
+        fun computation(request: QueryComputation.Scope): QueryComputation.Scope = request
+        fun bindFrozen(publication: PublishedExecutableCatalog, request: QueryComputation.Scope): ExecutableInputScope = bind(publication.catalog, request)
+        fun bind(catalog: ExecutableCatalog, request: QueryComputation.Scope): ExecutableInputScope = ExecutableSemanticBinder(connectors).bind(catalog,
+            ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION, "frozen_catalog", catalog.manifest.catalogId, request))
 
-        fun execute(fixture: FrozenPublicationFixture, catalog: PublishedExecutableCatalog, request: ObjectNode): List<List<Any?>> {
+        fun execute(fixture: FrozenPublicationFixture, catalog: PublishedExecutableCatalog, request: QueryComputation.Scope): List<List<Any?>> {
             val graph = ExecutableInputGraph.index(bindFrozen(catalog, request))
             val sources = ExecutableSourceResolver().resolve(catalog.catalog, graph)
             val compiled = CalciteRelCompiler(connectors).compile(graph, ExecutableStageAnalysis.analyze(graph), sources, OlapQueryContext("frozen_catalog")).lowering

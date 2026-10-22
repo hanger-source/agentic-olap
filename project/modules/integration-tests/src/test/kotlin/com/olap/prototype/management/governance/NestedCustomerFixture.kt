@@ -6,7 +6,8 @@ import com.olap.prototype.event.EventIdentity
 import com.olap.prototype.event.EventRef
 import com.olap.prototype.event.RelationAccessPath
 import com.olap.prototype.expression.SemanticExpression
-import com.olap.prototype.expression.SemanticExpressionCodec
+import com.olap.prototype.codec.SemanticProto
+import com.olap.prototype.codec.ProtoBytes
 import com.olap.prototype.governance.contract.*
 import com.olap.prototype.integration.RuntimeDeploymentLimits
 import com.olap.prototype.member.*
@@ -66,8 +67,8 @@ internal class NestedCustomerFixture(val database: PlatformDatabase, directory: 
         val aEvent = f.events.createEvent(EventCreateRequest(GovernanceOrderFixture.TOPOLOGY, 1, "a_customers", "曾在A组消费客户", "trade", "order_fact.pay_time", 1,
             EventIdentity(listOf(EventIdentity.LogicUnitRef("order_fact.order_id", 1)), mapOf("order" to listOf(EventIdentity.LogicUnitRef("order_fact.order_id", 1)))), emptyMap(),
             listOf(EventCreateRequest.LogicUnitRefInput("order_fact.destination", 1), EventCreateRequest.LogicUnitRefInput("order_fact.customer_id", 1)), emptyList(), "资格独立于测量期间", "golden")).event
-        StoredGovernanceDefinitions(database).execute("INSERT INTO event_slice_filter(id,event_id,event_version,filter_json,created_at) VALUES (?,?,?,?,?)", "a_customers_source", aEvent.id, 1,
-            SemanticExpressionCodec.write(SemanticExpression.Operation(SemanticExpression.Operator.EQ, listOf(GovernanceOrderFixture.ref("order_fact.destination"), SemanticExpression.Literal("A")))), f.now)
+        StoredGovernanceDefinitions(database).execute("INSERT INTO event_slice_filter(id,event_id,event_version,predicate_proto,created_at) VALUES (?,?,?,?,?)", "a_customers_source", aEvent.id, 1,
+            ProtoBytes.storage(SemanticProto.toProto(SemanticExpression.Operation(SemanticExpression.Operator.EQ, listOf(GovernanceOrderFixture.ref("order_fact.destination"), SemanticExpression.Literal("A"))))), f.now)
         val aBinding = f.dimensions.createDimensionEventBinding(DimensionEventBindingCreateRequest("global.customer", 1, aEvent.id, 1, "order_fact.customer_id", 1, null, RelationAccessPath(emptyList()), emptyMap(), "golden")).binding
         f.analysis.createAnalysisDimensionEventMapping(AnalysisDimensionEventMappingCreateRequest("travel.trade.customer", 1, "customer", aBinding.id, 1, "PROVEN_SAME_KEY", "alignment:customer"))
         f.activate("EVENT", aEvent.id); f.activate("DIMENSION_EVENT_BINDING", aBinding.id)
@@ -103,11 +104,10 @@ internal class NestedCustomerFixture(val database: PlatformDatabase, directory: 
         f.analysis.listAnalysisDimensionEventMappings("$subject.$code", 1).filter { it.levelCode == level }.map { it.id })
     fun save(publication: PublishedExecutableCatalog, id: String, scope: QueryComputation.Scope): QueryDefinitionView {
         val coordinate = publication.coordinate
-        val saved = queries.save(QueryDefinitionCommand(id, null, requireNotNull(publication.queryCapability.capabilityHash), "独立客户平均", coordinate.scenarioId, coordinate.scenarioVersion,
-            coordinate.releaseId, coordinate.releaseVersion, f.intent(publication, scope)), "golden")
+        val saved = queries.save(QueryDefinitionCommand(id, null, requireNotNull(publication.queryCapability.capabilityHash), "独立客户平均", f.intent(publication, scope), null), "golden")
         return queries.requireByIdAndVersion(saved.definitionId, saved.definitionVersion)
     }
-    fun execute(publication: PublishedExecutableCatalog, saved: QueryDefinitionView) = f.execute(publication, QueryComputation.parse(saved.intent.required("computation")))
+    fun execute(publication: PublishedExecutableCatalog, saved: QueryDefinitionView) = f.execute(publication, saved.intent.computation)
     private fun customerProjection(event: String, binding: String) = MemberSourceDefinition.Projection(EventRef(event, 1), MemberResult("客户", "customer", MemberShape.UNIQUE_MEMBERS,
         listOf("customer"), mapOf("customer" to MemberSourceDefinition.DimensionOutput("客户", "customer", ScalarValueType.TEXT, "global.customer", 1, binding, 1, null)), emptyMap(), null, emptyMap(), null))
 

@@ -1,6 +1,5 @@
 package com.olap.prototype.governance.contract
 
-import com.fasterxml.jackson.annotation.JsonProperty
 import com.olap.prototype.contract.ProducerContracts
 
 class DefinitionImpact(val target: Reference, dependents: List<Dependent>) {
@@ -10,7 +9,7 @@ class DefinitionImpact(val target: Reference, dependents: List<Dependent>) {
     data class Step(val consumer: Reference, val relation: Relation)
     class Dependent(val reference: Reference, path: List<Step>) {
         val path: List<Step> = java.util.List.copyOf(path)
-        @get:JsonProperty("direct") val direct: Boolean get() = path.size == 1
+         val direct: Boolean get() = path.size == 1
         override fun equals(other: Any?): Boolean = other is Dependent && reference == other.reference && path == other.path
         override fun hashCode(): Int = 31 * reference.hashCode() + path.hashCode()
     }

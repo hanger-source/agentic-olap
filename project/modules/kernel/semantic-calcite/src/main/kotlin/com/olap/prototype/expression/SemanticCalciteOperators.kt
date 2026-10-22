@@ -90,8 +90,7 @@ object SemanticCalciteOperators {
                 "stability" to mapOf("IMMUTABLE" to "RESULT_DEPENDS_ONLY_ON_IMMUTABLE_ARGUMENT_VALUES_NOT_CHANGING_TABLE_DATA",
                     "STATEMENT" to "STABLE_WITHIN_ONE_SOURCE_STATEMENT_NOT_ACROSS_REQUESTS", "VOLATILE" to "MAY_CHANGE_BETWEEN_CALLS_NO_CONSTANT_FOLDING"),
                 "arithmetic" to "DECLARED_NATIVE_GUARANTEE_SURVIVES_CASTS_DECIMAL_RESULT_DOES_NOT_IMPLY_EXACT"),
-            "syntax" to mapOf("logicUnit" to SemanticExpressionCodec.wireContract(SemanticExpression.ReferenceKind.LOGIC_UNIT, true),
-                "physicalColumn" to SemanticExpressionCodec.wireContract(SemanticExpression.ReferenceKind.PHYSICAL_COLUMN, true)),
+            "construction" to "KOTLIN_DSL_TYPED_SEMANTIC_EXPRESSION",
             "maximumDecimalPrecision" to types.getMaxPrecision(SqlTypeName.DECIMAL),
             "maximumTemporalPrecision" to types.getMaxPrecision(SqlTypeName.TIMESTAMP),
             "validationBoundary" to "Registered operators require exact authorized references and Calcite operand validation; dialect execution and business meaning remain separate evidence.")

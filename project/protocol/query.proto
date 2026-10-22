@@ -1,0 +1,158 @@
+syntax = "proto3";
+package agentic.olap.query.v1;
+option java_package = "com.olap.prototype.wire.query";
+option java_multiple_files = true;
+option go_package = "github.com/hanger-source/agentic-olap/service/internal/protocol/query;query";
+import "semantic.proto";
+import "google/protobuf/any.proto";
+
+message QueryCapabilityCoordinate { string scenario_id = 1; int64 scenario_version = 2; string release_id = 3; string release_version = 4; }
+message CandidateTarget { oneof kind { CandidateDimensionProvider dimension_provider = 1; agentic.olap.semantic.v1.QueryMembers member_output = 2; } }
+message CandidateDimensionProvider { string filter_ref_id = 1; string level_code = 2; }
+message CandidateRequest { QueryCapabilityCoordinate publication = 1; string capability_hash = 2; CandidateTarget target = 3; int32 offset = 4; int32 limit = 5; }
+message CandidateSource { SourceBinding binding = 1; agentic.olap.semantic.v1.ConnectorRef connector_ref = 2; }
+message CandidateResolution { QueryCapabilityCoordinate coordinate = 1; string catalog_hash = 2; string capability_hash = 3; string query_hash = 4; repeated CandidateSource sources = 5; string value_type = 6; }
+message CandidateValues { QueryCapabilityCoordinate coordinate = 1; string catalog_hash = 2; string capability_hash = 3; string query_hash = 4; CandidateTarget target = 5; string value_type = 6; repeated agentic.olap.semantic.v1.CalculationScalar values = 7; int32 offset = 8; optional int32 next_offset = 9; string observed_at = 10; string scope = 11; }
+message QueryIntent { string format_version = 1; QueryCapabilityCoordinate publication = 2; agentic.olap.semantic.v1.QueryScope computation = 3; }
+message QueryReference { string definition_id = 1; int64 definition_version = 2; string sha256 = 3; }
+message QuerySelection { oneof kind { QueryIntent inline = 1; QueryReference saved = 2; } }
+message QueryResultReference { string run_id = 1; string sha256 = 2; }
+message SourceBinding { string data_source_id = 1; string source_identity_hash = 2; }
+message SourceVersion { string authority = 1; string version = 2; map<string,string> partitions = 3; string pinning = 4; }
+message SourceReadBasis { oneof kind { string unknown_reason = 1; SourceVersion versioned = 2; } }
+message SourceRequestEvidence { optional string request_id = 1; string acceptance = 2; string response = 3; string execution = 4; optional string protocol = 5; optional string status = 6; }
+message SourceReadEvidence { SourceBinding binding = 1; SourceReadBasis basis = 2; SourceRequestEvidence request = 3; }
+message SourceCancellationEvidence { oneof kind { agentic.olap.semantic.v1.Empty not_requested = 1; string unconfirmed_reason = 2; SourceCancellationConfirmed confirmed = 3; SourceCancellationFailed failed = 4; } }
+message SourceCancellationConfirmed { string authority = 1; string receipt = 2; }
+message SourceCancellationFailed { string code = 1; string reason = 2; }
+message SourceFailureEvidence { string category = 1; string stage = 2; string code = 3; string safe_message = 4; SourceBinding binding = 5; string operation = 6; optional string capability = 7; optional string sql_state = 8; optional int32 native_code = 9; SourceRequestEvidence request = 10; SourceCancellationEvidence cancellation = 11; }
+message SourceInspectionFailure {
+  oneof kind {
+    SourceCapabilityUnavailable capability = 1;
+    SourceInspectionFailed inspection = 2;
+    SourceGuaranteeFailed guarantee = 3;
+    string resource_limit = 4;
+    agentic.olap.semantic.v1.Empty cancelled = 5;
+  }
+}
+message SourceCapabilityUnavailable { string data_source_id = 1; string operation = 2; string capability = 3; }
+message SourceInspectionFailed { string code = 1; string data_source_id = 2; optional string sql_state = 3; optional string failure_type = 4; }
+message SourceGuaranteeFailed { string code = 1; optional string sql_state = 2; optional string failure_type = 3; }
+message WorkerFailureFacts { SourceReadEvidence source_read_evidence = 1; SourceFailureEvidence source_failure = 2; optional bool source_execution_started = 3; map<string,int64> stage_nanos = 4; SourceInspectionFailure inspection_failure = 5; }
+message QueryExecutionRequest { QuerySelection query = 1; bool save_result = 2; optional string question = 3; SourceVersion read_basis = 4; }
+message QueryValidationRequest { QuerySelection query = 1; }
+message QueryValidationResult { bool valid = 1; string capability_hash = 2; }
+message QueryExplanationRequest { QuerySelection query = 1; string section = 2; int32 offset = 3; int32 limit = 4; }
+message QueryExplanationResult { string section = 1; QueryExplanationContent content = 2; }
+message QueryExecutionFailure { string stage = 1; string code = 2; string message = 3; optional string diagnostic_id = 4; repeated string field_path = 5; }
+message QueryExecutionReceipt { string run_id = 1; string status = 2; QueryResultReference result_reference = 3; BusinessResult result = 4; bool saved = 5; int64 rows = 6; string client_outcome = 7; string source_state = 8; SourceRequestEvidence source_request = 9; SourceReadEvidence source_read_evidence = 10; map<string,int64> timing_nanos = 11; QueryExecutionFailure error = 12; }
+message QuerySource { string name = 1; string source = 2; string dsl_api_version = 3; string sha256 = 4; }
+message QueryDefinitionCommand { optional string definition_id = 1; optional int64 source_version = 2; string capability_hash = 3; string name = 4; QueryIntent intent = 5; QuerySource source = 6; }
+message QueryDefinitionView { string definition_id = 1; int64 definition_version = 2; string name = 3; string scenario_id = 4; int64 scenario_version = 5; string scenario_display_name = 6; string release_id = 7; string release_version = 8; string release_display_name = 9; string catalog_hash = 10; string subject_area_id = 11; int64 subject_area_version = 12; string capability_hash = 13; string intent_hash = 14; QueryIntent intent = 15; string created_at = 16; QuerySource source = 17; }
+message QueryVersionRequest { QueryReference query_reference = 1; }
+message QueryListRequest { QueryCapabilityCoordinate coordinate = 1; int32 offset = 2; int32 limit = 3; }
+message QueryDefinitionResult { QueryDefinitionView definition = 1; QueryReference reference = 2; }
+message QueryDefinitionPage { repeated QueryDefinitionResult items = 1; optional int32 next_offset = 2; }
+message QueryDefinitionArtifact { string format_version = 1; string sha256 = 2; bytes definition = 3; }
+
+// 技术类型与无损业务值独立；ROW按序号保存，不能按字段名重新解释。
+message ResultValueType { oneof kind { ResultScalarType scalar = 1; ResultArrayType array = 2; ResultRowType row = 3; } }
+message ResultScalarType { string name = 1; optional int32 precision = 2; optional int32 scale = 3; bool nullable = 4; }
+message ResultArrayType { ResultValueType element = 1; bool nullable = 2; }
+message ResultRowType { repeated ResultField fields = 1; bool nullable = 2; }
+message ResultField { string name = 1; ResultValueType type = 2; }
+message BusinessColumn { string column_id = 1; agentic.olap.semantic.v1.Symbol symbol = 2; ResultValueType type = 3; optional string display_name = 4; }
+message BusinessColumns { repeated BusinessColumn values = 1; }
+message BusinessValue { oneof kind { agentic.olap.semantic.v1.Empty null_value = 1; BusinessScalar scalar = 2; BusinessValues array = 3; BusinessValues row = 4; } }
+message BusinessScalar { string type = 1; string value = 2; }
+message BusinessValues { repeated BusinessValue values = 1; }
+message BusinessResult { repeated BusinessColumn input_columns = 1; map<string,BusinessColumns> scope_input_columns = 2; repeated BusinessColumn columns = 3; repeated agentic.olap.semantic.v1.Symbol source_symbols = 4; repeated BusinessValues rows = 5; }
+
+message ResultReadRequest { QueryResultReference result_reference = 1; int32 offset = 2; int32 limit = 3; agentic.olap.semantic.v1.StringList column_ids = 4; }
+message ResultMetadataRequest { QueryResultReference result_reference = 1; string section = 2; optional string scope_path = 3; optional string explanation_section = 4; int32 offset = 5; int32 limit = 6; }
+message ResultValueReference { int32 row_index = 1; string column_id = 2; repeated int32 path = 3; string sha256 = 4; }
+message ResultValueRequest { QueryResultReference result_reference = 1; ResultValueReference value_reference = 2; int32 offset = 3; int32 limit = 4; }
+message ResultProfileRequest { QueryResultReference result_reference = 1; repeated string column_ids = 2; }
+message QueryRunRequest { string run_id = 1; int32 offset = 2; int32 limit = 3; }
+message QueryRunListRequest { QueryCapabilityCoordinate coordinate = 1; optional string text = 2; int32 offset = 3; int32 limit = 4; }
+message QueryUsageNoteRequest { string run_id = 1; string text = 2; }
+
+// 仅用于普通脚本值和读取投影；完整语义计算必须使用上述QueryIntent及semantic.QueryScope。
+message ScriptValue { oneof kind { agentic.olap.semantic.v1.Empty null_value = 1; bool boolean = 2; string text = 3; string decimal = 4; ScriptValues array = 5; ScriptObject object = 6; RegisteredReply registered_reply = 7; ScriptReference reference = 8; } }
+message ScriptReference { oneof kind { QueryReference query = 1; QueryResultReference result = 2; agentic.olap.semantic.v1.MetricRef metric = 3; agentic.olap.semantic.v1.MetricInstanceRef metric_instance = 4; agentic.olap.semantic.v1.MemberRef member = 5; agentic.olap.semantic.v1.EventRef event = 6; agentic.olap.semantic.v1.DimensionRef dimension = 7; SourceBinding source = 8; agentic.olap.semantic.v1.ConnectorRef connector = 9; } }
+message ScriptValues { repeated ScriptValue values = 1; }
+message ScriptObject { map<string,ScriptValue> values = 1; }
+message RegisteredReply { string operation_id = 1; google.protobuf.Any content = 2; }
+
+// 所有解释均来自实际绑定、阶段分析或来源计划；不会把未知统计包装为已观测。
+message QueryExplanationView { string request_id = 1; ExplanationSummary summary = 2; repeated ExplanationScope scopes = 3; repeated ExplanationSource sources = 4; repeated ExplanationPlanNode plan = 5; ExplanationCompilationScale compilation_scale = 6; }
+message QueryExplanationContent { oneof kind { ExplanationSummary summary = 1; ExplanationScopes scopes = 2; ExplanationSources sources = 3; ExplanationPlan plan = 4; ExplanationScale scale = 5; } }
+message ExplanationScopes { repeated ExplanationScope items = 1; int32 total_items = 2; optional int32 next_offset = 3; }
+message ExplanationSources { repeated ExplanationSource items = 1; int32 total_items = 2; optional int32 next_offset = 3; }
+message ExplanationPlan { repeated ExplanationPlanNode items = 1; int32 total_items = 2; optional int32 next_offset = 3; }
+message ExplanationScale { ExplanationCompilationScale value = 1; }
+message ExplanationSummary { int32 scope_count = 1; int32 source_input_count = 2; string execution_boundary = 3; PopulationContract population_contract = 4; string actual_source_statistics = 5; string row_null_attribution = 6; }
+message PopulationMode { string mode = 1; repeated string fields = 2; string groups = 3; optional string inputs = 4; }
+message PopulationContract { string format_version = 1; bool required = 2; repeated PopulationMode modes = 3; string scope = 4; string grain = 5; string unmatched_metrics = 6; string calculation_metric = 7; string empty_population = 8; string coverage = 9; }
+message ExplanationKey { bool proven_unique = 1; repeated agentic.olap.semantic.v1.SymbolId columns = 2; }
+message ExplanationQualification { agentic.olap.semantic.v1.ScopeId objects_scope = 1; repeated string object_keys = 2; agentic.olap.semantic.v1.ObjectTarget target = 3; string effect = 4; repeated string record_slots = 5; map<string,agentic.olap.semantic.v1.MemberMeaning> record_meanings = 6; }
+message ExplanationChild { string kind = 1; string name = 2; agentic.olap.semantic.v1.ScopeId scope = 3; }
+message ExplanationStage { int32 index = 1; string operation = 2; agentic.olap.semantic.v1.Stage contract = 3; repeated agentic.olap.semantic.v1.SymbolId inputs = 4; repeated agentic.olap.semantic.v1.SymbolId imports = 5; repeated agentic.olap.semantic.v1.Symbol outputs = 6; ExplanationKey grain = 7; }
+message ExplanationScope { agentic.olap.semantic.v1.ScopeId scope = 1; optional string input_mode = 2; ExplanationRoot root = 3; repeated ExplanationQualification qualifications = 4; repeated ExplanationChild children = 5; ExplanationKey final_grain = 6; RelationInputMatch relation_input_match = 7; repeated agentic.olap.semantic.v1.Symbol outputs = 8; repeated agentic.olap.semantic.v1.SelectedObservation selected_observations = 9; repeated ExplanationStage stages = 10; }
+message RelationRequirement { map<string,string> output_slots = 1; repeated agentic.olap.semantic.v1.SetOutput outputs = 2; agentic.olap.semantic.v1.StringList keys = 3; }
+message RelationInputMatch { string status = 1; agentic.olap.semantic.v1.ScopeId input_scope = 2; repeated agentic.olap.semantic.v1.Symbol actual_outputs = 3; ExplanationKey actual_grain = 4; repeated RelationRequirement requirements = 5; map<string,string> projection = 6; string population = 7; string effect = 8; }
+message ExplanationRoot { oneof kind { ExplanationMeasures measures = 1; ExplanationMembers members = 2; string input_id = 3; ExplanationRelation relation = 4; ExplanationObjectMeasure object_measure = 5; ExplanationAlignment align_measurements = 6; ExplanationObservation observation_statistics = 7; ExplanationSet set_inputs = 8; } }
+message ExplanationMeasures { agentic.olap.semantic.v1.RowPopulation row_population = 1; repeated string calls = 2; agentic.olap.semantic.v1.QueryTimeRange time_range = 3; map<string,agentic.olap.semantic.v1.TemporalClock> clocks = 4; agentic.olap.semantic.v1.DimensionCondition output_condition = 5; }
+message ExplanationMembers { ExplanationMemberOrigin origin = 1; map<string,string> outputs = 2; agentic.olap.semantic.v1.MemberCondition condition = 3; agentic.olap.semantic.v1.TemporalWindow range = 4; }
+message ExplanationMemberOrigin { oneof kind { ExplanationMemberRef projection = 1; ExplanationComputedMember computed = 2; agentic.olap.semantic.v1.ScopeId local = 3; } }
+message ExplanationMemberRef { string id = 1; int64 version = 2; }
+message ExplanationComputedMember { string id = 1; int64 version = 2; agentic.olap.semantic.v1.ScopeId computation_scope = 3; }
+message ExplanationRelation { agentic.olap.semantic.v1.ScopeId input_scope = 1; map<string,string> outputs = 2; agentic.olap.semantic.v1.StringList keys = 3; repeated RelationRequirement requirements = 4; }
+message ExplanationObjectMeasure { repeated agentic.olap.semantic.v1.ObjectRole roles = 1; }
+message StringMap { map<string,string> values = 1; }
+message ExplanationAlignment { map<string,StringMap> keys = 1; repeated string observation_keys = 2; agentic.olap.semantic.v1.AlignmentPopulation population = 3; }
+message ExplanationObservation { agentic.olap.semantic.v1.ObservationUnit unit = 1; repeated string outer_keys = 2; }
+message ExplanationSet { string operation = 1; bool all = 2; repeated agentic.olap.semantic.v1.SetProjection inputs = 3; }
+message ExplanationSourceIdentity { oneof kind { ExplanationFactIdentity fact = 1; ExplanationMemberIdentity member = 2; } }
+message ExplanationFactIdentity { string call_id = 1; agentic.olap.semantic.v1.CalculationOwner owner = 2; agentic.olap.semantic.v1.MetricRef metric = 3; map<string,agentic.olap.semantic.v1.DimensionRef> grouping = 4; agentic.olap.semantic.v1.DimensionCondition filter = 5; }
+message ExplanationMemberIdentity { string source_id = 1; string source_version = 2; map<string,string> outputs = 3; map<string,agentic.olap.semantic.v1.MemberMeaning> meanings = 4; agentic.olap.semantic.v1.MemberCondition condition = 5; }
+message RelationPosition { repeated string scope = 1; string role = 2; repeated agentic.olap.semantic.v1.JoinRef path = 3; }
+message ExplanationPosition { RelationPosition position = 1; string binding_id = 2; string binding_version = 3; }
+message ExplanationJoin { string join_path_id = 1; string join_path_version = 2; RelationPosition source_position = 3; RelationPosition target_position = 4; map<int32,RelationPosition> source_times = 5; map<int32,string> clock_slots = 6; bool required_match = 7; }
+message ExplanationQuantified { repeated string occurrence = 1; RelationPosition parent_position = 2; repeated ExplanationPosition positions = 3; repeated ExplanationJoin joins = 4; map<string,agentic.olap.semantic.v1.TemporalClock> clocks = 5; repeated ExplanationQuantified quantifiers = 6; }
+message ExplanationRelationSource { string instance_id = 1; string filter_ref_id = 2; ExplanationSource source = 3; }
+message ExplanationSource { agentic.olap.semantic.v1.ScopeId scope = 1; ExplanationSourceIdentity identity = 2; string event_id = 3; string event_version = 4; agentic.olap.semantic.v1.EventIdentity record_identity = 5; agentic.olap.semantic.v1.TemporalWindow range = 6; map<string,agentic.olap.semantic.v1.TemporalClock> clocks = 7; repeated ExplanationPosition positions = 8; repeated ExplanationJoin joins = 9; repeated ExplanationQuantified quantifiers = 10; repeated ExplanationRelationSource relations = 11; }
+message ExplanationPlanNode { string id = 1; string operator = 2; repeated string inputs = 3; optional string scan = 4; optional string join_type = 5; IntList group_columns = 6; agentic.olap.semantic.v1.StringList aggregations = 7; }
+message IntList { repeated int32 values = 1; }
+message ExplanationRelationSize { int32 nodes = 1; int32 edges = 2; int32 scalar_calls = 3; int32 numeric_checks = 4; int32 repeated_numeric_checks = 5; }
+message ExplanationCompilationScale { ExplanationRelationSize raw = 1; ExplanationRelationSize optimized = 2; ExplanationRelationSize sql_relation = 3; int32 sql_bytes = 4; int32 sql_case_expressions = 5; int32 sql_numeric_checks = 6; int32 numeric_bindings = 7; int32 reused_numeric_checks = 8; }
+
+message QueryExecutionDiagnostics { string sql = 1; map<string,string> alias_mapping = 2; optional string audit_report = 3; }
+message SavedQueryResultRecord { string format_version = 1; string run_id = 2; QueryCapabilityCoordinate publication = 3; string catalog_hash = 4; string capability_hash = 5; QueryIntent intent = 6; QueryReference query_reference = 7; string started_at = 8; string completed_at = 9; QueryExecutionReceipt receipt = 10; QueryExplanationView explanation = 11; QueryExecutionDiagnostics diagnostics = 12; string intent_hash = 13; }
+message SavedQueryResultArtifact { string format_version = 1; string sha256 = 2; bytes record_bytes = 3; }
+message ResultRunSummary { string run_id = 1; string status = 2; bool saved = 3; int64 rows = 4; string client_outcome = 5; string started_at = 6; string completed_at = 7; map<string,int64> timing_nanos = 8; QueryExecutionFailure error = 9; }
+message ResultPublication { QueryCapabilityCoordinate publication = 1; string catalog_hash = 2; string capability_hash = 3; string intent_hash = 4; QueryReference query_reference = 5; }
+message ResultSourceEvidence { string state = 1; SourceRequestEvidence request = 2; SourceReadEvidence read_evidence = 3; }
+message ResultScopeColumns { string scope_path = 1; int32 column_count = 2; }
+message ResultScopeIndex { repeated ResultScopeColumns values = 1; }
+message ResultSymbols { repeated agentic.olap.semantic.v1.Symbol values = 1; }
+message ResultMetadataContent { oneof kind { ResultRunSummary run = 1; ResultSourceEvidence source = 2; ResultPublication publication = 3; BusinessColumns columns = 4; ResultScopeIndex scope_index = 5; ResultSymbols symbols = 6; QueryIntent intent = 7; QueryExplanationContent explanation = 8; } }
+message ResultMetadataPage { QueryResultReference result_reference = 1; string section = 2; ResultMetadataContent content = 3; int32 offset = 4; int32 total_items = 5; optional int32 next_offset = 6; }
+message ResultValueView { oneof kind { BusinessValue complete = 1; ResultValueReferenceView reference = 2; } }
+message ResultValueReferenceView { ResultValueReference reference = 1; string type = 2; int32 length = 3; string length_unit = 4; }
+message ResultValueViews { repeated ResultValueView values = 1; }
+message ResultPage { QueryResultReference result_reference = 1; ResultRunSummary run = 2; ResultPublication publication = 3; repeated BusinessColumn columns = 4; repeated ResultValueViews rows = 5; int32 offset = 6; int32 total_rows = 7; optional int32 next_offset = 8; }
+message ResultValuePage { QueryResultReference result_reference = 1; ResultValueReference value_reference = 2; string type = 3; string length_unit = 4; int32 total_length = 5; int32 offset = 6; optional int32 next_offset = 7; oneof content { string text = 8; ResultValueViews members = 9; } }
+message ResultValueCount { ResultValueView value = 1; int64 count = 2; }
+message ResultValueCounts { repeated ResultValueCount values = 1; }
+message ResultNumericExtrema { ResultValueView minimum = 1; ResultValueView maximum = 2; }
+message ResultColumnProfile { BusinessColumn column = 1; int64 null_count = 2; int64 non_null_count = 3; int64 distinct_encoded_non_null_value_count = 4; ResultValueCounts value_counts = 5; ResultNumericExtrema numeric_extrema = 6; }
+message ResultProfile { QueryResultReference result_reference = 1; int64 total_rows = 2; ResultPublication publication = 3; ResultRunSummary run = 4; repeated ResultColumnProfile columns = 5; }
+message QueryResultManifest { string run_id = 1; string sha256 = 2; int64 bytes = 3; int64 rows = 4; string saved_at = 5; }
+message QueryRunView { string run_id = 1; string subject = 2; QueryCapabilityCoordinate publication = 3; string subject_area_id = 4; int64 subject_area_version = 5; string catalog_hash = 6; string capability_hash = 7; string intent_hash = 8; string execution = 9; string delivery = 10; string accepted_at = 11; optional string completed_at = 12; bool history_enabled = 13; bool save_requested = 14; QueryIntent intent = 15; QueryReference definition = 16; optional string question = 17; optional string execution_error = 18; optional string delivery_error = 19; QueryResultManifest result = 20; QueryExecutionReceipt receipt = 21; QueryServiceObservation service_observation = 22; }
+message QueryWorkerAcquisition { string kind = 1; string outcome = 2; int64 queue_nanos = 3; int64 startup_nanos = 4; }
+message QueryServiceObservation { string scope = 1; map<string,int64> timing_nanos = 2; repeated QueryWorkerAcquisition workers = 3; }
+message QueryUsageNote { string id = 1; string run_id = 2; string subject = 3; string text = 4; string created_at = 5; }
+message QuerySemanticReference { string asset_type = 1; string id = 2; string version = 3; }
+message QueryUsageView { QueryRunView run = 1; repeated QueryUsageNote notes = 2; optional int32 next_note_offset = 3; repeated QuerySemanticReference references = 4; }
+message QueryUsagePage { repeated QueryRunView items = 1; optional int32 next_offset = 2; }

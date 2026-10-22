@@ -1,8 +1,8 @@
 package com.olap.prototype.query.definition
 
-import com.fasterxml.jackson.databind.JsonNode
 import com.olap.prototype.query.contract.QueryCapabilityView
+import com.olap.prototype.query.contract.QueryIntent
 
 fun interface NativeValidator {
-    fun validate(intent: JsonNode, capability: QueryCapabilityView)
+    fun validate(intent: QueryIntent, capability: QueryCapabilityView)
 }

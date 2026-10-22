@@ -1,11 +1,11 @@
 package com.olap.prototype.server
 
-import com.fasterxml.jackson.databind.JsonNode
 import com.olap.prototype.connector.SourceCapabilities
 import com.olap.prototype.connector.SourceCapabilityException
 import com.olap.prototype.runtime.RuntimeResourceLimitException
-import com.olap.prototype.server.ServerInputs.command
-import com.olap.prototype.util.OlapJsonUtils
+import com.olap.prototype.runtime.SourceWorkerCommand
+import com.olap.prototype.runtime.SourceWorkerResult
+import com.olap.prototype.source.contract.SourceInspection
 import com.olap.prototype.warehouse.SourceGuaranteeException
 import com.olap.prototype.warehouse.WarehouseExecutionControl
 import com.olap.prototype.warehouse.WarehouseSourceInspection
@@ -14,41 +14,67 @@ import com.olap.prototype.warehouse.contract.SourceConfiguration
 import com.olap.prototype.warehouse.inspection.WarehouseInspectionException
 import com.olap.prototype.warehouse.inspection.WarehousePreview
 import com.olap.prototype.warehouse.inspection.WarehousePreviewRequest
+import com.olap.prototype.wire.query.SourceCapabilityUnavailable
+import com.olap.prototype.wire.query.SourceGuaranteeFailed
+import com.olap.prototype.wire.query.SourceInspectionFailed
+import com.olap.prototype.wire.query.SourceInspectionFailure as WireInspectionFailure
 
 internal class SourceInvestigationClient(private val workers: RemoteWorkers,
     private val request: RemoteWorkers.Request) : WarehouseSourceInspection {
-    private val mapper = OlapJsonUtils.mapper()
-
-    private fun call(operation: String, payload: Any, source: SourceConfiguration,
-        control: WarehouseExecutionControl): JsonNode {
+    private fun call(command: SourceWorkerCommand, source: SourceConfiguration,
+        control: WarehouseExecutionControl): SourceWorkerResult {
         control.checkCancellation()
         try {
             return workers.borrow(RemoteWorkers.Kind.SOURCE_INSPECTION, listOf(source), request).use {
-                val response = it.exchange(command(operation, mapper.valueToTree(payload)))
+                val response = it.source(command)
                 control.checkCancellation(); response
             }
         } catch (failure: RemoteWorkers.WorkerFailure) {
-            SourceInspectionFailure.rethrow(failure.error)
+            failure.inspectionFailure?.let(SourceInspectionFailure::rethrow)
             throw failure
         }
     }
 
-    override fun discover(request: WarehouseSourceInspection.DiscoveryRequest, control: WarehouseExecutionControl): WarehouseSourceInspection.Discovery =
-        mapper.treeToValue(call("discover-source", request, request.inspection.connection, control), WarehouseSourceInspection.Discovery::class.java)
+    override fun discover(request: WarehouseSourceInspection.DiscoveryRequest, control: WarehouseExecutionControl): WarehouseSourceInspection.Discovery {
+        val input = request.inspection
+        val result = call(SourceWorkerCommand.Discover(SourceInspection.Snapshot(input.connection.bindingRef(), input.catalog,
+            input.schemaName, input.tablePattern, input.tableTypes.orEmpty(), input.limit), request.temporalKeys, request.snapshotUniqueKeys), input.connection, control)
+        return (result as? SourceWorkerResult.Discovery)?.value ?: error("source worker returned a different discovery receipt")
+    }
 
-    override fun preview(request: WarehousePreviewRequest, control: WarehouseExecutionControl): WarehousePreview =
-        mapper.treeToValue(call("preview-source", request, request.connection, control), WarehousePreview::class.java)
+    override fun preview(request: WarehousePreviewRequest, control: WarehouseExecutionControl): WarehousePreview {
+        val result = call(SourceWorkerCommand.Preview(SourceInspection.Preview(request.connection.bindingRef(), request.table, request.limit)), request.connection, control)
+        return (result as? SourceWorkerResult.Preview)?.value ?: error("source worker returned a different preview receipt")
+    }
 
     override fun verifySealedDataset(source: SourceConfiguration, declaration: SealedSourceDataset,
         control: WarehouseExecutionControl) {
-        val response = call("verify-sealed-source", mapOf("connection" to source, "declaration" to declaration), source, control)
-        check(response.isObject && response.size() == 1 && response.path("verified").isBoolean && response.path("verified").booleanValue()) {
+        val response = call(SourceWorkerCommand.Verify(source.bindingRef(), declaration), source, control)
+        check(response == SourceWorkerResult.Verified) {
             "source verification worker returned an invalid receipt"
         }
     }
 }
 
 internal object SourceInspectionFailure {
+    fun facts(failure: Exception): WireInspectionFailure? = when (failure) {
+        is SourceCapabilityException -> WireInspectionFailure.newBuilder().setCapability(
+            SourceCapabilityUnavailable.newBuilder().setDataSourceId(failure.dataSourceId)
+                .setOperation(failure.operation).setCapability(failure.capability.name)).build()
+        is WarehouseInspectionException -> WireInspectionFailure.newBuilder().setInspection(
+            SourceInspectionFailed.newBuilder().setCode(failure.code).setDataSourceId(failure.dataSourceId).apply {
+                failure.sqlState?.let(::setSqlState); failure.failureType?.let(::setFailureType)
+            }).build()
+        is SourceGuaranteeException -> WireInspectionFailure.newBuilder().setGuarantee(
+            SourceGuaranteeFailed.newBuilder().setCode(failure.code).apply {
+                failure.sqlState?.let(::setSqlState); failure.failureType?.let(::setFailureType)
+            }).build()
+        is RuntimeResourceLimitException -> WireInspectionFailure.newBuilder().setResourceLimit(failure.code).build()
+        is java.util.concurrent.CancellationException -> WireInspectionFailure.newBuilder()
+            .setCancelled(com.olap.prototype.wire.semantic.Empty.getDefaultInstance()).build()
+        else -> null
+    }
+
     fun project(failure: Exception): Map<String, Any?> = when (failure) {
         is SourceCapabilityException -> mapOf("type" to failure.javaClass.name, "code" to failure.code,
             "dataSourceId" to failure.dataSourceId, "operation" to failure.operation, "capability" to failure.capability.name)
@@ -61,15 +87,25 @@ internal object SourceInspectionFailure {
         else -> mapOf("type" to failure.javaClass.name, "code" to "SOURCE_INSPECTION_FAILED")
     }
 
-    fun rethrow(error: JsonNode) {
-        fun text(field: String) = ServerInputs.text(error, field)
-        fun optional(field: String) = ServerInputs.optionalText(error, field)
-        when (text("type")) {
-            SourceCapabilityException::class.java.name -> throw SourceCapabilityException(text("dataSourceId"), text("operation"), SourceCapabilities.Capability.valueOf(text("capability")))
-            WarehouseInspectionException::class.java.name -> throw WarehouseInspectionException(text("code"), text("dataSourceId"), optional("sqlState"), optional("failureType"), null)
-            SourceGuaranteeException::class.java.name -> throw SourceGuaranteeException(text("code"), optional("sqlState"), optional("failureType"))
-            RuntimeResourceLimitException::class.java.name -> throw RuntimeResourceLimitException(text("code"))
-            java.util.concurrent.CancellationException::class.java.name -> throw java.util.concurrent.CancellationException("source inspection was cancelled")
+    fun rethrow(failure: WireInspectionFailure): Nothing = when (failure.kindCase) {
+        WireInspectionFailure.KindCase.CAPABILITY -> failure.capability.let {
+            require(it.dataSourceId.isNotBlank() && it.operation.isNotBlank()) { "source capability failure requires its source and operation" }
+            throw SourceCapabilityException(it.dataSourceId, it.operation, SourceCapabilities.Capability.valueOf(it.capability))
         }
+        WireInspectionFailure.KindCase.INSPECTION -> failure.inspection.let {
+            require(it.code.isNotBlank() && it.dataSourceId.isNotBlank()) { "inspection failure requires its code and source" }
+            throw WarehouseInspectionException(it.code, it.dataSourceId, it.sqlState.takeIf { _ -> it.hasSqlState() },
+                it.failureType.takeIf { _ -> it.hasFailureType() })
+        }
+        WireInspectionFailure.KindCase.GUARANTEE -> failure.guarantee.let {
+            throw SourceGuaranteeException(it.code, it.sqlState.takeIf { _ -> it.hasSqlState() },
+                it.failureType.takeIf { _ -> it.hasFailureType() })
+        }
+        WireInspectionFailure.KindCase.RESOURCE_LIMIT -> {
+            require(failure.resourceLimit.isNotBlank()) { "source resource failure requires its code" }
+            throw RuntimeResourceLimitException(failure.resourceLimit)
+        }
+        WireInspectionFailure.KindCase.CANCELLED -> throw java.util.concurrent.CancellationException("source inspection was cancelled")
+        else -> error("source inspection failure kind is required")
     }
 }

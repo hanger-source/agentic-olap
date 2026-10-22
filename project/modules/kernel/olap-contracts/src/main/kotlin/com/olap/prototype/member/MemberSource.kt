@@ -1,14 +1,10 @@
 package com.olap.prototype.member
 
-import com.fasterxml.jackson.annotation.JsonSubTypes
-import com.fasterxml.jackson.annotation.JsonTypeInfo
 import com.olap.prototype.calculation.*
 import com.olap.prototype.expression.SemanticExpression
 import com.olap.prototype.query.ScopedInputContract
 
 /** 精确成员来源实例，投影表达式和计算采用各只有一个事实owner。 */
-@JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "kind")
-@JsonSubTypes(JsonSubTypes.Type(value = MemberSource.Projection::class, name = "PROJECTION"), JsonSubTypes.Type(value = MemberSource.Computed::class, name = "COMPUTED"))
 sealed interface MemberSource {
     val id: String
     val version: Long

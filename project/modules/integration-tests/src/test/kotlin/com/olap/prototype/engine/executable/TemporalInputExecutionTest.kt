@@ -84,11 +84,11 @@ class TemporalInputExecutionTest {
         val access = RelationAccessPath(listOf(RelationAccessPath.JoinRef("history", 1)))
         val clocks = mapOf(TemporalClockBindings.slot("dimension:historical_region@1", access.joinPathRefs, 1) to TemporalClockBindings.Value(TemporalWindow.ValueType.LOCAL_TIMESTAMP, cutoff))
         val event = definitions.events.getValue("facts@1")
-        val binding = ExecutableDimensionBinding("historical_region", "1", "region", "1", "facts", "1", "fact_history", "1", "history.region", "1", SemanticExpressionCodec.logicUnit("history.region", 1), access, emptyMap(), emptyList(), "history", "1")
+        val binding = ExecutableDimensionBinding("historical_region", "1", "region", "1", "facts", "1", "fact_history", "1", "history.region", "1", SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, "history.region", 1), access, emptyMap(), emptyList(), "history", "1")
         val dimension = ExecutableBoundAnalysisDimension(ExecutableAnalysisDimension("historical_region", "1", "历史地区", "historical_region", "region", null), "region", "value", event,
             ExecutableDimension("region", "1", null, "history", null, null), binding, ExecutableLogicUnit("history.region", "1", ScalarValueType.TEXT, null, null, null, "region", null, "history", "1"), ScalarValueType.TEXT,
             emptyList(), definitions.physical.getValue("history@1"), false, "same_historical_region", "PROVEN_SAME_KEY")
-        val metric = ExecutableMetric(MetricRef("history_amount", "1"), MetricDefinition.FactMeasure(EventRef("facts", 1), SemanticExpressionCodec.logicUnit("facts.amount", 1), MetricAggregation.SUM, false, null, emptyMap(), null, exact, MetricValueContract.Rounding.NONE))
+        val metric = ExecutableMetric(MetricRef("history_amount", "1"), MetricDefinition.FactMeasure(EventRef("facts", 1), SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, "facts.amount", 1), MetricAggregation.SUM, false, null, emptyMap(), null, exact, MetricValueContract.Rounding.NONE))
         val selection = ExecutableMeasureSelection(mapOf("region" to ScopedInputContract.DimensionRef("historical_region", "1", "value")), emptyMap(), null, null, clocks)
         val invocation = ExecutableMetricCall.Invocation(QueryStageAnalysis.ScopeId.root(), "payment", CalculationOwner.Metric(MetricInstanceRef("payment")), "value", "value", metric, emptyMap(), CalculationBindings.empty(), null, emptyMap(), emptyMap())
         val fact = ExecutableMetricInput(invocation, selection, event, definitions.topologies.getValue("fact_history@1"), null, null, listOf(dimension), unrestricted, emptyMap(), emptyList())
@@ -99,7 +99,7 @@ class TemporalInputExecutionTest {
         val units = mapOf("record" to "facts.id", "entity" to "facts.entity", "matched_entity" to "history.entity", "history_id" to "history.id", "region" to "history.region")
         val outputs = units.mapValues { (slot, unit) -> MemberSourceDefinition.PropertyOutput(slot, slot, if (slot == "region") ScalarValueType.TEXT else ScalarValueType.NUMBER, unit, 1, if (unit.startsWith("history.")) access else local, null) }
         val source = MemberSource.Projection("historical_members", 1, MemberSourceDefinition.Projection(EventRef("facts", 1), MemberResult("历史成员", "members", shape, listOf(identity), outputs, emptyMap(), null, emptyMap(), null)),
-            units.mapValues { SemanticExpressionCodec.logicUnit(it.value, 1) })
+            units.mapValues { SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, it.value, 1) })
         val used = (selected + identity).toSet(); val clocks = linkedMapOf<String, TemporalClockBindings.Value>()
         val intervals = requireNotNull(definitions.joins.getValue("history@1").temporalConstraint).intervals
         used.filter { units.getValue(it).startsWith("history.") }.forEach { slot -> intervals.forEachIndexed { index, interval ->
@@ -179,7 +179,7 @@ class TemporalInputExecutionTest {
         "CREATE TABLE snapshots(id INTEGER PRIMARY KEY, customer INTEGER NOT NULL, book VARCHAR NOT NULL, region VARCHAR, occurred TIMESTAMP(6) NOT NULL, amount DECIMAL(18,2), eligible BOOLEAN)",
         "INSERT INTO snapshots VALUES (1,1,'cash','A','2026-01-01 00:00:00.000001',10,TRUE),(2,1,'cash','A','2026-01-03 00:00:00.000001',12,TRUE),(3,1,'cash','A','2026-01-03 00:00:00.000001',30,FALSE),(4,2,'cash','A','2026-01-02 00:00:00.000001',20,TRUE),(5,2,'cash','A','2026-01-03 00:00:00.000001',40,TRUE),(6,3,'margin','A','2026-01-01 00:00:00.000001',5,TRUE),(7,3,'margin','A','2026-01-03 00:00:00.000001',15,TRUE),(8,4,'cash','B','2026-01-01 00:00:00.000001',NULL,TRUE),(9,4,'cash','B','2026-01-03 00:00:00.000001',7,TRUE),(10,5,'cash','C','2026-01-01 00:00:00.000001',3,TRUE),(11,5,'cash','C','2026-01-03 00:00:00.000001',NULL,TRUE),(12,1,'cash','A','2026-02-01 00:00:00.000000',999,TRUE),(13,3,'cash','A','2026-01-02 00:00:00.000001',2,TRUE)"))
     private fun snapshotBinding(id: String, column: String, source: ExecutablePhysicalExecutionBinding) = ExecutableDimensionBinding(id, "1", id, "1", "snapshots", "1", "snapshots", "1", "snapshots.$column", "1",
-        SemanticExpressionCodec.logicUnit("snapshots.$column", 1), local, emptyMap(), emptyList(), source.bindingId, "1")
+        SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, "snapshots.$column", 1), local, emptyMap(), emptyList(), source.bindingId, "1")
     private fun snapshotCatalog(warehouse: NativeWarehouse): Definitions {
         val source = warehouse.adopt("snapshots", listOf("id", "customer", "book", "region", "occurred", "amount", "eligible").associate { "snapshots.$it" to it })
         val topology = ExecutableTopology("snapshots", "1", "snapshots", null, "snapshots", "1")
@@ -196,8 +196,8 @@ class TemporalInputExecutionTest {
         val rule = MetricSnapshotRule(reduction, "account", listOf(MetricSnapshotRule.LogicUnitKey("snapshots.customer", 1), MetricSnapshotRule.LogicUnitKey("snapshots.book", 1)),
             MetricSnapshotRule.LogicUnitKey("snapshots.occurred", 1), listOf(MetricSnapshotRule.LogicUnitKey("snapshots.id", 1)), policy, if (isMean) meanContract else null,
             if (isMean && dialect == "h2") MetricValueContract.Rounding.HALF_DOWN else MetricValueContract.Rounding.NONE)
-        val predicate = if (mode.endsWith("QUALIFIED")) SemanticExpression.Operation(SemanticExpression.Operator.EQ, listOf(SemanticExpressionCodec.logicUnit("snapshots.eligible", 1), SemanticExpression.Literal(true))) else null
-        val metric = ExecutableMetric(MetricRef("balance", "1"), MetricDefinition.FactMeasure(EventRef("snapshots", 1), SemanticExpressionCodec.logicUnit("snapshots.amount", 1), MetricAggregation.SUM, false, predicate,
+        val predicate = if (mode.endsWith("QUALIFIED")) SemanticExpression.Operation(SemanticExpression.Operator.EQ, listOf(SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, "snapshots.eligible", 1), SemanticExpression.Literal(true))) else null
+        val metric = ExecutableMetric(MetricRef("balance", "1"), MetricDefinition.FactMeasure(EventRef("snapshots", 1), SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, "snapshots.amount", 1), MetricAggregation.SUM, false, predicate,
             emptyMap(), rule, if (isMean) meanContract else exact, MetricValueContract.Rounding.NONE))
         val event = definitions.events.getValue("snapshots@1"); val source = definitions.physical.getValue("snapshots@1")
         fun bound(id: String, column: String, type: ScalarValueType, filter: Boolean) = ExecutableBoundAnalysisDimension(
@@ -356,7 +356,7 @@ class TemporalInputExecutionTest {
         val metric = MetricRef("observed-balance", "1")
         val snapshot = MetricSnapshotRule(MetricSnapshotRule.Reduction.LAST, "account", listOf(MetricSnapshotRule.LogicUnitKey("snapshots.customer", 1), MetricSnapshotRule.LogicUnitKey("snapshots.book", 1)),
             MetricSnapshotRule.LogicUnitKey("snapshots.occurred", 1), listOf(MetricSnapshotRule.LogicUnitKey("snapshots.id", 1)), MetricSnapshotRule.NullPolicy.PRESERVE_SELECTED, null, MetricValueContract.Rounding.NONE)
-        definitions.metrics[metric.key()] = ExecutableMetric(metric, MetricDefinition.FactMeasure(EventRef("snapshots", 1), SemanticExpressionCodec.logicUnit("snapshots.amount", 1), MetricAggregation.SUM, false, null, emptyMap(), snapshot, exact, MetricValueContract.Rounding.NONE))
+        definitions.metrics[metric.key()] = ExecutableMetric(metric, MetricDefinition.FactMeasure(EventRef("snapshots", 1), SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, "snapshots.amount", 1), MetricAggregation.SUM, false, null, emptyMap(), snapshot, exact, MetricValueContract.Rounding.NONE))
         val names = listOf("customer", "book", "time")
         val calculation = Calculation(names.map { Calculation.DimensionSlot(it, it, 1, it) }, emptyList(), emptyList(), emptyList(), emptyMap(), Calculation.Scope(Calculation.Measures(
             listOf(Calculation.Call("balance", Calculation.Fixed(metric), "value", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()))), names, emptyList(), "time",
@@ -482,7 +482,7 @@ class TemporalInputExecutionTest {
             definitions.dimensions["$name@1"] = ExecutableDimension(name, "1", null, "temporal", null, name)
             val binding = "$table-$name"
             definitions.bindings["$binding@1"] = ExecutableDimensionBinding(binding, "1", name, "1", table, "1", table, "1", "$table.$column", "1",
-                SemanticExpressionCodec.logicUnit("$table.$column", 1), local, emptyMap(), emptyList(), physical.bindingId, "1")
+                SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, "$table.$column", 1), local, emptyMap(), emptyList(), physical.bindingId, "1")
             val mappings = definitions.analyses["$name@1"]?.eventMappings.orEmpty().filter { it.eventId != table } +
                 ExecutableAnalysisDimensionEventMapping("${table}_${name}_mapping", name, "1", dimension(name).levelCode, table, "1", name, "1", binding, "1", "$table.$column", "1", "same_$name", "PROVEN_SAME_KEY")
             definitions.analyses["$name@1"] = ExecutableAnalysisDimension(name, "1", name, name, name, dimension(name).levelCode,
@@ -501,7 +501,7 @@ class TemporalInputExecutionTest {
         }
         properties.forEach { (name, type) ->
             outputs[name] = MemberSourceDefinition.PropertyOutput(name, name, type, "$table.$name", 1, local, quantities[name])
-            expressions[name] = SemanticExpressionCodec.logicUnit("$table.$name", 1)
+            expressions[name] = SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, "$table.$name", 1)
         }
         return MemberSource.Projection(id, 1, MemberSourceDefinition.Projection(EventRef(table, 1), MemberResult("account", "account", MemberShape.RECORDS, listOf("id"), outputs,
             emptyMap(), "time", emptyMap(), "按源记录保留观察与未知值")), expressions).also { definitions.members["$id@1"] = it }

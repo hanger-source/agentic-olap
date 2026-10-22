@@ -1,6 +1,5 @@
 package com.olap.prototype.query.definition
 
-import com.fasterxml.jackson.databind.JsonNode
 import com.olap.prototype.connector.ConnectorRegistry
 import com.olap.prototype.contract.ProducerContractException
 import com.olap.prototype.contract.InputContractException
@@ -12,23 +11,22 @@ import com.olap.prototype.engine.context.OlapQueryContext
 import com.olap.prototype.engine.executable.*
 import com.olap.prototype.query.QueryStageAnalysis
 import com.olap.prototype.query.contract.*
-import com.olap.prototype.util.OlapJsonUtils
 
 /** 只使用去定位的冻结目录与正式编译器；校验不取得业务来源访问凭据。 */
 object QueryNativeValidation {
     private val log = System.getLogger(QueryNativeValidation::class.java.name)
 
-    fun validate(intent: JsonNode, capability: QueryCapabilityView, connectors: ConnectorRegistry) {
-        val computation = PublishedQueryContract.parseIntent(intent, capability)
+    fun validate(intent: QueryIntent, capability: QueryCapabilityView, connectors: ConnectorRegistry) {
+        val computation = intent.computation
         try {
-            val catalog = OlapJsonUtils.mapper().treeToValue(capability.nativeDefinitions.catalog, ExecutableCatalog::class.java)
+            val catalog = capability.nativeDefinitions.catalog
             try { PublishedInstanceContract.require(catalog, capability) }
             catch (failure: IllegalArgumentException) { throw ProducerContractException(requireNotNull(failure.message), failure) }
             val request = ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION, "query-validation", catalog.manifest.catalogId, computation)
             val context = OlapQueryContext(request.requestId)
             val started = System.nanoTime()
             try {
-                PublishedQueryContract.authorize(intent.required("formatVersion").textValue(), PublishedQueryContract.coordinate(intent), computation, capability)
+                PublishedQueryContract.authorize(intent.formatVersion, intent.publication, computation, capability)
             } catch (failure: InputContractException) {
                 throw failure
             } catch (failure: RuntimeException) {

@@ -1,9 +1,5 @@
 package com.olap.prototype.calculation
 
-import com.fasterxml.jackson.annotation.JsonIgnore
-import com.fasterxml.jackson.annotation.JsonProperty
-import com.fasterxml.jackson.annotation.JsonSubTypes
-import com.fasterxml.jackson.annotation.JsonTypeInfo
 import com.olap.prototype.contract.InputContractException
 import com.olap.prototype.member.MemberCondition
 import com.olap.prototype.member.MemberRef
@@ -59,21 +55,19 @@ class Calculation(dimensionSlots: List<DimensionSlot>, memberSlots: List<MemberS
         override fun hashCode(): Int = listOf(name, parameters, observationSlots, groupingArguments, valueContract).hashCode()
     }
 
-    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "kind")
-    @JsonSubTypes(JsonSubTypes.Type(value = MemberDimension::class, name = "DIMENSION"), JsonSubTypes.Type(value = MemberProperty::class, name = "PROPERTY"), JsonSubTypes.Type(value = MemberContainerProperty::class, name = "CONTAINER_PROPERTY"))
     sealed interface MemberOutput
     sealed interface ScalarMemberOutput : MemberOutput { val valueContract: MetricValueContract? }
     data class MemberContainerProperty(val role: String, val shape: SetOutputContract.Shape) : MemberOutput {
         init { MetricDefinition.text(role, "member container property role"); SetOutputContract.requireSourceContainer(shape) }
     }
-    data class MemberDimension(val dimensionSlot: String, @param:JsonProperty(value = "valueContract", required = true) override val valueContract: MetricValueContract?) : ScalarMemberOutput {
+    data class MemberDimension(val dimensionSlot: String, override val valueContract: MetricValueContract?) : ScalarMemberOutput {
         init { ScopedInputContract.requireId(dimensionSlot) }
     }
-    data class MemberProperty(val role: String, val valueType: ScalarValueType, @param:JsonProperty(value = "valueContract", required = true) override val valueContract: MetricValueContract?) : ScalarMemberOutput {
+    data class MemberProperty(val role: String, val valueType: ScalarValueType, override val valueContract: MetricValueContract?) : ScalarMemberOutput {
         init { MetricDefinition.text(role, "member property role"); require(valueContract == null || valueType == ScalarValueType.NUMBER) { "only quantitative numeric member properties declare value contracts" } }
     }
     class MemberSlot(val name: String, val entity: String, val role: String, val shape: MemberShape, outputs: Map<String, MemberOutput>,
-        @param:JsonProperty(value = "fixedSource", required = true) val fixedSource: MemberRef?) {
+        val fixedSource: MemberRef?) {
         val outputs: Map<String, MemberOutput> = java.util.Map.copyOf(outputs)
         init {
             ScopedInputContract.requireId(name); MetricDefinition.text(entity, "member entity"); MetricDefinition.text(role, "member role")
@@ -84,7 +78,7 @@ class Calculation(dimensionSlots: List<DimensionSlot>, memberSlots: List<MemberS
     }
 
     class RelationSlot(val name: String, outputs: List<SetOutputContract>,
-        @param:JsonProperty(value = "keys", required = true) keys: List<String>?) {
+        keys: List<String>?) {
         val outputs: List<SetOutputContract> = java.util.List.copyOf(outputs)
         val keys: List<String>? = keys?.let { java.util.List.copyOf(it) }
         init {
@@ -98,7 +92,7 @@ class Calculation(dimensionSlots: List<DimensionSlot>, memberSlots: List<MemberS
 
     enum class ParameterKind { SCALAR, RANGE, CLOCK, GROUPING, CONDITION }
     class Parameter(val kind: ParameterKind, val valueType: String, allowedDimensions: List<DimensionSlot>, val defaultValue: Value?,
-        @param:JsonProperty(value = "valueContract", required = true) val valueContract: MetricValueContract?) {
+        val valueContract: MetricValueContract?) {
         val allowedDimensions: List<DimensionSlot> = java.util.List.copyOf(allowedDimensions)
         init {
             MetricDefinition.text(valueType, "parameter valueType")
@@ -118,8 +112,6 @@ class Calculation(dimensionSlots: List<DimensionSlot>, memberSlots: List<MemberS
         override fun hashCode(): Int = listOf(kind, valueType, allowedDimensions, defaultValue, valueContract).hashCode()
     }
 
-    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "kind")
-    @JsonSubTypes(JsonSubTypes.Type(value = Argument::class, name = "ARGUMENT"), JsonSubTypes.Type(value = GroupingSlots::class, name = "GROUPING_SLOTS"), JsonSubTypes.Type(value = Scalar::class, name = "SCALAR"), JsonSubTypes.Type(value = Range::class, name = "RANGE"), JsonSubTypes.Type(value = Clock::class, name = "CLOCK"), JsonSubTypes.Type(value = Grouping::class, name = "GROUPING"), JsonSubTypes.Type(value = Condition::class, name = "CONDITION"))
     sealed interface Binding
     data class Argument(val name: String) : Binding { init { ScopedInputContract.requireId(name) } }
     class GroupingSlots(slots: List<String>) : Binding {
@@ -128,7 +120,7 @@ class Calculation(dimensionSlots: List<DimensionSlot>, memberSlots: List<MemberS
         override fun equals(other: Any?): Boolean = other is GroupingSlots && slots == other.slots
         override fun hashCode(): Int = slots.hashCode()
     }
-    sealed interface Value : Binding { @get:JsonIgnore val parameterKind: ParameterKind; @get:JsonIgnore val valueType: String }
+    sealed interface Value : Binding { val parameterKind: ParameterKind; val valueType: String }
     class Scalar(val scalarType: ScalarValueType, value: String) : Value {
         val value: String = if (scalarType == ScalarValueType.NUMBER) BigDecimal(value).stripTrailingZeros().toPlainString() else value
         init { decode(scalarType, this.value) }
@@ -171,8 +163,6 @@ class Calculation(dimensionSlots: List<DimensionSlot>, memberSlots: List<MemberS
         override fun hashCode(): Int = dimensions.hashCode()
     }
 
-    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "kind")
-    @JsonSubTypes(JsonSubTypes.Type(value = Fixed::class, name = "FIXED"), JsonSubTypes.Type(value = Measurement::class, name = "MEASUREMENT"))
     sealed interface CallTarget
     data class Fixed(val metric: MetricRef) : CallTarget
     data class Measurement(val slot: String) : CallTarget { init { ScopedInputContract.requireId(slot) } }
@@ -204,8 +194,6 @@ class Calculation(dimensionSlots: List<DimensionSlot>, memberSlots: List<MemberS
         override fun hashCode(): Int = listOf(callId, target, outputAlias, dimensionSlots, memberSlots, measurementSlots, relationSlots, arguments, sourceCondition).hashCode()
     }
 
-    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "kind")
-    @JsonSubTypes(JsonSubTypes.Type(value = Measures::class, name = "MEASURES"), JsonSubTypes.Type(value = Members::class, name = "MEMBERS"), JsonSubTypes.Type(value = Relation::class, name = "RELATION"), JsonSubTypes.Type(value = Input::class, name = "INPUT"), JsonSubTypes.Type(value = SetCombination::class, name = "SET"), JsonSubTypes.Type(value = ObjectMeasure::class, name = "OBJECT_MEASURE"), JsonSubTypes.Type(value = AlignMeasurements::class, name = "ALIGN_MEASUREMENTS"), JsonSubTypes.Type(value = ObservationStatistics::class, name = "OBSERVATION_STATISTICS"))
     sealed interface Root
     data class Relation(val slot: String) : Root { init { ScopedInputContract.requireId(slot) } }
     class ObjectMeasure(val measurement: Scope, val objects: Scope, roles: List<ObjectRole>) : Root {
@@ -219,8 +207,6 @@ class Calculation(dimensionSlots: List<DimensionSlot>, memberSlots: List<MemberS
         override fun equals(other: Any?): Boolean = other is ObjectRole && objectKeys == other.objectKeys && target == other.target
         override fun hashCode(): Int = listOf(objectKeys, target).hashCode()
     }
-    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "kind")
-    @JsonSubTypes(JsonSubTypes.Type(value = EventRole::class, name = "EVENT_ROLE"), JsonSubTypes.Type(value = RecordOutputs::class, name = "RECORD_OUTPUTS"))
     sealed interface ObjectTarget
     data class EventRole(val role: String) : ObjectTarget { init { MetricDefinition.text(role, "fact entity role") } }
     class RecordOutputs(val memberSlot: String, keys: List<String>) : ObjectTarget {
@@ -265,8 +251,6 @@ class Calculation(dimensionSlots: List<DimensionSlot>, memberSlots: List<MemberS
         override fun equals(other: Any?): Boolean = other is AlignMeasurements && inputs == other.inputs && observationKeys == other.observationKeys && population == other.population
         override fun hashCode(): Int = listOf(inputs, observationKeys, population).hashCode()
     }
-    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "kind")
-    @JsonSubTypes(JsonSubTypes.Type(value = RawRows::class, name = "RAW_ROWS"), JsonSubTypes.Type(value = ObjectsBy::class, name = "OBJECTS"))
     sealed interface ObservationUnit
     class RawRows : ObservationUnit { override fun equals(other: Any?): Boolean = other is RawRows; override fun hashCode(): Int = 0 }
     class ObjectsBy(keys: List<String>) : ObservationUnit {
@@ -274,10 +258,8 @@ class Calculation(dimensionSlots: List<DimensionSlot>, memberSlots: List<MemberS
         override fun equals(other: Any?): Boolean = other is ObjectsBy && keys == other.keys
         override fun hashCode(): Int = keys.hashCode()
     }
-    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "kind")
-    @JsonSubTypes(JsonSubTypes.Type(value = Reduction::class, name = "REDUCTION"), JsonSubTypes.Type(value = WeightedMean::class, name = "WEIGHTED_MEAN"))
     sealed interface ObservationStatistic { val outputAlias: String }
-    data class Reduction(val aggregate: PostOperationContract.ResultAggregate) : ObservationStatistic { @get:JsonIgnore override val outputAlias: String get() = aggregate.outputAlias }
+    data class Reduction(val aggregate: PostOperationContract.ResultAggregate) : ObservationStatistic { override val outputAlias: String get() = aggregate.outputAlias }
     data class WeightedMean(val value: String, val weight: String, override val outputAlias: String, val outputDisplayName: String,
         val numeratorContract: MetricValueContract, val weightSumContract: MetricValueContract, val resultContract: MetricValueContract,
         val multiplyEquation: String?, val divideEquation: String?, val nullPolicy: String) : ObservationStatistic {
@@ -299,7 +281,7 @@ class Calculation(dimensionSlots: List<DimensionSlot>, memberSlots: List<MemberS
         override fun hashCode(): Int = listOf(observations, unit, outerKeys, statistics).hashCode()
     }
     class Measures(calls: List<Call>, groupSlots: List<String>, groupingArguments: List<String>, val timeSlot: String?, val range: Binding?, clocks: Map<String, Binding>,
-        val population: Population, @param:JsonProperty(value = "groupingLevels", required = true) val groupingLevels: GroupingLevels?) : Root {
+        val population: Population, val groupingLevels: GroupingLevels?) : Root {
         val calls: List<Call> = java.util.List.copyOf(calls)
         val groupSlots: List<String> = java.util.List.copyOf(groupSlots)
         val groupingArguments: List<String> = java.util.List.copyOf(groupingArguments)

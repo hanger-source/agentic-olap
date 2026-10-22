@@ -31,7 +31,7 @@ func (w Workspace) publishedJVM(ctx context.Context, build JVMBuild, directory s
 	}
 	selected := map[string]Module{}
 	for _, module := range build.Modules {
-		for _, input := range build.RuntimeClasspath {
+		for _, input := range build.classpathFiles() {
 			if module.Jar.Path == input.Path {
 				selected[module.ArtifactID] = module
 			}
@@ -90,12 +90,14 @@ func (w Workspace) publishedJVM(ctx context.Context, build JVMBuild, directory s
 	if first != nil {
 		return build, nil, first
 	}
-	for index, input := range build.RuntimeClasspath {
-		if actual, exists := remote[input.Path]; exists {
-			build.RuntimeClasspath[index] = actual
-		}
-		if _, exists := artifacts[filepath.Base(input.Path)]; !exists {
-			return build, nil, fmt.Errorf("运行 JAR 缺少正式 Maven 地址：%s", input.Path)
+	for _, group := range build.classpathGroups() {
+		for index, input := range group {
+			if actual, exists := remote[input.Path]; exists {
+				group[index] = actual
+			}
+			if _, exists := artifacts[filepath.Base(input.Path)]; !exists {
+				return build, nil, fmt.Errorf("运行 JAR 缺少正式 Maven 地址：%s", input.Path)
+			}
 		}
 	}
 	for index, module := range build.Modules {

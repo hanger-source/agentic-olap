@@ -68,12 +68,7 @@ class WarehouseSourceConstraintsTest {
                 SealedSourceDataset.Scope("Asia/Shanghai", LocalDate.parse("2026-01-01"), LocalDate.parse("2027-01-01"), LocalDateTime.parse("2026-12-31T23:59:59")),
                 listOf(SealedSourceDataset.Collection("registered.facts", JdbcTableConstraints.Table(table.catalogName, table.schemaName, table.tableName),
                     listOf("all-registered-source-rows"))))
-            val json = OlapJsonUtils.mapper().writeValueAsString(declaration)
-            val digest = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(json.toByteArray(Charsets.UTF_8)))
-            assertThrows(ProducerContractException::class.java) {
-                onboarding.registerSourceDataset(SourceDatasetRegistrationRequest("source", spec.sourceIdentityHash(), json, "0".repeat(64)), control, inspection)
-            }
-            val dataset = SourceDatasetRegistrationRequest("source", spec.sourceIdentityHash(), json, digest)
+            val dataset = SourceDatasetRegistrationRequest("source", spec.sourceIdentityHash(), declaration)
             val collections = onboarding.registerSourceDataset(dataset, control, inspection)
             assertEquals(collections, onboarding.registerSourceDataset(dataset, control, inspection))
             assets.revisePhysicalTable(GovernanceRevisionRequest(id, 1, definition("duckdb", table, discovery.columns, collections.map { it.id })))

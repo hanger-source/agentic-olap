@@ -2,6 +2,8 @@ package com.olap.prototype.engine.executable
 
 import com.fasterxml.jackson.databind.JsonNode
 import com.olap.prototype.calculation.*
+import com.olap.prototype.codec.SemanticProto
+import com.olap.prototype.codec.ProtoBytes
 import com.olap.prototype.connector.SourceProvider
 import com.olap.prototype.connector.SourceSqlRequest
 import com.olap.prototype.engine.catalog.*
@@ -25,7 +27,7 @@ import java.sql.SQLException
 
 class FactInputChainExecutionTest {
     private val unrestricted = DimensionCondition.Unrestricted()
-    private fun ref(id: String) = SemanticExpressionCodec.logicUnit(id, 1)
+    private fun ref(id: String) = SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, id, 1)
     private fun dimensionRef(name: String) = ScopedInputContract.DimensionRef("analysis_$name", "1", "value")
     private fun quantity(arithmetic: MetricValueContract.Arithmetic, result: MetricValueContract.Result, unit: MetricValueContract.UnitIdentity) =
         MetricValueContract(MetricValueContract.Fixed(unit), arithmetic, result, emptyMap(), MetricValueContract.Overflow.FAIL)
@@ -110,7 +112,8 @@ class FactInputChainExecutionTest {
         val store = store(directory, listOf("ALTER TABLE orders ALTER COLUMN amount TYPE DOUBLE", "INSERT INTO orders(id,amount) VALUES (1,1.25),(2,2.75),(3,NULL)"))
         val native = quantity(MetricValueContract.NativeFloating(), MetricValueContract.BinaryFloat(64), MetricValueContract.ONE)
         val original = metric(store, "total", "amount", MetricAggregation.SUM, native, null, null, emptyList())
-        val total = definition(original, OlapJsonUtils.mapper().readValue(OlapJsonUtils.mapper().writeValueAsBytes(original.metric.definition), MetricDefinition::class.java))
+        val total = definition(original, SemanticProto.fromProto(ProtoBytes.decode(ProtoBytes.encode(SemanticProto.toProto(original.metric.definition)),
+            com.olap.prototype.wire.semantic.MetricDefinition.getDefaultInstance())))
         val average = metric(store, "average", "amount", MetricAggregation.AVG, native, null, null, emptyList())
         val count = metric(store, "count", "amount", MetricAggregation.COUNT, records(), null, null, emptyList())
         val compiled = compile(store, measures(listOf(total, average, count)))
@@ -119,10 +122,10 @@ class FactInputChainExecutionTest {
         for (arithmetic in listOf(MetricValueContract.NativeFloating(), MetricValueContract.Exact(), MetricValueContract.Approximate("-100", "100", "0.01", "0.01"))) {
             val root = measures(listOf(metric(store, "converted_total", "amount", MetricAggregation.SUM, native, null, null, emptyList())))
             val output = quantity(arithmetic, MetricValueContract.Decimal(18, 2, MetricValueContract.Rounding.HALF_EVEN), MetricValueContract.ONE)
-            val numeric = mapOf("kind" to "NUMERIC", "expression" to mapOf("kind" to "CAST", "expression" to mapOf("kind" to "SYMBOL", "symbol" to "value"),
-                "targetType" to "DECIMAL", "precision" to 18, "scale" to 2, "rounding" to "HALF_EVEN"), "valueContract" to output, "unitEquation" to null)
+            val numeric = ResultExpression.ResultNumeric(ResultExpression.ResultCast(ResultExpression.ResultSymbol("value"),
+                SemanticExpression.ValueType.DECIMAL, 18, 2, MetricValueContract.Rounding.HALF_EVEN), output, null)
             val converted = ExecutableInputScope(root.inputMode, root.root, root.objectRestrictions, root.additionalInputs,
-                listOf(PostOperationCodec.parse("DERIVE", mapOf("outputAlias" to "converted", "outputDisplayName" to "converted", "expression" to numeric))))
+                listOf(PostOperationContract.Derive(numeric, "converted", "converted")))
             if (arithmetic is MetricValueContract.NativeFloating) assertEquals(0, BigDecimal("4.00").compareTo(execute(store, converted).single().last() as BigDecimal))
             else assertThrows(IllegalArgumentException::class.java) { compile(store, converted) }
         }

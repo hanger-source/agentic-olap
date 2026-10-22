@@ -1,0 +1,1260 @@
+syntax = "proto3";
+package agentic.olap.governance.v1;
+option java_package = "com.olap.prototype.wire.governance";
+option java_multiple_files = true;
+option go_package = "github.com/hanger-source/agentic-olap/service/internal/protocol/governance;governance";
+import "semantic.proto";
+import "query.proto";
+
+message DiagnosticValue { oneof kind { agentic.olap.semantic.v1.Empty null_value = 1; string text = 2; int64 integer = 3; bool boolean = 4; agentic.olap.semantic.v1.ConnectorRef connector = 5; agentic.olap.query.v1.SourceBinding binding = 6; NativeValueType native_type = 7; DiagnosticValues values = 8; SourceBindingConflictExceptionInput conflicting_input = 9; } }
+message DiagnosticValues { repeated DiagnosticValue values = 1; }
+
+message PublishedQueryEntries { repeated PublishedQueryEntry entries = 1; }
+message ReleaseJoinPathReferences { repeated ReleaseJoinPathRef references = 1; }
+message FilterOperators { repeated string operators = 1; }
+
+message PublishedQueryEntry { QueryCapabilityView capability = 1; string catalog_hash = 2; string semantic_catalog_hash = 3; PublishedSemanticCatalog semantic_catalog = 4; }
+
+message QueryCapabilityView { QueryScenarioRef scenario = 1; SubjectAreaCapabilityContext subject_area_capability_context = 2; string release_id = 3; string release_version = 4; string release_display_name = 5; repeated MetricCandidate metric_candidates = 6; repeated MemberCandidate member_candidates = 7; repeated AnalysisDimensionCandidate analysis_dimension_candidates = 8; repeated TimeAnalysisDimensionCandidate time_analysis_dimension_candidates = 9; repeated FilterCandidate filter_candidates = 10; repeated RelationFilterCandidate relation_filter_candidates = 11; repeated TemporalClockCandidate temporal_clock_candidates = 12; repeated PostProcessCapability post_process_capabilities = 13; repeated MetricAnalysisDimensionCapability metric_analysis_dimension_matrix = 14; repeated DisabledReason disabled_reasons = 15; repeated DiagnosticIssueRef diagnostics = 16; QueryExecutionTypes execution_types = 17; QueryNativeDefinitions native_definitions = 18; optional string capability_hash = 19; }
+
+message QueryScenarioRef { string scenario_id = 1; int64 scenario_version = 2; string scenario_display_name = 3; string release_id = 4; string release_version = 5; string release_display_name = 6; }
+
+message SubjectAreaCapabilityContext { string subject_area_id = 1; int64 subject_area_version = 2; string subject_area_scenario_ref_id = 3; string subject_area_scenario_ref_status = 4; }
+
+message MetricCandidateFixedArgumentsEntry { string key = 1; agentic.olap.semantic.v1.CalculationBinding value = 2; }
+
+message MetricCandidateParametersEntry { string key = 1; agentic.olap.semantic.v1.CalculationParameter value = 2; }
+
+message ListScopedInputContractDimensionRef { repeated agentic.olap.semantic.v1.DimensionRef values = 1; }
+
+message MetricCandidateGroupingCandidatesEntry { string key = 1; ListScopedInputContractDimensionRef value = 2; }
+
+message MetricCandidateMemberParametersEntry { string key = 1; agentic.olap.semantic.v1.MemberSlot value = 2; }
+
+message MetricCandidateRelationParametersEntry { string key = 1; agentic.olap.semantic.v1.RelationSlot value = 2; }
+
+message MetricCandidate { string adoption_id = 1; int64 adoption_version = 2; string subject_area_id = 3; int64 subject_area_version = 4; string code = 5; string display_name = 6; agentic.olap.semantic.v1.MetricBusinessMeaning business_meaning = 7; agentic.olap.semantic.v1.MetricRef definition = 8; agentic.olap.semantic.v1.MetricInstanceRef instance = 9; agentic.olap.semantic.v1.MetricValueContract value_contract = 10; MetricSnapshotRuleMeaning snapshot_meaning = 11; string adoption_status = 12; string scenario_metric_ref_id = 13; string release_object_ref_id = 14; repeated MetricSource sources = 15; string definition_kind = 16; repeated MetricCandidateFixedArgumentsEntry fixed_arguments = 17; repeated MetricCandidateParametersEntry parameters = 18; repeated MetricCandidateGroupingCandidatesEntry grouping_candidates = 19; repeated MetricCandidateMemberParametersEntry member_parameters = 20; repeated MetricCandidateRelationParametersEntry relation_parameters = 21; bool required_by_default = 22; int32 sort_order = 23; }
+
+message MetricSnapshotRuleMeaning { string reduction = 1; string null_policy = 2; string entity_role = 3; string partition_scope = 4; string source_filter_stage = 5; string private_predicate_stage = 6; string unknown_time_policy = 7; string mean_population = 8; string cross_entity_null_policy = 9; string duplicate_policy = 10; agentic.olap.semantic.v1.MetricValueContract mean_value_contract = 11; string mean_rounding = 12; }
+
+message MetricSource { repeated string call_path = 1; MetricSourceOrigin origin = 2; agentic.olap.semantic.v1.EventRef event = 3; }
+
+message MetricSourceOrigin { oneof kind { MetricSourceFact fact = 1; MetricSourceMember member = 2; } }
+
+message MetricSourceFact { agentic.olap.semantic.v1.MetricRef metric = 1; }
+
+message MetricSourceMember { string source_id = 1; int64 source_version = 2; string role = 3; repeated string slots = 4; }
+
+message MemberCandidateOutputsEntry { string key = 1; MemberCandidateOutput value = 2; }
+
+message MemberCandidateFilterTypesEntry { string key = 1; string value = 2; }
+
+message MemberCandidateFilterValueContractsEntry { string key = 1; agentic.olap.semantic.v1.MetricValueContract value = 2; }
+
+message MemberCandidateUnitDimensionsEntry { string key = 1; ListScopedInputContractDimensionRef value = 2; }
+
+message MemberCandidateClockSlotsEntry { string key = 1; string value = 2; }
+
+message MemberCandidateParametersEntry { string key = 1; agentic.olap.semantic.v1.CalculationParameter value = 2; }
+
+message MemberCandidateFixedArgumentsEntry { string key = 1; agentic.olap.semantic.v1.CalculationBinding value = 2; }
+
+message MemberCandidateGroupingCandidatesEntry { string key = 1; ListScopedInputContractDimensionRef value = 2; }
+
+message MemberCandidateMemberParametersEntry { string key = 1; agentic.olap.semantic.v1.MemberSlot value = 2; }
+
+message MemberCandidateRelationParametersEntry { string key = 1; agentic.olap.semantic.v1.RelationSlot value = 2; }
+
+message MemberCandidate { string source_id = 1; int64 source_version = 2; string display_name = 3; string entity = 4; string role = 5; string shape = 6; repeated string identity_slots = 7; repeated MemberCandidateOutputsEntry outputs = 8; MemberQueryPermission permission = 9; repeated MemberCandidateFilterTypesEntry filter_types = 10; repeated MemberCandidateFilterValueContractsEntry filter_value_contracts = 11; repeated MemberCandidateUnitDimensionsEntry unit_dimensions = 12; MemberCandidateTimeRangeCapability time_range = 13; repeated MemberCandidateClockSlotsEntry clock_slots = 14; repeated MemberCandidateParametersEntry parameters = 15; repeated MemberCandidateFixedArgumentsEntry fixed_arguments = 16; repeated MemberCandidateGroupingCandidatesEntry grouping_candidates = 17; repeated MemberCandidateMemberParametersEntry member_parameters = 18; repeated MemberCandidateRelationParametersEntry relation_parameters = 19; }
+
+message MemberCandidateOutput { oneof kind { MemberCandidateScalarOutput scalar_output = 1; MemberCandidateContainerProperty container_property = 2; } }
+
+message MemberCandidateScalarOutput { oneof kind { MemberCandidateDimension dimension = 1; MemberCandidateProperty property = 2; } }
+
+message MemberCandidateDimension { string display_name = 1; string role = 2; string value_type = 3; string dimension_id = 4; int64 dimension_version = 5; repeated agentic.olap.semantic.v1.DimensionRef mappings = 6; agentic.olap.semantic.v1.MetricValueContract value_contract = 7; }
+
+message MemberCandidateProperty { string display_name = 1; string role = 2; string value_type = 3; agentic.olap.semantic.v1.MetricValueContract value_contract = 4; }
+
+message MemberCandidateContainerProperty { string display_name = 1; string role = 2; agentic.olap.semantic.v1.SetOutputShape shape = 3; }
+
+message ListMemberConditionOperator { repeated string values = 1; }
+
+message MemberQueryPermissionFiltersEntry { string key = 1; ListMemberConditionOperator value = 2; }
+
+message MemberQueryPermission { repeated string outputs = 1; repeated string values = 2; repeated MemberQueryPermissionFiltersEntry filters = 3; bool time_range = 4; repeated string clocks = 5; }
+
+message MemberCandidateTimeRangeCapability { string slot = 1; string value_type = 2; }
+
+message AnalysisDimensionCandidate { string analysis_dimension_id = 1; int64 analysis_dimension_version = 2; string analysis_dimension_display_name = 3; string output_alias = 4; string subject_area_analysis_dimension_ref_id = 5; string subject_area_analysis_dimension_ref_status = 6; string scenario_analysis_dimension_ref_id = 7; string release_object_ref_id = 8; string default_level_code = 9; string default_level_display_name = 10; repeated string available_level_codes = 11; repeated AnalysisDimensionEventMappingCandidate event_mappings = 12; bool required_by_default = 13; int32 sort_order = 14; }
+
+message AnalysisDimensionEventMappingCandidate { string mapping_id = 1; string analysis_dimension_id = 2; int64 analysis_dimension_version = 3; string level_code = 4; string level_display_name = 5; string event_id = 6; int64 event_version = 7; string event_display_name = 8; string dimension_id = 9; int64 dimension_version = 10; string dimension_code_namespace = 11; string dimension_code_namespace_display_name = 12; string dimension_display_name = 13; string dimension_binding_id = 14; int64 dimension_binding_version = 15; string logic_unit_id = 16; int64 logic_unit_version = 17; string logic_unit_display_name = 18; optional string value_alignment_key = 19; string value_alignment_status = 20; }
+
+message TimeAnalysisDimensionCandidate { string analysis_dimension_id = 1; int64 analysis_dimension_version = 2; string analysis_dimension_display_name = 3; string output_alias = 4; string scenario_analysis_dimension_ref_id = 5; string release_object_ref_id = 6; string default_level_code = 7; string default_level_display_name = 8; repeated string available_level_codes = 9; repeated TimeAnchorEventCandidate event_anchors = 10; repeated MetricAnalysisDimensionCapability metric_event_capabilities = 11; bool required_by_default = 12; int32 sort_order = 13; }
+
+message TimeAnchorEventCandidate { string mapping_id = 1; string analysis_dimension_id = 2; int64 analysis_dimension_version = 3; string level_code = 4; string level_display_name = 5; string event_id = 6; int64 event_version = 7; string event_display_name = 8; string topology_id = 9; int64 topology_version = 10; string topology_implementation_namespace_code = 11; string topology_implementation_namespace_display_name = 12; string effective_time_logic_unit_id = 13; int64 effective_time_logic_unit_version = 14; string effective_time_logic_unit_display_name = 15; string time_role = 16; }
+
+message MetricAnalysisDimensionCapability { agentic.olap.semantic.v1.MetricInstanceRef instance = 1; string event_id = 2; int64 event_version = 3; string analysis_dimension_id = 4; int64 analysis_dimension_version = 5; optional string level_code = 6; bool available = 7; optional string reason_code = 8; optional string reason_message = 9; optional string producer_stage = 10; optional string target_ref = 11; optional string target_version_ref = 12; bool blocking = 13; bool page_blocking = 14; bool executable_blocking = 15; }
+
+message FilterCandidateFilterValueTypesEntry { string key = 1; string value = 2; }
+
+message FilterCandidate { string filter_ref_id = 1; string filter_target_type = 2; string filter_target_type_display_name = 3; string query_field_kind = 4; string filter_target_object_id = 5; int64 filter_target_object_version = 6; string filter_target_display_name = 7; string release_object_ref_id = 8; repeated string operators = 9; repeated FilterCandidateFilterValueTypesEntry filter_value_types = 10; string filter_control_kind = 11; string filter_value_cardinality = 12; optional string value_provider_id = 13; optional string value_provider_type = 14; optional string value_provider_logic_unit_id = 15; optional int64 value_provider_logic_unit_version = 16; repeated AnalysisDimensionEventMappingCandidate event_mappings = 17; bool required_by_default = 18; int32 sort_order = 19; }
+
+message RelationFilterCandidateFilterTypesEntry { string key = 1; string value = 2; }
+
+message RelationFilterCandidateFilterValueContractsEntry { string key = 1; agentic.olap.semantic.v1.MetricValueContract value = 2; }
+
+message RelationFilterCandidateClockSlotsEntry { string key = 1; string value = 2; }
+
+message RelationFilterCandidate { PublishedRelationFilter definition = 1; string entity = 2; string role = 3; repeated RelationFilterCandidateFilterTypesEntry filter_types = 4; repeated RelationFilterCandidateFilterValueContractsEntry filter_value_contracts = 5; MemberCandidateTimeRangeCapability time_range = 6; repeated RelationFilterCandidateClockSlotsEntry clock_slots = 7; }
+
+message PublishedRelationFilter { RelationFilter relation = 1; string scenario_id = 2; string display_name = 3; RelationFilterPermission permission = 4; bool required_by_default = 5; int32 sort_order = 6; }
+
+message RelationFilterClockSlotsEntry { string key = 1; string value = 2; }
+
+message RelationFilter { string id = 1; int64 version = 2; agentic.olap.semantic.v1.EventRef parent = 3; string relationship_role = 4; string member_source_id = 5; int64 member_source_version = 6; repeated RelationFilterClockSlotsEntry clock_slots = 7; }
+
+message RelationFilterPermissionFiltersEntry { string key = 1; ListMemberConditionOperator value = 2; }
+
+message RelationFilterPermission { repeated RelationFilterPermissionFiltersEntry filters = 1; bool time_range = 2; repeated string clocks = 3; }
+
+message TemporalClockCandidate { string clock_ref = 1; string value_type = 2; string description = 3; }
+
+message PostProcessCapability { string rule_id = 1; string rule_type = 2; string rule_display_name = 3; StageAuthorization authorization = 4; int32 sort_order = 5; optional string reason_code = 6; optional string reason_message = 7; optional string producer_stage = 8; optional string target_ref = 9; optional string target_version_ref = 10; bool available = 11; bool blocking = 12; bool page_blocking = 13; bool executable_blocking = 14; }
+
+message StageAuthorization { string operation_type = 1; repeated string join_types = 2; repeated string aggregations = 3; ExpressionAuthorization expressions = 4; }
+
+message ExpressionAuthorization { repeated string kinds = 1; repeated string operators = 2; repeated string functions = 3; repeated string cast_types = 4; repeated string literal_types = 5; }
+
+message DisabledReason { string id = 1; string release_id = 2; string release_version = 3; string scope_type = 4; optional string scenario_id = 5; optional int64 scenario_version = 6; optional string metric_id = 7; optional int64 metric_version = 8; optional string analysis_dimension_id = 9; optional int64 analysis_dimension_version = 10; optional string level_code = 11; string reason_code = 12; string reason_message = 13; string producer_stage = 14; string target_ref = 15; string target_version_ref = 16; bool blocking = 17; bool page_blocking = 18; bool executable_blocking = 19; }
+
+message DiagnosticIssueRef { string diagnostic_run_id = 1; string issue_id = 2; string severity = 3; string reason_code = 4; string reason_message = 5; string producer_stage = 6; string target_ref = 7; string target_version_ref = 8; bool blocking = 9; bool page_blocking = 10; bool executable_blocking = 11; }
+
+message QueryExecutionTypesMetricInstancesEntry { string key = 1; QueryExecutionTypesContextBinding value = 2; }
+
+message QueryExecutionTypesMembersEntry { string key = 1; QueryExecutionTypesMember value = 2; }
+
+message QueryExecutionTypes { string format_version = 1; repeated QueryExecutionTypesMetricInstancesEntry metric_instances = 2; repeated QueryExecutionTypesMembersEntry members = 3; repeated QueryExecutionTypesDimension dimensions = 4; }
+
+message QueryExecutionTypesContextBinding { oneof kind { QueryExecutionTypesFixedContext fixed_context = 1; QueryExecutionTypesInputs inputs = 2; } }
+
+message QueryExecutionTypesFixedContext { QueryExecutionTypesContext context = 1; }
+
+message QueryExecutionTypesContext { string execution_group = 1; string dialect = 2; bool constraint_snapshot_available = 3; }
+
+message QueryExecutionTypesInputs { repeated string member_parameters = 1; repeated string relation_parameters = 2; }
+
+message QueryExecutionTypesMember { oneof kind { QueryExecutionTypesProjectionMember projection_member = 1; QueryExecutionTypesComputedMember computed_member = 2; } }
+
+message QueryExecutionTypesProjectionMemberOutputsEntry { string key = 1; NativeValueType value = 2; }
+
+message QueryExecutionTypesProjectionMember { QueryExecutionTypesContext context = 1; repeated QueryExecutionTypesProjectionMemberOutputsEntry outputs = 2; }
+
+message NativeValueTypeFieldsValues { repeated NativeValueType values = 1; }
+
+message NativeValueType { string name = 1; optional int32 precision = 2; optional int32 scale = 3; bool nullable = 4; NativeValueType element_type = 5; NativeValueTypeFieldsValues fields = 6; }
+
+message QueryExecutionTypesComputedMember { QueryExecutionTypesContextBinding context = 1; }
+
+message QueryExecutionTypesDimension { agentic.olap.semantic.v1.DimensionRef dimension = 1; string event_id = 2; int64 event_version = 3; QueryExecutionTypesContext context = 4; NativeValueType type = 5; }
+
+message QueryNativeDefinitions { ExecutableCatalog catalog = 1; }
+
+message ExecutableCatalogMetricsEntry { string key = 1; ExecutableMetric value = 2; }
+
+message ExecutableCatalogMetricInstancesEntry { string key = 1; agentic.olap.semantic.v1.MetricInstance value = 2; }
+
+message ExecutableCatalogMemberSourcesEntry { string key = 1; agentic.olap.semantic.v1.MemberSource value = 2; }
+
+message ExecutableCatalogRelationFiltersEntry { string key = 1; RelationFilter value = 2; }
+
+message ExecutableCatalogAnalysisDimensionsEntry { string key = 1; ExecutableAnalysisDimension value = 2; }
+
+message ExecutableCatalogEventsEntry { string key = 1; ExecutableEvent value = 2; }
+
+message ExecutableCatalogTopologiesEntry { string key = 1; ExecutableTopology value = 2; }
+
+message ExecutableCatalogDimensionsEntry { string key = 1; ExecutableDimension value = 2; }
+
+message ExecutableCatalogDimensionBindingsEntry { string key = 1; ExecutableDimensionBinding value = 2; }
+
+message ExecutableCatalogLogicUnitsEntry { string key = 1; ExecutableLogicUnit value = 2; }
+
+message ExecutableCatalogTimeAnchorsEntry { string key = 1; ExecutableTimeAnchor value = 2; }
+
+message ExecutableCatalogJoinPathsEntry { string key = 1; ExecutableJoinPath value = 2; }
+
+message ExecutableCatalogPhysicalExecutionBindingsEntry { string key = 1; ExecutablePhysicalExecutionBinding value = 2; }
+
+message ExecutableCatalog { ExecutableCatalogManifest manifest = 1; repeated ExecutableCatalogMetricsEntry metrics = 2; repeated ExecutableCatalogMetricInstancesEntry metric_instances = 3; repeated ExecutableCatalogMemberSourcesEntry member_sources = 4; repeated ExecutableCatalogRelationFiltersEntry relation_filters = 5; repeated ExecutableCatalogAnalysisDimensionsEntry analysis_dimensions = 6; repeated ExecutableCatalogEventsEntry events = 7; repeated ExecutableCatalogTopologiesEntry topologies = 8; repeated ExecutableCatalogDimensionsEntry dimensions = 9; repeated ExecutableCatalogDimensionBindingsEntry dimension_bindings = 10; repeated ExecutableCatalogLogicUnitsEntry logic_units = 11; repeated ExecutableCatalogTimeAnchorsEntry time_anchors = 12; repeated ExecutableCatalogJoinPathsEntry join_paths = 13; repeated ExecutableCatalogPhysicalExecutionBindingsEntry physical_execution_bindings = 14; }
+
+message ExecutableCatalogManifest { string catalog_id = 1; string schema_version = 2; }
+
+message ExecutableMetric { agentic.olap.semantic.v1.MetricRef reference = 1; agentic.olap.semantic.v1.MetricDefinition definition = 2; }
+
+message ExecutableAnalysisDimension { string analysis_dimension_id = 1; string analysis_dimension_version = 2; optional string display_name = 3; string analysis_dimension_code = 4; string output_alias = 5; optional string default_level_code = 6; repeated ExecutableAnalysisDimensionLevel levels = 7; repeated ExecutableAnalysisDimensionEventMapping event_mappings = 8; }
+
+message ExecutableAnalysisDimensionLevel { string level_code = 1; optional string display_name = 2; optional string parent_level_code = 3; }
+
+message ExecutableAnalysisDimensionEventMapping { string mapping_id = 1; string analysis_dimension_id = 2; string analysis_dimension_version = 3; string level_code = 4; string event_id = 5; string event_version = 6; string dimension_id = 7; string dimension_version = 8; string dimension_binding_id = 9; string dimension_binding_version = 10; string logic_unit_id = 11; string logic_unit_version = 12; optional string value_alignment_key = 13; string value_alignment_status = 14; }
+
+message ExecutableEventRolesEntry { string key = 1; agentic.olap.semantic.v1.RelationAccessPath value = 2; }
+
+message ExecutableEvent { string event_id = 1; string event_version = 2; string topology_id = 3; string topology_version = 4; optional string display_name = 5; agentic.olap.semantic.v1.EventIdentity identity = 6; repeated ExecutableEventRolesEntry roles = 7; agentic.olap.semantic.v1.SemanticExpression base_filter = 8; optional string time_logic_unit_id = 9; optional string time_logic_unit_version = 10; }
+
+message ExecutableTopology { string topology_id = 1; string topology_version = 2; optional string topology_implementation_namespace_code = 3; optional string topology_implementation_namespace_display_name = 4; string backbone_logical_table_id = 5; string backbone_logical_table_version = 6; repeated ExecutableEventRef event_refs = 7; repeated ExecutableJoinPathRef join_path_refs = 8; }
+
+message ExecutableEventRef { string event_id = 1; string event_version = 2; }
+
+message ExecutableJoinPathRef { string join_path_id = 1; string join_path_version = 2; }
+
+message ExecutableDimension { string dimension_id = 1; string dimension_version = 2; optional string dimension_code = 3; string dimension_code_namespace = 4; optional string dimension_local_code = 5; optional string display_name = 6; }
+
+message ExecutableDimensionBindingRolesEntry { string key = 1; agentic.olap.semantic.v1.RelationAccessPath value = 2; }
+
+message ExecutableDimensionBinding { string binding_id = 1; string binding_version = 2; string dimension_id = 3; string dimension_version = 4; string event_id = 5; string event_version = 6; string topology_id = 7; string topology_version = 8; string logic_unit_id = 9; string logic_unit_version = 10; agentic.olap.semantic.v1.SemanticExpression expression = 11; agentic.olap.semantic.v1.RelationAccessPath access_path = 12; repeated ExecutableDimensionBindingRolesEntry roles = 13; repeated ExecutableJoinPathRef join_path_refs = 14; string physical_execution_binding_id = 15; string physical_execution_binding_version = 16; }
+
+message ExecutableLogicUnit { string logic_unit_id = 1; string logic_unit_version = 2; optional string value_type = 3; agentic.olap.semantic.v1.SetOutputShape value_shape = 4; optional string topology_id = 5; optional string topology_version = 6; string logic_unit_code = 7; optional string display_name = 8; string physical_execution_binding_id = 9; string physical_execution_binding_version = 10; repeated string output_symbols = 11; }
+
+message ExecutableTimeAnchor { string event_id = 1; string event_version = 2; string analysis_dimension_id = 3; string analysis_dimension_version = 4; string level_code = 5; string topology_id = 6; string topology_version = 7; optional string topology_implementation_namespace_code = 8; optional string topology_implementation_namespace_display_name = 9; string effective_time_logic_unit_id = 10; string effective_time_logic_unit_version = 11; optional string effective_time_logic_unit_display_name = 12; string physical_execution_binding_id = 13; string physical_execution_binding_version = 14; optional string time_role = 15; }
+
+message ExecutableJoinPath { string join_path_id = 1; string join_path_version = 2; string topology_id = 3; string topology_version = 4; string source_logical_table_id = 5; string source_logical_table_version = 6; string target_logical_table_id = 7; string target_logical_table_version = 8; string join_type = 9; string cardinality = 10; agentic.olap.semantic.v1.TemporalConstraint temporal_constraint = 11; string null_policy = 12; repeated ExecutableJoinKey keys = 13; }
+
+message ExecutableJoinKey { int32 order = 1; string source_logic_unit_id = 2; string source_logic_unit_version = 3; string target_logic_unit_id = 4; string target_logic_unit_version = 5; }
+
+message ExecutablePhysicalExecutionBindingNativeTableDependenciesEntry { string key = 1; NativeTableDependency value = 2; }
+
+message ExecutablePhysicalExecutionBindingLogicUnitBindingsEntry { string key = 1; agentic.olap.semantic.v1.SemanticExpression value = 2; }
+
+message ExecutablePhysicalExecutionBindingPhysicalColumnBindingsEntry { string key = 1; string value = 2; }
+
+message ExecutablePhysicalExecutionBindingPhysicalColumnTypesEntry { string key = 1; JdbcColumnType value = 2; }
+
+message ExecutablePhysicalExecutionBinding { string binding_id = 1; string binding_version = 2; optional string event_id = 3; optional string event_version = 4; optional string logic_unit_id = 5; optional string logic_unit_version = 6; string logical_table_id = 7; string logical_table_version = 8; string physical_table_id = 9; string physical_table_version = 10; string data_source_id = 11; agentic.olap.semantic.v1.ConnectorRef connector_ref = 12; repeated string qualified_table_path = 13; string dialect = 14; optional string catalog_name = 15; optional string schema_name = 16; string table_name = 17; PhysicalSourceConstraints source_constraints = 18; repeated SnapshotUniqueKey snapshot_unique_keys = 19; repeated ExecutablePhysicalExecutionBindingNativeTableDependenciesEntry native_table_dependencies = 20; repeated ExecutablePhysicalExecutionBindingLogicUnitBindingsEntry logic_unit_bindings = 21; repeated ExecutablePhysicalExecutionBindingPhysicalColumnBindingsEntry physical_column_bindings = 22; repeated ExecutablePhysicalExecutionBindingPhysicalColumnTypesEntry physical_column_types = 23; }
+
+message PhysicalSourceConstraintsColumnVersionRefsEntry { string key = 1; string value = 2; }
+
+message PhysicalSourceConstraints { string discovery_snapshot_id = 1; string schema_hash = 2; string source_identity_hash = 3; agentic.olap.semantic.v1.ConnectorRef connector_ref = 4; optional string database_product_name = 5; optional string database_product_version = 6; optional string driver_name = 7; optional string driver_version = 8; JdbcTableConstraints constraints = 9; repeated PhysicalSourceConstraintsColumnVersionRefsEntry column_version_refs = 10; repeated SourceCollectionRecord source_collections = 11; StructureProvenance structure_provenance = 12; }
+
+message JdbcTableConstraints { repeated string primary_key_columns = 1; repeated JdbcTableConstraintsUniqueKey unique_keys = 2; repeated JdbcTableConstraintsForeignKeyColumn imported_keys = 3; repeated JdbcTableConstraintsTemporalKey temporal_keys = 4; }
+
+message JdbcTableConstraintsUniqueKey { string name = 1; repeated string columns = 2; optional string filter_condition = 3; optional string expressions = 4; }
+
+message JdbcTableConstraintsForeignKeyColumn { optional string name = 1; string column = 2; JdbcTableConstraintsTable referenced_table = 3; string referenced_column = 4; int32 update_rule = 5; int32 delete_rule = 6; int32 key_sequence = 7; }
+
+message JdbcTableConstraintsTable { optional string catalog = 1; optional string schema = 2; string table = 3; }
+
+message JdbcTableConstraintsTemporalKey { JdbcTableConstraintsTemporalRule rule = 1; JdbcTableConstraintsDataAnchor anchor = 2; }
+
+message JdbcTableConstraintsTemporalRule { string name = 1; repeated string equality_columns = 2; repeated JdbcTableConstraintsTemporalInterval intervals = 3; }
+
+message JdbcTableConstraintsTemporalInterval { string valid_from_column = 1; string valid_to_column = 2; bool valid_from_inclusive = 3; bool valid_to_inclusive = 4; bool open_ended_valid_to = 5; }
+
+message JdbcTableConstraintsDataAnchor { string sha256 = 1; }
+
+message SourceCollectionRecord { string id = 1; string data_source_id = 2; string source_identity_hash = 3; string declaration_sha256 = 4; string source_authority = 5; string rule_document_sha256 = 6; JdbcTableConstraintsDataAnchor anchor = 7; SealedSourceDatasetScope scope = 8; SealedSourceDatasetCollection collection = 9; }
+
+message SealedSourceDatasetScope { string timezone = 1; string reporting_start_inclusive = 2; string reporting_end_exclusive = 3; string observed_through = 4; }
+
+message SealedSourceDatasetCollection { string code = 1; JdbcTableConstraintsTable table = 2; repeated string rule_ids = 3; }
+
+message StructureProvenance { string kind = 1; string authority = 2; string revision = 3; }
+
+message SnapshotUniqueKey { SnapshotUniqueKeyRule rule = 1; JdbcTableConstraintsDataAnchor anchor = 2; }
+
+message SnapshotUniqueKeyRule { string name = 1; repeated string columns = 2; }
+
+message NativeTableDependency { string physical_table_id = 1; int64 physical_table_version = 2; string data_source_id = 3; string dialect = 4; JdbcTableConstraintsTable table = 5; PhysicalSourceConstraints source_constraints = 6; }
+
+message JdbcColumnType { int32 jdbc_type = 1; string type_name = 2; optional int32 precision = 3; optional int32 scale = 4; optional bool nullable = 5; }
+
+message PublishedSemanticCatalog { string format_version = 1; string sha256 = 2; PublishedSemanticCatalogCatalog catalog = 3; }
+
+message PublishedSemanticCatalogCatalog { PublishedSemanticCatalogCoordinate coordinate = 1; string display_name = 2; PublishedSemanticCatalogSourceJoinMeaning source_join_contract = 3; repeated PublishedSemanticCatalogMetric metrics = 4; repeated PublishedSemanticCatalogMember member_sources = 5; repeated PublishedSemanticCatalogRelationFilter relation_filters = 6; repeated PublishedSemanticCatalogDimension dimensions = 7; repeated PublishedSemanticCatalogTimeDimension time_dimensions = 8; repeated PublishedSemanticCatalogCombination combinations = 9; repeated PublishedSemanticCatalogFilter filters = 10; repeated PublishedSemanticCatalogSemanticDependency semantic_dependencies = 11; }
+
+message PublishedSemanticCatalogCoordinate { string scenario_id = 1; int64 scenario_version = 2; string release_id = 3; string release_version = 4; }
+
+message PublishedSemanticCatalogSourceJoinMeaningFactMatchingEntry { string key = 1; string value = 2; }
+
+message PublishedSemanticCatalogSourceJoinMeaning { string format_version = 1; repeated string join_types = 2; repeated string cardinalities = 3; repeated string null_policies = 4; string fact_population = 5; repeated PublishedSemanticCatalogSourceJoinMeaningFactMatchingEntry fact_matching = 6; string member_population = 7; string exists_population = 8; string key_matching = 9; string guarantees = 10; }
+
+message PublishedSemanticCatalogMetricFixedArgumentsEntry { string key = 1; agentic.olap.semantic.v1.CalculationBinding value = 2; }
+
+message PublishedSemanticCatalogMetricParametersEntry { string key = 1; agentic.olap.semantic.v1.CalculationParameter value = 2; }
+
+message PublishedSemanticCatalogMetricGroupingCandidatesEntry { string key = 1; ListScopedInputContractDimensionRef value = 2; }
+
+message PublishedSemanticCatalogMetricMemberParametersEntry { string key = 1; agentic.olap.semantic.v1.MemberSlot value = 2; }
+
+message PublishedSemanticCatalogMetricRelationParametersEntry { string key = 1; agentic.olap.semantic.v1.RelationSlot value = 2; }
+
+message PublishedSemanticCatalogMetric { string adoption_id = 1; int64 adoption_version = 2; string subject_area_id = 3; int64 subject_area_version = 4; string code = 5; string display_name = 6; agentic.olap.semantic.v1.MetricBusinessMeaning business_meaning = 7; agentic.olap.semantic.v1.MetricRef definition = 8; agentic.olap.semantic.v1.MetricInstanceRef instance = 9; agentic.olap.semantic.v1.MetricValueContract value_contract = 10; MetricSnapshotRuleMeaning snapshot_meaning = 11; repeated MetricSource sources = 12; string definition_kind = 13; repeated PublishedSemanticCatalogMetricFixedArgumentsEntry fixed_arguments = 14; repeated PublishedSemanticCatalogMetricParametersEntry parameters = 15; repeated PublishedSemanticCatalogMetricGroupingCandidatesEntry grouping_candidates = 16; repeated PublishedSemanticCatalogMetricMemberParametersEntry member_parameters = 17; repeated PublishedSemanticCatalogMetricRelationParametersEntry relation_parameters = 18; repeated PublishedSemanticCatalogSourceExplanation source_scopes = 19; CatalogOptionalPublishedSemanticCatalogAggregation aggregation = 20; }
+
+message PublishedSemanticCatalogSourceExplanation { repeated string call_path = 1; PublishedSemanticCatalogSourceScope scope = 2; }
+
+message PublishedSemanticCatalogSourceScope { oneof kind { PublishedSemanticCatalogFactScope fact_scope = 1; PublishedSemanticCatalogMemberDefinition member_definition = 2; } }
+
+message ListSemanticJoin { repeated SemanticJoin values = 1; }
+
+message PublishedSemanticCatalogFactScopeEventRolesEntry { string key = 1; ListSemanticJoin value = 2; }
+
+message PublishedSemanticCatalogFactScopeMetricRolesEntry { string key = 1; ListSemanticJoin value = 2; }
+
+message PublishedSemanticCatalogFactScope { string interpretation = 1; PublicExpression event_predicate = 2; repeated PublishedSemanticCatalogFactScopeEventRolesEntry event_roles = 3; agentic.olap.semantic.v1.MetricSnapshotRule snapshot_rule = 4; PublicExpression input_expression = 5; PublicExpression private_predicate = 6; repeated PublishedSemanticCatalogFactScopeMetricRolesEntry metric_roles = 7; repeated PublishedSemanticCatalogLogicUnitMeaning logic_units = 8; CatalogOptionalListSealedSourceCollectionMeaning sealed_source_collections = 9; }
+
+message PublicExpression { oneof kind { PublicExpressionReference reference = 1; PublicExpressionTextLiteral text_literal = 2; PublicExpressionBooleanLiteral boolean_literal = 3; PublicExpressionExactNumber exact_number = 4; PublicExpressionCall call = 5; PublicExpressionNativeCall native_call = 6; PublicExpressionOperation operation = 7; PublicExpressionCaseWhen case_when = 8; PublicExpressionRound round = 9; PublicExpressionCast cast = 10; PublicExpressionExists exists = 11; } }
+
+message PublicExpressionReference { string id = 1; int64 version = 2; optional string role = 3; }
+
+message PublicExpressionTextLiteral { string value = 1; }
+
+message PublicExpressionBooleanLiteral { bool value = 1; }
+
+message PublicExpressionExactNumber { string value = 1; }
+
+message PublicExpressionCall { string function = 1; repeated PublicExpression arguments = 2; }
+
+message PublicExpressionNativeCall { agentic.olap.semantic.v1.ConnectorRef connector_ref = 1; string function = 2; repeated PublicExpressionNativeArgument arguments = 3; }
+
+message PublicExpressionNativeArgument { oneof kind { PublicExpressionScalarArgument scalar_argument = 1; PublicExpressionTableArgument table_argument = 2; } }
+
+message PublicExpressionScalarArgument { PublicExpression expression = 1; }
+
+message PublicExpressionTableArgument { string physical_table_id = 1; int64 physical_table_version = 2; }
+
+message PublicExpressionOperation { string operator = 1; repeated PublicExpression operands = 2; }
+
+message PublicExpressionCaseWhen { repeated PublicExpressionBranch branches = 1; CatalogOptionalPublicExpression otherwise = 2; }
+
+message PublicExpressionBranch { PublicExpression when = 1; PublicExpression then = 2; }
+
+message CatalogOptionalPublicExpression { bool present = 1; PublicExpression value = 2; }
+
+message PublicExpressionRound { PublicExpression expression = 1; int32 scale = 2; string rounding = 3; }
+
+message PublicExpressionCast { PublicExpression expression = 1; string target_type = 2; CatalogOptionalInt precision = 3; CatalogOptionalInt scale = 4; string rounding = 5; }
+
+message CatalogOptionalInt { bool present = 1; optional int32 value = 2; }
+
+message PublicExpressionExists { string instance_id = 1; agentic.olap.semantic.v1.RelationParent from = 2; repeated SemanticJoin access = 3; PublicExpression predicate = 4; }
+
+message SemanticJoin { string join_type = 1; string cardinality = 2; string null_policy = 3; repeated SemanticJoinKeyPair keys = 4; repeated SemanticJoinInterval intervals = 5; CatalogOptionalListSealedSourceCollectionMeaning source_sealed_source_collections = 6; CatalogOptionalListSealedSourceCollectionMeaning target_sealed_source_collections = 7; }
+
+message SemanticJoinKeyPair { PublicExpression source = 1; PublicExpression target = 2; }
+
+message SemanticJoinInterval { SemanticJoinClock clock = 1; string clock_scope = 2; repeated SemanticJoin clock_access = 3; PublicExpression from = 4; PublicExpression to = 5; bool from_inclusive = 6; bool to_inclusive = 7; bool open_ended_to = 8; }
+
+message SemanticJoinClock { oneof kind { SemanticJoinLogicClock logic_clock = 1; SemanticJoinQueryClock query_clock = 2; } }
+
+message SemanticJoinLogicClock { string logic_unit_id = 1; int64 logic_unit_version = 2; }
+
+message SemanticJoinQueryClock { string clock_ref = 1; string value_type = 2; string description = 3; }
+
+message CatalogOptionalListSealedSourceCollectionMeaningValueValues { repeated SealedSourceCollectionMeaning values = 1; }
+
+message CatalogOptionalListSealedSourceCollectionMeaning { bool present = 1; CatalogOptionalListSealedSourceCollectionMeaningValueValues value = 2; }
+
+message SealedSourceCollectionMeaning { string id = 1; string source_authority = 2; SealedSourceDatasetScope scope = 3; repeated string rule_ids = 4; string meaning = 5; }
+
+message PublishedSemanticCatalogLogicUnitMeaning { string id = 1; int64 version = 2; string display_name = 3; optional string value_type = 4; agentic.olap.semantic.v1.SetOutputShape value_shape = 5; }
+
+message PublishedSemanticCatalogMemberDefinition { oneof kind { PublishedSemanticCatalogComputedMeaning computed_meaning = 1; PublishedSemanticCatalogProjectionMeaning projection_meaning = 2; } }
+
+message PublishedSemanticCatalogComputedMeaningSlotsEntry { string key = 1; PublishedSemanticCatalogMemberSlotMeaning value = 2; }
+
+message PublishedSemanticCatalogComputedMeaningParametersEntry { string key = 1; agentic.olap.semantic.v1.CalculationParameter value = 2; }
+
+message PublishedSemanticCatalogComputedMeaningFixedArgumentsEntry { string key = 1; agentic.olap.semantic.v1.CalculationBinding value = 2; }
+
+message PublishedSemanticCatalogComputedMeaningGroupingCandidatesEntry { string key = 1; ListScopedInputContractDimensionRef value = 2; }
+
+message PublishedSemanticCatalogComputedMeaningMemberParametersEntry { string key = 1; agentic.olap.semantic.v1.MemberSlot value = 2; }
+
+message PublishedSemanticCatalogComputedMeaningRelationParametersEntry { string key = 1; agentic.olap.semantic.v1.RelationSlot value = 2; }
+
+message PublishedSemanticCatalogComputedMeaning { agentic.olap.semantic.v1.Calculation calculation = 1; agentic.olap.semantic.v1.CalculationBindings bindings = 2; repeated PublishedSemanticCatalogComputedMeaningSlotsEntry slots = 3; repeated PublishedSemanticCatalogSourceExplanation source_scopes = 4; repeated PublishedSemanticCatalogComputedMeaningParametersEntry parameters = 5; repeated PublishedSemanticCatalogComputedMeaningFixedArgumentsEntry fixed_arguments = 6; repeated PublishedSemanticCatalogComputedMeaningGroupingCandidatesEntry grouping_candidates = 7; repeated PublishedSemanticCatalogComputedMeaningMemberParametersEntry member_parameters = 8; repeated PublishedSemanticCatalogComputedMeaningRelationParametersEntry relation_parameters = 9; CatalogOptionalString description = 10; }
+
+message PublishedSemanticCatalogMemberSlotMeaning { oneof kind { PublishedSemanticCatalogScalarSlotMeaning scalar_slot_meaning = 1; PublishedSemanticCatalogContainerSlotMeaning container_slot_meaning = 2; PublishedSemanticCatalogComputedContainerSlotMeaning computed_container_slot_meaning = 3; } }
+
+message PublishedSemanticCatalogScalarSlotMeaning { oneof kind { PublishedSemanticCatalogComputedSlotMeaning computed_slot_meaning = 1; PublishedSemanticCatalogSlotMeaning slot_meaning = 2; } }
+
+message PublishedSemanticCatalogComputedSlotMeaning { string display_name = 1; string role = 2; string value_type = 3; agentic.olap.semantic.v1.MetricValueContract value_contract = 4; optional string dimension_slot = 5; string symbol = 6; }
+
+message PublishedSemanticCatalogSlotMeaningRolesEntry { string key = 1; ListSemanticJoin value = 2; }
+
+message PublishedSemanticCatalogSlotMeaning { string display_name = 1; string role = 2; string value_type = 3; agentic.olap.semantic.v1.MetricValueContract value_contract = 4; PublicExpression expression = 5; repeated SemanticJoin access = 6; repeated PublishedSemanticCatalogSlotMeaningRolesEntry roles = 7; }
+
+message PublishedSemanticCatalogContainerSlotMeaningRolesEntry { string key = 1; ListSemanticJoin value = 2; }
+
+message PublishedSemanticCatalogContainerSlotMeaning { string display_name = 1; string role = 2; agentic.olap.semantic.v1.SetOutputShape shape = 3; PublicExpression expression = 4; repeated SemanticJoin access = 5; repeated PublishedSemanticCatalogContainerSlotMeaningRolesEntry roles = 6; }
+
+message PublishedSemanticCatalogComputedContainerSlotMeaning { string display_name = 1; string role = 2; agentic.olap.semantic.v1.SetOutputShape shape = 3; string symbol = 4; }
+
+message CatalogOptionalString { bool present = 1; optional string value = 2; }
+
+message PublishedSemanticCatalogProjectionMeaningEventRolesEntry { string key = 1; ListSemanticJoin value = 2; }
+
+message PublishedSemanticCatalogProjectionMeaningSlotsEntry { string key = 1; PublishedSemanticCatalogMemberSlotMeaning value = 2; }
+
+message PublishedSemanticCatalogProjectionMeaning { agentic.olap.semantic.v1.EventRef event = 1; repeated PublishedSemanticCatalogProjectionMeaningEventRolesEntry event_roles = 2; PublicExpression event_predicate = 3; repeated PublishedSemanticCatalogProjectionMeaningSlotsEntry slots = 4; repeated PublishedSemanticCatalogLogicUnitMeaning logic_units = 5; repeated SealedSourceCollectionMeaning sealed_source_collections = 6; CatalogOptionalString description = 7; }
+
+message CatalogOptionalPublishedSemanticCatalogAggregation { bool present = 1; PublishedSemanticCatalogAggregation value = 2; }
+
+message PublishedSemanticCatalogAggregation { string function = 1; bool distinct = 2; string rounding = 3; }
+
+message PublishedSemanticCatalogMemberOutputsEntry { string key = 1; MemberCandidateOutput value = 2; }
+
+message PublishedSemanticCatalogMemberFilterTypesEntry { string key = 1; string value = 2; }
+
+message PublishedSemanticCatalogMemberFilterValueContractsEntry { string key = 1; agentic.olap.semantic.v1.MetricValueContract value = 2; }
+
+message PublishedSemanticCatalogMemberUnitDimensionsEntry { string key = 1; ListScopedInputContractDimensionRef value = 2; }
+
+message PublishedSemanticCatalogMemberClockSlotsEntry { string key = 1; string value = 2; }
+
+message PublishedSemanticCatalogMemberParametersEntry { string key = 1; agentic.olap.semantic.v1.CalculationParameter value = 2; }
+
+message PublishedSemanticCatalogMemberFixedArgumentsEntry { string key = 1; agentic.olap.semantic.v1.CalculationBinding value = 2; }
+
+message PublishedSemanticCatalogMemberGroupingCandidatesEntry { string key = 1; ListScopedInputContractDimensionRef value = 2; }
+
+message PublishedSemanticCatalogMemberMemberParametersEntry { string key = 1; agentic.olap.semantic.v1.MemberSlot value = 2; }
+
+message PublishedSemanticCatalogMemberRelationParametersEntry { string key = 1; agentic.olap.semantic.v1.RelationSlot value = 2; }
+
+message PublishedSemanticCatalogMember { string source_id = 1; int64 source_version = 2; string display_name = 3; string entity = 4; string role = 5; string shape = 6; repeated string identity_slots = 7; repeated PublishedSemanticCatalogMemberOutputsEntry outputs = 8; MemberQueryPermission permission = 9; repeated PublishedSemanticCatalogMemberFilterTypesEntry filter_types = 10; repeated PublishedSemanticCatalogMemberFilterValueContractsEntry filter_value_contracts = 11; repeated PublishedSemanticCatalogMemberUnitDimensionsEntry unit_dimensions = 12; MemberCandidateTimeRangeCapability time_range = 13; repeated PublishedSemanticCatalogMemberClockSlotsEntry clock_slots = 14; repeated PublishedSemanticCatalogMemberParametersEntry parameters = 15; repeated PublishedSemanticCatalogMemberFixedArgumentsEntry fixed_arguments = 16; repeated PublishedSemanticCatalogMemberGroupingCandidatesEntry grouping_candidates = 17; repeated PublishedSemanticCatalogMemberMemberParametersEntry member_parameters = 18; repeated PublishedSemanticCatalogMemberRelationParametersEntry relation_parameters = 19; }
+
+message PublishedSemanticCatalogRelationFilterFilterTypesEntry { string key = 1; string value = 2; }
+
+message PublishedSemanticCatalogRelationFilterFilterValueContractsEntry { string key = 1; agentic.olap.semantic.v1.MetricValueContract value = 2; }
+
+message PublishedSemanticCatalogRelationFilterClockSlotsEntry { string key = 1; string value = 2; }
+
+message PublishedSemanticCatalogRelationFilter { string id = 1; int64 version = 2; string display_name = 3; agentic.olap.semantic.v1.EventRef parent_event = 4; string entity = 5; string role = 6; RelationFilterPermission permission = 7; repeated PublishedSemanticCatalogRelationFilterFilterTypesEntry filter_types = 8; repeated PublishedSemanticCatalogRelationFilterFilterValueContractsEntry filter_value_contracts = 9; MemberCandidateTimeRangeCapability time_range = 10; repeated PublishedSemanticCatalogRelationFilterClockSlotsEntry clock_slots = 11; bool required_by_default = 12; repeated SemanticJoin association = 13; PublishedSemanticCatalogProjectionMeaning source_definition = 14; }
+
+message PublishedSemanticCatalogDimensionValueTypesEntry { string key = 1; string value = 2; }
+
+message PublishedSemanticCatalogDimension { string id = 1; int64 version = 2; string display_name = 3; repeated string levels = 4; repeated PublishedSemanticCatalogDimensionValueTypesEntry value_types = 5; PublishedSemanticCatalogDimensionDefinition source_definition = 6; repeated PublishedSemanticCatalogEventMapping event_mappings = 7; }
+
+message PublishedSemanticCatalogDimensionDefinition { string interpretation = 1; optional string description = 2; repeated PublishedSemanticCatalogDefinitionMapping mappings = 3; repeated PublishedSemanticCatalogLogicUnitMeaning logic_units = 4; }
+
+message PublishedSemanticCatalogDefinitionMappingRolesEntry { string key = 1; ListSemanticJoin value = 2; }
+
+message PublishedSemanticCatalogDefinitionMapping { string level_code = 1; string event_id = 2; int64 event_version = 3; PublicExpression expression = 4; repeated SemanticJoin access = 5; repeated PublishedSemanticCatalogDefinitionMappingRolesEntry roles = 6; CatalogOptionalListSealedSourceCollectionMeaning sealed_source_collections = 7; }
+
+message PublishedSemanticCatalogEventMapping { string mapping_id = 1; string level_code = 2; string level_display_name = 3; string event_id = 4; int64 event_version = 5; string event_display_name = 6; optional string value_alignment_key = 7; string value_alignment_status = 8; }
+
+message PublishedSemanticCatalogTimeDimensionValueTypesEntry { string key = 1; string value = 2; }
+
+message PublishedSemanticCatalogTimeDimension { string id = 1; int64 version = 2; string display_name = 3; repeated string levels = 4; repeated PublishedSemanticCatalogTimeDimensionValueTypesEntry value_types = 5; PublishedSemanticCatalogDimensionDefinition source_definition = 6; repeated PublishedSemanticCatalogAnchor anchors = 7; }
+
+message PublishedSemanticCatalogAnchor { string mapping_id = 1; string level_code = 2; string event_id = 3; int64 event_version = 4; string event_display_name = 5; string time_role = 6; }
+
+message PublishedSemanticCatalogCombination { agentic.olap.semantic.v1.MetricInstanceRef instance = 1; string dimension_id = 2; int64 dimension_version = 3; string level_code = 4; bool available = 5; optional string reason_code = 6; optional string reason = 7; }
+
+message PublishedSemanticCatalogFilterValueTypesEntry { string key = 1; string value = 2; }
+
+message PublishedSemanticCatalogFilter { string id = 1; int64 version = 2; string display_name = 3; PublishedSemanticCatalogAssetReference dimension_ref = 4; repeated string operators = 5; repeated PublishedSemanticCatalogFilterValueTypesEntry value_types = 6; bool required_by_default = 7; repeated PublishedSemanticCatalogFilterMapping event_mappings = 8; }
+
+message PublishedSemanticCatalogAssetReference { string id = 1; int64 version = 2; }
+
+message PublishedSemanticCatalogFilterMapping { string level_code = 1; string event_id = 2; int64 event_version = 3; }
+
+message PublishedSemanticCatalogSemanticDependency { oneof kind { PublishedSemanticCatalogCalculationDependency calculation_dependency = 1; PublishedSemanticCatalogFactDependency fact_dependency = 2; PublishedSemanticCatalogInstanceDependency instance_dependency = 3; PublishedSemanticCatalogMemberDependency member_dependency = 4; } }
+
+message PublishedSemanticCatalogCalculationDependency { agentic.olap.semantic.v1.MetricRef reference = 1; agentic.olap.semantic.v1.MetricCalculation definition = 2; }
+
+message PublishedSemanticCatalogFactDependency { agentic.olap.semantic.v1.MetricRef reference = 1; agentic.olap.semantic.v1.EventRef event = 2; PublishedSemanticCatalogAggregation aggregation = 3; agentic.olap.semantic.v1.MetricValueContract value_contract = 4; PublishedSemanticCatalogFactScope source_scope = 5; }
+
+message PublishedSemanticCatalogInstanceDependency { agentic.olap.semantic.v1.MetricInstanceRef reference = 1; agentic.olap.semantic.v1.MetricInstance instance = 2; }
+
+message PublishedSemanticCatalogMemberDependency { agentic.olap.semantic.v1.MemberRef reference = 1; string entity = 2; string role = 3; string shape = 4; repeated string identity_slots = 5; PublishedSemanticCatalogMemberDefinition definition = 6; }
+
+message PublishedExecutableCatalogMetricAdoptionsEntry { string key = 1; MetricAdoption value = 2; }
+
+message PublishedExecutableCatalog { string format_version = 1; agentic.olap.query.v1.QueryCapabilityCoordinate coordinate = 2; QueryCapabilityView query_capability = 3; ExecutableCatalog catalog = 4; repeated PublishedExecutableCatalogMetricAdoptionsEntry metric_adoptions = 5; repeated PublishedObjectVersionRef object_version_refs = 6; optional string generated_at = 7; optional string diagnostic_run_id = 8; }
+
+message MetricAdoptionFixedArgumentsEntry { string key = 1; agentic.olap.semantic.v1.CalculationBinding value = 2; }
+
+message MetricAdoption { string adoption_id = 1; string subject_area_id = 2; int64 subject_area_version = 3; string code = 4; string display_name = 5; agentic.olap.semantic.v1.MetricBusinessMeaning business_meaning = 6; agentic.olap.semantic.v1.MetricRef definition = 7; agentic.olap.semantic.v1.CalculationBindings bindings = 8; repeated MetricAdoptionFixedArgumentsEntry fixed_arguments = 9; }
+
+message PublishedObjectVersionRef { optional string object_type = 1; optional string object_id = 2; optional string object_version = 3; optional string object_code = 4; optional string object_display_name = 5; optional string ref_role = 6; }
+
+message PublishedMemberSource { agentic.olap.semantic.v1.MemberSource source = 1; string subject_area_id = 2; string code = 3; string display_name = 4; }
+
+message PublishedDimensionBindingRolesEntry { string key = 1; agentic.olap.semantic.v1.RelationAccessPath value = 2; }
+
+message PublishedDimensionBinding { string id = 1; int64 version = 2; string dimension_id = 3; int64 dimension_version = 4; agentic.olap.semantic.v1.EventRef event = 5; string topology_id = 6; int64 topology_version = 7; string logic_unit_id = 8; int64 logic_unit_version = 9; agentic.olap.semantic.v1.SemanticExpression expression = 10; agentic.olap.semantic.v1.RelationAccessPath access_path = 11; repeated PublishedDimensionBindingRolesEntry roles = 12; }
+
+message ReleaseArtifactManifest { string release_id = 1; string release_version = 2; string subject_area_id = 3; int64 subject_area_version = 4; string compiler_version = 5; string rule_set_version = 6; string governance_closure_hash = 7; string catalog_hash = 8; repeated ReleaseCatalogSnapshot catalogs = 9; }
+
+message ReleaseCatalogSnapshot { string scenario_id = 1; int64 scenario_version = 2; string catalog_hash = 3; }
+
+message ReleaseClosureEntry { string object_type = 1; string object_id = 2; int64 object_version = 3; optional string object_code = 4; optional string object_display_name = 5; string ref_role = 6; string snapshot_model = 7; }
+
+message ReleaseClosure { repeated ReleaseClosureEntry entries = 1; }
+
+message ReleaseCatalogSnapshots { repeated ReleaseCatalogSnapshot catalogs = 1; }
+
+message EventExecutionSnapshotRolesEntry { string key = 1; agentic.olap.semantic.v1.RelationAccessPath value = 2; }
+
+message EventExecutionSnapshot { string topology_id = 1; int64 topology_version = 2; optional string event_time_logic_unit_id = 3; optional int64 event_time_logic_unit_version = 4; agentic.olap.semantic.v1.EventIdentity identity = 5; repeated EventExecutionSnapshotRolesEntry roles = 6; agentic.olap.semantic.v1.SemanticExpression base_filter = 7; }
+
+message TopologyExecutionSnapshot { string topology_id = 1; int64 topology_version = 2; string topology_implementation_namespace_code = 3; string topology_implementation_namespace_display_name = 4; string backbone_logical_table_id = 5; int64 backbone_logical_table_version = 6; repeated ReleaseJoinPathRef join_path_refs = 7; }
+
+message ReleaseJoinPathRef { string join_path_id = 1; int64 join_path_version = 2; }
+
+message MetricExecutionSnapshot { agentic.olap.semantic.v1.MetricDefinition definition = 1; agentic.olap.semantic.v1.MetricBusinessMeaning business_meaning = 2; }
+
+message LogicUnitExecutionSnapshotLogicUnitBindingsEntry { string key = 1; agentic.olap.semantic.v1.SemanticExpression value = 2; }
+
+message LogicUnitExecutionSnapshotPhysicalColumnBindingsEntry { string key = 1; string value = 2; }
+
+message LogicUnitExecutionSnapshotPhysicalColumnTypesEntry { string key = 1; JdbcColumnType value = 2; }
+
+message LogicUnitExecutionSnapshotNativeTableDependenciesEntry { string key = 1; NativeTableDependency value = 2; }
+
+message LogicUnitExecutionSnapshot { string format_version = 1; string physical_execution_binding_id = 2; string physical_execution_binding_version = 3; string logic_unit_id = 4; int64 logic_unit_version = 5; optional string value_type = 6; agentic.olap.semantic.v1.SetOutputShape value_shape = 7; string logical_table_id = 8; int64 logical_table_version = 9; string physical_table_id = 10; int64 physical_table_version = 11; string data_source_id = 12; optional string catalog_name = 13; optional string schema_name = 14; string table_name = 15; string dialect = 16; repeated LogicUnitExecutionSnapshotLogicUnitBindingsEntry logic_unit_bindings = 17; repeated LogicUnitExecutionSnapshotPhysicalColumnBindingsEntry physical_column_bindings = 18; repeated LogicUnitExecutionSnapshotPhysicalColumnTypesEntry physical_column_types = 19; repeated LogicUnitExecutionSnapshotNativeTableDependenciesEntry native_table_dependencies = 20; PhysicalSourceConstraints source_constraints = 21; }
+
+message SourceUniqueKeySnapshot { string proof_id = 1; string physical_table_id = 2; int64 physical_table_version = 3; string discovery_snapshot_id = 4; string schema_hash = 5; string source_identity_hash = 6; SnapshotUniqueKey key = 7; }
+
+message FrozenAnalysisDimensionMeaning { optional string description = 1; repeated AnalysisDimensionValueAlignmentRecord value_alignment_evidence = 2; }
+
+message AnalysisDimensionValueAlignmentRecord { string id = 1; string analysis_dimension_id = 2; int64 analysis_dimension_version = 3; string level_code = 4; string alignment_type = 5; string evidence_json = 6; optional string confirmed_by = 7; optional string confirmed_at = 8; string diagnostic_status = 9; string created_at = 10; }
+
+message ReleaseCompilationContract {}
+
+message ReleaseArtifactRecord { string release_id = 1; string release_version = 2; string subject_area_id = 3; int64 subject_area_version = 4; string governance_closure_hash = 5; string catalog_hash = 6; string artifact_hash = 7; string manifest_proto = 8; }
+
+message ReleaseCatalogRequest { string scenario_id = 1; int64 scenario_version = 2; string release_id = 3; string release_version = 4; }
+
+message ReleaseObjectRef { string id = 1; string release_id = 2; string release_version = 3; string object_type = 4; string object_id = 5; int64 object_version = 6; string object_code = 7; string object_display_name = 8; string ref_role = 9; string snapshot_proto = 10; string created_at = 11; }
+
+message ReleaseCatalogView { string scenario_id = 1; int64 scenario_version = 2; string scenario_display_name = 3; string release_id = 4; string release_version = 5; string release_display_name = 6; repeated ReleaseObjectRef object_version_refs = 7; repeated ReleaseMetricDimensionCapability metric_analysis_dimension_capability = 8; repeated ReleaseDimensionMapping dimension_mappings = 9; repeated ReleaseTimeAnchorRule time_anchor_rule = 10; repeated ReleaseUnavailableReason unavailable_reason = 11; repeated ReleaseDiagnosticIssue diagnostics = 12; }
+
+message ReleaseMetricDimensionCapability { string id = 1; string release_id = 2; string release_version = 3; string subject_area_id = 4; optional string scenario_id = 5; optional int64 scenario_version = 6; string adoption_id = 7; int64 adoption_version = 8; string metric_id = 9; int64 metric_version = 10; string metric_display_name = 11; string event_id = 12; int64 event_version = 13; string analysis_dimension_id = 14; int64 analysis_dimension_version = 15; string analysis_dimension_display_name = 16; optional string level_code = 17; optional string level_display_name = 18; bool available = 19; optional string reason_code = 20; optional string reason_message = 21; optional string producer_stage = 22; optional string target_ref = 23; optional string target_version_ref = 24; bool blocking = 25; bool page_blocking = 26; bool executable_blocking = 27; string created_at = 28; }
+
+message ReleaseDimensionMapping { string id = 1; string mapping_id = 2; string release_id = 3; string release_version = 4; string subject_area_id = 5; string event_id = 6; int64 event_version = 7; string analysis_dimension_id = 8; int64 analysis_dimension_version = 9; string analysis_dimension_display_name = 10; string level_code = 11; string level_display_name = 12; string dimension_id = 13; int64 dimension_version = 14; string dimension_code_namespace = 15; string dimension_code_namespace_display_name = 16; string dimension_display_name = 17; string dimension_binding_id = 18; int64 dimension_binding_version = 19; optional string value_alignment_key = 20; string value_alignment_status = 21; string topology_id = 22; int64 topology_version = 23; string topology_implementation_namespace_code = 24; string topology_implementation_namespace_display_name = 25; string logic_unit_id = 26; int64 logic_unit_version = 27; string logic_unit_display_name = 28; repeated ReleaseJoinPathRef join_path_refs = 29; agentic.olap.semantic.v1.SemanticExpression expression = 30; string created_at = 31; }
+
+message ReleaseTimeAnchorRule { string id = 1; string release_id = 2; string release_version = 3; string subject_area_id = 4; optional string scenario_id = 5; optional int64 scenario_version = 6; string event_id = 7; int64 event_version = 8; string topology_id = 9; int64 topology_version = 10; string topology_implementation_namespace_code = 11; string topology_implementation_namespace_display_name = 12; string effective_time_logic_unit_id = 13; int64 effective_time_logic_unit_version = 14; string effective_time_logic_unit_display_name = 15; string time_role = 16; string analysis_dimension_id = 17; int64 analysis_dimension_version = 18; string analysis_dimension_display_name = 19; string level_code = 20; reserved 21; optional string partition_logic_unit_id = 22; optional int64 partition_logic_unit_version = 23; optional string diagnostic_json = 24; string created_at = 25; }
+
+message ReleaseUnavailableReason { string id = 1; string release_id = 2; string release_version = 3; string scope_type = 4; optional string scenario_id = 5; optional int64 scenario_version = 6; optional string metric_id = 7; optional int64 metric_version = 8; optional string analysis_dimension_id = 9; optional int64 analysis_dimension_version = 10; optional string level_code = 11; string reason_code = 12; string reason_message = 13; string producer_stage = 14; string target_ref = 15; string target_version_ref = 16; bool blocking = 17; bool page_blocking = 18; bool executable_blocking = 19; string created_at = 20; }
+
+message ReleaseDiagnosticIssue { string diagnostic_run_id = 1; string issue_id = 2; string severity = 3; string reason_code = 4; string reason_message = 5; string producer_stage = 6; string target_ref = 7; string target_version_ref = 8; bool blocking = 9; bool page_blocking = 10; bool executable_blocking = 11; }
+
+message ReleaseJoinPathSnapshot { string join_path_id = 1; int64 join_path_version = 2; string topology_id = 3; int64 topology_version = 4; string source_logical_table_id = 5; int64 source_logical_table_version = 6; string target_logical_table_id = 7; int64 target_logical_table_version = 8; string join_type = 9; string cardinality = 10; agentic.olap.semantic.v1.TemporalConstraint temporal = 11; string null_policy = 12; repeated ReleaseJoinPathSnapshotKey keys = 13; }
+
+message ReleaseJoinPathSnapshotKey { int32 order = 1; string source_logic_unit_id = 2; int64 source_logic_unit_version = 3; string target_logic_unit_id = 4; int64 target_logic_unit_version = 5; }
+
+message ScenarioMetricReference { string adoption_id = 1; int64 adoption_version = 2; string adoption_status = 3; string scenario_metric_ref_id = 4; string release_object_ref_id = 5; bool required_by_default = 6; int32 sort_order = 7; }
+
+message ReleaseScenarioSnapshot { string format_version = 1; QueryScenarioRef scenario = 2; SubjectAreaCapabilityContext subject_area = 3; repeated ScenarioMetricReference metrics = 4; repeated ReleaseScenarioSnapshotMemberGrant members = 5; repeated ReleaseScenarioSnapshotDimensionGrant dimensions = 6; repeated ReleaseScenarioSnapshotFilterGrant filters = 7; repeated PostProcessCapability stages = 8; }
+
+message ReleaseScenarioSnapshotMemberGrant { string source_id = 1; int64 source_version = 2; MemberQueryPermission permission = 3; }
+
+message ReleaseScenarioSnapshotDimensionGrant { string id = 1; int64 version = 2; string display_name = 3; string output_alias = 4; string subject_area_ref_id = 5; string subject_area_ref_status = 6; string scenario_ref_id = 7; string release_object_ref_id = 8; string default_level_code = 9; string default_level_display_name = 10; bool required_by_default = 11; int32 sort_order = 12; }
+
+message ReleaseScenarioSnapshotFilterGrant { string id = 1; string target_type = 2; string target_id = 3; int64 target_version = 4; repeated string operators = 5; optional string value_provider_id = 6; optional string value_provider_type = 7; optional string value_provider_logic_unit_id = 8; optional int64 value_provider_logic_unit_version = 9; bool required_by_default = 10; int32 sort_order = 11; }
+
+message SourceBindingConflictExceptionInput { repeated string scope_path = 1; string anchor = 2; string data_source_id = 3; string source_identity_hash = 4; agentic.olap.semantic.v1.ConnectorRef connector_ref = 5; string dialect = 6; string physical_table_id = 7; string physical_table_version = 8; }
+
+message PhysicalTableCreateRequest { string code = 1; string table_name = 2; string display_name = 3; optional string description = 4; optional string data_domain = 5; string owner = 6; optional string sensitivity_level = 7; optional string source_system = 8; string data_source = 9; string dialect_id = 10; optional string catalog = 11; optional string schema_name = 12; string schema_hash = 13; PhysicalTableCreateRequestSourceConstraintsInput source_constraints = 14; string created_by = 15; repeated PhysicalTableCreateRequestColumnInput columns = 16; }
+
+message PhysicalTableCreateRequestSourceConstraintsInput { string discovered_table_id = 1; repeated string source_collection_ids = 2; }
+
+message PhysicalTableCreateRequestColumnInput { string column_name = 1; string display_name = 2; string column_type = 3; optional string sensitivity_level = 4; bool nullable = 5; optional string description = 6; JdbcColumnType jdbc_column_type = 7; }
+
+message PhysicalTableCreateResult { PhysicalTableRecord physical_table = 1; PhysicalTableVersionRecord physical_table_version = 2; repeated PhysicalColumnRecord physical_columns = 3; repeated PhysicalColumnVersionRecord physical_column_versions = 4; }
+
+message PhysicalTableRecord { string id = 1; string code = 2; string display_name = 3; string data_source = 4; string dialect_id = 5; optional string catalog_name = 6; optional string schema_name = 7; string table_name = 8; optional string description = 9; string owner = 10; string load_status = 11; optional int64 row_count = 12; optional string schema_hash = 13; string status = 14; int64 current_version = 15; string created_by = 16; string created_at = 17; optional string updated_by = 18; optional string updated_at = 19; }
+
+message PhysicalTableVersionRecord { string id = 1; string physical_table_id = 2; int64 version = 3; string version_status = 4; string content_proto = 5; optional string diagnostic_json = 6; optional int64 source_version = 7; string created_by = 8; string created_at = 9; optional string activated_by = 10; optional string activated_at = 11; optional string deprecated_by = 12; optional string deprecated_at = 13; optional string archived_by = 14; optional string archived_at = 15; }
+
+message PhysicalColumnRecord { string id = 1; string physical_table_id = 2; string column_name = 3; string display_name = 4; string data_type = 5; optional string description = 6; bool nullable = 7; int32 ordinal_position = 8; bool enabled = 9; string status = 10; int64 current_version = 11; string created_by = 12; string created_at = 13; optional string updated_at = 14; JdbcColumnType jdbc_column_type = 15; }
+
+message PhysicalColumnVersionRecord { string id = 1; string physical_column_id = 2; int64 version = 3; string version_status = 4; string content_proto = 5; optional string diagnostic_json = 6; optional int64 source_version = 7; string created_by = 8; string created_at = 9; optional string activated_by = 10; optional string activated_at = 11; optional string deprecated_by = 12; optional string deprecated_at = 13; optional string archived_by = 14; optional string archived_at = 15; }
+
+message BusinessLineCreateRequest { string code = 1; string display_name = 2; string owner = 3; optional string description = 4; string created_by = 5; }
+
+message BusinessLineCreateResult { BusinessLineRecord business_line = 1; BusinessLineVersionRecord business_line_version = 2; }
+
+message BusinessLineRecord { string id = 1; string code = 2; string display_name = 3; optional string description = 4; string owner = 5; string status = 6; int64 current_version = 7; string created_by = 8; string created_at = 9; optional string updated_by = 10; optional string updated_at = 11; }
+
+message BusinessLineVersionRecord { string id = 1; string business_line_id = 2; int64 version = 3; string version_status = 4; string content_proto = 5; optional string diagnostic_json = 6; optional int64 source_version = 7; string created_by = 8; string created_at = 9; optional string activated_by = 10; optional string activated_at = 11; optional string deprecated_by = 12; optional string deprecated_at = 13; optional string archived_by = 14; optional string archived_at = 15; }
+
+message LogicalTableCreateRequest { string physical_table_id = 1; int64 physical_table_version = 2; string code = 3; string display_name = 4; string table_role = 5; optional string description = 6; string owner = 7; string created_by = 8; repeated LogicalTableCreateRequestLogicUnitInput logic_units = 9; }
+
+message LogicalTableCreateRequestLogicUnitInputSourceRefsValues { repeated LogicalTableCreateRequestSourceRefInput values = 1; }
+
+message LogicalTableCreateRequestLogicUnitInput { string code = 1; string display_name = 2; string source_kind = 3; agentic.olap.semantic.v1.SemanticExpression expression = 4; optional string logic_type = 5; agentic.olap.semantic.v1.SetOutputShape value_shape = 6; optional bool is_time = 7; optional bool is_primary_key = 8; optional bool is_foreign_key = 9; optional bool filterable = 10; optional bool aggregatable = 11; LogicalTableCreateRequestLogicUnitInputSourceRefsValues source_refs = 12; }
+
+message LogicalTableCreateRequestSourceRefInput { string physical_column_id = 1; int64 physical_column_version = 2; string ref_role = 3; }
+
+message LogicalTableCreateResult { LogicalTableRecord logical_table = 1; LogicalTableVersionRecord logical_table_version = 2; PhysicalLogicalTableRefRecord physical_table_ref = 3; repeated LogicUnitRecord logic_units = 4; repeated LogicUnitVersionRecord logic_unit_versions = 5; repeated LogicalTableLogicUnitRefRecord logic_unit_refs = 6; repeated LogicUnitSourceRefRecord source_refs = 7; }
+
+message LogicalTableRecord { string id = 1; string code = 2; string display_name = 3; string table_role = 4; optional string description = 5; string owner = 6; string status = 7; int64 current_version = 8; string created_by = 9; string created_at = 10; optional string updated_by = 11; optional string updated_at = 12; }
+
+message LogicalTableVersionRecord { string id = 1; string logical_table_id = 2; int64 version = 3; string version_status = 4; string content_proto = 5; optional string diagnostic_json = 6; optional int64 source_version = 7; string created_by = 8; string created_at = 9; optional string activated_by = 10; optional string activated_at = 11; optional string deprecated_by = 12; optional string deprecated_at = 13; optional string archived_by = 14; optional string archived_at = 15; }
+
+message PhysicalLogicalTableRefRecord { string id = 1; string physical_table_id = 2; int64 physical_table_version = 3; string logical_table_id = 4; int64 logical_table_version = 5; string ref_role = 6; string created_at = 7; }
+
+message LogicUnitRecord { string id = 1; string logical_table_id = 2; string code = 3; string display_name = 4; string source_kind = 5; agentic.olap.semantic.v1.SemanticExpression expression = 6; optional string logic_type = 7; agentic.olap.semantic.v1.SetOutputShape value_shape = 8; bool is_time = 9; bool is_primary_key = 10; bool is_foreign_key = 11; bool filterable = 12; bool aggregatable = 13; string status = 14; int64 current_version = 15; string created_by = 16; string created_at = 17; optional string updated_by = 18; optional string updated_at = 19; }
+
+message LogicUnitVersionRecord { string id = 1; string logic_unit_id = 2; int64 version = 3; string version_status = 4; string content_proto = 5; optional string diagnostic_json = 6; optional int64 source_version = 7; string created_by = 8; string created_at = 9; optional string activated_by = 10; optional string activated_at = 11; optional string deprecated_by = 12; optional string deprecated_at = 13; optional string archived_by = 14; optional string archived_at = 15; }
+
+message LogicalTableLogicUnitRefRecord { string id = 1; string logical_table_id = 2; int64 logical_table_version = 3; string logic_unit_id = 4; int64 logic_unit_version = 5; string created_at = 6; }
+
+message LogicUnitSourceRefRecord { string id = 1; string logic_unit_id = 2; int64 logic_unit_version = 3; string physical_column_id = 4; int64 physical_column_version = 5; string ref_role = 6; string created_at = 7; }
+
+message TopologyCreateRequest { string code = 1; string display_name = 2; string topology_implementation_namespace_code = 3; string topology_implementation_namespace_display_name = 4; string backbone_logical_table_id = 5; int64 backbone_logical_table_version = 6; string owner = 7; optional string description = 8; string created_by = 9; }
+
+message TopologyCreateResult { TopologyRecord topology = 1; TopologyVersionRecord topology_version = 2; TopologyLogicalTableRefRecord backbone_ref = 3; }
+
+message TopologyRecord { string id = 1; string code = 2; string display_name = 3; string topology_implementation_namespace_code = 4; string topology_implementation_namespace_display_name = 5; string backbone_logical_table_id = 6; optional string description = 7; string owner = 8; string status = 9; int64 current_version = 10; string created_by = 11; string created_at = 12; optional string updated_by = 13; optional string updated_at = 14; }
+
+message TopologyVersionRecord { string id = 1; string topology_id = 2; int64 version = 3; string version_status = 4; string content_proto = 5; optional string diagnostic_json = 6; optional int64 source_version = 7; string created_by = 8; string created_at = 9; optional string activated_by = 10; optional string activated_at = 11; optional string deprecated_by = 12; optional string deprecated_at = 13; optional string archived_by = 14; optional string archived_at = 15; }
+
+message TopologyLogicalTableRefRecord { string id = 1; string topology_id = 2; int64 topology_version = 3; string logical_table_id = 4; int64 logical_table_version = 5; string usage_role = 6; string created_at = 7; }
+
+message TopologyLogicalTableRefCreateRequest { string topology_id = 1; int64 topology_version = 2; string logical_table_id = 3; int64 logical_table_version = 4; string usage_role = 5; }
+
+message TopologyLogicalTableRefCreateResult { TopologyLogicalTableRefRecord topology_logical_table_ref = 1; }
+
+message JoinPathCreateRequest { string topology_id = 1; int64 topology_version = 2; string code = 3; string source_logical_table_id = 4; int64 source_logical_table_version = 5; string target_logical_table_id = 6; int64 target_logical_table_version = 7; string join_type = 8; string cardinality = 9; agentic.olap.semantic.v1.TemporalConstraint temporal = 10; string null_policy = 11; string created_by = 12; repeated JoinPathCreateRequestKeyRefInput key_refs = 13; }
+
+message JoinPathCreateRequestKeyRefInput { string source_logic_unit_id = 1; int64 source_logic_unit_version = 2; string target_logic_unit_id = 3; int64 target_logic_unit_version = 4; }
+
+message JoinPathCreateResult { JoinPathRecord join_path = 1; JoinPathVersionRecord join_path_version = 2; TopologyJoinPathRefRecord topology_join_path_ref = 3; repeated JoinPathKeyRefRecord key_refs = 4; }
+
+message JoinPathRecord { string id = 1; string topology_id = 2; int64 topology_version = 3; string code = 4; string source_logical_table_id = 5; int64 source_logical_table_version = 6; string target_logical_table_id = 7; int64 target_logical_table_version = 8; string join_type = 9; string cardinality = 10; agentic.olap.semantic.v1.TemporalConstraint temporal = 11; optional string null_policy = 12; string status = 13; int64 current_version = 14; string created_by = 15; string created_at = 16; }
+
+message JoinPathVersionRecord { string id = 1; string join_path_id = 2; int64 version = 3; string version_status = 4; string content_proto = 5; string join_type = 6; string cardinality = 7; agentic.olap.semantic.v1.TemporalConstraint temporal = 8; optional string null_policy = 9; optional string diagnostic_json = 10; optional int64 source_version = 11; string created_by = 12; string created_at = 13; optional string activated_by = 14; optional string activated_at = 15; optional string deprecated_by = 16; optional string deprecated_at = 17; optional string archived_by = 18; optional string archived_at = 19; }
+
+message TopologyJoinPathRefRecord { string id = 1; string topology_id = 2; int64 topology_version = 3; string join_path_id = 4; int64 join_path_version = 5; string created_at = 6; }
+
+message JoinPathKeyRefRecord { string id = 1; string join_path_id = 2; int64 join_path_version = 3; int32 key_order = 4; string source_logic_unit_id = 5; int64 source_logic_unit_version = 6; string target_logic_unit_id = 7; int64 target_logic_unit_version = 8; string created_at = 9; }
+
+message EventCreateRequestRolesEntry { string key = 1; agentic.olap.semantic.v1.RelationAccessPath value = 2; }
+
+message EventCreateRequest { string topology_id = 1; int64 topology_version = 2; string code = 3; string display_name = 4; string owner = 5; optional string event_time_logic_unit_id = 6; optional int64 event_time_logic_unit_version = 7; agentic.olap.semantic.v1.EventIdentity identity = 8; repeated EventCreateRequestRolesEntry roles = 9; repeated EventCreateRequestLogicUnitRefInput filterable_logic_unit_refs = 10; repeated EventCreateRequestLogicUnitRefInput measure_logic_unit_refs = 11; optional string description = 12; string created_by = 13; }
+
+message EventCreateRequestLogicUnitRefInput { string logic_unit_id = 1; int64 logic_unit_version = 2; }
+
+message EventCreateResult { EventRecord event = 1; EventVersionRecord event_version = 2; repeated EventLogicUnitRefRecord logic_unit_refs = 3; }
+
+message EventRecord { string id = 1; string code = 2; string display_name = 3; string topology_id = 4; int64 topology_version = 5; optional string event_time_logic_unit_id = 6; optional int64 event_time_logic_unit_version = 7; optional string description = 8; string owner = 9; string status = 10; int64 current_version = 11; string created_by = 12; string created_at = 13; optional string updated_by = 14; optional string updated_at = 15; }
+
+message EventVersionRecord { string id = 1; string event_id = 2; int64 version = 3; string version_status = 4; string content_proto = 5; optional string diagnostic_json = 6; optional int64 source_version = 7; string created_by = 8; string created_at = 9; optional string activated_by = 10; optional string activated_at = 11; optional string deprecated_by = 12; optional string deprecated_at = 13; optional string archived_by = 14; optional string archived_at = 15; }
+
+message EventLogicUnitRefRecord { string id = 1; string event_id = 2; int64 event_version = 3; string logic_unit_id = 4; int64 logic_unit_version = 5; string ref_role = 6; string created_at = 7; }
+
+message MetricCreateRequest { string code = 1; string display_name = 2; string owner = 3; agentic.olap.semantic.v1.MetricDefinition definition = 4; optional string description = 5; agentic.olap.semantic.v1.MetricBusinessMeaning business_meaning = 6; string created_by = 7; }
+
+message MetricCreateResult { MetricRecord metric = 1; MetricVersionRecord metric_version = 2; }
+
+message MetricRecord { string id = 1; string code = 2; string display_name = 3; agentic.olap.semantic.v1.MetricDefinition definition = 4; optional string description = 5; string owner = 6; string status = 7; int64 current_version = 8; string created_by = 9; string created_at = 10; optional string updated_by = 11; optional string updated_at = 12; }
+
+message MetricVersionRecord { string id = 1; string metric_id = 2; int64 version = 3; string version_status = 4; string content_proto = 5; optional string diagnostic_json = 6; optional int64 source_version = 7; string created_by = 8; string created_at = 9; optional string activated_by = 10; optional string activated_at = 11; optional string deprecated_by = 12; optional string deprecated_at = 13; optional string archived_by = 14; optional string archived_at = 15; }
+
+message DimensionCreateRequest { string code = 1; string dimension_code_namespace_display_name = 2; string display_name = 3; string owner = 4; optional string description = 5; string created_by = 6; }
+
+message DimensionCreateResult { DimensionRecord dimension = 1; DimensionVersionRecord dimension_version = 2; }
+
+message DimensionRecord { string id = 1; string code = 2; string dimension_code_namespace = 3; string dimension_code_namespace_display_name = 4; string local_code = 5; string display_name = 6; optional string description = 7; string owner = 8; string status = 9; int64 current_version = 10; string created_by = 11; string created_at = 12; optional string updated_by = 13; optional string updated_at = 14; }
+
+message DimensionVersionRecord { string id = 1; string dimension_id = 2; int64 version = 3; string version_status = 4; string content_proto = 5; optional string diagnostic_json = 6; optional int64 source_version = 7; string created_by = 8; string created_at = 9; optional string activated_by = 10; optional string activated_at = 11; optional string deprecated_by = 12; optional string deprecated_at = 13; optional string archived_by = 14; optional string archived_at = 15; }
+
+message DimensionEventBindingCreateRequestRolesEntry { string key = 1; agentic.olap.semantic.v1.RelationAccessPath value = 2; }
+
+message DimensionEventBindingCreateRequest { string dimension_id = 1; int64 dimension_version = 2; string event_id = 3; int64 event_version = 4; optional string logic_unit_id = 5; optional int64 logic_unit_version = 6; agentic.olap.semantic.v1.SemanticExpression expression = 7; agentic.olap.semantic.v1.RelationAccessPath access_path = 8; repeated DimensionEventBindingCreateRequestRolesEntry roles = 9; string created_by = 10; }
+
+message DimensionEventBindingCreateResult { DimensionEventBindingRecord binding = 1; DimensionEventBindingVersionRecord binding_version = 2; }
+
+message DimensionEventBindingRecord { string id = 1; string dimension_id = 2; int64 dimension_version = 3; string event_id = 4; int64 event_version = 5; string topology_id = 6; int64 topology_version = 7; optional string logic_unit_id = 8; optional int64 logic_unit_version = 9; agentic.olap.semantic.v1.SemanticExpression expression = 10; string status = 11; int64 current_version = 12; string created_by = 13; string created_at = 14; optional string updated_by = 15; optional string updated_at = 16; }
+
+message DimensionEventBindingVersionRecord { string id = 1; string binding_id = 2; int64 version = 3; string version_status = 4; string content_proto = 5; optional string diagnostic_json = 6; optional int64 source_version = 7; string created_by = 8; string created_at = 9; optional string activated_by = 10; optional string activated_at = 11; optional string deprecated_by = 12; optional string deprecated_at = 13; optional string archived_by = 14; optional string archived_at = 15; }
+
+message SubjectAreaCreateRequest { string business_line_id = 1; int64 business_line_version = 2; string code = 3; string display_name = 4; string owner = 5; optional string description = 6; string created_by = 7; }
+
+message SubjectAreaCreateResult { SubjectAreaRecord subject_area = 1; SubjectAreaVersionRecord subject_area_version = 2; }
+
+message SubjectAreaRecord { string id = 1; string code = 2; string display_name = 3; string business_line_id = 4; int64 business_line_version = 5; optional string description = 6; string owner = 7; string status = 8; int64 current_version = 9; string created_by = 10; string created_at = 11; optional string updated_by = 12; optional string updated_at = 13; }
+
+message SubjectAreaVersionRecord { string id = 1; string subject_area_id = 2; int64 version = 3; string version_status = 4; string content_proto = 5; optional string diagnostic_json = 6; optional int64 source_version = 7; string created_by = 8; string created_at = 9; optional string activated_by = 10; optional string activated_at = 11; optional string deprecated_by = 12; optional string deprecated_at = 13; optional string archived_by = 14; optional string archived_at = 15; }
+
+message SubjectAreaMetricRefCreateRequestFixedArgumentsEntry { string key = 1; agentic.olap.semantic.v1.CalculationBinding value = 2; }
+
+message SubjectAreaMetricRefCreateRequest { string subject_area_id = 1; int64 subject_area_version = 2; string code = 3; string display_name = 4; agentic.olap.semantic.v1.MetricBusinessMeaning business_meaning = 5; string metric_id = 6; int64 metric_version = 7; agentic.olap.semantic.v1.CalculationBindings bindings = 8; repeated SubjectAreaMetricRefCreateRequestFixedArgumentsEntry fixed_arguments = 9; string selected_by = 10; }
+
+message SubjectAreaMetricRefCreateResult { SubjectAreaMetricRefRecord subject_area_metric_ref = 1; }
+
+message SubjectAreaMetricRefRecord { string id = 1; string subject_area_id = 2; int64 subject_area_version = 3; string code = 4; string display_name = 5; agentic.olap.semantic.v1.MetricBusinessMeaning business_meaning = 6; string metric_id = 7; int64 metric_version = 8; string status = 9; string selected_by = 10; string selected_at = 11; }
+
+message AnalysisDimensionCreateRequest { string subject_area_id = 1; int64 subject_area_version = 2; string code = 3; string display_name = 4; optional string description = 5; string level_code = 6; string level_display_name = 7; string created_by = 8; }
+
+message AnalysisDimensionCreateResult { AnalysisDimensionRecord analysis_dimension = 1; AnalysisDimensionVersionRecord analysis_dimension_version = 2; AnalysisDimensionLevelRecord default_level = 3; SubjectAreaAnalysisDimensionRefRecord subject_area_ref = 4; }
+
+message AnalysisDimensionRecord { string id = 1; string subject_area_id = 2; int64 subject_area_version = 3; string code = 4; string display_name = 5; optional string description = 6; string status = 7; int64 current_version = 8; string created_by = 9; string created_at = 10; optional string updated_by = 11; optional string updated_at = 12; }
+
+message AnalysisDimensionVersionRecord { string id = 1; string analysis_dimension_id = 2; int64 version = 3; string version_status = 4; string content_proto = 5; optional string diagnostic_json = 6; optional int64 source_version = 7; string created_by = 8; string created_at = 9; optional string activated_by = 10; optional string activated_at = 11; optional string deprecated_by = 12; optional string deprecated_at = 13; optional string archived_by = 14; optional string archived_at = 15; }
+
+message AnalysisDimensionLevelRecord { string id = 1; string analysis_dimension_id = 2; int64 analysis_dimension_version = 3; string level_code = 4; string display_name = 5; optional string parent_level_code = 6; int32 sort_order = 7; string status = 8; }
+
+message SubjectAreaAnalysisDimensionRefRecord { string id = 1; string subject_area_id = 2; int64 subject_area_version = 3; string analysis_dimension_id = 4; int64 analysis_dimension_version = 5; string status = 6; string selected_by = 7; string selected_at = 8; }
+
+message MemberSourceCreateRequestFixedArgumentsEntry { string key = 1; agentic.olap.semantic.v1.CalculationBinding value = 2; }
+
+message MemberSourceCreateRequest { string subject_area_id = 1; int64 subject_area_version = 2; string code = 3; string display_name = 4; agentic.olap.semantic.v1.MemberSourceDefinition definition = 5; agentic.olap.semantic.v1.CalculationBindings bindings = 6; repeated MemberSourceCreateRequestFixedArgumentsEntry fixed_arguments = 7; string actor = 8; }
+
+message MemberSourceRecordFixedArgumentsEntry { string key = 1; agentic.olap.semantic.v1.CalculationBinding value = 2; }
+
+message MemberSourceRecord { string id = 1; string subject_area_id = 2; int64 subject_area_version = 3; string code = 4; string display_name = 5; MemberDefinitionOrigin origin = 6; agentic.olap.semantic.v1.MemberSourceDefinition definition = 7; agentic.olap.semantic.v1.CalculationBindings bindings = 8; repeated MemberSourceRecordFixedArgumentsEntry fixed_arguments = 9; }
+
+message MemberDefinitionOrigin { oneof kind { MemberDefinitionOriginLocal local = 1; MemberDefinitionOriginShared shared = 2; } }
+
+message MemberDefinitionOriginLocal {}
+
+message MemberDefinitionOriginShared { MemberDefinitionRef reference = 1; }
+
+message MemberDefinitionRef { string id = 1; int64 version = 2; }
+
+message MemberDefinitionCreateRequest { string code = 1; string display_name = 2; agentic.olap.semantic.v1.MemberSourceDefinition definition = 3; optional string description = 4; string owner = 5; string created_by = 6; }
+
+message MemberDefinitionRecord { string id = 1; string code = 2; string display_name = 3; agentic.olap.semantic.v1.MemberSourceDefinition definition = 4; optional string description = 5; string owner = 6; string status = 7; int64 current_version = 8; string created_by = 9; string created_at = 10; }
+
+message MemberDefinitionAdoptRequestFixedArgumentsEntry { string key = 1; agentic.olap.semantic.v1.CalculationBinding value = 2; }
+
+message MemberDefinitionAdoptRequest { string subject_area_id = 1; int64 subject_area_version = 2; string code = 3; string display_name = 4; MemberDefinitionRef definition = 5; agentic.olap.semantic.v1.CalculationBindings bindings = 6; repeated MemberDefinitionAdoptRequestFixedArgumentsEntry fixed_arguments = 7; string actor = 8; }
+
+message MemberAdoptionRevisionRequestFixedArgumentsEntry { string key = 1; agentic.olap.semantic.v1.CalculationBinding value = 2; }
+
+message MemberAdoptionRevisionRequest { agentic.olap.semantic.v1.MemberRef source = 1; MemberDefinitionRef expected_definition = 2; MemberDefinitionRef definition = 3; string display_name = 4; agentic.olap.semantic.v1.CalculationBindings bindings = 5; repeated MemberAdoptionRevisionRequestFixedArgumentsEntry fixed_arguments = 6; string actor = 7; }
+
+message AnalysisDimensionEventMappingCreateRequest { string analysis_dimension_id = 1; int64 analysis_dimension_version = 2; string level_code = 3; string binding_id = 4; int64 binding_version = 5; string alignment_status = 6; optional string alignment_id = 7; }
+
+message AnalysisDimensionEventMappingCreateResult { AnalysisDimensionEventMappingRecord mapping = 1; }
+
+message AnalysisDimensionEventMappingRecord { string id = 1; string analysis_dimension_id = 2; int64 analysis_dimension_version = 3; string level_code = 4; string event_id = 5; int64 event_version = 6; string dimension_id = 7; int64 dimension_version = 8; string binding_id = 9; int64 binding_version = 10; string alignment_status = 11; optional string alignment_id = 12; string created_at = 13; }
+
+message AnalysisDimensionValueProviderCreateRequest { string analysis_dimension_id = 1; int64 analysis_dimension_version = 2; string level_code = 3; string binding_id = 4; int64 binding_version = 5; string refresh_policy = 6; string created_by = 7; }
+
+message AnalysisDimensionValueProviderCreateResult { AnalysisDimensionValueProviderRecord provider = 1; }
+
+message AnalysisDimensionValueProviderRecord { string id = 1; string analysis_dimension_id = 2; int64 analysis_dimension_version = 3; string level_code = 4; string provider_type = 5; optional string source_table_id = 6; optional int64 source_table_version = 7; optional string source_logic_unit_id = 8; optional int64 source_logic_unit_version = 9; reserved 10; string refresh_policy = 11; string status = 12; string created_by = 13; string created_at = 14; }
+
+message AnalysisDimensionValueAlignmentCreateRequest { string analysis_dimension_id = 1; int64 analysis_dimension_version = 2; string level_code = 3; string alignment_status = 4; string evidence_json = 5; string confirmed_by = 6; }
+
+message ScenarioCreateRequest { string subject_area_id = 1; int64 subject_area_version = 2; string code = 3; string display_name = 4; string owner = 5; optional string description = 6; string created_by = 7; }
+
+message ScenarioCreateResult { ScenarioRecord scenario = 1; ScenarioVersionRecord scenario_version = 2; SubjectAreaScenarioRefRecord subject_area_scenario_ref = 3; }
+
+message ScenarioRecord { string id = 1; string subject_area_id = 2; int64 subject_area_version = 3; string code = 4; string display_name = 5; optional string description = 6; string owner = 7; string status = 8; int64 current_version = 9; string created_by = 10; string created_at = 11; optional string updated_by = 12; optional string updated_at = 13; }
+
+message ScenarioVersionRecord { string id = 1; string scenario_id = 2; int64 version = 3; string version_status = 4; string content_proto = 5; optional string diagnostic_json = 6; optional int64 source_version = 7; string created_by = 8; string created_at = 9; optional string activated_by = 10; optional string activated_at = 11; optional string deprecated_by = 12; optional string deprecated_at = 13; optional string archived_by = 14; optional string archived_at = 15; }
+
+message SubjectAreaScenarioRefRecord { string id = 1; string subject_area_id = 2; int64 subject_area_version = 3; string scenario_id = 4; int64 scenario_version = 5; string status = 6; string selected_by = 7; string selected_at = 8; }
+
+message ScenarioMetricRefCreateRequest { string scenario_id = 1; int64 scenario_version = 2; string adoption_id = 3; int64 adoption_version = 4; optional bool required_by_default = 5; optional int32 sort_order = 6; }
+
+message ScenarioMetricRefCreateResult { ScenarioMetricRefRecord ref = 1; }
+
+message ScenarioMetricRefRecord { string id = 1; string scenario_id = 2; int64 scenario_version = 3; string adoption_id = 4; int64 adoption_version = 5; bool required_by_default = 6; int32 sort_order = 7; string created_at = 8; }
+
+message ScenarioMemberSourceRefCreateRequest { string scenario_id = 1; int64 scenario_version = 2; string source_id = 3; int64 source_version = 4; MemberQueryPermission permission = 5; }
+
+message ScenarioMemberSourceRefRecord { string scenario_id = 1; int64 scenario_version = 2; string source_id = 3; int64 source_version = 4; MemberQueryPermission permission = 5; }
+
+message ScenarioRelationFilterCreateRequest { string scenario_id = 1; int64 scenario_version = 2; string code = 3; string display_name = 4; string event_id = 5; int64 event_version = 6; string relationship_role = 7; string member_source_id = 8; int64 member_source_version = 9; RelationFilterPermission permission = 10; optional bool required_by_default = 11; optional int32 sort_order = 12; }
+
+message ScenarioRelationFilterRecord { string scenario_id = 1; int64 scenario_version = 2; string code = 3; PublishedRelationFilter definition = 4; }
+
+message ScenarioAnalysisDimensionRefCreateRequest { string scenario_id = 1; int64 scenario_version = 2; string analysis_dimension_id = 3; int64 analysis_dimension_version = 4; optional string default_level_code = 5; optional bool required_by_default = 6; optional int32 sort_order = 7; }
+
+message ScenarioAnalysisDimensionRefCreateResult { ScenarioAnalysisDimensionRefRecord ref = 1; }
+
+message ScenarioAnalysisDimensionRefRecord { string id = 1; string scenario_id = 2; int64 scenario_version = 3; string analysis_dimension_id = 4; int64 analysis_dimension_version = 5; optional string default_level_code = 6; bool required_by_default = 7; int32 sort_order = 8; string created_at = 9; }
+
+message ScenarioFilterRefCreateRequest { string scenario_id = 1; int64 scenario_version = 2; string filter_target_type = 3; string target_id = 4; int64 target_version = 5; optional string value_provider_id = 6; repeated string operators = 7; optional bool required_by_default = 8; optional int32 sort_order = 9; }
+
+message ScenarioFilterRefCreateResult { ScenarioFilterRefRecord ref = 1; }
+
+message ScenarioFilterRefRecord { string id = 1; string scenario_id = 2; int64 scenario_version = 3; string filter_target_type = 4; string target_id = 5; int64 target_version = 6; repeated string operators = 7; optional string value_provider_id = 8; bool required_by_default = 9; int32 sort_order = 10; string created_at = 11; }
+
+message ScenarioPipelineRuleCreateRequest { string scenario_id = 1; int64 scenario_version = 2; string rule_type = 3; optional int32 sort_order = 4; }
+
+message ScenarioPipelineRuleCreateResult { ScenarioPipelineRuleRecord rule = 1; }
+
+message ScenarioPipelineRuleRecord { string id = 1; string scenario_id = 2; int64 scenario_version = 3; string rule_type = 4; string display_name = 5; StageAuthorization authorization = 6; string status = 7; int32 sort_order = 8; string created_at = 9; }
+
+message ScenarioPipelineRuleContractRefreshRequest { string scenario_id = 1; int64 scenario_version = 2; string rule_type = 3; StageAuthorization approved_authorization = 4; }
+
+message GovernanceRevisionRequestPhysicalTableCreateRequest { string object_id = 1; int64 source_version = 2; PhysicalTableCreateRequest definition = 3; }
+
+message PhysicalTableMetadataUpdateRequest { string physical_table_id = 1; int64 expected_version = 2; string display_name = 3; optional string description = 4; string owner = 5; string updated_by = 6; }
+
+message PhysicalTableMetadataUpdateResult { PhysicalTableRecord physical_table = 1; PhysicalTableVersionRecord physical_table_version = 2; }
+
+message PhysicalTableColumnsUpdateRequest { string physical_table_id = 1; int64 expected_version = 2; string updated_by = 3; repeated PhysicalTableColumnsUpdateRequestColumnInput columns = 4; }
+
+message PhysicalTableColumnsUpdateRequestColumnInput { string column_name = 1; string display_name = 2; string column_type = 3; optional string description = 4; bool nullable = 5; JdbcColumnType jdbc_column_type = 6; }
+
+message PhysicalTableColumnsUpdateResult { PhysicalTableRecord physical_table = 1; PhysicalTableVersionRecord physical_table_version = 2; repeated PhysicalColumnRecord physical_columns = 3; repeated PhysicalColumnVersionRecord physical_column_versions = 4; }
+
+message GovernanceRevisionRequestBusinessLineCreateRequest { string object_id = 1; int64 source_version = 2; BusinessLineCreateRequest definition = 3; }
+
+message GovernanceRevisionRequestLogicalTableCreateRequest { string object_id = 1; int64 source_version = 2; LogicalTableCreateRequest definition = 3; }
+
+message GovernanceRevisionRequestTopologyCreateRequest { string object_id = 1; int64 source_version = 2; TopologyCreateRequest definition = 3; }
+
+message GovernanceRevisionRequestJoinPathCreateRequest { string object_id = 1; int64 source_version = 2; JoinPathCreateRequest definition = 3; }
+
+message GovernanceRevisionRequestEventCreateRequest { string object_id = 1; int64 source_version = 2; EventCreateRequest definition = 3; }
+
+message GovernanceRevisionRequestMetricCreateRequest { string object_id = 1; int64 source_version = 2; MetricCreateRequest definition = 3; }
+
+message MetricCalculationCreateRequest { string code = 1; string display_name = 2; string owner = 3; agentic.olap.semantic.v1.MetricCalculation definition = 4; optional string description = 5; agentic.olap.semantic.v1.MetricBusinessMeaning business_meaning = 6; string created_by = 7; }
+
+message MetricCalculationCreateResult { MetricRecord metric = 1; MetricVersionRecord metric_version = 2; repeated MetricDependencyRecord dependencies = 3; }
+
+message MetricDependencyRecord { string id = 1; string metric_id = 2; int64 metric_version = 3; string dependency_scope = 4; string dependency_type = 5; string dependency_id = 6; optional int64 dependency_version = 7; optional string referenced_symbol = 8; string binding_status = 9; optional string diagnostic_code = 10; string created_at = 11; }
+
+message GovernanceRevisionRequestMetricCalculationCreateRequest { string object_id = 1; int64 source_version = 2; MetricCalculationCreateRequest definition = 3; }
+
+message GovernanceRevisionRequestMemberDefinitionCreateRequest { string object_id = 1; int64 source_version = 2; MemberDefinitionCreateRequest definition = 3; }
+
+message GovernanceRevisionRequestDimensionCreateRequest { string object_id = 1; int64 source_version = 2; DimensionCreateRequest definition = 3; }
+
+message GovernanceRevisionRequestDimensionEventBindingCreateRequest { string object_id = 1; int64 source_version = 2; DimensionEventBindingCreateRequest definition = 3; }
+
+message SubjectContextRevisionRequest { string object_id = 1; int64 source_version = 2; SubjectAreaCreateRequest definition = 3; SubjectContextSelection carry = 4; }
+
+message SubjectContextSelection { repeated string metrics = 1; repeated string members = 2; repeated string dimensions = 3; repeated string scenarios = 4; }
+
+message SubjectContextRevisionResult { SubjectAreaCreateResult subject_area = 1; repeated ContextRevisionReference carried = 2; }
+
+message ContextRevisionReference { string asset_type = 1; string id = 2; int64 source_version = 3; int64 target_version = 4; }
+
+message GovernanceRevisionRequestAnalysisDimensionCreateRequest { string object_id = 1; int64 source_version = 2; AnalysisDimensionCreateRequest definition = 3; }
+
+message GovernanceRevisionRequestScenarioCreateRequest { string object_id = 1; int64 source_version = 2; ScenarioCreateRequest definition = 3; }
+
+message GovernanceVersionActivationRequest { string object_type = 1; string object_id = 2; int64 object_version = 3; string activated_by = 4; string reason = 5; }
+
+message GovernanceVersionActivationResult { string object_type = 1; string object_id = 2; int64 object_version = 3; optional int64 previous_active_version = 4; string status = 5; string activated_at = 6; }
+
+message GovernanceVersionDeprecationRequest { string object_type = 1; string object_id = 2; int64 object_version = 3; string deprecated_by = 4; string reason = 5; }
+
+message GovernanceVersionDeprecationResult { string object_type = 1; string object_id = 2; int64 object_version = 3; string status = 4; string deprecated_at = 5; }
+
+message SubjectAreaReleaseBuildRequest { string release_id = 1; string release_version = 2; string release_display_name = 3; string subject_area_id = 4; int64 subject_area_version = 5; string created_by = 6; }
+
+message SubjectAreaReleaseBuildResult { string release_id = 1; string release_version = 2; string subject_area_id = 3; int64 subject_area_version = 4; string build_status = 5; int32 releases_written = 6; int32 release_object_refs_written = 7; int32 metrics_frozen = 8; int32 analysis_dimensions_frozen = 9; int32 scenarios_frozen = 10; int32 events_frozen = 11; int32 topologies_frozen = 12; int32 join_paths_frozen = 13; int32 logic_units_frozen = 14; int32 dimensions_frozen = 15; int32 dimension_event_bindings_frozen = 16; int32 metric_dimension_capabilities_written = 17; int32 unavailable_reasons_written = 18; }
+
+message SourceStructureRegistrationRequest { string data_source_id = 1; string source_identity_hash = 2; optional string catalog = 3; string schema_name = 4; string authority = 5; string revision = 6; repeated SourceStructureRegistrationRequestTable tables = 7; string requested_by = 8; }
+
+message SourceStructureRegistrationRequestTable { WarehouseTableSummary table = 1; repeated WarehouseColumnMetadata columns = 2; JdbcTableConstraints constraints = 3; }
+
+message WarehouseTableSummary { WarehouseTableRef ref = 1; optional string table_type = 2; optional string remarks = 3; }
+
+message WarehouseTableRef { optional string catalog = 1; optional string schema = 2; string table = 3; }
+
+message WarehouseColumnMetadata { string name = 1; optional int32 jdbc_type = 2; optional string type_name = 3; optional int32 ordinal_position = 4; optional bool nullable = 5; optional int32 precision = 6; optional int32 scale = 7; optional bool auto_increment = 8; optional bool generated = 9; optional string default_value = 10; optional string remarks = 11; }
+
+message SourceDiscoveryReceipt { string snapshot_id = 1; string data_source_id = 2; string source_identity_hash = 3; string status = 4; bool truncated = 5; int32 table_count = 6; int32 column_count = 7; }
+
+message ListJdbcTableConstraintsTemporalRule { repeated JdbcTableConstraintsTemporalRule values = 1; }
+
+message WarehouseDiscoveryCommandTemporalKeysEntry { string key = 1; ListJdbcTableConstraintsTemporalRule value = 2; }
+
+message ListSnapshotUniqueKeyRule { repeated SnapshotUniqueKeyRule values = 1; }
+
+message WarehouseDiscoveryCommandSnapshotUniqueKeysEntry { string key = 1; ListSnapshotUniqueKeyRule value = 2; }
+
+message WarehouseDiscoveryCommand { string data_source_id = 1; string source_identity_hash = 2; optional string catalog = 3; string schema_name = 4; optional string table_pattern = 5; repeated string table_types = 6; optional int32 limit = 7; repeated WarehouseDiscoveryCommandTemporalKeysEntry temporal_keys = 8; repeated WarehouseDiscoveryCommandSnapshotUniqueKeysEntry snapshot_unique_keys = 9; string requested_by = 10; }
+
+message GovernanceReadRequestsPageInput { optional int32 offset = 1; optional int32 limit = 2; }
+
+message GovernanceReadRequestsPageBusinessLineRecord { repeated BusinessLineRecord items = 1; int32 total = 2; optional int32 next_offset = 3; }
+
+message GovernanceReadRequestsPagePhysicalTableRecord { repeated PhysicalTableRecord items = 1; int32 total = 2; optional int32 next_offset = 3; }
+
+message GovernanceReadRequestsPageLogicalTableRecord { repeated LogicalTableRecord items = 1; int32 total = 2; optional int32 next_offset = 3; }
+
+message GovernanceReadRequestsPageTopologyRecord { repeated TopologyRecord items = 1; int32 total = 2; optional int32 next_offset = 3; }
+
+message GovernanceReadRequestsPageEventRecord { repeated EventRecord items = 1; int32 total = 2; optional int32 next_offset = 3; }
+
+message GovernanceReadRequestsPageMetricRecord { repeated MetricRecord items = 1; int32 total = 2; optional int32 next_offset = 3; }
+
+message GovernanceReadRequestsPageMemberDefinitionRecord { repeated MemberDefinitionRecord items = 1; int32 total = 2; optional int32 next_offset = 3; }
+
+message GovernanceReadRequestsPageDimensionRecord { repeated DimensionRecord items = 1; int32 total = 2; optional int32 next_offset = 3; }
+
+message GovernanceReadRequestsPageSubjectAreaRecord { repeated SubjectAreaRecord items = 1; int32 total = 2; optional int32 next_offset = 3; }
+
+message GovernanceReadRequestsSubjectPageInput { optional string subject_area_id = 1; optional int32 offset = 2; optional int32 limit = 3; }
+
+message GovernanceReadRequestsPageScenarioRecord { repeated ScenarioRecord items = 1; int32 total = 2; optional int32 next_offset = 3; }
+
+message GovernanceReadRequestsVersionPageInput { optional string id = 1; int64 version = 2; optional int32 offset = 3; optional int32 limit = 4; }
+
+message GovernanceReadRequestsPageMemberSourceRecord { repeated MemberSourceRecord items = 1; int32 total = 2; optional int32 next_offset = 3; }
+
+message GovernanceReadRequestsPageSubjectAreaMetricRefRecord { repeated SubjectAreaMetricRefRecord items = 1; int32 total = 2; optional int32 next_offset = 3; }
+
+message GovernanceReadRequestsPageSubjectAreaAnalysisDimensionRefRecord { repeated SubjectAreaAnalysisDimensionRefRecord items = 1; int32 total = 2; optional int32 next_offset = 3; }
+
+message GovernanceReadRequestsPageSubjectAreaScenarioRefRecord { repeated SubjectAreaScenarioRefRecord items = 1; int32 total = 2; optional int32 next_offset = 3; }
+
+message GovernanceReadRequestsPageScenarioMetricRefRecord { repeated ScenarioMetricRefRecord items = 1; int32 total = 2; optional int32 next_offset = 3; }
+
+message GovernanceReadRequestsPageScenarioAnalysisDimensionRefRecord { repeated ScenarioAnalysisDimensionRefRecord items = 1; int32 total = 2; optional int32 next_offset = 3; }
+
+message GovernanceReadRequestsPageScenarioMemberSourceRefRecord { repeated ScenarioMemberSourceRefRecord items = 1; int32 total = 2; optional int32 next_offset = 3; }
+
+message GovernanceReadRequestsPageScenarioFilterRefRecord { repeated ScenarioFilterRefRecord items = 1; int32 total = 2; optional int32 next_offset = 3; }
+
+message GovernanceReadRequestsPageScenarioRelationFilterRecord { repeated ScenarioRelationFilterRecord items = 1; int32 total = 2; optional int32 next_offset = 3; }
+
+message GovernanceReadRequestsPageScenarioPipelineRuleRecord { repeated ScenarioPipelineRuleRecord items = 1; int32 total = 2; optional int32 next_offset = 3; }
+
+message GovernanceReadRequestsPagePhysicalColumnRecord { repeated PhysicalColumnRecord items = 1; int32 total = 2; optional int32 next_offset = 3; }
+
+message GovernanceReadRequestsVersionInput { optional string id = 1; int64 version = 2; }
+
+message GovernanceReadRequestsPageAnalysisDimensionEventMappingRecord { repeated AnalysisDimensionEventMappingRecord items = 1; int32 total = 2; optional int32 next_offset = 3; }
+
+message SubjectContextSelectionRequest { string object_id = 1; int64 source_version = 2; }
+
+message SubjectContextSelectionView { string object_id = 1; int64 source_version = 2; SubjectContextSelection selection = 3; }
+
+message DefinitionImpactRequest { string asset_type = 1; string id = 2; int64 version = 3; }
+
+message DefinitionImpact { DefinitionImpactReference target = 1; repeated DefinitionImpactDependent dependents = 2; }
+
+message DefinitionImpactReference { string asset_type = 1; string id = 2; string version = 3; }
+
+message DefinitionImpactDependent { DefinitionImpactReference reference = 1; repeated DefinitionImpactStep path = 2; }
+
+message DefinitionImpactStep { DefinitionImpactReference consumer = 1; string relation = 2; }
+
+message DefinitionRevisionDiffRequest { string asset_type = 1; string id = 2; int64 from_version = 3; int64 to_version = 4; }
+
+message DefinitionRevisionDiff { DefinitionImpactReference before = 1; DefinitionImpactReference after = 2; repeated DefinitionRevisionDiffChange changes = 3; repeated DefinitionImpactReference added_dependencies = 4; repeated DefinitionImpactReference removed_dependencies = 5; }
+
+message DefinitionRevisionDiffChange { string path = 1; string classification = 2; DefinitionRevisionDiffValue before = 3; DefinitionRevisionDiffValue after = 4; }
+
+message DefinitionRevisionDiffValue { oneof kind { DefinitionRevisionDiffValueDefinition definition = 1; DefinitionRevisionDiffValueMetricAdoptionValue metric_adoption_value = 2; DefinitionRevisionDiffValueMemberSourceValue member_source_value = 3; DefinitionRevisionDiffValueText text = 4; } }
+
+message DefinitionRevisionDiffValueDefinition { GovernanceDefinition value = 1; }
+
+message GovernanceDefinition { oneof kind { GovernanceDefinitionPhysicalTable physical_table = 1; GovernanceDefinitionPhysicalColumn physical_column = 2; GovernanceDefinitionLogicalTable logical_table = 3; GovernanceDefinitionLogicUnit logic_unit = 4; GovernanceDefinitionTopology topology = 5; GovernanceDefinitionJoinPath join_path = 6; GovernanceDefinitionEvent event = 7; GovernanceDefinitionMetric metric = 8; GovernanceDefinitionDimension dimension = 9; GovernanceDefinitionDimensionBinding dimension_binding = 10; GovernanceDefinitionBusinessLine business_line = 11; GovernanceDefinitionSubjectArea subject_area = 12; GovernanceDefinitionAnalysisDimension analysis_dimension = 13; GovernanceDefinitionScenario scenario = 14; } }
+
+message GovernanceDefinitionPhysicalTable { PhysicalTableRecord record = 1; repeated GovernanceDefinitionVersionRef column_version_refs = 2; PhysicalSourceConstraints source_constraints = 3; optional string data_domain = 4; optional string sensitivity_level = 5; optional string source_system = 6; }
+
+message GovernanceDefinitionVersionRef { string id = 1; int64 version = 2; }
+
+message GovernanceDefinitionPhysicalColumn { PhysicalColumnRecord record = 1; optional string sensitivity_level = 2; }
+
+message GovernanceDefinitionLogicalTable { LogicalTableRecord record = 1; string physical_table_id = 2; int64 physical_table_version = 3; int32 logic_unit_count = 4; }
+
+message GovernanceDefinitionLogicUnit { LogicUnitRecord record = 1; repeated LogicalTableCreateRequestSourceRefInput source_refs = 2; }
+
+message GovernanceDefinitionTopology { TopologyRecord record = 1; }
+
+message GovernanceDefinitionJoinPath { JoinPathRecord record = 1; }
+
+message GovernanceDefinitionEventRolesEntry { string key = 1; agentic.olap.semantic.v1.RelationAccessPath value = 2; }
+
+message GovernanceDefinitionEvent { EventRecord record = 1; agentic.olap.semantic.v1.EventIdentity identity = 2; repeated GovernanceDefinitionEventRolesEntry roles = 3; repeated EventCreateRequestLogicUnitRefInput filterable_logic_unit_refs = 4; repeated EventCreateRequestLogicUnitRefInput measure_logic_unit_refs = 5; }
+
+message GovernanceDefinitionMetric { MetricRecord record = 1; agentic.olap.semantic.v1.MetricBusinessMeaning business_meaning = 2; }
+
+message GovernanceDefinitionDimension { DimensionRecord record = 1; }
+
+message GovernanceDefinitionDimensionBindingRolesEntry { string key = 1; agentic.olap.semantic.v1.RelationAccessPath value = 2; }
+
+message GovernanceDefinitionDimensionBinding { DimensionEventBindingRecord record = 1; agentic.olap.semantic.v1.RelationAccessPath access_path = 2; repeated GovernanceDefinitionDimensionBindingRolesEntry roles = 3; }
+
+message GovernanceDefinitionBusinessLine { BusinessLineRecord record = 1; }
+
+message GovernanceDefinitionSubjectArea { SubjectAreaRecord record = 1; }
+
+message GovernanceDefinitionAnalysisDimension { AnalysisDimensionRecord record = 1; }
+
+message GovernanceDefinitionScenario { ScenarioRecord record = 1; }
+
+message DefinitionRevisionDiffValueMetricAdoptionValue { MetricAdoption value = 1; }
+
+message DefinitionRevisionDiffValueMemberSourceValue { MemberSourceRecord value = 1; }
+
+message DefinitionRevisionDiffValueText { string value = 1; }
+
+message GovernanceReadRequestsAssetVersionRequest { optional string asset_type = 1; optional string id = 2; int64 version = 3; }
+
+message AssetSnapshot { oneof kind { AssetSnapshotBusinessLine business_line = 1; AssetSnapshotPhysicalTable physical_table = 2; AssetSnapshotPhysicalColumn physical_column = 3; AssetSnapshotLogicalTable logical_table = 4; AssetSnapshotLogicalUnit logical_unit = 5; AssetSnapshotTopology topology = 6; AssetSnapshotJoinPath join_path = 7; AssetSnapshotEvent event = 8; AssetSnapshotMetric metric = 9; AssetSnapshotDimension dimension = 10; AssetSnapshotDimensionBinding dimension_binding = 11; AssetSnapshotSubjectArea subject_area = 12; AssetSnapshotMemberSource member_source = 13; AssetSnapshotMemberDefinition member_definition = 14; AssetSnapshotAnalysisDimension analysis_dimension = 15; AssetSnapshotScenario scenario = 16; } }
+
+message AssetSnapshotBusinessLine { BusinessLineRecord value = 1; }
+
+message AssetSnapshotPhysicalTable { PhysicalTableRecord value = 1; }
+
+message AssetSnapshotPhysicalColumn { PhysicalColumnRecord value = 1; }
+
+message AssetSnapshotLogicalTable { LogicalTableRecord value = 1; }
+
+message AssetSnapshotLogicalUnit { LogicUnitRecord value = 1; }
+
+message AssetSnapshotTopology { TopologyRecord value = 1; }
+
+message AssetSnapshotJoinPath { JoinPathRecord value = 1; }
+
+message AssetSnapshotEvent { EventRecord value = 1; }
+
+message AssetSnapshotMetric { MetricRecord value = 1; agentic.olap.semantic.v1.MetricBusinessMeaning business_meaning = 2; }
+
+message AssetSnapshotDimension { DimensionRecord value = 1; }
+
+message AssetSnapshotDimensionBinding { DimensionEventBindingRecord value = 1; }
+
+message AssetSnapshotSubjectArea { SubjectAreaRecord value = 1; }
+
+message AssetSnapshotMemberSource { MemberSourceRecord value = 1; }
+
+message AssetSnapshotMemberDefinition { MemberDefinitionRecord value = 1; }
+
+message AssetSnapshotAnalysisDimension { AnalysisDimensionRecord value = 1; }
+
+message AssetSnapshotScenario { ScenarioRecord value = 1; }
+
+message GovernanceReadRequestsSourceDiscoveriesInput { optional string data_source_id = 1; optional string catalog = 2; optional string schema_name = 3; optional int32 offset = 4; optional int32 limit = 5; }
+
+message GovernanceReadRequestsPageWarehouseDiscoverySnapshotRecord { repeated WarehouseDiscoverySnapshotRecord items = 1; int32 total = 2; optional int32 next_offset = 3; }
+
+message WarehouseDiscoverySnapshotRecord { string id = 1; string data_source = 2; string dialect_id = 3; string source_identity_hash = 4; string catalog_name = 5; string schema_name = 6; optional string database_product_name = 7; optional string database_product_version = 8; optional string driver_name = 9; optional string driver_version = 10; optional bool read_only = 11; string status = 12; int32 table_count = 13; optional string error_message = 14; string requested_by = 15; string requested_at = 16; string discovered_at = 17; StructureProvenance structure_provenance = 18; }
+
+message GovernanceReadRequestsSnapshotInput { optional string snapshot_id = 1; }
+
+message GovernanceReadRequestsSnapshotPageInput { optional string snapshot_id = 1; optional int32 offset = 2; optional int32 limit = 3; }
+
+message GovernanceReadRequestsPageSourceDiscoveryTable { repeated SourceDiscoveryTable items = 1; int32 total = 2; optional int32 next_offset = 3; }
+
+message SourceDiscoveryTable { string id = 1; string discovery_snapshot_id = 2; string catalog_name = 3; string schema_name = 4; string table_name = 5; optional string table_comment = 6; optional int64 row_count = 7; optional string schema_hash = 8; JdbcTableConstraints constraints = 9; string created_at = 10; }
+
+message GovernanceReadRequestsDiscoveredTablePageInput { optional string discovered_table_id = 1; optional int32 offset = 2; optional int32 limit = 3; }
+
+message GovernanceReadRequestsPageWarehouseDiscoveredColumnRecord { repeated WarehouseDiscoveredColumnRecord items = 1; int32 total = 2; optional int32 next_offset = 3; }
+
+message WarehouseDiscoveredColumnRecord { string id = 1; string discovered_table_id = 2; string column_name = 3; int32 jdbc_type = 4; string type_name = 5; optional int32 precision = 6; optional int32 scale = 7; optional bool auto_increment = 8; optional bool generated = 9; optional string default_value = 10; optional string column_comment = 11; optional bool nullable = 12; optional int32 ordinal_position = 13; string created_at = 14; }
+
+message GovernanceReadRequestsPageWarehouseDiscoveredUniqueKeyRecord { repeated WarehouseDiscoveredUniqueKeyRecord items = 1; int32 total = 2; optional int32 next_offset = 3; }
+
+message WarehouseDiscoveredUniqueKeyRecord { string id = 1; string discovered_table_id = 2; SnapshotUniqueKey key = 3; }
+
+message GovernanceReadRequestsSourcePageInput { optional string data_source_id = 1; optional int32 offset = 2; optional int32 limit = 3; }
+
+message GovernanceReadRequestsPageSourceCollectionRecord { repeated SourceCollectionRecord items = 1; int32 total = 2; optional int32 next_offset = 3; }
+
+message GovernanceReadRequestsIdentityInput { optional string id = 1; }
+
+message DefinitionDiscoveryRequest { repeated string asset_types = 1; optional string text = 2; int32 offset = 3; int32 limit = 4; }
+
+message DefinitionDiscoveryPage { repeated DefinitionDiscoverySummary items = 1; optional int32 next_offset = 2; }
+
+message DefinitionDiscoverySummary { string asset_type = 1; string id = 2; int64 version = 3; string status = 4; optional string code = 5; optional string display_name = 6; optional string description = 7; optional string owner = 8; agentic.olap.semantic.v1.MetricBusinessMeaning business_meaning = 9; }
+
+message GovernanceReadRequestsDefinitionDependenciesRequest { string asset_type = 1; string id = 2; int64 version = 3; int32 offset = 4; int32 limit = 5; }
+
+message DefinitionDependencies { DefinitionImpactReference target = 1; repeated DefinitionImpactReference items = 2; optional int32 next_offset = 3; }
+
+message GovernanceReadRequestsPageReleasedScenarioEntrypoint { repeated ReleasedScenarioEntrypoint items = 1; int32 total = 2; optional int32 next_offset = 3; }
+
+message ReleasedScenarioEntrypoint { string scenario_id = 1; int64 scenario_version = 2; string scenario_display_name = 3; string subject_area_id = 4; int64 subject_area_version = 5; string subject_area_display_name = 6; string release_id = 7; string release_version = 8; string release_display_name = 9; string released_at = 10; }
+
+message GovernanceReadRequestsReleaseIdentityRequest { string release_id = 1; string release_version = 2; }
+
+message ReleaseIdentityView { string release_id = 1; string release_version = 2; string subject_area_id = 3; int64 subject_area_version = 4; string governance_closure_hash = 5; string catalog_hash = 6; string artifact_hash = 7; }
+
+message GovernanceReadRequestsPageAnalysisDimensionRecord { repeated AnalysisDimensionRecord items = 1; int32 total = 2; optional int32 next_offset = 3; }
+
+message GovernanceReadRequestsPageAnalysisDimensionLevelRecord { repeated AnalysisDimensionLevelRecord items = 1; int32 total = 2; optional int32 next_offset = 3; }
+
+message GovernanceReadRequestsPageAnalysisDimensionValueProviderRecord { repeated AnalysisDimensionValueProviderRecord items = 1; int32 total = 2; optional int32 next_offset = 3; }
+
+message GovernanceReadRequestsPageAnalysisDimensionValueAlignmentRecord { repeated AnalysisDimensionValueAlignmentRecord items = 1; int32 total = 2; optional int32 next_offset = 3; }
+
+message EventSliceFilterRecord { string id = 1; string event_id = 2; int64 event_version = 3; agentic.olap.semantic.v1.SemanticExpression predicate = 4; string created_at = 5; }
+
+message SemanticCatalogReadsSearchRequest { agentic.olap.query.v1.QueryCapabilityCoordinate publication = 1; string query = 2; optional string kind = 3; int32 offset = 4; int32 limit = 5; }
+
+message SemanticCatalogReadsSearchPage { repeated SemanticCatalogReadsSearchItem items = 1; int32 total = 2; int32 offset = 3; optional int32 next_offset = 4; }
+
+message SemanticCatalogReadsSearchItem { SemanticCatalogReadsAssetReference reference = 1; string display_name = 2; string business_summary = 3; }
+
+message SemanticCatalogReadsAssetReference { SemanticCatalogReadsCatalogReference catalog = 1; string kind = 2; string id = 3; int64 version = 4; }
+
+message SemanticCatalogReadsCatalogReference { PublishedSemanticCatalogCoordinate coordinate = 1; string sha256 = 2; }
+
+message SemanticCatalogReadsCatalogRequest { SemanticCatalogReadsCatalogReference reference = 1; }
+
+message SemanticCatalogReadsAssetRequest { SemanticCatalogReadsAssetReference reference = 1; }
+
+message SemanticCatalogReadsAssetResult { SemanticCatalogReadsAssetReference reference = 1; SemanticCatalogReadsAsset asset = 2; }
+
+message SemanticCatalogReadsAsset { oneof kind { SemanticCatalogReadsAssetScenarioAsset scenario_asset = 1; SemanticCatalogReadsAssetMetricAsset metric_asset = 2; SemanticCatalogReadsAssetMemberAsset member_asset = 3; SemanticCatalogReadsAssetRelationFilterAsset relation_filter_asset = 4; SemanticCatalogReadsAssetDimensionAsset dimension_asset = 5; SemanticCatalogReadsAssetTimeDimensionAsset time_dimension_asset = 6; SemanticCatalogReadsAssetFilterAsset filter_asset = 7; } }
+
+message SemanticCatalogReadsAssetScenarioAsset { SemanticCatalogReadsScenario value = 1; }
+
+message SemanticCatalogReadsScenario { string id = 1; int64 version = 2; string display_name = 3; PublishedSemanticCatalogSourceJoinMeaning source_join_contract = 4; int32 metrics = 5; int32 members = 6; int32 relation_filters = 7; int32 dimensions = 8; int32 time_dimensions = 9; int32 filters = 10; }
+
+message SemanticCatalogReadsAssetMetricAsset { PublishedSemanticCatalogMetric value = 1; }
+
+message SemanticCatalogReadsAssetMemberAsset { PublishedSemanticCatalogMember value = 1; }
+
+message SemanticCatalogReadsAssetRelationFilterAsset { PublishedSemanticCatalogRelationFilter value = 1; }
+
+message SemanticCatalogReadsAssetDimensionAsset { PublishedSemanticCatalogDimension value = 1; }
+
+message SemanticCatalogReadsAssetTimeDimensionAsset { PublishedSemanticCatalogTimeDimension value = 1; }
+
+message SemanticCatalogReadsAssetFilterAsset { PublishedSemanticCatalogFilter value = 1; }
+
+message SemanticCatalogReadsDefinitionRequest { SemanticCatalogReadsCatalogReference catalog = 1; SemanticCatalogReadsDefinitionReference reference = 2; }
+
+message SemanticCatalogReadsDefinitionReference { oneof kind { SemanticCatalogReadsDefinitionReferenceCalculation calculation = 1; SemanticCatalogReadsDefinitionReferenceFact fact = 2; SemanticCatalogReadsDefinitionReferenceInstance instance = 3; SemanticCatalogReadsDefinitionReferenceMember member = 4; } }
+
+message SemanticCatalogReadsDefinitionReferenceCalculation { agentic.olap.semantic.v1.MetricRef reference = 1; }
+
+message SemanticCatalogReadsDefinitionReferenceFact { agentic.olap.semantic.v1.MetricRef reference = 1; }
+
+message SemanticCatalogReadsDefinitionReferenceInstance { agentic.olap.semantic.v1.MetricInstanceRef reference = 1; }
+
+message SemanticCatalogReadsDefinitionReferenceMember { agentic.olap.semantic.v1.MemberRef reference = 1; }
+
+message SemanticCatalogReadsDefinitionResult { SemanticCatalogReadsCatalogReference catalog = 1; PublishedSemanticCatalogSemanticDependency definition = 2; }
+
+message EmptyRequest {}
+
+message AvailableSources { repeated AvailableSource items = 1; }
+
+message AvailableSource { agentic.olap.query.v1.SourceBinding binding = 1; agentic.olap.semantic.v1.ConnectorRef connector_ref = 2; string dialect_id = 3; repeated string access_capabilities = 4; }
+
+message ConnectorCapabilitiesRequest { ConnectorCapabilitiesRequestAggregate aggregate = 1; }
+
+message ConnectorCapabilitiesRequestAggregate { agentic.olap.semantic.v1.ConnectorRef connector_ref = 1; string aggregation = 2; NativeValueType input_type = 3; bool grouped = 4; }
+
+message ConnectorCapabilities { string api_version = 1; repeated ConnectorCapabilitiesConnector connectors = 2; ConnectorCapabilitiesAggregate aggregate = 3; }
+
+message ConnectorCapabilitiesConnector { agentic.olap.semantic.v1.ConnectorRef connector_ref = 1; repeated NativeScalarFunction native_scalar_functions = 2; repeated string compilation_capabilities = 3; string parameter_submission = 4; SourceConfigurationParameters configuration_parameters = 5; }
+
+message NativeScalarFunction { string id = 1; repeated NativeScalarFunctionParameter parameters = 2; NativeValueType result_type = 3; agentic.olap.semantic.v1.Arithmetic arithmetic = 4; string stability = 5; }
+
+message NativeScalarFunctionParameter { string kind = 1; optional string scalar_type = 2; }
+
+message SourceConfigurationParameters { repeated string identity_names = 1; repeated string runtime_names = 2; }
+
+message ConnectorCapabilitiesAggregate { agentic.olap.semantic.v1.ConnectorRef connector_ref = 1; string aggregation = 2; NativeValueType input_type = 3; bool grouped = 4; NativeAggregateMapping mapping = 5; }
+
+message NativeAggregateMapping { oneof kind { NativeAggregateMappingMapped mapped = 1; NativeAggregateMappingUnavailable unavailable = 2; } }
+
+message NativeAggregateMappingMapped { NativeValueType result_type = 1; string aggregation_rounding = 2; }
+
+message NativeAggregateMappingUnavailable { string code = 1; string message = 2; }
+
+message SourceInspection { oneof kind { SourceInspectionCapabilities capabilities = 1; SourceInspectionDiscover discover = 2; SourceInspectionDescribe describe = 3; SourceInspectionSnapshot snapshot = 4; SourceInspectionPreview preview = 5; SourceInspectionProfile profile = 6; SourceInspectionRelationship relationship = 7; } }
+
+message SourceInspectionCapabilities {}
+
+message SourceInspectionDiscover { agentic.olap.query.v1.SourceBinding binding = 1; optional string catalog = 2; optional string schema_pattern = 3; optional string table_pattern = 4; repeated string table_types = 5; optional int32 limit = 6; }
+
+message SourceInspectionDescribe { agentic.olap.query.v1.SourceBinding binding = 1; WarehouseTableRef table = 2; }
+
+message SourceInspectionSnapshot { agentic.olap.query.v1.SourceBinding binding = 1; optional string catalog = 2; string schema_name = 3; optional string table_pattern = 4; repeated string table_types = 5; optional int32 limit = 6; }
+
+message SourceInspectionPreview { agentic.olap.query.v1.SourceBinding binding = 1; WarehouseTableRef table = 2; optional int32 limit = 3; }
+
+message SourceInspectionProfile { agentic.olap.query.v1.SourceBinding binding = 1; WarehouseTableRef table = 2; repeated string columns = 3; optional int32 timeout_seconds = 4; }
+
+message SourceInspectionRelationship { agentic.olap.query.v1.SourceBinding binding = 1; WarehouseRelationshipProfileRequestInput source_input = 2; WarehouseRelationshipProfileRequestInput target_input = 3; optional int32 timeout_seconds = 4; }
+
+message WarehouseRelationshipProfileRequestInput { WarehouseTableRef table = 1; repeated WarehouseRelationshipProfileRequestColumn columns = 2; repeated agentic.olap.semantic.v1.SemanticExpression key_expressions = 3; }
+
+message WarehouseRelationshipProfileRequestColumn { string physical_column_id = 1; int64 physical_column_version = 2; string column = 3; }
+
+message SourceInspectionResult { oneof kind { SourceInspectionResultCapabilities capabilities = 1; SourceInspectionResultDiscovery discovery = 2; SourceInspectionResultDescription description = 3; SourceInspectionResultSnapshot snapshot = 4; SourceInspectionResultPreview preview = 5; SourceInspectionResultProfile profile = 6; SourceInspectionResultRelationship relationship = 7; } }
+
+message SourceInspectionResultCapabilities { repeated string operations = 1; string relationship_expression_type = 2; }
+
+message SourceInspectionResultDiscovery { WarehouseDiscoveryResult value = 1; }
+
+message WarehouseDiscoveryResult { WarehouseSourceMetadata source = 1; int32 returned_table_count = 2; bool truncated = 3; repeated WarehouseTableSummary tables = 4; }
+
+message WarehouseSourceMetadata { string data_source_id = 1; string dialect_id = 2; string source_identity_hash = 3; optional string database_product_name = 4; optional string database_product_version = 5; optional string driver_name = 6; optional string driver_version = 7; optional string user_name = 8; optional bool read_only = 9; StructureProvenance structure_provenance = 10; }
+
+message SourceInspectionResultDescription { WarehouseTableMetadata value = 1; }
+
+message WarehouseTableMetadata { WarehouseSourceMetadata source = 1; WarehouseTableSummary table = 2; repeated WarehouseColumnMetadata columns = 3; JdbcTableConstraints constraints = 4; }
+
+message SourceInspectionResultSnapshot { WarehouseSchemaSnapshot value = 1; }
+
+message WarehouseSchemaSnapshot { WarehouseSourceMetadata source = 1; bool truncated = 2; repeated WarehouseTableMetadata tables = 3; }
+
+message SourceInspectionResultPreview { WarehousePreview value = 1; }
+
+message WarehousePreview { WarehouseSourceMetadata source = 1; WarehouseTableSummary table = 2; repeated WarehouseColumnMetadata columns = 3; int32 row_limit = 4; repeated WarehouseRow rows = 5; }
+
+message WarehouseRow { repeated WarehouseCell cells = 1; }
+
+message WarehouseCell { string column_name = 1; int32 jdbc_type = 2; optional string type_name = 3; WarehouseScalar value = 4; }
+
+message WarehouseScalar { string kind = 1; optional string value = 2; bool truncated = 3; }
+
+message SourceInspectionResultProfile { WarehouseProfile value = 1; }
+
+message WarehouseProfile { WarehouseSourceMetadata source = 1; WarehouseTableSummary table = 2; string started_at = 3; string completed_at = 4; string row_count = 5; repeated WarehouseProfileColumnCount columns = 6; }
+
+message WarehouseProfileColumnCount { string column = 1; string non_null_count = 2; string null_count = 3; }
+
+message SourceInspectionResultRelationship { WarehouseRelationshipProfile value = 1; }
+
+message WarehouseRelationshipProfile { WarehouseSourceMetadata source = 1; WarehouseRelationshipProfileRequestInput source_input = 2; WarehouseRelationshipProfileRequestInput target_input = 3; string started_at = 4; string completed_at = 5; string equality_semantics = 6; WarehouseRelationshipProfileDirection source_to_target = 7; WarehouseRelationshipProfileDirection target_to_source = 8; }
+
+message WarehouseRelationshipProfileDirection { string row_count = 1; string null_key_row_count = 2; string non_null_key_group_count = 3; string duplicate_non_null_key_group_count = 4; string rows_with_duplicated_non_null_keys = 5; string unmatched_row_count = 6; string single_match_row_count = 7; string multiple_match_row_count = 8; string matched_pair_count = 9; string maximum_matches_per_row = 10; }
+
+message SourceDatasetRegistrationRequest { string data_source_id = 1; string source_identity_hash = 2; SealedSourceDataset declaration = 3; }
+
+message SealedSourceDataset { string format_version = 1; string source_authority = 2; string rule_document_sha256 = 3; JdbcTableConstraintsDataAnchor anchor = 4; SealedSourceDatasetScope scope = 5; repeated SealedSourceDatasetCollection collections = 6; }
+
+message SourceCollections { repeated SourceCollectionRecord items = 1; }
+
+message DeploymentAvailabilityRequest { repeated agentic.olap.query.v1.QueryCapabilityCoordinate publications = 1; repeated DeploymentAvailabilityRequestSavedQueryReference queries = 2; repeated DeploymentAvailabilityRequestResultReference results = 3; }
+
+message DeploymentAvailabilityRequestSavedQueryReference { string definition_id = 1; int64 definition_version = 2; string sha256 = 3; }
+
+message DeploymentAvailabilityRequestResultReference { string run_id = 1; string sha256 = 2; }
+
+message DeploymentAvailabilitySupportedEntry { string key = 1; string value = 2; }
+
+message DeploymentAvailability { repeated DeploymentAvailabilitySupportedEntry supported = 1; repeated DeploymentAvailabilityCheck checks = 2; }
+
+message DeploymentAvailabilityCheckReferenceEntry { string key = 1; DiagnosticValue value = 2; }
+
+message DeploymentAvailabilityCheck { string kind = 1; repeated DeploymentAvailabilityCheckReferenceEntry reference = 2; string status = 3; repeated DeploymentAvailabilityIssue issues = 4; }
+
+message DeploymentAvailabilityIssueDetailsEntry { string key = 1; DiagnosticValue value = 2; }
+
+message DeploymentAvailabilityIssue { string code = 1; string message = 2; repeated DeploymentAvailabilityIssueDetailsEntry details = 3; }
+
+message ListLogicalTableLogicUnitRefRecord { repeated LogicalTableLogicUnitRefRecord values = 1; }
+
+message ListLogicUnitSourceRefRecord { repeated LogicUnitSourceRefRecord values = 1; }
+
+message ListEventLogicUnitRefRecord { repeated EventLogicUnitRefRecord values = 1; }
+
+message ListDimensionEventBindingRecord { repeated DimensionEventBindingRecord values = 1; }
+
+message ListTopologyLogicalTableRefRecord { repeated TopologyLogicalTableRefRecord values = 1; }
+
+message ListJoinPathRecord { repeated JoinPathRecord values = 1; }
+
+message ListJoinPathKeyRefRecord { repeated JoinPathKeyRefRecord values = 1; }
+
+message ListEventSliceFilterRecord { repeated EventSliceFilterRecord values = 1; }

@@ -1,279 +1,210 @@
 package com.olap.prototype.server
 
 import com.fasterxml.jackson.databind.JsonNode
-import com.fasterxml.jackson.databind.node.ObjectNode
 import com.google.protobuf.ByteString
-import com.olap.prototype.connector.ConnectorRef
+import com.olap.prototype.codec.*
 import com.olap.prototype.connector.loader.DeployedSources
 import com.olap.prototype.contract.ProducerContractException
+import com.olap.prototype.dsl.*
 import com.olap.prototype.protocol.Response
 import com.olap.prototype.protocol.ResultArtifact
+import com.olap.prototype.query.QueryExplanationContent
 import com.olap.prototype.query.contract.*
 import com.olap.prototype.query.definition.*
 import com.olap.prototype.query.usage.QueryResultArtifact
 import com.olap.prototype.query.usage.QueryUsageRepository
 import com.olap.prototype.release.catalog.JdbcPublishedQueryEntryProvider
-import com.olap.prototype.server.ServerInputs.command
-import com.olap.prototype.server.ServerInputs.fields
-import com.olap.prototype.server.ServerInputs.integer
-import com.olap.prototype.server.ServerInputs.optionalText
-import com.olap.prototype.server.ServerInputs.text
+import com.olap.prototype.runtime.*
 import com.olap.prototype.util.OlapJsonUtils
-import com.olap.prototype.warehouse.contract.SourceBindingRef
-import com.olap.prototype.warehouse.contract.SourceConfiguration
+import com.olap.prototype.warehouse.contract.*
 import java.time.Instant
 import java.util.UUID
 
-/** 保存/验证与一次实际执行；worker调度只经显式Go监督者端口。 */
+/** 完整模型从正式能力入口进入；来源解析、实际执行与结果交付分别记录真实事实。 */
 internal class ServerQueries(private val queries: JdbcQueryDefinitionRepository,
     private val publications: JdbcPublishedQueryEntryProvider, private val authorization: ServerAuthorization,
     private val workers: RemoteWorkers, private val sources: DeployedSources,
     private val usage: QueryUsageRepository, private val results: ServerResults,
-    private val historyEnabled: Boolean, private val maximumArtifactBytes: Long) {
+    private val historyEnabled: Boolean, private val limits: JsonResourceLimits) {
     private val mapper = OlapJsonUtils.mapper()
     private val log = org.slf4j.LoggerFactory.getLogger(ServerQueries::class.java)
-    private data class SelectedQuery(val intent: JsonNode, val reference: QueryDefinitionArtifact.Reference?)
-
+    private data class Selected(val intent: QueryIntent, val reference: QueryReference?)
     private fun definitions(request: ServerRequest) = QueryDefinitionService(queries, publications) { intent, capability ->
-        validateNative(request, intent, capability)
+        val publication = publications.readPublication(PublishedQueryEntry.key(capability))
+        requireResolution(intent, inspect(request, intent, publication, InspectionMode.VALIDATE), publication)
     }
-
-    private fun requireQuery(request: ServerRequest, reference: QueryDefinitionArtifact.Reference): QueryDefinitionView {
-        if (queries.requireReference(reference.definitionId, reference.definitionVersion) != reference)
-            throw ProducerContractException("saved query reference hash differs from exact bytes")
+    private fun requireQuery(request: ServerRequest, reference: QueryReference): QueryDefinitionView {
+        require(queries.requireReference(reference.definitionId, reference.definitionVersion) == reference) {
+            "saved query reference differs from exact bytes"
+        }
         return definitions(request).requireByIdAndVersion(reference.definitionId, reference.definitionVersion)
     }
-
-    private fun coordinate(query: QueryDefinitionView) = QueryCapabilityRequest(query.scenarioId,
-        query.scenarioVersion, query.releaseId, query.releaseVersion)
-
-    private fun resolveQuery(request: ServerRequest, payload: JsonNode, extra: Set<String> = emptySet()): SelectedQuery {
-        fields(payload, setOf("intent", "queryReference", "saveResult", "question", "readBasis") + extra)
-        if (payload.has("intent") == payload.has("queryReference"))
-            throw ProducerContractException("select exactly one complete intent or exact queryReference")
-        if (payload.has("intent")) return SelectedQuery(payload.required("intent"), null)
-        val reference = mapper.treeToValue(payload.required("queryReference"), QueryDefinitionArtifact.Reference::class.java)
-        return SelectedQuery(requireQuery(request, reference).intent, reference)
+    private fun select(request: ServerRequest, query: QuerySelection): Selected = when (query) {
+        is QuerySelection.Inline -> Selected(query.intent, null)
+        is QuerySelection.Saved -> Selected(requireQuery(request, query.reference).intent, query.reference)
     }
 
-    private fun validateNative(request: ServerRequest, intent: JsonNode, capability: QueryCapabilityView) {
-        val publication = publications.readPublication(PublishedQueryEntry.key(capability))
-        val definition = (intent as ObjectNode).deepCopy().put("requestId", request.work.requestId)
-        requireResolution(definition, resolveInput(request, definition, publication, "validate"), publication)
-    }
-
-    fun execute(request: ServerRequest, payload: JsonNode): Response {
+    fun execute(request: ServerRequest, input: QueryExecutionRequest): Response {
         val started = System.nanoTime()
-        val selected = resolveQuery(request, payload)
-        val publication = request.work.timed("METADATA_LOAD_PUBLICATION") { publications.readPublication(PublishedQueryContract.coordinate(selected.intent)) }
+        val selected = select(request, input.query)
+        val publication = request.work.timed("METADATA_LOAD_PUBLICATION") { publications.readPublication(selected.intent.publication) }
         request.work.timed("METADATA_AUTHORIZE_PUBLICATION") { authorization.publication(request.principal, "execute-query", publication.entry) }
-        if (payload.has("saveResult") && !payload.get("saveResult").isBoolean)
-            throw ProducerContractException("saveResult must be boolean")
-        val save = payload.path("saveResult").asBoolean(false)
         val run = usage.accept("run-${UUID.randomUUID().toString().replace("-", "")}", request.principal.subject,
-            publication.entry, selected.intent, selected.reference, historyEnabled, save, optionalText(payload, "question"))
-        val record = executeAccepted(request, selected, publication, run, payload.get("readBasis"))
-        val prepared = request.work.timed("METADATA_PREPARE_ARTIFACT") { QueryResultArtifact.prepare(record, selected.intent, maximumArtifactBytes) }
-        request.work.timed("METADATA_REMEMBER_RESULT") { results.remember(request, prepared) }
-        val output = mapper.createObjectNode().put("runId", run.runId).put("status", record.required("status").textValue())
-            .putNull("result").putNull("resultReference")
-        for (field in listOf("timingNanos", "clientOutcome", "sourceOutcome", "sourceReadEvidence", "error"))
-            output.set<JsonNode>(field, record.required(field))
-        (output.required("timingNanos") as ObjectNode).apply {
-            request.work.timingNanos.forEach { (stage, nanos) -> put(stage, nanos) }
-            put("METADATA_TOTAL", System.nanoTime() - started)
-        }
+            publication.entry, selected.intent, selected.reference, historyEnabled, input.saveResult, input.question)
+        val executed = executeAccepted(request, selected, publication, run, input.readBasis)
+        val receipt = executed.receipt.copy(timingNanos = executed.receipt.timingNanos + request.work.timingNanos +
+            ("METADATA_TOTAL" to System.nanoTime() - started))
+        val prepared = try { request.work.timed("METADATA_PREPARE_ARTIFACT") {
+            QueryResultArtifact.prepare(SavedQueryResultRecord(SavedQueryResultRecord.FORMAT, run.runId,
+                selected.intent.publication, publication.entry.catalogHash, QueryCapabilityHash.requireValid(publication.entry.capability),
+                selected.intent, selected.reference, run.acceptedAt, Instant.now(), receipt, executed.payload?.explanation,
+                executed.payload?.diagnostics?.let { QueryExecutionDiagnostics(it.sql, it.aliasMapping, it.auditReport) }, run.intentHash), limits.inputFileBytes.toLong())
+        } } catch (failure: Exception) { usage.resultFailed(run.runId, "result artifact preparation failed"); throw failure }
+        request.work.timed("METADATA_REMEMBER_RESULT") { results.remember(request, prepared, receipt) }
         return Response.newBuilder().setRequestId(request.work.requestId).setSuccess(true)
-            .setResultJson(ByteString.copyFrom(mapper.writeValueAsBytes(output)))
+            .setModel(QueryCapabilityCodec.encodeResult("execute-query", receipt.copy(result = null), limits.responseBytes))
             .setArtifact(ResultArtifact.newBuilder().setRunId(prepared.runId).setSha256(prepared.sha256)
-                .setContent(ByteString.copyFrom(prepared.content)).setRows(prepared.rows).setSave(save)).build()
+                .setContent(ByteString.copyFrom(prepared.content)).setRows(prepared.rows).setSave(input.saveResult)).build()
     }
 
-    private fun executeAccepted(request: ServerRequest, selected: SelectedQuery,
-        publication: JdbcPublishedQueryEntryProvider.Publication, run: QueryUsageRepository.Run, readBasis: JsonNode?): JsonNode {
-        var result: JsonNode? = null
-        var error: JsonNode? = null
-        var status = "SUCCEEDED"
+    private data class Executed(val receipt: QueryExecutionReceipt, val payload: EngineExecutionPayload?)
+    private fun executeAccepted(request: ServerRequest, selected: Selected,
+        publication: JdbcPublishedQueryEntryProvider.Publication, run: QueryUsageRepository.Run,
+        readBasis: SourceReadBasis.Versioned?): Executed {
+        var payload: EngineExecutionPayload? = null
         var dispatched = false
-        var clientOutcome = "COMPLETED"
-        var sourceOutcome: JsonNode = mapper.valueToTree(mapOf("state" to "NOT_SUBMITTED"))
-        var readEvidence: JsonNode = mapper.nullNode()
-        val timings = mapper.createObjectNode()
-        fun evidence(): JsonNode = mapper.valueToTree(mapOf("clientOutcome" to clientOutcome,
-            "sourceOutcome" to sourceOutcome, "sourceReadEvidence" to readEvidence,
-            "timingNanos" to timings.deepCopy().apply { request.work.timingNanos.forEach { (stage, nanos) -> put(stage, nanos) } }))
+        var status = QueryExecutionStatus.SUCCEEDED
+        var client = QueryClientOutcome.COMPLETED
+        var sourceState = SourceExecutionState.NOT_SUBMITTED
+        var sourceRequest: SourceRequestEvidence? = null
+        var readEvidence: SourceReadEvidence? = null
+        var error: QueryExecutionFailure? = null
+        var errorRecord: String? = null
+        val timings = linkedMapOf<String, Long>()
         try {
-            val definition = (selected.intent as ObjectNode).deepCopy().put("requestId", run.runId)
-            val resolution = resolveInput(request, definition, publication)
-            resolution.required("timingNanos").fields().forEachRemaining { (stage, nanos) -> timings.set<JsonNode>("RESOLVE_$stage", nanos) }
-            requireResolution(definition, resolution, publication)
-            val source = authorizedSource(request, resolution)
-            dispatch(request, definition, source, publication, run.runId, readBasis, { dispatched = true }) { response ->
-                result = response
-                readEvidence = response.path("computation").required("sourceReadEvidence")
-                timings.setAll<ObjectNode>(response.required("stageNanos") as ObjectNode)
-                sourceOutcome = mapper.valueToTree(mapOf("state" to "SUCCEEDED", "request" to readEvidence.required("request")))
+            val resolution = inspect(request, selected.intent, publication, InspectionMode.RESOLVE)
+            resolution.timingNanos.forEach { (stage, nanos) -> timings["RESOLVE_$stage"] = nanos }
+            requireResolution(selected.intent, resolution, publication)
+            authorization.source(request.principal, "execute-query", resolution.binding.dataSourceId)
+            val source = sources.requireConfiguration(resolution.binding)
+            require(source.connectorRef == resolution.connectorRef) { "resolved connector differs from exact deployed source" }
+            payload = workers.borrow(RemoteWorkers.Kind.ENGINE, listOf(source), request.work).use { worker ->
+                WorkerPublications.engine(worker, publication)
+                usage.dispatched(run.runId)
+                dispatched = true
+                (worker.engine(EngineWorkerCommand.Execute(publication.executable.catalog.manifest.catalogId,
+                    run.runId, selected.intent, listOf(source.bindingRef()), readBasis)) as EngineWorkerResult.Executed).value
             }
-            request.work.timed("METADATA_COMMIT_EXECUTION") { usage.complete(run.runId, QueryUsageRepository.Execution.SUCCEEDED, null, evidence()) }
+            require(payload.publication == selected.intent.publication && payload.requestId == run.runId) {
+                "engine execution differs from accepted query"
+            }
+            readEvidence = payload.sourceReadEvidence
+            sourceRequest = readEvidence.request
+            sourceState = SourceExecutionState.SUCCEEDED
+            timings.putAll(payload.stageNanos)
         } catch (failure: Exception) {
             log.warn("query execution failed: runId={}", run.runId, failure)
-            if (failure is RemoteWorkers.WorkerFailure) log.warn("query worker diagnostic: {}", failure.error)
-            error = mapper.valueToTree(ServerFailures.project(failure, "execution", "EXECUTION_FAILED"))
-            error.path("details").get("sourceReadEvidence")?.takeUnless { it.isNull }?.let { readEvidence = it }
-            if (failure is RemoteWorkers.WorkerFailure)
-                (failure.error.path("evidenceContext").get("stageNanos") as? ObjectNode)?.let { timings.setAll<ObjectNode>(it) }
-            clientOutcome = when {
-                failure is java.util.concurrent.CancellationException -> "CANCELLED"
-                failure is com.olap.prototype.runtime.RuntimeResourceLimitException &&
-                    failure.code in setOf("REQUEST_DEADLINE_EXCEEDED", "WORKER_DEADLINE_EXCEEDED") -> "DEADLINE_EXCEEDED"
-                else -> "COMPLETED"
+            val projected = ServerFailures.project(failure, "execution", "EXECUTION_FAILED")
+            errorRecord = mapper.writeValueAsString(projected)
+            error = QueryExecutionFailure(projected.stage, projected.code, projected.message,
+                projected.details["diagnosticId"] as? String, (projected.details["fieldPath"] as? List<*>)?.map { it.toString() } ?: emptyList())
+            val workerFailure = failure as? RemoteWorkers.WorkerFailure
+            readEvidence = workerFailure?.sourceReadEvidence
+            sourceRequest = readEvidence?.request ?: workerFailure?.sourceFailure?.request
+            timings.putAll(workerFailure?.stageNanos.orEmpty())
+            client = when {
+                failure is java.util.concurrent.CancellationException || workerFailure?.error?.path("code")?.textValue() == "CANCELLED" -> QueryClientOutcome.CANCELLED
+                failure is RuntimeResourceLimitException && failure.code in setOf("REQUEST_DEADLINE_EXCEEDED", "WORKER_DEADLINE_EXCEEDED") -> QueryClientOutcome.DEADLINE_EXCEEDED
+                workerFailure?.error?.path("code")?.textValue() in setOf("REQUEST_DEADLINE_EXCEEDED", "WORKER_DEADLINE_EXCEEDED") -> QueryClientOutcome.DEADLINE_EXCEEDED
+                else -> QueryClientOutcome.COMPLETED
             }
-            val sourceFailure = error.path("details").path("sourceFailure")
-            val knownState = readEvidence.path("request").path("execution").textValue()
-                ?: sourceFailure.path("request").path("execution").textValue()
-            val sourceNotStarted = failure is RemoteWorkers.WorkerFailure &&
-                failure.error.path("evidenceContext").path("sourceExecutionStarted").let { it.isBoolean && !it.booleanValue() }
-            val sourceState = knownState ?: if (dispatched && !sourceNotStarted) "UNKNOWN" else "NOT_SUBMITTED"
-            sourceOutcome = mapper.valueToTree(mapOf("state" to sourceState,
-                "request" to (readEvidence.get("request") ?: sourceFailure.get("request")),
-                "cancellation" to sourceFailure.get("cancellation")))
+            val notStarted = workerFailure?.sourceExecutionStarted == false
+            sourceState = sourceRequest?.execution ?: if (dispatched && !notStarted) SourceExecutionState.UNKNOWN else SourceExecutionState.NOT_SUBMITTED
             status = when {
-                sourceState == "CANCELLED" -> "CANCELLED"
-                sourceState == "UNKNOWN" || sourceState == "RUNNING" -> "OUTCOME_UNKNOWN"
-                !dispatched && clientOutcome != "COMPLETED" -> "NOT_EXECUTED"
-                failure is RemoteWorkers.WorkerFailure -> "ENGINE_FAILED"
-                else -> "EXECUTION_FAILED"
+                sourceState == SourceExecutionState.CANCELLED -> QueryExecutionStatus.CANCELLED
+                sourceState in setOf(SourceExecutionState.UNKNOWN, SourceExecutionState.RUNNING) -> QueryExecutionStatus.OUTCOME_UNKNOWN
+                !dispatched && client != QueryClientOutcome.COMPLETED -> QueryExecutionStatus.NOT_EXECUTED
+                failure is RemoteWorkers.WorkerFailure -> QueryExecutionStatus.ENGINE_FAILED
+                else -> QueryExecutionStatus.EXECUTION_FAILED
             }
-            val outcome = when (status) {
-                "OUTCOME_UNKNOWN" -> QueryUsageRepository.Execution.INTERRUPTED
-                "CANCELLED", "NOT_EXECUTED" -> QueryUsageRepository.Execution.CANCELLED
-                else -> QueryUsageRepository.Execution.FAILED
-            }
-            // 取消等待不能阻止提交已经发生的运行事实；不会因此重试来源查询。
-            val interrupted = Thread.interrupted()
-            try { request.work.timed("METADATA_COMMIT_EXECUTION") { usage.complete(run.runId, outcome, error.toString(), evidence()) } }
-            finally { if (interrupted) Thread.currentThread().interrupt() }
         }
-        return mapper.createObjectNode().apply {
-            put("requestId", run.runId); put("runId", run.runId)
-            put("catalogHash", publication.entry.catalogHash); put("capabilityHash", publication.entry.capability.capabilityHash)
-            put("startedAt", run.acceptedAt.toString()); put("completedAt", Instant.now().toString()); put("status", status)
-            put("clientOutcome", clientOutcome); set<JsonNode>("sourceOutcome", sourceOutcome)
-            set<JsonNode>("timingNanos", evidence().required("timingNanos"))
-            set<JsonNode>("sourceReadEvidence", readEvidence)
-            set<JsonNode>("explanation", result?.get("explanation") ?: mapper.nullNode())
-            set<JsonNode>("coordinate", mapper.valueToTree(publication.executable.coordinate))
-            set<JsonNode>("queryReference", mapper.valueToTree(selected.reference))
-            set<JsonNode>("result", result ?: mapper.nullNode()); set<JsonNode>("error", error ?: mapper.nullNode())
+        val actual = payload.takeIf { status == QueryExecutionStatus.SUCCEEDED }
+        val receipt = QueryExecutionReceipt(run.runId, status, null, actual?.result, false,
+            actual?.result?.rows?.size?.toLong() ?: 0, client, sourceState, sourceRequest, readEvidence, timings.toMap(), error)
+        val outcome = when (status) {
+            QueryExecutionStatus.SUCCEEDED -> QueryUsageRepository.Execution.SUCCEEDED
+            QueryExecutionStatus.OUTCOME_UNKNOWN -> QueryUsageRepository.Execution.INTERRUPTED
+            QueryExecutionStatus.CANCELLED, QueryExecutionStatus.NOT_EXECUTED -> QueryUsageRepository.Execution.CANCELLED
+            else -> QueryUsageRepository.Execution.FAILED
         }
+        val interrupted = Thread.interrupted()
+        try { request.work.timed("METADATA_COMMIT_EXECUTION") { usage.complete(run.runId, outcome, errorRecord, receipt.copy(result = null)) } }
+        finally { if (interrupted) Thread.currentThread().interrupt() }
+        return Executed(receipt, actual)
     }
 
-    private fun resolveInput(request: ServerRequest, definition: JsonNode,
-        publication: JdbcPublishedQueryEntryProvider.Publication, operation: String = "resolve-input"): JsonNode =
-        workers.borrow(RemoteWorkers.Kind.ENGINE, emptyList(), request.work).use {
-            WorkerPublications.engine(it, publication)
-            it.exchange(mapper.createObjectNode().put("operation", operation)
-                .put("catalogId", publication.executable.catalog.manifest.catalogId)
-                .set("queryDefinition", definition))
+    private fun inspect(request: ServerRequest, intent: QueryIntent,
+        publication: JdbcPublishedQueryEntryProvider.Publication, mode: InspectionMode): EngineInputResolution =
+        workers.borrow(RemoteWorkers.Kind.ENGINE, emptyList(), request.work).use { worker ->
+            WorkerPublications.engine(worker, publication)
+            (worker.engine(EngineWorkerCommand.Inspect(mode, publication.executable.catalog.manifest.catalogId,
+                request.work.requestId, intent)) as EngineWorkerResult.Resolved).value
         }
 
-    private fun requireResolution(definition: JsonNode, resolution: JsonNode,
+    private fun requireResolution(intent: QueryIntent, resolution: EngineInputResolution,
         publication: JdbcPublishedQueryEntryProvider.Publication) {
-        check(text(resolution, "formatVersion") == "olap-input-resolution/v2" &&
-            mapper.treeToValue(resolution.required("publication"), QueryCapabilityRequest::class.java) == publication.executable.coordinate &&
-            text(resolution, "catalogHash") == publication.entry.catalogHash &&
-            text(resolution, "intentHash") == PublicationContentHash.compute(definition)) {
+        check(resolution.publication == intent.publication && resolution.catalogHash == publication.entry.catalogHash &&
+            resolution.catalogId == publication.executable.catalog.manifest.catalogId && resolution.intentHash == QueryProto.digest(intent)) {
             "resolved execution input differs from exact request"
         }
     }
 
-    private fun authorizedSource(request: ServerRequest, resolution: JsonNode): SourceConfiguration {
-        val id = text(resolution, "dataSourceId")
-        authorization.source(request.principal, "execute-query", id)
-        val source = sources.requireConfiguration(SourceBindingRef(id, text(resolution, "sourceIdentityHash")))
-        if (source.connectorRef != mapper.treeToValue(resolution.required("connectorRef"), ConnectorRef::class.java))
-            throw ProducerContractException("resolved query connector differs from deployed source")
-        return source
+    fun validate(request: ServerRequest, input: QueryValidationRequest): QueryValidationResult {
+        val selected = select(request, input.query)
+        val publication = publications.readPublication(selected.intent.publication)
+        authorization.publication(request.principal, "validate-query", publication.entry)
+        requireResolution(selected.intent, inspect(request, selected.intent, publication, InspectionMode.VALIDATE), publication)
+        return QueryValidationResult(true, QueryCapabilityHash.requireValid(publication.entry.capability))
     }
 
-    private fun dispatch(request: ServerRequest, definition: JsonNode, source: SourceConfiguration,
-        publication: JdbcPublishedQueryEntryProvider.Publication, runId: String, readBasis: JsonNode?,
-        dispatched: () -> Unit, responded: (JsonNode) -> Unit): JsonNode =
-        workers.borrow(RemoteWorkers.Kind.ENGINE, listOf(source), request.work).use {
-            WorkerPublications.engine(it, publication)
-            val command = mapper.createObjectNode().put("operation", "execute")
-                .put("catalogId", publication.executable.catalog.manifest.catalogId)
-            command.set<JsonNode>("queryDefinition", definition)
-            command.set<JsonNode>("dataSources", mapper.valueToTree(listOf(source)))
-            command.set<JsonNode>("readBasis", readBasis ?: mapper.nullNode())
-            usage.dispatched(runId)
-            dispatched()
-            it.exchange(command).also(responded)
-        }
-
-    fun validate(request: ServerRequest, payload: JsonNode): Any {
-        require(!payload.has("readBasis")) { "readBasis is an execution requirement; query validation does not acquire source data" }
-        val query = resolveQuery(request, payload)
-        val entry = publications.require(PublishedQueryContract.coordinate(query.intent))
-        authorization.publication(request.principal, "validate-query", entry)
-        validateNative(request, query.intent, entry.capability)
-        return mapOf("valid" to true, "capabilityHash" to entry.capability.capabilityHash)
-    }
-
-    fun explain(request: ServerRequest, payload: JsonNode): Any {
-        val query = resolveQuery(request, payload, setOf("section", "offset", "limit"))
-        require(!payload.has("readBasis")) { "explanation does not acquire or pin source data" }
-        val publication = publications.readPublication(PublishedQueryContract.coordinate(query.intent))
+    fun explain(request: ServerRequest, input: QueryExplanationRequest): QueryExplanationResult {
+        val selected = select(request, input.query)
+        val publication = publications.readPublication(selected.intent.publication)
         authorization.publication(request.principal, "explain-query", publication.entry)
-        val definition = (query.intent as ObjectNode).deepCopy().put("requestId", request.work.requestId)
-        val resolved = workers.borrow(RemoteWorkers.Kind.ENGINE, emptyList(), request.work).use {
-            WorkerPublications.engine(it, publication)
-            it.exchange(mapper.createObjectNode().put("operation", "explain")
-                .put("catalogId", publication.executable.catalog.manifest.catalogId).set("queryDefinition", definition))
+        val resolution = inspect(request, selected.intent, publication, InspectionMode.EXPLAIN)
+        requireResolution(selected.intent, resolution, publication)
+        authorization.source(request.principal, "explain-query", resolution.binding.dataSourceId)
+        val view = requireNotNull(resolution.explanation)
+        fun next(size: Int): Int? = if (input.offset.toLong() + input.limit < size) input.offset + input.limit else null
+        val content = when (input.section) {
+            QueryExplanationSection.SUMMARY -> { require(input.offset == 0); QueryExplanationContent.Summary(view.summary) }
+            QueryExplanationSection.SCOPES -> QueryExplanationContent.Scopes(view.scopes.drop(input.offset).take(input.limit), view.scopes.size, next(view.scopes.size))
+            QueryExplanationSection.SOURCES -> QueryExplanationContent.Sources(view.sources.drop(input.offset).take(input.limit), view.sources.size, next(view.sources.size))
+            QueryExplanationSection.PLAN -> QueryExplanationContent.Plan(view.plan.drop(input.offset).take(input.limit), view.plan.size, next(view.plan.size))
+            QueryExplanationSection.COMPILATION_SCALE -> { require(input.offset == 0); QueryExplanationContent.CompilationScale(view.compilationScale) }
         }
-        requireResolution(definition, resolved, publication)
-        authorization.source(request.principal, "explain-query", text(resolved, "dataSourceId"))
-        val section = optionalText(payload, "section") ?: "summary"
-        require(section in setOf("summary", "scopes", "sources", "plan", "compilationScale")) { "unknown explanation section" }
-        val value = resolved.required("explanation").required(section)
-        val offset = integer(payload, "offset", 0, 0, Int.MAX_VALUE)
-        val limit = integer(payload, "limit", 25, 1, 200)
-        require(value.isArray || offset == 0) { "only explanation arrays accept an offset" }
-        return mapOf("formatVersion" to "olap-query-explanation-page/v1", "coordinate" to publication.executable.coordinate,
-            "section" to section, "timingNanos" to resolved.required("timingNanos"),
-            "value" to if (value.isArray) value.drop(offset).take(limit) else value,
-            "totalItems" to if (value.isArray) value.size() else 1,
-            "nextOffset" to if (value.isArray && offset.toLong() + limit < value.size()) offset + limit else null)
+        return QueryExplanationResult(input.section, content)
     }
 
-    fun save(operation: String, request: ServerRequest, payload: JsonNode): Any {
-        val command = mapper.treeToValue(payload, QueryDefinitionCommand::class.java)
-        val coordinate = QueryCapabilityRequest(command.scenarioId, command.scenarioVersion, command.releaseId, command.releaseVersion)
-        authorization.publication(request.principal, operation, publications.require(coordinate))
+    private fun definitionResult(view: QueryDefinitionView) = QueryDefinitionResult(view,
+        queries.requireReference(view.definitionId, view.definitionVersion))
+
+    fun save(operation: String, request: ServerRequest, command: QueryDefinitionCommand): QueryDefinitionResult {
+        authorization.publication(request.principal, operation, publications.require(command.intent.publication))
         if (operation == "update-query") {
-            val previous = definitions(request).requireByIdAndVersion(
-                requireNotNull(command.definitionId) { "update-query requires exact definitionId" },
-                requireNotNull(command.sourceVersion) { "update-query requires exact sourceVersion" })
-            authorization.publication(request.principal, operation, publications.require(coordinate(previous)))
+            val previous = definitions(request).requireByIdAndVersion(requireNotNull(command.definitionId), requireNotNull(command.sourceVersion))
+            authorization.publication(request.principal, operation, publications.require(previous.intent.publication))
         }
-        val saved = if (operation == "save-query") definitions(request).save(command, request.principal.subject)
-            else definitions(request).update(requireNotNull(command.definitionId), command, request.principal.subject)
-        return mapOf("definition" to saved, "queryReference" to queries.requireReference(saved.definitionId, saved.definitionVersion))
+        return definitionResult(if (operation == "save-query") definitions(request).save(command, request.principal.subject)
+        else definitions(request).update(requireNotNull(command.definitionId), command, request.principal.subject))
     }
-
-    fun read(request: ServerRequest, payload: JsonNode): Any {
-        fields(payload, setOf("queryReference"))
-        val reference = mapper.treeToValue(payload.required("queryReference"), QueryDefinitionArtifact.Reference::class.java)
-        val saved = requireQuery(request, reference)
-        authorization.publication(request.principal, "read-query", publications.require(coordinate(saved)))
-        return mapOf("definition" to saved, "queryReference" to reference)
-    }
-
-    fun list(request: ServerRequest, payload: JsonNode): Any {
-        fields(payload, setOf("coordinate", "offset", "limit"))
-        val coordinate = mapper.treeToValue(payload.required("coordinate"), QueryCapabilityRequest::class.java)
-        authorization.publication(request.principal, "list-queries", publications.require(coordinate))
-        return queries.page(coordinate.scenarioId, coordinate.scenarioVersion, coordinate.releaseId, coordinate.releaseVersion,
-            integer(payload, "offset", 0, 0, Int.MAX_VALUE), integer(payload, "limit", 50, 1, 200))
+    fun read(request: ServerRequest, input: QueryVersionRequest): QueryDefinitionResult = definitionResult(requireQuery(request, input.queryReference).also {
+        authorization.publication(request.principal, "read-query", publications.require(it.intent.publication))
+    })
+    fun list(request: ServerRequest, input: QueryListRequest): QueryDefinitionPage {
+        authorization.publication(request.principal, "list-queries", publications.require(input.coordinate))
+        val p = queries.page(input.coordinate.scenarioId, input.coordinate.scenarioVersion, input.coordinate.releaseId,
+            input.coordinate.releaseVersion, input.offset, Math.addExact(input.limit, 1))
+        return QueryDefinitionPage(p.take(input.limit).map(::definitionResult), if (p.size > input.limit) Math.addExact(input.offset, input.limit) else null)
     }
 }

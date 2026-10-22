@@ -33,12 +33,12 @@ class ReleaseScenarioSnapshot(val formatVersion: String, val scenario: QueryScen
             listOf(id, displayName, outputAlias, subjectAreaRefId, subjectAreaRefStatus, scenarioRefId, releaseObjectRefId, defaultLevelCode, defaultLevelDisplayName).forEach { ProducerContracts.requireText(it, "frozen dimension choice") }
         }
     }
-    data class FilterGrant(val id: String, val targetType: String, val targetId: String, val targetVersion: Long, val operatorsJson: String, val valueProviderId: String?, val valueProviderType: String?, val valueProviderLogicUnitId: String?, val valueProviderLogicUnitVersion: Long?, val requiredByDefault: Boolean, val sortOrder: Int) {
+    data class FilterGrant(val id: String, val targetType: String, val targetId: String, val targetVersion: Long, val operators: List<String>, val valueProviderId: String?, val valueProviderType: String?, val valueProviderLogicUnitId: String?, val valueProviderLogicUnitVersion: Long?, val requiredByDefault: Boolean, val sortOrder: Int) {
         init {
             ProducerContracts.requireText(id, "filter id")
             require(targetType == "ANALYSIS_DIMENSION") { "frozen filter requires an analysis dimension" }
             ProducerContracts.requireText(targetId, "filter target"); ProducerContracts.requireVersion(targetVersion, "filter target version")
-            FilterLeafOperatorPolicy.requireOperatorSet(operatorsJson, "frozen filter operators")
+            FilterLeafOperatorPolicy.requireOperatorSet(operators, "frozen filter operators")
             if (valueProviderId == null) {
                 require(valueProviderType == null && valueProviderLogicUnitId == null && valueProviderLogicUnitVersion == null) { "absent frozen provider cannot carry source details" }
             } else {

@@ -54,8 +54,7 @@ class PublishedNestedCustomerTest {
                 number(50.0, n.execute(publication, fixedSaved).result.resultFrame.rows.single()["value"])
                 if (subject == "travel.trade") independentMembers(n, publication, grouping)
                 val layered = NestedCustomerFixture.scope(calls, listOf(grouping), QueryComputation.Levels("level", listOf(QueryComputation.DimensionLevel("by_group", listOf(grouping)), QueryComputation.DimensionLevel("overall", emptyList()))))
-                val revised = n.queries.update(saved.definitionId, QueryDefinitionCommand(saved.definitionId, saved.definitionVersion, requireNotNull(publication.queryCapability.capabilityHash), "经营组和全体平均",
-                    publication.coordinate.scenarioId, 1, publication.coordinate.releaseId, "1", f.intent(publication, layered)), "golden")
+                val revised = n.queries.update(saved.definitionId, QueryDefinitionCommand(saved.definitionId, saved.definitionVersion, requireNotNull(publication.queryCapability.capabilityHash), "经营组和全体平均", f.intent(publication, layered), null), "golden")
                 val identity = f.artifacts.loadArtifact("$subject.release", "1")
                 val bytes = f.mapper.writeValueAsString(publication)
                 f.lifecycle.deprecate(GovernanceVersionDeprecationRequest(GovernanceActivationObjectType.SUBJECT_AREA, subject, 1, "governance-owner", "停止未来发布"))

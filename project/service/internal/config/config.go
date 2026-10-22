@@ -67,6 +67,20 @@ type History struct {
 	Enabled       bool `json:"enabled"`
 	RetentionDays int  `json:"retentionDays"`
 }
+type Scripting struct {
+	WorkerCount    int   `json:"workerCount"`
+	JVMHeapMiB     int   `json:"jvmHeapMiB"`
+	MaxCalls       int   `json:"maxCalls"`
+	NativeLogBytes int64 `json:"nativeLogBytes"`
+}
+
+func (s Scripting) Validate() error {
+	if s.WorkerCount < 1 || s.WorkerCount > 64 || s.JVMHeapMiB < 128 || s.MaxCalls < 1 || s.MaxCalls > 10000 || s.NativeLogBytes < 1024 {
+		return errors.New("invalid script process or capability call budgets")
+	}
+	return nil
+}
+
 type Deployment struct {
 	Listen      Listen            `json:"listen"`
 	Auth        Auth              `json:"auth"`
@@ -75,6 +89,7 @@ type Deployment struct {
 	DataSources []json.RawMessage `json:"dataSources"`
 	Limits      Limits            `json:"limits"`
 	History     History           `json:"history"`
+	Scripting   Scripting         `json:"scripting"`
 }
 
 func Read(path string) (Deployment, error) {
@@ -95,7 +110,7 @@ func Read(path string) (Deployment, error) {
 	if err != nil {
 		return c, err
 	}
-	for _, field := range []string{"listen", "auth", "dataRoot", "connectors", "dataSources", "limits", "history"} {
+	for _, field := range []string{"listen", "auth", "dataRoot", "connectors", "dataSources", "limits", "history", "scripting"} {
 		if root[field] == nil {
 			return c, fmt.Errorf("configuration requires %s", field)
 		}
@@ -187,6 +202,9 @@ func (c Deployment) Validate() error {
 		}
 	}
 	l := c.Limits
+	if err := c.Scripting.Validate(); err != nil {
+		return err
+	}
 	if l.RequestSeconds <= 0 || l.RequestSeconds > 3600 || l.StartupSeconds <= 0 || l.StartupSeconds > 3600 || l.MaxInFlight < 1 || l.MaxInFlight > 256 || l.WorkerCount < 1 || l.WorkerCount > 64 || l.CatalogEntriesPerWorker < 1 || l.CatalogEntriesPerWorker > 256 || l.InputDepth < 1 || l.InputDepth > 512 || l.InputNodes < 1 || l.InputFiles < 1 || l.InputFileBytes < 1024 || l.RequestBytes < 1024 || l.ResponseBytes < 1024 || l.PendingOutputBytes < l.ResponseBytes || l.WorkerJvmHeapMiB < 32 || l.NativeMemoryBytes < 1 || l.CatalogBytes < 1 || l.SQLBytes < 1 || l.Parameters < 1 || l.ResultRows < 1 || l.ResultValues < 1 || l.ResultBytes < 1 || l.ResultDepth < 1 || c.History.RetentionDays < 1 {
 		return errors.New("invalid deployment resource budgets")
 	}

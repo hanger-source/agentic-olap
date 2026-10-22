@@ -1,6 +1,6 @@
 package com.olap.prototype.governance.contract
 
-import com.fasterxml.jackson.databind.JsonNode
+import com.olap.prototype.query.contract.MetricAdoption
 import com.olap.prototype.contract.ProducerContracts
 
 data class DefinitionRevisionDiffRequest(val assetType: String, val id: String, val fromVersion: Long, val toVersion: Long) {
@@ -19,5 +19,11 @@ data class DefinitionRevisionDiff(
     val removedDependencies: List<DefinitionImpact.Reference>,
 ) {
     enum class Classification { IDENTITY_OR_STRUCTURE, DEPENDENCY, AUTHORIZATION, DISPLAY, CONTENT }
-    data class Change(val path: String, val classification: Classification, val before: JsonNode?, val after: JsonNode?)
+    sealed interface Value {
+        data class Definition(val value: GovernanceDefinition) : Value
+        data class MetricAdoptionValue(val value: MetricAdoption) : Value
+        data class MemberSourceValue(val value: MemberSourceRecord) : Value
+        data class Text(val value: String) : Value
+    }
+    data class Change(val path: String, val classification: Classification, val before: Value?, val after: Value?)
 }

@@ -16,6 +16,7 @@ import org.apache.calcite.sql.*
 import org.apache.calcite.sql.`fun`.SqlStdOperatorTable as Ops
 import org.apache.calcite.sql.`fun`.SqlCase
 import org.apache.calcite.sql.type.SqlTypeName
+import org.apache.calcite.sql.type.SqlTypeUtil
 import org.apache.calcite.sql.util.SqlShuttle
 import org.apache.calcite.sql.validate.SqlValidatorUtil
 import java.util.IdentityHashMap
@@ -90,13 +91,29 @@ class ParameterizedRelToSqlConverter(private val support: CompilationSupport, pr
         require(!repeat.all && repeat.iterationLimit == -1 && repeat.transientTable != null) {
             "recursive relation requires an unbounded DISTINCT fixed point with an exact transient table"
         }
-        val identity = SqlIdentifier(requireNotNull(repeat.transientTable).qualifiedName.last(), POS)
+        val transient = requireNotNull(repeat.transientTable)
+        val identity = SqlIdentifier(transient.qualifiedName.last(), POS)
         shared[repeat] = identity
         val seed = visitInput(repeat, 0).asStatement()
         val iterative = visitInput(repeat, 1).asStatement()
-        val columns = SqlNodeList(repeat.rowType.fieldNames.map { SqlIdentifier(it, POS) }, POS)
+        val columns = SqlNodeList(transient.rowType.fieldNames.map { SqlIdentifier(it, POS) }, POS)
         definitions.add(SqlWithItem(POS, identity, columns, Ops.UNION.createCall(POS, seed, iterative), SqlLiteral.createBoolean(true, POS)))
-        return result(identity, listOf(Clause.FROM), repeat, null)
+        return sharedReference(repeat, identity)
+    }
+
+    /** 固定点变量保持自身列合同；优化后RepeatUnion输出仍按序交给真正的消费者。 */
+    private fun sharedReference(node: RelNode, identity: SqlIdentifier): Result {
+        if (node !is RepeatUnion) return result(identity, listOf(Clause.FROM), node, null)
+        val actual = requireNotNull(node.transientTable).rowType
+        check(actual.fieldCount == node.rowType.fieldCount && actual.fieldList.indices.all { index ->
+            SqlTypeUtil.equalSansNullability(node.cluster.typeFactory, actual.fieldList[index].type, node.rowType.fieldList[index].type)
+        }) { "shared SQL relation differs from its compiled row width or types" }
+        if (actual.fieldNames == node.rowType.fieldNames) return result(identity, listOf(Clause.FROM), node, null)
+        val columns = mutableListOf<SqlNode>()
+        actual.fieldNames.forEach { name -> addSelect(columns, SqlIdentifier(identity.names + name, POS), node.rowType) }
+        val selected = SqlSelect(POS, null, SqlNodeList(columns, POS), identity,
+            null, null, null, null, null, null, null, null, null)
+        return result(selected, listOf(Clause.FROM, Clause.SELECT), node, null)
     }
 
     override fun visitAntiOrSemiJoin(join: Join): Result {
@@ -122,7 +139,7 @@ class ParameterizedRelToSqlConverter(private val support: CompilationSupport, pr
             })
             if (correlated) throw NativeCompilationCapabilityException(CompilationSupport.Capability.CORRELATED_DERIVED_PROJECTION, "NUMERIC_EVALUATION_BINDING")
         }
-        val converted = shared[node]?.let { result(it, listOf(Clause.FROM), node, null) } ?: super.dispatch(node)
+        val converted = shared[node]?.let { sharedReference(node, it) } ?: super.dispatch(node)
         if (node !in evaluationBoundaries) return converted
         val bound = if (node is Join) {
             // Join的完成列须先显式命名，不能把多表字段表直接当成一个已有别名。

@@ -1,0 +1,173 @@
+import com.olap.prototype.calculation.*
+import com.olap.prototype.contract.JdbcColumnType
+import com.olap.prototype.dsl.*
+import com.olap.prototype.dsl.transport.CapabilityFailureException
+import com.olap.prototype.engine.executable.ExecutableBusinessResult
+import com.olap.prototype.event.*
+import com.olap.prototype.expression.SemanticExpression
+import com.olap.prototype.governance.contract.*
+import com.olap.prototype.metric.*
+import com.olap.prototype.query.*
+import com.olap.prototype.query.contract.*
+import com.olap.prototype.query.definition.QueryDefinitionCommand
+import com.olap.prototype.source.contract.*
+import com.olap.prototype.warehouse.contract.*
+import com.olap.prototype.warehouse.inspection.*
+import com.olap.prototype.warehouse.onboarding.*
+import java.math.BigDecimal
+
+val actor = olap.caller.subject
+fun activate(type: GovernanceActivationObjectType, id: String, version: Long = 1) {
+    olap.governance.activate(GovernanceVersionActivationRequest(type, id, version, actor, "安装验收明确激活精确版本"))
+}
+fun output(vararg values: Pair<String, ScriptValue>) = ScriptValue.ObjectValue(mapOf(*values))
+fun text(value: String) = ScriptValue.Text(value)
+fun reference(name: String): QueryResultReference = QueryResultReference(parameters.text(name + "RunId"), parameters.text(name + "Sha256"))
+fun scalar(value: ResultValueView): ExecutableBusinessResult.ScalarValue =
+    (value as ResultValueView.Complete).value as ExecutableBusinessResult.ScalarValue
+fun verify(reference: QueryResultReference): ResultPage {
+    val page = olap.results.read(ResultReadRequest(reference, 0, 10, null))
+    check(page.totalRows == 1 && page.rows.size == 1 && page.nextOffset == null)
+    check(page.columns.map { it.symbol.name } == listOf("sales_amount", "order_count"))
+    val (amount, count) = page.rows.single().map(::scalar)
+    // 独立参照来自消费脚本写入的三笔原始订单，不由计算定义推导。
+    check(amount.type == ExecutableBusinessResult.ValueKind.DECIMAL && BigDecimal(amount.value).compareTo(BigDecimal("175")) == 0)
+    check(count.type == ExecutableBusinessResult.ValueKind.INTEGER && count.value == "3")
+    return page
+}
+fun execute(intent: QueryIntent, question: String): QueryExecutionReceipt =
+    olap.queries.execute(QueryExecutionRequest(QuerySelection.Inline(intent), true, question, null)).also {
+        check(it.status == QueryExecutionStatus.SUCCEEDED && it.saved) { it.error.toString() }
+        verify(requireNotNull(it.resultReference))
+    }
+fun computation(entry: PublishedQueryEntry, unauthorized: Boolean = false): QueryComputation.Scope {
+    val calls = listOf("sales_amount", "order_count").map { code ->
+        val instance = entry.capability.metricCandidates.single { it.code == code }.instance
+        QueryComputation.Invocation(code, if (unauthorized && code == "sales_amount") MetricInstanceRef("metric-instance-" + "0".repeat(64)) else instance,
+            code, emptyMap(), emptyMap(), emptyMap(), DimensionCondition.Unrestricted())
+    }
+    return scope(QueryComputation.Measures(calls, emptyList(), null, emptyMap(), DimensionCondition.Unrestricted(),
+        DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(calls.map { it.callId }), null))
+}
+
+when (parameters.text("phase")) {
+    "create" -> {
+        check(olap.sources.list(EmptyRequest).items.isEmpty())
+        val asset = olap.governance.createBusinessLine(BusinessLineCreateRequest(
+            "installed_product", "安装后的实际治理资产", actor, "npm包真实创建与重启读取", actor)).businessLine
+        output("businessLineId" to text(asset.id))
+    }
+    "structure" -> {
+        val source = olap.sources.list(EmptyRequest).items.single { it.binding.dataSourceId == "business" }
+        val discovery = olap.sources.inspect(SourceInspection.Discover(source.binding, null, "PUBLIC", null, emptyList(), 20))
+            as SourceInspectionResult.Discovery
+        check(discovery.value.tables.any { it.ref.table == "SALES_ORDERS" })
+        val columns = listOf(
+            WarehouseColumnMetadata("ORDER_ID", -5, "BIGINT", 1, false, 19, 0, null, null, null, null),
+            WarehouseColumnMetadata("AMOUNT", 3, "DECIMAL", 2, true, 18, 2, null, null, null, null)
+        )
+        val table = SourceStructureRegistrationRequest.Table(
+            WarehouseTableSummary(WarehouseTableRef(null, "PUBLIC", "SALES_ORDERS"), "TABLE", null), columns,
+            JdbcTableConstraints(listOf("ORDER_ID"), emptyList(), emptyList(), emptyList()))
+        val stored = olap.governance.registerSourceStructure(SourceStructureRegistrationRequest(
+            source.binding.dataSourceId, source.binding.sourceIdentityHash, null, "PUBLIC", "installed-product-configuration",
+            "sales-schema-v1", listOf(table), actor))
+        val snapshot = olap.semantics.sourceDiscovery(GovernanceReadRequests.SnapshotInput(stored.snapshotId))
+        check(requireNotNull(snapshot.structureProvenance).kind == StructureProvenance.Kind.DECLARED && snapshot.driverName == null)
+        val businessLine = olap.semantics.businessLines(GovernanceReadRequests.PageInput(0, 20)).items.single { it.id == parameters.text("businessLineId") }
+        output("snapshotId" to text(stored.snapshotId), "sourceIdentityHash" to text(source.binding.sourceIdentityHash),
+            "businessLineId" to text(businessLine.id))
+    }
+    "build" -> {
+        val snapshotId = parameters.text("snapshotId")
+        val snapshot = olap.semantics.sourceDiscovery(GovernanceReadRequests.SnapshotInput(snapshotId))
+        check(requireNotNull(snapshot.structureProvenance).kind == StructureProvenance.Kind.DECLARED)
+        val observed = olap.semantics.discoveredTables(GovernanceReadRequests.SnapshotPageInput(snapshotId, 0, 20)).items.single()
+        val columns = olap.semantics.discoveredColumns(GovernanceReadRequests.DiscoveredTablePageInput(observed.id, 0, 20)).items
+        check(columns.size == 2 && columns.all { it.autoIncrement == null && it.generated == null })
+        val physical = olap.governance.createPhysicalTable(PhysicalTableCreateRequest(
+            "sales_orders", "SALES_ORDERS", "销售订单", "安装后真实H2订单", "sales", actor, "PUBLIC", "installed-sales", "business", "h2",
+            observed.catalogName, observed.schemaName, requireNotNull(observed.schemaHash),
+            PhysicalTableCreateRequest.SourceConstraintsInput(observed.id, emptyList()), actor,
+            columns.map { PhysicalTableCreateRequest.ColumnInput(it.columnName, it.columnName, it.typeName, "PUBLIC", requireNotNull(it.nullable),
+                "订单原始字段", JdbcColumnType(it.jdbcType, it.typeName, it.precision, it.scale, it.nullable)) }))
+        activate(GovernanceActivationObjectType.PHYSICAL_TABLE, physical.physicalTable.id)
+        val logical = olap.governance.createLogicalTable(LogicalTableCreateRequest(physical.physicalTable.id, 1, "sales_orders", "销售订单",
+            LogicalTableRole.FACT, "一条记录是一笔订单", actor, actor,
+            physical.physicalColumns.map { column -> LogicalTableCreateRequest.LogicUnitInput(column.columnName, column.columnName,
+                LogicUnitSourceKind.COLUMN, null, LogicType.NUMBER, null, false, column.columnName == "ORDER_ID", false, false, true,
+                listOf(LogicalTableCreateRequest.SourceRefInput(column.id, 1, LogicUnitSourceRefRole.DIRECT_SOURCE))) }))
+        activate(GovernanceActivationObjectType.LOGICAL_TABLE, logical.logicalTable.id)
+        val units = logical.logicUnits.associateBy { it.code }
+        val topology = olap.governance.createTopology(TopologyCreateRequest("orders", "销售订单事实", "installed.sales", "安装验收销售事实",
+            logical.logicalTable.id, 1, actor, "单表订单事实", actor)).topology
+        activate(GovernanceActivationObjectType.TOPOLOGY, topology.id)
+        val event = olap.governance.createEvent(EventCreateRequest(topology.id, 1, "registered", "已登记订单", actor, null, null,
+            EventIdentity(listOf(EventIdentity.LogicUnitRef(units.getValue("ORDER_ID").id, 1)), emptyMap()), emptyMap(), emptyList(),
+            units.values.map { EventCreateRequest.LogicUnitRefInput(it.id, 1) }, "按原订单记录汇总，不声明未知完成状态", actor)).event
+        activate(GovernanceActivationObjectType.EVENT, event.id)
+        val amount = MetricValueContract(MetricValueContract.Fixed(MetricValueContract.UnitIdentity("iso4217", "CNY", 1)),
+            MetricValueContract.Exact(), MetricValueContract.Decimal(38, 2, MetricValueContract.Rounding.NONE), emptyMap(), MetricValueContract.Overflow.FAIL)
+        val count = MetricValueContract(MetricValueContract.Fixed(MetricValueContract.ONE), MetricValueContract.Exact(),
+            MetricValueContract.Integer(64), emptyMap(), MetricValueContract.Overflow.FAIL)
+        val specifications = listOf(
+            Triple("sales_amount", MetricDefinition.FactMeasure(EventRef(event.id, 1), SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT,
+                units.getValue("AMOUNT").id, 1), MetricAggregation.SUM, false, null, emptyMap(), null, amount, MetricValueContract.Rounding.NONE),
+                MetricBusinessMeaning("所有已登记订单的金额之和", "CNY", "订单", listOf("不含退款及状态限定"))),
+            Triple("order_count", MetricDefinition.FactMeasure(EventRef(event.id, 1), SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT,
+                units.getValue("ORDER_ID").id, 1), MetricAggregation.COUNT, false, null, emptyMap(), null, count, MetricValueContract.Rounding.NONE),
+                MetricBusinessMeaning("已登记订单记录数", "单", "订单", listOf("不作客户去重")))
+        )
+        val metrics = specifications.map { (code, definition, meaning) ->
+            olap.governance.createMetric(MetricCreateRequest(code, code, actor, definition, meaning.definition, meaning, actor)).metric.also {
+                activate(GovernanceActivationObjectType.METRIC, it.id)
+            }
+        }
+        val businessLineId = parameters.text("businessLineId")
+        activate(GovernanceActivationObjectType.BUSINESS_LINE, businessLineId)
+        val subjectDefinition = SubjectAreaCreateRequest(businessLineId, 1, "sales", "销售经营", actor, "安装后订单分析", actor)
+        val subject = olap.governance.createSubjectArea(subjectDefinition).subjectArea
+        val adoptions = metrics.zip(specifications).map { (metric, specification) ->
+            olap.governance.createSubjectAreaMetricRef(SubjectAreaMetricRefCreateRequest(subject.id, 1, metric.code, metric.displayName,
+                specification.third, metric.id, 1, CalculationBindings.empty(), emptyMap(), actor)).subjectAreaMetricRef
+        }
+        val scenario = olap.governance.createScenario(ScenarioCreateRequest(subject.id, 1, "orders", "订单经营分析", actor, "公开销售额和订单数", actor)).scenario
+        adoptions.forEachIndexed { index, adoption ->
+            olap.governance.createScenarioMetricRef(ScenarioMetricRefCreateRequest(scenario.id, 1, adoption.id, 1, true, index + 1))
+        }
+        activate(GovernanceActivationObjectType.SUBJECT_AREA, subject.id)
+        olap.governance.buildRelease(SubjectAreaReleaseBuildRequest("installed-sales", "1", "安装后销售口径", subject.id, 1, actor))
+        val coordinate = QueryCapabilityRequest(scenario.id, 1, "installed-sales", "1")
+        val publication = olap.semantics.publication(coordinate)
+        val intent = QueryIntent(coordinate, computation(publication))
+        val rejected = runCatching { olap.queries.validate(QueryValidationRequest(QuerySelection.Inline(QueryIntent(coordinate, computation(publication, true))))) }.exceptionOrNull()
+        check(rejected is CapabilityFailureException && rejected.failure.code == "EXECUTABLE_QUERY_NOT_PUBLISHED") { "未发布实例必须被正式授权拒绝：$rejected" }
+        check(olap.queries.validate(QueryValidationRequest(QuerySelection.Inline(intent))).valid)
+        val saved = olap.queries.save(QueryDefinitionCommand("installed-sales-summary", null, requireNotNull(publication.capability.capabilityHash),
+            "销售额与订单数", intent, null))
+        val execution = execute(intent, "全部已登记订单销售额和订单数是多少？")
+        val observedRun = olap.results.run(QueryRunRequest(execution.runId, 0, 20)).run
+        check(observedRun.receipt?.resultReference == execution.resultReference)
+        check(requireNotNull(observedRun.serviceObservation).workers.isNotEmpty())
+        val carry = olap.semantics.contextSelection(SubjectContextSelectionRequest(subject.id, 1)).selection
+        olap.governance.reviseSubjectArea(SubjectContextRevisionRequest(subject.id, 1, subjectDefinition, carry))
+        activate(GovernanceActivationObjectType.SUBJECT_AREA, subject.id, 2)
+        olap.governance.buildRelease(SubjectAreaReleaseBuildRequest("installed-sales", "2", "延续订单分析", subject.id, 2, actor))
+        val nextCoordinate = QueryCapabilityRequest(scenario.id, 2, "installed-sales", "2")
+        val nextPublication = olap.semantics.publication(nextCoordinate)
+        val continued = execute(QueryIntent(nextCoordinate, computation(nextPublication)), "修订上下文后保持订单口径")
+        output("query" to olap.output(saved.reference), "result" to olap.output(requireNotNull(execution.resultReference)),
+            "continuedResult" to olap.output(requireNotNull(continued.resultReference)), "scenarioId" to text(scenario.id), "subjectAreaId" to text(subject.id))
+    }
+    "reopen" -> {
+        val query = QueryReference(parameters.text("definitionId"), parameters.text("definitionVersion").toLong(), parameters.text("querySha256"))
+        val original = reference("result")
+        verify(original)
+        check(olap.queries.read(QueryVersionRequest(query)).reference == query)
+        val repeated = olap.queries.execute(QueryExecutionRequest(QuerySelection.Saved(query), true, "重启后按同一发布重新计算销售额与订单数", null))
+        check(repeated.status == QueryExecutionStatus.SUCCEEDED && repeated.saved && repeated.runId != original.runId)
+        verify(requireNotNull(repeated.resultReference))
+        output("query" to olap.output(query), "result" to olap.output(requireNotNull(repeated.resultReference)))
+    }
+    else -> error("未知安装验收阶段")
+}

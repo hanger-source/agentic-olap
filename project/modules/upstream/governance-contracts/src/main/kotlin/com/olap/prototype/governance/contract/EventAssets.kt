@@ -1,6 +1,6 @@
 package com.olap.prototype.governance.contract
 
-import com.fasterxml.jackson.annotation.JsonProperty
+import com.olap.prototype.expression.SemanticExpression
 import com.olap.prototype.contract.ProducerContracts
 import com.olap.prototype.event.EventIdentity
 import com.olap.prototype.event.RelationAccessPath
@@ -8,8 +8,8 @@ import java.time.Instant
 import java.util.Collections
 
 class EventCreateRequest(val topologyId: String, val topologyVersion: Long, val code: String, val displayName: String, val owner: String,
-    @param:JsonProperty(required = true) val eventTimeLogicUnitId: String?,
-    @param:JsonProperty(required = true) val eventTimeLogicUnitVersion: Long?,
+     val eventTimeLogicUnitId: String?,
+     val eventTimeLogicUnitVersion: Long?,
     val identity: EventIdentity, roles: Map<String, RelationAccessPath>, filterableLogicUnitRefs: List<LogicUnitRefInput>, measureLogicUnitRefs: List<LogicUnitRefInput>, val description: String?, val createdBy: String) {
     val roles: Map<String, RelationAccessPath> = Collections.unmodifiableMap(LinkedHashMap(roles))
     val filterableLogicUnitRefs: List<LogicUnitRefInput> = java.util.List.copyOf(filterableLogicUnitRefs)
@@ -30,5 +30,5 @@ data class EventRecord(val id: String, val code: String, val displayName: String
     }
 }
 data class EventLogicUnitRefRecord(val id: String, val eventId: String, val eventVersion: Long, val logicUnitId: String, val logicUnitVersion: Long, val refRole: String, val createdAt: Instant)
-data class EventSliceFilterRecord(val id: String, val eventId: String, val eventVersion: Long, val filterJson: String, val createdAt: Instant)
-data class EventVersionRecord(val id: String, val eventId: String, val version: Long, val versionStatus: String, val contentJson: String, val diagnosticJson: String?, val sourceVersion: Long?, val createdBy: String, val createdAt: Instant, val activatedBy: String?, val activatedAt: Instant?, val deprecatedBy: String?, val deprecatedAt: Instant?, val archivedBy: String?, val archivedAt: Instant?)
+data class EventSliceFilterRecord(val id: String, val eventId: String, val eventVersion: Long, val predicate: SemanticExpression, val createdAt: Instant)
+data class EventVersionRecord(val id: String, val eventId: String, val version: Long, val versionStatus: String, val contentProto: String, val diagnosticJson: String?, val sourceVersion: Long?, val createdBy: String, val createdAt: Instant, val activatedBy: String?, val activatedAt: Instant?, val deprecatedBy: String?, val deprecatedAt: Instant?, val archivedBy: String?, val archivedAt: Instant?)

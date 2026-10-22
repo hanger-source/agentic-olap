@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"reflect"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -68,17 +67,6 @@ func str(value any) string {
 	require(ok, "需要 JSON 文本，实际 %T", value)
 	return result
 }
-func integer(value any) int {
-	switch n := value.(type) {
-	case int:
-		return n
-	case json.Number:
-		result, err := n.Int64()
-		must(err)
-		return int(result)
-	}
-	panic(failure{fmt.Errorf("需要精确 JSON 整数，实际 %T", value)})
-}
 func decode(data []byte) any {
 	var result any
 	d := json.NewDecoder(bytes.NewReader(data))
@@ -96,7 +84,6 @@ func write(path string, value any) {
 	must(os.MkdirAll(filepath.Dir(path), 0755))
 	must(os.WriteFile(path, append(data, '\n'), 0644))
 }
-func clone(value any) any { return decode(encoded(value)) }
 func merge(base object, values object) object {
 	result := object{}
 	for k, v := range base {
@@ -106,18 +93,6 @@ func merge(base object, values object) object {
 		result[k] = v
 	}
 	return result
-}
-func exactRef(asset object) object { return object{"id": asset["id"], "version": asset["version"]} }
-func one(values any, key string, value any) object {
-	var selected []object
-	for _, entry := range arr(values) {
-		item := obj(entry)
-		if reflect.DeepEqual(item[key], value) {
-			selected = append(selected, item)
-		}
-	}
-	require(len(selected) == 1, "需要唯一 %s=%v，实际 %d", key, value, len(selected))
-	return selected[0]
 }
 
 type bearer struct {
@@ -136,15 +111,12 @@ type remote struct {
 	ctx       context.Context
 	session   *mcp.ClientSession
 	transport *http.Transport
-	actor     string
 	output    string
 	trace     *os.File
 	count     int
-	declared  object
-	report    object
 }
 
-func connect(ctx context.Context, url, token, actor, output string) *remote {
+func connect(ctx context.Context, url, token, output string) *remote {
 	must(os.MkdirAll(output, 0755))
 	trace, err := os.OpenFile(filepath.Join(output, "mcp-calls.jsonl"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
 	must(err)
@@ -156,7 +128,7 @@ func connect(ctx context.Context, url, token, actor, output string) *remote {
 		trace.Close()
 		must(err)
 	}
-	return &remote{ctx: ctx, session: session, transport: transport, actor: actor, output: output, trace: trace, report: object{}}
+	return &remote{ctx: ctx, session: session, transport: transport, output: output, trace: trace}
 }
 func (r *remote) close() {
 	defer r.transport.CloseIdleConnections()
@@ -171,116 +143,16 @@ func (r *remote) callStatus(operation string, payload any, success bool) object 
 	envelope := obj(decode([]byte(text.Text)))
 	r.count++
 	must(json.NewEncoder(r.trace).Encode(object{"index": r.count, "operation": operation, "payload": payload, "response": envelope}))
-	require(envelope["success"] == success, "%s 实际结局错误：%s", operation, encoded(envelope))
+	if envelope["success"] != success {
+		diagnostic := object{"requestId": envelope["requestId"], "error": envelope["error"]}
+		if operation == "execute-script" && envelope["result"] != nil {
+			report := obj(envelope["result"])
+			diagnostic["diagnostics"] = report["diagnostics"]
+		}
+		require(false, "%s 实际结局错误：%s；完整调用见 %s", operation, encoded(diagnostic), filepath.Join(r.output, "mcp-calls.jsonl"))
+	}
 	return envelope
 }
 func (r *remote) call(operation string, payload any) any {
 	return r.callStatus(operation, payload, true)["result"]
-}
-func (r *remote) read(operation string, payload any) any {
-	return r.call("read-governance", object{"operation": operation, "payload": payload})
-}
-func (r *remote) pages(operation string, payload object) array {
-	items := array{}
-	offset := any(0)
-	for {
-		page := obj(r.read(operation, merge(payload, object{"offset": offset, "limit": 100})))
-		items = append(items, arr(page["items"])...)
-		offset = page["nextOffset"]
-		if offset == nil {
-			return items
-		}
-	}
-}
-func (r *remote) asset(assetType string, reference object) object {
-	require(reference["id"] != nil && reference["version"] != nil, "作者读取必须提供明确资产身份与版本：%s", assetType)
-	record := obj(r.read("read-asset-version", object{"assetType": assetType, "id": reference["id"], "version": reference["version"]}))
-	// 作者后续引用使用本次已选择版本；领域记录保留自己的 currentVersion/subjectAreaVersion 字段。
-	return merge(record, object{"version": reference["version"]})
-}
-func (r *remote) activate(kind string, reference object) any {
-	return r.write("activate", object{"objectType": kind, "objectId": reference["id"], "objectVersion": reference["version"], "activatedBy": r.actor, "reason": "明确审核本例业务定义"})
-}
-func (r *remote) write(operation string, payload object) object {
-	if operation == "discover-source" && r.declared != nil {
-		operation = "register-source-structure"
-		table := obj(clone(r.declared[str(payload["tablePattern"])]))
-		for _, value := range arr(table["columns"]) {
-			column := obj(value)
-			delete(column, "autoIncrement")
-			delete(column, "generated")
-		}
-		payload = object{"dataSourceId": payload["dataSourceId"], "sourceIdentityHash": payload["sourceIdentityHash"], "catalog": nil, "schemaName": "main", "authority": "http-source-fixture-owned-configuration", "revision": "orders-schema-v1", "tables": array{table}, "requestedBy": r.actor}
-	}
-	receipt := obj(r.call("write-governance", object{"operation": operation, "payload": payload}))
-	require(receipt["formatVersion"] == "governance-write-receipt/v1", "不支持治理回执：%v", receipt["formatVersion"])
-	result := obj(receipt["result"])
-	if operation == "register-source-structure" {
-		snapshot := obj(r.read("read-source-discovery", object{"snapshotId": result["snapshotId"]}))
-		require(obj(snapshot["structureProvenance"])["kind"] == "DECLARED" && snapshot["driverName"] == nil, "声明结构不能伪造 JDBC 观察")
-		for _, value := range r.pages("read-source-discovery-tables", object{"snapshotId": result["snapshotId"]}) {
-			for _, c := range r.pages("read-source-discovery-columns", object{"discoveredTableId": obj(value)["id"]}) {
-				require(obj(c)["autoIncrement"] == nil && obj(c)["generated"] == nil, "声明未知事实被填造")
-			}
-		}
-	}
-	if operation == "create-event" && r.declared != nil && r.report["rawBagEvent"] == nil {
-		receipt := obj(r.call("write-governance", object{"operation": "create-event", "payload": merge(payload, object{"code": "http_unkeyed_bag", "displayName": "HTTP无键行袋事件", "identity": object{"recordKey": array{}, "entityRoles": object{}}, "roles": object{}, "description": "来源完整行袋，不声明唯一记录或实体身份"})}))
-		require(receipt["formatVersion"] == "governance-write-receipt/v1", "无键事件需要正式写回执")
-		bag := obj(receipt["result"])
-		r.report["rawBagEvent"] = bag
-		r.activate("EVENT", bag)
-	}
-	return result
-}
-
-func (r *remote) source(id string) object {
-	values := arr(r.call("list-data-sources", object{}))
-	selected := array{}
-	for _, entry := range values {
-		if obj(entry)["dataSourceId"] == id {
-			selected = append(selected, entry)
-		}
-	}
-	require(len(selected) == 1, "作者必须明确部署一份精确来源：%s", id)
-	return obj(selected[0])
-}
-func (r *remote) rows(reference any) ([]string, array) {
-	var columns any
-	rows := array{}
-	offset := any(0)
-	for {
-		page := obj(r.call("read-query-result", object{"resultReference": reference, "offset": offset, "limit": 1}))
-		if columns != nil {
-			require(reflect.DeepEqual(columns, page["columns"]), "不可变结果分页列发生变化")
-		}
-		columns = page["columns"]
-		rows = append(rows, arr(page["rows"])...)
-		offset = page["nextOffset"]
-		if offset == nil {
-			break
-		}
-	}
-	names := []string{}
-	for _, value := range arr(columns) {
-		name := obj(value)["name"]
-		if s, ok := name.(string); ok {
-			names = append(names, s)
-			continue
-		}
-		path := obj(obj(name)["metadataReference"])["path"]
-		var text string
-		offset = 0
-		for {
-			page := obj(r.call("read-query-result-metadata", object{"resultReference": reference, "path": path, "offset": offset, "limit": 2000}))
-			require(page["kind"] == "TEXT", "列名元数据不是文本")
-			text += str(page["text"])
-			offset = page["nextOffset"]
-			if offset == nil {
-				break
-			}
-		}
-		names = append(names, text)
-	}
-	return names, rows
 }

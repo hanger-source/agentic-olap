@@ -5,7 +5,6 @@ import com.olap.prototype.contract.ProducerContracts.requireText
 import com.olap.prototype.contract.ProducerContracts.requireVersion
 import com.olap.prototype.governance.contract.*
 import com.olap.prototype.storage.PlatformDatabase
-import com.olap.prototype.util.OlapJsonUtils
 import java.time.Instant
 
 class SubjectAreaGovernanceRepository(private val database: PlatformDatabase) {
@@ -23,8 +22,8 @@ class SubjectAreaGovernanceRepository(private val database: PlatformDatabase) {
     }
     fun saveSubjectAreaVersion(r: SubjectAreaVersionRecord) {
         GovernanceContract.requireVersionObject("subject_area_version", "subject_area_id", r.id, r.subjectAreaId, r.version, r.versionStatus, r.createdBy, r.createdAt)
-        requireText(r.contentJson, "subject_area_version.content_json")
-        try { GovernanceJdbcSupport.insert(database, "subject_area_version", linkedMapOf("id" to r.id, "subject_area_id" to r.subjectAreaId, "version" to r.version, "version_status" to r.versionStatus, "content_json" to r.contentJson, "diagnostic_json" to r.diagnosticJson, "source_version" to r.sourceVersion, "created_by" to r.createdBy, "created_at" to r.createdAt, "activated_by" to r.activatedBy, "activated_at" to r.activatedAt, "deprecated_by" to r.deprecatedBy, "deprecated_at" to r.deprecatedAt, "archived_by" to r.archivedBy, "archived_at" to r.archivedAt)) }
+        requireText(r.contentProto, "subject_area_version.content_proto")
+        try { GovernanceJdbcSupport.insert(database, "subject_area_version", linkedMapOf("id" to r.id, "subject_area_id" to r.subjectAreaId, "version" to r.version, "version_status" to r.versionStatus, "content_proto" to r.contentProto, "diagnostic_json" to r.diagnosticJson, "source_version" to r.sourceVersion, "created_by" to r.createdBy, "created_at" to r.createdAt, "activated_by" to r.activatedBy, "activated_at" to r.activatedAt, "deprecated_by" to r.deprecatedBy, "deprecated_at" to r.deprecatedAt, "archived_by" to r.archivedBy, "archived_at" to r.archivedAt)) }
         catch (failure: Exception) { throw IllegalStateException("Failed to save subject_area_version: ${r.id}", failure) }
     }
     fun saveSubjectAreaScenarioRef(r: SubjectAreaScenarioRefRecord) {
@@ -66,8 +65,8 @@ class SubjectAreaGovernanceService(private val database: PlatformDatabase, priva
         val draft = GovernanceDraftVersions(database).start(GovernanceDraftVersions.Asset.SUBJECT_AREA, id, revision, request.createdBy)
         val actor = requireText(request.createdBy, "subject_area.created_by").trim(); val now = Instant.now()
         val record = SubjectAreaRecord(id, code, requireText(request.displayName, "subject_area.display_name").trim(), business, businessVersion, request.description, requireText(request.owner, "subject_area.owner").trim(), "DRAFT", draft.version, actor, now, actor, now)
-        val content = try { OlapJsonUtils.mapper().writeValueAsString(SubjectAreaSnapshots.subjectAreaVersionContent(record)) }
-            catch (failure: Exception) { throw ProducerContractException("canonical governance content_json invalid", failure) }
+        val content = try { com.olap.prototype.codec.ProtoBytes.storage(com.olap.prototype.codec.GovernanceProto.definition(SubjectAreaSnapshots.subjectAreaVersionContent(record))) }
+            catch (failure: Exception) { throw ProducerContractException("canonical governance content_proto invalid", failure) }
         val version = SubjectAreaVersionRecord("$id:v${draft.version}", id, draft.version, "DRAFT", content, "{}", draft.sourceVersion, actor, now, null, null, null, null, null, null)
         saveSubjectArea(record); saveSubjectAreaVersion(version)
         return SubjectAreaCreateResult(record, version)

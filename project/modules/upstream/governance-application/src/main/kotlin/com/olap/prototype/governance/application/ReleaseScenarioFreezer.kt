@@ -61,12 +61,12 @@ internal class ReleaseScenarioFreezer(private val release: SubjectAreaReleaseRec
         val provider = ref.valueProviderId?.let { analysisDimensions.findAnalysisDimensionValueProvider(it) ?: throw ProducerContractException("selected exact value provider is missing") }
         if (provider != null && (provider.analysisDimensionId != ref.targetId || provider.analysisDimensionVersion != ref.targetVersion))
             throw ProducerContractException("selected value provider differs from its exact dimension")
-        return ReleaseScenarioSnapshot.FilterGrant(ref.id, ref.filterTargetType, ref.targetId, ref.targetVersion, ref.operatorPolicyJson, ref.valueProviderId,
+        return ReleaseScenarioSnapshot.FilterGrant(ref.id, ref.filterTargetType, ref.targetId, ref.targetVersion, ref.operators, ref.valueProviderId,
             provider?.providerType, provider?.sourceLogicUnitId, provider?.sourceLogicUnitVersion, ref.requiredByDefault, ref.sortOrder)
     }
     private fun stage(rule: ScenarioPipelineRuleRecord): PostProcessCapability {
         if (rule.status != "ACTIVE") throw ProducerContractException("frozen scenario stage must be approved in its exact subject area")
-        return PostProcessCapability(rule.id, rule.ruleType, rule.displayName, rule.ruleConfigJson, rule.sortOrder, null, null, null, null, null, true, false, false, false)
+        return PostProcessCapability(rule.id, rule.ruleType, rule.displayName, rule.authorization, rule.sortOrder, null, null, null, null, null, true, false, false, false)
     }
     class FrozenScenario(val definition: ScenarioRecord, val selection: ReleaseScenarioSnapshot, relationFilters: List<ScenarioRelationFilterRecord>, diagnostics: List<ReleaseDiagnosticIssue>) {
         val relationFilters: List<ScenarioRelationFilterRecord> = java.util.List.copyOf(relationFilters)

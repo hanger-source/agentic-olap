@@ -1,8 +1,5 @@
 package com.olap.prototype.query
 
-import com.fasterxml.jackson.annotation.JsonProperty
-import com.fasterxml.jackson.databind.annotation.JsonDeserialize
-import com.fasterxml.jackson.databind.annotation.JsonSerialize
 import com.olap.prototype.calculation.Calculation
 import com.olap.prototype.contract.ProducerContractException
 import com.olap.prototype.contract.ProducerContracts
@@ -60,8 +57,6 @@ object PostOperationContract {
         require(it.isNotEmpty() && it.map(OrderKey::symbol).distinct().size == it.size) { "ordering requires nonempty distinct symbol keys" }
     }
 
-    @JsonDeserialize(using = PostOperationCodec.Reader::class)
-    @JsonSerialize(using = PostOperationCodec.Writer::class)
     sealed interface ValidatedOperation { val operationType: String }
     sealed interface OutputOperation : ValidatedOperation { val outputAlias: String; val outputDisplayName: String }
     sealed interface AggregateOutput : OutputOperation {
@@ -193,7 +188,7 @@ object PostOperationContract {
     }
 
     enum class VersionTies { FAIL, KEEP_ALL }
-    data class SnapshotSelection(val timeSymbol: String, @param:JsonProperty(required = true) val asOf: Calculation.Binding?) {
+    data class SnapshotSelection(val timeSymbol: String, val asOf: Calculation.Binding?) {
         init {
             requireInputSymbol(timeSymbol, "snapshot.timeSymbol")
             require(asOf == null || asOf is Calculation.Argument || asOf is Calculation.Scalar && asOf.scalarType in setOf(
@@ -202,7 +197,7 @@ object PostOperationContract {
             }
         }
     }
-    class SelectVersions(partitionBy: List<String>, orderKeys: List<OrderKey>, val ties: VersionTies, @param:JsonProperty(required = true) val snapshot: SnapshotSelection?) : ValidatedOperation {
+    class SelectVersions(partitionBy: List<String>, orderKeys: List<OrderKey>, val ties: VersionTies, val snapshot: SnapshotSelection?) : ValidatedOperation {
         val partitionBy = requireInputSymbols(partitionBy, "versions.partitionBy")
         val orderKeys = checkedOrderKeys(orderKeys)
         override val operationType: String get() = SELECT_VERSIONS
@@ -217,8 +212,8 @@ object PostOperationContract {
     /** 观察域先裁范围，聚合后再裁展示；日历人口只能来自明确的输入。 */
     class ObserveWindow(inputKeys: List<String>, partitionBy: List<String>, override val outputAlias: String, override val outputDisplayName: String,
         orderKeys: List<OrderKey>, val aggregation: ResultAggregation, val windowFrame: WindowFrameContract.Frame, val domain: ObservationDomain,
-        @param:JsonProperty(required = true) val timeSymbol: String?, @param:JsonProperty(required = true) val observationRange: Calculation.Binding?,
-        @param:JsonProperty(required = true) val displayRange: Calculation.Binding?, @param:JsonProperty(required = true) val calendar: CalendarAxis?) : OutputOperation {
+        val timeSymbol: String?, val observationRange: Calculation.Binding?,
+        val displayRange: Calculation.Binding?, val calendar: CalendarAxis?) : OutputOperation {
         val inputKeys = requireInputSymbols(inputKeys, "observations.inputKeys")
         val partitionBy = requireInputSymbols(partitionBy, "observations.partitionBy")
         val orderKeys = checkedOrderKeys(orderKeys)
@@ -275,8 +270,6 @@ object PostOperationContract {
         override fun equals(other: Any?): Boolean = other is ResultGrouping && groupBy == other.groupBy && aggregates == other.aggregates && groupingLevels == other.groupingLevels
         override fun hashCode(): Int = listOf(groupBy, aggregates, groupingLevels).hashCode()
     }
-    @JsonDeserialize(using = PostOperationCodec.AggregateReader::class)
-    @JsonSerialize(using = PostOperationCodec.AggregateWriter::class)
     data class ResultAggregate(val input: String, val aggregation: ResultAggregation, val outputAlias: String, val outputDisplayName: String) {
         init { requireInputSymbol(input, "aggregate.input"); output(outputAlias, outputDisplayName, "aggregate") }
     }

@@ -1,18 +1,16 @@
 package com.olap.prototype.contract
 
-import com.fasterxml.jackson.annotation.JsonInclude
-import com.fasterxml.jackson.annotation.JsonProperty
 
 /** 原生技术容量；容器保留元素/字段顺序，不携带业务形态或物理字段名。 */
 class NativeValueType(
     val name: String,
     val precision: Int?,
     val scale: Int?,
-    @param:JsonProperty(value = "nullable", required = true) val nullable: Boolean,
-    @get:JsonInclude(JsonInclude.Include.NON_NULL) val elementType: NativeValueType? = null,
+    val nullable: Boolean,
+    val elementType: NativeValueType? = null,
     fields: List<NativeValueType>? = null,
 ) {
-    @get:JsonInclude(JsonInclude.Include.NON_NULL)
+
     val fields: List<NativeValueType>? = fields?.let { java.util.List.copyOf(it) }
     init {
         ProducerContracts.requireText(name, "native value type")

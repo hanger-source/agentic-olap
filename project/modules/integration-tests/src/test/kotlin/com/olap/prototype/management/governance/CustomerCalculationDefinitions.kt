@@ -17,10 +17,10 @@ internal object CustomerCalculationDefinitions {
             "minimum" to Calculation.Parameter(Calculation.ParameterKind.SCALAR, "NUMBER", emptyList(), null, GovernanceOrderFixture.money()),
             "groups" to Calculation.Parameter(Calculation.ParameterKind.GROUPING, "SEMANTIC_DIMENSIONS", listOf(Calculation.DimensionSlot("destination", "global.destination", 1, "destination")), null, null))
         val customers = Calculation.Scope(Calculation.Members("customers", "customers", listOf(Calculation.MemberProjection("customer", "customer")), null, emptyMap(), MemberCondition.Unrestricted()), emptyMap(), emptyList())
-        val stages = listOf(PostOperationCodec.parse("JOIN_INPUT", mapOf("inputId" to "eligible", "occurrenceId" to "cohort", "joinType" to "SEMI",
-            "condition" to mapOf("kind" to "OPERATION", "operator" to "EQ", "operands" to listOf(symbol("customer"), symbol("cohort__customer"))))),
-            PostOperationCodec.parse("POST_FILTER", mapOf("expression" to mapOf("kind" to "OPERATION", "operator" to if (strict) "GT" else "GTE",
-                "operands" to listOf(symbol("spent"), mapOf("kind" to "ARGUMENT", "name" to "minimum", "valueType" to "NUMBER"))))),
+        val stages = listOf(PostOperationContract.JoinInput("eligible", "cohort", "SEMI",
+            ResultExpression.ResultOperation(ResultExpression.ResultOperator.EQ, listOf(ResultExpression.ResultSymbol("customer"), ResultExpression.ResultSymbol("cohort__customer")))),
+            PostOperationContract.PostFilter(ResultExpression.ResultOperation(if (strict) ResultExpression.ResultOperator.GT else ResultExpression.ResultOperator.GTE,
+                listOf(ResultExpression.ResultSymbol("spent"), ResultExpression.ResultArgument("minimum", ScalarValueType.NUMBER)))),
             regroup("spent", "AVG", listOf("\$group:groups"), approximateMoney()))
         return MetricCalculation(Calculation(slots, listOf(Calculation.MemberSlot("customers", "客户", "customer", MemberShape.UNIQUE_MEMBERS,
             mapOf("customer" to Calculation.MemberDimension("customer", null)), null)), emptyList(), emptyList(), parameters, Calculation.Scope(Calculation.Measures(listOf(Calculation.Call("orders", Calculation.Fixed(MetricRef(paymentMetric, "1")), "spent", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()))),
@@ -47,9 +47,10 @@ internal object CustomerCalculationDefinitions {
             listOf(regroup("amount", aggregation, emptyList(), contract)))), "value", emptyList(), contract)
     }
 
-    fun regroup(input: String, aggregation: String, groups: List<String>, contract: MetricValueContract) = PostOperationCodec.parse("REGROUP", mapOf(
-        "groupBy" to groups, "groupingLevels" to null, "aggregates" to listOf(mapOf("input" to input, "aggregation" to aggregation, "nullPolicy" to "IGNORE",
-            "outputAlias" to "value", "outputDisplayName" to "形成金额", "valueContract" to contract, "aggregationRounding" to "NONE"))))
-
-    private fun symbol(name: String): Map<String, Any> = mapOf("kind" to "SYMBOL", "symbol" to name)
+    fun regroup(input: String, aggregation: String, groups: List<String>, contract: MetricValueContract) = PostOperationContract.Regroup(PostOperationContract.ResultGrouping(groups,
+        listOf(PostOperationContract.ResultAggregate(input, when (aggregation) {
+            "SUM" -> ResultAggregation.Sum(contract, ResultAggregation.NullPolicy.IGNORE)
+            "AVG" -> ResultAggregation.Average(contract, ResultAggregation.NullPolicy.IGNORE, MetricValueContract.Rounding.NONE)
+            else -> error("customer amount fixture requires SUM or AVG")
+        }, "value", "形成金额")), null))
 }

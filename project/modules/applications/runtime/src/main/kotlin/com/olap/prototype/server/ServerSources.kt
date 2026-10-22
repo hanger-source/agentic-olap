@@ -1,124 +1,102 @@
 package com.olap.prototype.server
 
-import com.fasterxml.jackson.databind.JsonNode
-import com.fasterxml.jackson.core.JsonProcessingException
-import com.olap.prototype.connector.ConnectorRef
 import com.olap.prototype.connector.ConnectorRegistry
 import com.olap.prototype.connector.CompilationSupport
 import com.olap.prototype.connector.OlapConnector
 import com.olap.prototype.connector.loader.DeployedSources
 import com.olap.prototype.contract.ProducerContractException
-import com.olap.prototype.contract.InputContractException
 import com.olap.prototype.expression.NativeAggregateTypes
-import com.olap.prototype.query.contract.QueryCapabilityRequest
+import com.olap.prototype.query.contract.*
 import com.olap.prototype.release.catalog.JdbcPublishedQueryEntryProvider
-import com.olap.prototype.server.ServerInputs.command
-import com.olap.prototype.server.ServerInputs.fields
-import com.olap.prototype.server.ServerInputs.text
-import com.olap.prototype.util.OlapJsonUtils
+import com.olap.prototype.runtime.CandidateWorkerCommand
+import com.olap.prototype.runtime.CandidateWorkerResult
+import com.olap.prototype.source.contract.*
 import com.olap.prototype.warehouse.contract.SourceBindingRef
 import com.olap.prototype.warehouse.contract.SourceConfiguration
 import com.olap.prototype.warehouse.onboarding.SourceDatasetRegistrationRequest
 import com.olap.prototype.warehouse.onboarding.WarehouseOnboardingService
 
+/** 来源身份与授权先确定；业务、调查与候选输入始终保持正式类型。 */
 internal class ServerSources(private val sources: DeployedSources,
     private val connectors: ConnectorRegistry, private val authorization: ServerAuthorization,
     private val publications: JdbcPublishedQueryEntryProvider, private val workers: RemoteWorkers,
     private val onboarding: WarehouseOnboardingService) {
-    private val mapper = OlapJsonUtils.mapper()
 
-    fun registerDataset(request: ServerRequest, payload: JsonNode): Any {
-        fields(payload, setOf("dataSourceId", "sourceIdentityHash", "declarationJson", "sha256"))
-        val input = mapper.treeToValue(payload, SourceDatasetRegistrationRequest::class.java)
+    fun registerDataset(request: ServerRequest, input: SourceDatasetRegistrationRequest): com.olap.prototype.dsl.SourceCollections {
         authorization.source(request.principal, "register-source-dataset", input.dataSourceId)
         sources.requireConfiguration(SourceBindingRef(input.dataSourceId, input.sourceIdentityHash))
-        return onboarding.registerSourceDataset(input, request.control, SourceInvestigationClient(workers, request.work))
+        return com.olap.prototype.dsl.SourceCollections(onboarding.registerSourceDataset(input, request.control, SourceInvestigationClient(workers, request.work)))
     }
 
     private fun visible(request: ServerRequest, operation: String) = sources.configurations().filter { source ->
         authorization.matching(request.principal, operation).any { ServerAuthorization.includes(it.dataSources, source.dataSourceId) }
     }
 
-    fun list(request: ServerRequest, payload: JsonNode): Any {
-        fields(payload, emptySet())
-        return visible(request, "list-data-sources").sortedWith(compareBy<SourceConfiguration> { it.dataSourceId }.thenBy { it.sourceIdentityHash() }).map {
-            mapOf("dataSourceId" to it.dataSourceId, "sourceIdentityHash" to it.sourceIdentityHash(),
-                "connectorRef" to it.connectorRef, "dialectId" to it.dialectId,
-                "accessCapabilities" to connectors.require(it.connectorRef).access.capabilities(it).supported)
-        }
-    }
+    fun list(request: ServerRequest, input: EmptyRequest): AvailableSources = AvailableSources(
+        visible(request, "list-data-sources").sortedWith(compareBy<SourceConfiguration> { it.dataSourceId }.thenBy { it.sourceIdentityHash() }).map {
+            AvailableSource(it.bindingRef(), it.connectorRef, it.dialectId, connectors.require(it.connectorRef).access.capabilities(it).supported.map { capability -> capability.name }.toSet())
+        })
 
-    fun capabilities(request: ServerRequest, payload: JsonNode): Any {
-        val input = try { mapper.treeToValue(payload, ConnectorCapabilitiesRequest::class.java) }
-        catch (failure: JsonProcessingException) { throw InputContractException.decoding(failure, payload) }
+    fun capabilities(request: ServerRequest, input: ConnectorCapabilitiesRequest): ConnectorCapabilities {
         val permitted = visible(request, "read-connector-capabilities").map { it.connectorRef }.distinct()
         val aggregate = input.aggregate?.let {
             if (it.connectorRef !in permitted) throw SecurityException("connector is not used by an authorized source")
-            mapOf("connectorRef" to it.connectorRef, "aggregation" to it.aggregation, "inputType" to it.inputType,
-                "grouped" to it.grouped, "mapping" to NativeAggregateTypes.describe(connectors.require(it.connectorRef).compilation,
-                    it.aggregation, it.inputType, it.grouped))
+            ConnectorCapabilities.Aggregate(it.connectorRef, it.aggregation, it.inputType, it.grouped,
+                NativeAggregateTypes.describe(connectors.require(it.connectorRef).compilation, it.aggregation, it.inputType, it.grouped))
         }
-        return buildMap {
-            put("apiVersion", OlapConnector.API_VERSION)
-            put("connectors", permitted.map {
-                val connector = connectors.require(it)
-                mapOf("connectorRef" to it, "nativeScalarFunctions" to connector.compilation.nativeScalarFunctions,
-                    "compilationCapabilities" to CompilationSupport.Capability.entries.filter(connector.compilation::supports),
-                    "parameterSubmission" to connector.compilation.parameterSubmission,
-                    "configurationParameters" to connector.access.configurationParameters)
-            })
-            if (aggregate != null) put("aggregate", aggregate)
-        }
+        return ConnectorCapabilities(OlapConnector.API_VERSION, permitted.map {
+            val connector = connectors.require(it)
+            ConnectorCapabilities.Connector(it, connector.compilation.nativeScalarFunctions,
+                CompilationSupport.Capability.entries.filter(connector.compilation::supports).map { capability -> capability.name }.toSet(),
+                connector.compilation.parameterSubmission.name, connector.access.configurationParameters)
+        }, aggregate)
     }
 
-    fun inspect(request: ServerRequest, payload: JsonNode): Any {
-        fields(payload, setOf("operation", "payload"))
-        val body = payload.required("payload")
-        val operation = text(payload, "operation")
-        val selected = if (operation == "read-inspection-capability") {
-            fields(body, emptySet()); emptyList()
-        } else {
-            val id = text(body, "dataSourceId")
-            authorization.source(request.principal, "inspect-warehouse", id)
-            listOf(sources.requireConfiguration(SourceBindingRef(id, text(body, "sourceIdentityHash"))))
+    fun inspect(request: ServerRequest, input: SourceInspection): SourceInspectionResult {
+        val binding = when(input) {
+            SourceInspection.Capabilities -> null
+            is SourceInspection.Discover -> input.binding
+            is SourceInspection.Describe -> input.binding
+            is SourceInspection.Snapshot -> input.binding
+            is SourceInspection.Preview -> input.binding
+            is SourceInspection.Profile -> input.binding
+            is SourceInspection.Relationship -> input.binding
         }
-        return workers.borrow(RemoteWorkers.Kind.INSPECTION, selected, request.work).use {
-            it.exchange(command(operation, body))
-        }
+        val selected = binding?.let {
+            authorization.source(request.principal, "inspect-warehouse", it.dataSourceId)
+            listOf(sources.requireConfiguration(it))
+        }.orEmpty()
+        return workers.borrow(RemoteWorkers.Kind.INSPECTION, selected, request.work).use { it.inspect(input) }
     }
 
-    fun candidates(request: ServerRequest, payload: JsonNode): Any {
-        val coordinate = QueryCapabilityRequest(text(payload, "scenarioId"), payload.required("scenarioVersion").longValue(),
-            text(payload, "releaseId"), text(payload, "releaseVersion"))
-        val publication = publications.readPublication(coordinate)
+    fun candidates(request: ServerRequest, input: CandidateRequest): CandidateValues {
+        val publication = publications.readPublication(input.publication)
         val entry = publication.entry
         authorization.publication(request.principal, "candidate-values", entry)
         val resolution = workers.borrow(RemoteWorkers.Kind.CANDIDATE_VALUES, emptyList(), request.work).use {
             WorkerPublications.candidate(it, publication)
-            it.exchange(command("resolve-candidate-input", payload))
+            (it.candidate(CandidateWorkerCommand.Resolve(input)) as? CandidateWorkerResult.Resolved)?.value
+                ?: error("candidate worker returned a different resolution receipt")
         }
-        check(mapper.treeToValue(resolution.required("coordinate"), QueryCapabilityRequest::class.java) == publication.executable.coordinate &&
-            text(resolution, "catalogHash") == entry.catalogHash && text(resolution, "capabilityHash") == entry.capability.capabilityHash) {
-            "resolved candidate input differs from exact publication"
-        }
+        check(resolution.coordinate == publication.executable.coordinate && resolution.catalogHash == entry.catalogHash &&
+            resolution.capabilityHash == entry.capability.capabilityHash) { "resolved candidate input differs from exact publication" }
         val selected = authorizedSources(request, resolution)
         return workers.borrow(RemoteWorkers.Kind.CANDIDATE_VALUES, selected, request.work).use {
             WorkerPublications.candidate(it, publication)
-            val actual = it.exchange(command("candidate-values", payload))
-            check(text(actual, "queryHash") == text(resolution, "queryHash")) { "candidate execution differs from authorized typed request" }
+            val actual = (it.candidate(CandidateWorkerCommand.Values(input)) as? CandidateWorkerResult.Values)?.value
+                ?: error("candidate worker returned a different values receipt")
+            check(actual.queryHash == resolution.queryHash && actual.coordinate == resolution.coordinate &&
+                actual.catalogHash == resolution.catalogHash && actual.capabilityHash == resolution.capabilityHash) { "candidate execution differs from authorized typed request" }
             actual
         }
     }
 
-    private fun authorizedSources(request: ServerRequest, resolution: JsonNode): List<SourceConfiguration> {
-        if (!resolution.required("sources").isArray) throw ProducerContractException("typed candidate source requirements are required")
+    private fun authorizedSources(request: ServerRequest, resolution: CandidateResolution): List<SourceConfiguration> {
         val selected = linkedMapOf<SourceBindingRef, SourceConfiguration>()
-        resolution.required("sources").forEach {
-            val id = text(it, "dataSourceId")
-            authorization.source(request.principal, "candidate-values", id)
-            val source = sources.requireConfiguration(SourceBindingRef(id, text(it, "sourceIdentityHash")))
-            if (source.connectorRef != mapper.treeToValue(it.required("connectorRef"), ConnectorRef::class.java))
-                throw ProducerContractException("resolved candidate connector differs from deployed source")
+        resolution.sources.forEach {
+            authorization.source(request.principal, "candidate-values", it.binding.dataSourceId)
+            val source = sources.requireConfiguration(it.binding)
+            if (source.connectorRef != it.connectorRef) throw ProducerContractException("resolved candidate connector differs from deployed source")
             selected[source.bindingRef()] = source
         }
         return selected.values.toList()

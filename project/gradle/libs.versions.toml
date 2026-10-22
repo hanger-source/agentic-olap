@@ -1,9 +1,15 @@
 [versions]
 kotlin = "2.2.21"
+kotlinx-serialization = "1.9.0"
 protobuf-plugin = "0.9.5"
 shadow = "8.3.9"
 
 [libraries]
+kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinx-serialization" }
+kotlin-scripting-common = { module = "org.jetbrains.kotlin:kotlin-scripting-common", version.ref = "kotlin" }
+kotlin-scripting-jvm = { module = "org.jetbrains.kotlin:kotlin-scripting-jvm", version.ref = "kotlin" }
+kotlin-scripting-jvm-host = { module = "org.jetbrains.kotlin:kotlin-scripting-jvm-host", version.ref = "kotlin" }
+kotlin-scripting-compiler-embeddable = { module = "org.jetbrains.kotlin:kotlin-scripting-compiler-embeddable", version.ref = "kotlin" }
 logback-classic = { module = "ch.qos.logback:logback-classic", version = "1.6.4" }
 jackson-databind = { module = "com.fasterxml.jackson.core:jackson-databind", version = "2.18.6" }
 jackson-datatype-jsr310 = { module = "com.fasterxml.jackson.datatype:jackson-datatype-jsr310", version = "2.18.6" }

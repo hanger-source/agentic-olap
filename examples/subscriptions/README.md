@@ -59,8 +59,8 @@ go -C tools run ./cmd/olap-dev example --example subscriptions \
 
 开发入口核对实际构件哈希，以真实插件准备原始表与作者模板，再由正式HTTP研发场景持有自己的HTTPS JWKS、签名者和发行服务。它通过同一远程业务客户端建设、发布和执行，并核对重启后的元数据、保存查询、结果和使用记录。只读结果目录与明确小行数/字节预算制造真实失败；旧结果不能因此损坏或被伪造。源文件在只读调用前后保持相同哈希。
 
-`tools/internal/scenario`中的客户端通过官方Go MCP SDK逐层创建实际物理采用、逻辑字段、事件、共同维度、成员规则、计算定义与上下文采用。发布后查询使用正式返回的实例身份；查询作者只组织完整DSL和独立预期，共同远程客户端负责调用与分页消费。编译、SQL执行与数量合同由服务承担。
+`tools/internal/scenario` 中的客户端通过官方 Go MCP SDK 提交 [main.olap.kts](main.olap.kts)，由程序逐层创建实际物理采用、逻辑字段、事件、共同维度、成员规则、计算定义与上下文采用。发布后查询使用正式返回的实例身份；查询作者组织正式类型构成的完整 Query 和独立预期，程序通过客户端调用能力与分页读取结果。编译、SQL 执行与数量合同由服务承担。
 
 日常业务Agent连接实际服务见[AI使用指引](../../docs/agent-usage.md)，来源、外部issuer、授权与预算配置见[服务使用说明](../../skills/agentic-olap/references/server.md)。
 
-客户端保存自己的`publications.json`、`queries.json`、逐次`mcp-calls.jsonl`、`observations.json`及`reopen.json`。服务重启后以`reopen`阶段和客户端原输出目录读取精确发布、保存查询、已存结果和使用记录。结果保留原生类型、单位和NULL含义；保存与查询复用分别是明确操作，不自动提升业务定义、换版本、补零或扩大预算。
+`http/report.json` 保存建设、重启和无来源读取旧结果等阶段的正式脚本回执，包含保存查询和结果的精确引用。`http/business/mcp-calls.jsonl`、`http/reopened/mcp-calls.jsonl` 等阶段目录保存实际 MCP 请求与响应；其中 `execute-script` 请求保留本次完整作者程序。服务重启后，将原回执中的精确引用作为参数提交同一程序的 `reopen` 分支。结果保留原生类型、单位和 NULL 含义；保存与查询复用分别是明确操作，不自动提升业务定义、换版本、补零或扩大预算。

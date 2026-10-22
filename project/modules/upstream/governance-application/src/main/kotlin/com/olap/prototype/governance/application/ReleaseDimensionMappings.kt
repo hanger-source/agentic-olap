@@ -7,7 +7,6 @@ import com.olap.prototype.management.governance.*
 import com.olap.prototype.management.governance.CanonicalReleaseRepository.ReleaseDimensionMappingRecord
 import com.olap.prototype.management.governance.CanonicalReleaseRepository.ReleaseTimeAnchorRuleRecord
 import com.olap.prototype.release.contract.ReleaseJoinPathRef
-import com.olap.prototype.util.OlapJsonUtils
 import java.time.Instant
 
 /** 选择和冻结精确维度映射，不写数据库。 */
@@ -34,7 +33,7 @@ internal class ReleaseDimensionMappings(private val analysisDimensions: Analysis
             mapping.levelCode, level.displayName, mapping.dimensionId, mapping.dimensionVersion, dimension.dimensionCodeNamespace, dimension.dimensionCodeNamespaceDisplayName,
             dimension.displayName, mapping.bindingId, mapping.bindingVersion, mapping.alignmentId, mapping.alignmentStatus, event.topologyId, event.topologyVersion,
             topology.topologyImplementationNamespaceCode, topology.topologyImplementationNamespaceDisplayName, unitId, unitVersion, unit.displayName,
-            joinPathRefsJson(event, binding), executableExpression(binding), at)
+            joinPathRefs(event, binding), executableExpression(binding), at)
     }
     fun timeAnchor(mapping: ReleaseDimensionMappingRecord): ReleaseTimeAnchorRuleRecord {
         fun safe(value: String) = value.replace(Regex("[^A-Za-z0-9_-]+"), "_")
@@ -43,21 +42,18 @@ internal class ReleaseDimensionMappings(private val analysisDimensions: Analysis
             mapping.analysisDimensionId, mapping.analysisDimensionVersion, mapping.levelCode, role), mapping.releaseId, mapping.releaseVersion, mapping.subjectAreaId, null, null,
             mapping.eventId, mapping.eventVersion, mapping.topologyId, mapping.topologyVersion, mapping.topologyImplementationNamespaceCode, mapping.topologyImplementationNamespaceDisplayName,
             mapping.logicUnitId, mapping.logicUnitVersion, mapping.logicUnitDisplayName, role, mapping.analysisDimensionId, mapping.analysisDimensionVersion, mapping.levelCode,
-            "[]", null, null, "{\"producer\":\"release_dimension_mapping\"}", mapping.createdAt)
+            null, null, "{\"producer\":\"release_dimension_mapping\"}", mapping.createdAt)
     }
-    private fun executableExpression(binding: DimensionEventBindingRecord): String {
-        val expression = binding.expressionJson?.takeUnless(String::isBlank)
-            ?: throw ProducerContractException("dimension_event_binding.expression_json is required: ${binding.id}")
-        return try { SemanticExpressionCodec.write(SemanticExpressionCodec.parse(expression, "dimension_event_binding.expression_json")) }
-        catch (failure: IllegalArgumentException) { throw ProducerContractException(failure.message ?: "invalid dimension expression", failure) }
+    private fun executableExpression(binding: DimensionEventBindingRecord): com.olap.prototype.expression.SemanticExpression {
+        val expression = binding.expression
+            ?: throw ProducerContractException("dimension binding expression is required: ${binding.id}")
+        return expression
     }
-    private fun joinPathRefsJson(event: EventRecord, binding: DimensionEventBindingRecord): String {
+    private fun joinPathRefs(event: EventRecord, binding: DimensionEventBindingRecord): List<ReleaseJoinPathRef> {
         val path = dimensions.bindingAccessPath(binding.id, binding.currentVersion)
         topologies.requirePositionedLogicUnit(event.topologyId, event.topologyVersion, path,
             requireNotNull(binding.logicUnitId) { "dimension binding logic unit is required" },
             requireNotNull(binding.logicUnitVersion) { "dimension binding logic unit version is required" }, "frozen dimension binding position")
-        val refs = path.joinPathRefs.map { ReleaseJoinPathRef(it.joinPathId, it.joinPathVersion) }
-        return try { OlapJsonUtils.mapper().writeValueAsString(refs) }
-        catch (failure: Exception) { throw ProducerContractException("failed to encode release join path refs", failure) }
+        return path.joinPathRefs.map { ReleaseJoinPathRef(it.joinPathId, it.joinPathVersion) }
     }
 }

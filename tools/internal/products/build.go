@@ -30,6 +30,7 @@ type JVMBuild struct {
 	MainClass           string                `json:"mainClass"`
 	Modules             []Module              `json:"modules"`
 	RuntimeClasspath    []Identity            `json:"runtimeClasspath"`
+	Scripting           ScriptClasspaths      `json:"scripting"`
 	Drivers             map[string][]Identity `json:"drivers"`
 	ExternalArtifacts   []MavenArtifact       `json:"externalArtifacts"`
 	Licenses            []Identity            `json:"licenses"`
@@ -38,6 +39,31 @@ type JVMBuild struct {
 	ConnectorAPIVersion string                `json:"connectorApiVersion,omitempty"`
 	Sources             map[string]string     `json:"sources,omitempty"`
 }
+
+type ScriptClasspaths struct {
+	DSLAPIVersion string     `json:"dslApiVersion"`
+	Runtime       []Identity `json:"runtime"`
+	DSL           []Identity `json:"dsl"`
+}
+
+func (b JVMBuild) classpathGroups() [][]Identity {
+	return [][]Identity{b.RuntimeClasspath, b.Scripting.Runtime, b.Scripting.DSL}
+}
+
+func (b JVMBuild) classpathFiles() []Identity {
+	seen := make(map[string]bool)
+	var files []Identity
+	for _, group := range b.classpathGroups() {
+		for _, file := range group {
+			if !seen[file.Path] {
+				files = append(files, file)
+				seen[file.Path] = true
+			}
+		}
+	}
+	return files
+}
+
 type MavenArtifact struct {
 	File       Identity `json:"file"`
 	Coordinate string   `json:"coordinate"`
@@ -131,7 +157,7 @@ func (w Workspace) BuildJVM(ctx context.Context) error {
 	if err := ReadJSON(w.Path("project", "build", "jvm-artifacts.json"), &build); err != nil {
 		return err
 	}
-	if build.FormatVersion != "agentic-olap-jvm-build/v3" {
+	if build.FormatVersion != "agentic-olap-jvm-build/v4" {
 		return errors.New("Gradle 构件清单格式不匹配")
 	}
 	api, err := build.Module("connector-api")
@@ -180,10 +206,10 @@ func (w Workspace) ReadJVM() (JVMBuild, error) {
 	if err != nil {
 		return build, err
 	}
-	if build.FormatVersion != "agentic-olap-jvm-build/v3" || build.ConnectorAPIVersion == "" || !sameHashes(build.Sources, sources) {
+	if build.FormatVersion != "agentic-olap-jvm-build/v4" || build.ConnectorAPIVersion == "" || build.Scripting.DSLAPIVersion != "agentic-olap-kotlin-dsl/v1" || len(build.Scripting.Runtime) == 0 || len(build.Scripting.DSL) == 0 || !sameHashes(build.Sources, sources) {
 		return build, errors.New("JVM 源码与构建记录不同，请先完成同轮 jvm-build")
 	}
-	identities := append([]Identity{}, build.RuntimeClasspath...)
+	identities := build.classpathFiles()
 	identities = append(identities, build.Licenses...)
 	for _, module := range build.Modules {
 		identities = append(identities, module.Jar, module.POM)

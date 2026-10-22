@@ -159,7 +159,7 @@ class SubjectContextRevisionService(private val database: PlatformDatabase,
                 val target = requireSelected(dimensions[selected.targetId to selected.targetVersion], "filter dimension", selected.targetId)
                 scenarios.createScenarioFilterRef(ScenarioFilterRefCreateRequest(next.id, version, selected.filterTargetType, selected.targetId, target,
                     selected.valueProviderId?.let { requireSelected(providers[it], "value provider", it) },
-                    FilterLeafOperatorPolicy.requireOperatorSet(selected.operatorPolicyJson, "operators").map(FilterLeafOperator::valueOf), selected.requiredByDefault, selected.sortOrder))
+                    FilterLeafOperatorPolicy.requireOperatorSet(selected.operators, "operators").map(FilterLeafOperator::valueOf), selected.requiredByDefault, selected.sortOrder))
             }
             scenarios.memberSourceRefs(source.id, source.currentVersion).forEach { selected ->
                 val target = member(MemberRef(selected.sourceId, selected.sourceVersion))

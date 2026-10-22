@@ -4,6 +4,8 @@ import com.olap.fixtures.http.HttpSqlConnector
 import com.olap.fixtures.http.HttpSqlService
 import com.olap.prototype.api.SqlResultValues
 import com.olap.prototype.connector.loader.ConnectorPlugins
+import com.olap.prototype.codec.GovernanceProto
+import com.olap.prototype.codec.ProtoBytes
 import com.olap.prototype.contract.*
 import com.olap.prototype.engine.calcite.CandidateValueCompiler
 import com.olap.prototype.engine.catalog.ExecutablePhysicalExecutionBinding
@@ -56,11 +58,8 @@ class HttpSourceAccessTest {
             val source = SourceConfiguration("remote-http", ref, "duckdb", mapOf("endpoint" to server.endpoint, "consistentChecks" to true), mapOf("timeoutMillis" to 30000), mapOf("authorization" to "OLAP_TEST_HTTP_AUTH"))
             val provider = SourceProvider(source, loaded.registry)
             val table = NativeTableDependency("orders", 1, source.dataSourceId, source.dialectId, JdbcTableConstraints.Table(null, "main", "orders"), nativeEvidence(source, mapOf("partition_key" to "order_partition@1", "amount" to "order_amount@1")))
-            val definition = SemanticExpressionCodec.parse(OlapJsonUtils.mapper().valueToTree(mapOf(
-                "kind" to "NATIVE_CALL", "connectorRef" to ref, "function" to "latest_declared_partition", "arguments" to listOf(
-                    mapOf("kind" to "PHYSICAL_TABLE", "physicalTableId" to "orders", "physicalTableVersion" to 1),
-                    mapOf("kind" to "SCALAR", "expression" to mapOf("kind" to "PHYSICAL_COLUMN", "physicalColumnId" to "context_state", "physicalColumnVersion" to 1))
-                ))), "authored native metadata definition")
+            val definition = SemanticExpression.NativeCall(ref, "latest_declared_partition", listOf(SemanticExpression.TableArgument("orders", 1),
+                SemanticExpression.ScalarArgument(SemanticExpression.Reference(SemanticExpression.ReferenceKind.PHYSICAL_COLUMN, "context_state", 1))))
             val binding = ExecutablePhysicalExecutionBinding(
                 bindingId = "context", bindingVersion = "1", eventId = null, eventVersion = null, logicUnitId = null, logicUnitVersion = null,
                 logicalTableId = "context", logicalTableVersion = "1", physicalTableId = "request_context", physicalTableVersion = "1",
@@ -68,9 +67,9 @@ class HttpSourceAccessTest {
                 catalogName = null, schemaName = "main", tableName = "request_context", sourceConstraints = nativeEvidence(source, mapOf("state" to "context_state@1")),
                 snapshotUniqueKeys = emptyList(), nativeTableDependencies = mapOf(table.key() to table), logicUnitBindings = mapOf("latest_partition@1" to definition),
                 physicalColumnBindings = mapOf("context_state@1" to "state"), physicalColumnTypes = mapOf("context_state@1" to JdbcColumnType(java.sql.Types.VARCHAR, "VARCHAR", 65536, null, false)))
-            val frozen = OlapJsonUtils.mapper().writeValueAsBytes(binding)
-            val adopted = OlapJsonUtils.mapper().readValue(frozen, ExecutablePhysicalExecutionBinding::class.java)
-            val expression = SemanticExpressionCodec.logicUnit("latest_partition", 1)
+            val frozen = ProtoBytes.encode(GovernanceProto.toProto(binding))
+            val adopted = GovernanceProto.fromProto(ProtoBytes.decode(frozen, com.olap.prototype.wire.governance.ExecutablePhysicalExecutionBinding.getDefaultInstance()))
+            val expression = SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, "latest_partition", 1)
             var requests = server.queries
             val plan = CandidateValueCompiler.compile(adopted, expression, 0, 10, mutableListOf(), loaded.registry)
             assertEquals(requests, server.queries, "编译不得向来源预取函数值")

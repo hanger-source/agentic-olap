@@ -115,7 +115,7 @@ class ReleaseFreezer(private val physicalAssets: PhysicalAssetGovernanceService,
             if (adoption.instance in frozenInstances) return
             adoptions.validateMetricAdoption(adoptions.metricInstanceReference(adoption.instance), adoption.bindings, adoption.fixedArguments)
             freezeBindingDimensions(adoption.bindings)
-            references.freezeObject("METRIC_ADOPTION", adoption.adoptionId, adoption.subjectAreaVersion, adoption.code, adoption.displayName, "METRIC_ADOPTION", json(adoption, "metric adoption snapshot"))
+            references.freezeObject("METRIC_ADOPTION", adoption.adoptionId, adoption.subjectAreaVersion, adoption.code, adoption.displayName, "METRIC_ADOPTION", encodeSnapshot(adoption, "metric adoption snapshot"))
             frozenInstances[adoption.instance] = adoption.computation
         }
         private fun freezeMember(reference: MemberRef) = tracing("MEMBER_SOURCE", reference.id, reference.version) { freezeMemberBody(reference) }
@@ -128,7 +128,7 @@ class ReleaseFreezer(private val physicalAssets: PhysicalAssetGovernanceService,
             adoptions.validateMemberSource(member)
             (member.origin as? MemberDefinitionOrigin.Shared)?.reference?.let { ref ->
                 val definition = memberDefinitions.read(ref.id, ref.version)
-                references.freezeObject("MEMBER_DEFINITION", ref.id, ref.version, definition.code, definition.displayName, "MEMBER_DEFINITION", json(definition, "member definition snapshot"))
+                references.freezeObject("MEMBER_DEFINITION", ref.id, ref.version, definition.code, definition.displayName, "MEMBER_DEFINITION", encodeSnapshot(definition, "member definition snapshot"))
             }
             val source = adoptions.memberComputation(reference)
             when (source) {
@@ -143,7 +143,7 @@ class ReleaseFreezer(private val physicalAssets: PhysicalAssetGovernanceService,
             }
             frozenMembers[key] = source
             references.freezeObject("MEMBER_SOURCE", member.id, member.subjectAreaVersion, member.code, member.displayName, "MEMBER_SOURCE",
-                json(PublishedMemberSource(source, subjectAreaId, member.code, member.displayName), "member source snapshot"))
+                encodeSnapshot(PublishedMemberSource(source, subjectAreaId, member.code, member.displayName), "member source snapshot"))
         }
         private fun freezeBindingDimensions(bindings: CalculationBindings) {
             val values = bindings.dimensions.values + bindings.groupingCandidates.values.flatten()
@@ -222,7 +222,7 @@ class ReleaseFreezer(private val physicalAssets: PhysicalAssetGovernanceService,
                 }
             }
             val execution = MetricExecutionSnapshot(metric.definition, metrics.metricBusinessMeaning(id, version))
-            references.freezeObject("METRIC", metric.id, version, metric.code, metric.displayName, "METRIC", json(execution, "metric.snapshot_json"))
+            references.freezeObject("METRIC", metric.id, version, metric.code, metric.displayName, "METRIC", encodeSnapshot(execution, "metric.snapshot_proto"))
             frozenMetrics[key] = metric
             return metric
         }
@@ -240,19 +240,19 @@ class ReleaseFreezer(private val physicalAssets: PhysicalAssetGovernanceService,
         private fun freezeAnalysisDimensionBody(id: String, version: Long): AnalysisDimensionRecord {
             val dimension = analysisDimensions.analysisDimensionSnapshot(required(id, "analysis_dimension.id"), version)
             referenceable(dimension.status, "ANALYSIS_DIMENSION", dimension.id, version)
-            val meaning = mapOf("description" to dimension.description, "valueAlignmentEvidence" to analysisDimensions.listAnalysisDimensionValueAlignments(dimension.id, version))
-            references.freezeObject("ANALYSIS_DIMENSION", dimension.id, version, dimension.code, dimension.displayName, "ANALYSIS_DIMENSION", json(meaning, "analysis dimension meaning and exact alignment evidence"))
+            val meaning = FrozenAnalysisDimensionMeaning(dimension.description, analysisDimensions.listAnalysisDimensionValueAlignments(dimension.id, version))
+            references.freezeObject("ANALYSIS_DIMENSION", dimension.id, version, dimension.code, dimension.displayName, "ANALYSIS_DIMENSION", encodeSnapshot(meaning, "analysis dimension meaning and exact alignment evidence"))
             return dimension
         }
         private fun freezeScenario(frozen: ReleaseScenarioFreezer.FrozenScenario) = tracing("SCENARIO", frozen.definition.id, frozen.definition.currentVersion) { freezeScenarioBody(frozen) }
         private fun freezeScenarioBody(frozen: ReleaseScenarioFreezer.FrozenScenario) {
             val scenario = frozen.definition
-            references.freezeObject("SCENARIO", scenario.id, scenario.currentVersion, scenario.code, scenario.displayName, "SCENARIO", json(frozen.selection, "complete scenario selection"))
+            references.freezeObject("SCENARIO", scenario.id, scenario.currentVersion, scenario.code, scenario.displayName, "SCENARIO", encodeSnapshot(frozen.selection, "complete scenario selection"))
             frozen.relationFilters.forEach { reference ->
                 val filter = reference.definition
                 val event = freezeEvent(filter.relation.parent.eventId, filter.relation.parent.eventVersion)
                 freezeTopology(event.topologyId, event.topologyVersion)
-                references.freezeObject("RELATION_FILTER", filter.relation.id, filter.relation.version, reference.code, filter.displayName, "RELATION_FILTER", json(filter, "relation filter snapshot"))
+                references.freezeObject("RELATION_FILTER", filter.relation.id, filter.relation.version, reference.code, filter.displayName, "RELATION_FILTER", encodeSnapshot(filter, "relation filter snapshot"))
             }
             scenarioDiagnostics[frozen.selection.scenario] = frozen.diagnostics
         }
@@ -265,12 +265,12 @@ class ReleaseFreezer(private val physicalAssets: PhysicalAssetGovernanceService,
             val units = events.listEventLogicUnitRefs(event.id, version)
             requireNotEmpty(units, "event_logic_unit_ref")
             units.forEach { freezeLogicUnit(it.logicUnitId, it.logicUnitVersion) }
-            val predicates = events.listEventSliceFilters(event.id, version).map { SemanticExpressionCodec.parse(required(it.filterJson, "event_slice_filter.filter_json"), "event_slice_filter.filter_json") }
+            val predicates = events.listEventSliceFilters(event.id, version).map { it.predicate }
             predicates.forEach(::freezeNativeTables)
             val execution = EventExecutionSnapshot(required(event.topologyId, "event.snapshot.topology_id"), event.topologyVersion, event.eventTimeLogicUnitId,
                 event.eventTimeLogicUnitVersion, events.eventIdentity(id, version), events.eventRoles(id, version),
-                predicates.takeIf { it.isNotEmpty() }?.let { SemanticExpressionCodec.write(SemanticExpressionCodec.and(it)) })
-            references.freezeObject("EVENT", event.id, version, event.code, event.displayName, "EVENT", json(execution, "event.snapshot_json"))
+                predicates.takeIf { it.isNotEmpty() }?.let { SemanticExpressionCodec.and(it) })
+            references.freezeObject("EVENT", event.id, version, event.code, event.displayName, "EVENT", encodeSnapshot(execution, "event.snapshot_proto"))
             frozenEvents[key] = event
             return event
         }
@@ -288,7 +288,7 @@ class ReleaseFreezer(private val physicalAssets: PhysicalAssetGovernanceService,
             val backbone = backbones.single()
             val execution = TopologyExecutionSnapshot(topology.id, version, topology.topologyImplementationNamespaceCode, topology.topologyImplementationNamespaceDisplayName,
                 backbone.logicalTableId, backbone.logicalTableVersion, paths)
-            references.freezeObject("TOPOLOGY", topology.id, version, topology.code, topology.displayName, "TOPOLOGY", json(execution, "topology executable snapshot"))
+            references.freezeObject("TOPOLOGY", topology.id, version, topology.code, topology.displayName, "TOPOLOGY", encodeSnapshot(execution, "topology executable snapshot"))
             frozenTopologies[key] = topology
             return topology
         }
@@ -305,12 +305,12 @@ class ReleaseFreezer(private val physicalAssets: PhysicalAssetGovernanceService,
                 ReleaseJoinPathSnapshot.Key(it.keyOrder, it.sourceLogicUnitId, it.sourceLogicUnitVersion, it.targetLogicUnitId, it.targetLogicUnitVersion)
             }
             val snapshot = ReleaseJoinPathSnapshot(path.id, version, path.topologyId, path.topologyVersion, path.sourceLogicalTableId, path.sourceLogicalTableVersion,
-                path.targetLogicalTableId, path.targetLogicalTableVersion, path.joinType, path.cardinality, path.temporalConfigJson, required(path.nullPolicy, "join_path.null_policy"), keys)
+                path.targetLogicalTableId, path.targetLogicalTableVersion, path.joinType, path.cardinality, path.temporal, required(path.nullPolicy, "join_path.null_policy"), keys)
             val source = logicalModel.logicalTableSnapshot(path.sourceLogicalTableId, path.sourceLogicalTableVersion)
             val target = logicalModel.logicalTableSnapshot(path.targetLogicalTableId, path.targetLogicalTableVersion)
             referenceable(source.status, "LOGICAL_TABLE", source.id, path.sourceLogicalTableVersion)
             referenceable(target.status, "LOGICAL_TABLE", target.id, path.targetLogicalTableVersion)
-            references.freezeObject("JOIN_PATH", path.id, version, path.id, "${source.displayName} -> ${target.displayName}", "JOIN_PATH", json(snapshot, "join path executable snapshot"))
+            references.freezeObject("JOIN_PATH", path.id, version, path.id, "${source.displayName} -> ${target.displayName}", "JOIN_PATH", encodeSnapshot(snapshot, "join path executable snapshot"))
         }
         private fun freezeLogicUnit(id: String, version: Long): LogicUnitRecord = tracing("LOGIC_UNIT", id, version) { freezeLogicUnitBody(id, version) }
         private fun freezeLogicUnitBody(id: String, version: Long): LogicUnitRecord {
@@ -325,9 +325,9 @@ class ReleaseFreezer(private val physicalAssets: PhysicalAssetGovernanceService,
             physicalAssets.physicalTableUniqueKeys(execution.physicalTableId, execution.physicalTableVersion).forEach { proof ->
                 val constraints = execution.sourceConstraints
                 val snapshot = SourceUniqueKeySnapshot(proof.id, execution.physicalTableId, execution.physicalTableVersion, constraints.discoverySnapshotId, constraints.schemaHash, constraints.sourceIdentityHash, proof.key)
-                references.freezeObject("SOURCE_UNIQUE_KEY", proof.id, 1, proof.key.rule.name, proof.key.rule.name, "SOURCE_UNIQUE_KEY", json(snapshot, "source key proof snapshot"))
+                references.freezeObject("SOURCE_UNIQUE_KEY", proof.id, 1, proof.key.rule.name, proof.key.rule.name, "SOURCE_UNIQUE_KEY", encodeSnapshot(snapshot, "source key proof snapshot"))
             }
-            references.freezeObject("LOGIC_UNIT", unit.id, version, unit.code, unit.displayName, "LOGIC_UNIT", json(execution, "logic_unit.snapshot_json"))
+            references.freezeObject("LOGIC_UNIT", unit.id, version, unit.code, unit.displayName, "LOGIC_UNIT", encodeSnapshot(execution, "logic_unit.snapshot_proto"))
             frozenUnits[key] = unit
             return unit
         }
@@ -345,14 +345,14 @@ class ReleaseFreezer(private val physicalAssets: PhysicalAssetGovernanceService,
             references.freezeObject("DIMENSION", dimension.id, binding.dimensionVersion, dimension.code, dimension.displayName, "DIMENSION")
             val event = freezeEvent(binding.eventId, binding.eventVersion)
             freezeTopology(binding.topologyId, binding.topologyVersion)
-            val expression = SemanticExpressionCodec.parse(required(binding.expressionJson, "dimension binding expression"), "dimension binding expression")
+            val expression = requireNotNull(binding.expression) { "dimension binding expression is required" }
             freezeNativeTables(expression); freezeSemanticUnits(expression, "dimension expression cannot expose physical fields")
             val unitId = required(binding.logicUnitId, "dimension binding logic unit")
             val unitVersion = requireNotNull(binding.logicUnitVersion) { "dimension binding logic unit version is required" }
             freezeLogicUnit(unitId, unitVersion)
             val snapshot = PublishedDimensionBinding(id, version, binding.dimensionId, binding.dimensionVersion, EventRef(binding.eventId, binding.eventVersion),
                 binding.topologyId, binding.topologyVersion, unitId, unitVersion, expression, dimensions.bindingAccessPath(id, version), dimensions.bindingRoles(id, version))
-            references.freezeObject("DIMENSION_EVENT_BINDING", id, version, "${dimension.code}:${event.code}", "${dimension.displayName} / ${event.displayName}", "DIMENSION_BINDING", json(snapshot, "dimension binding snapshot"))
+            references.freezeObject("DIMENSION_EVENT_BINDING", id, version, "${dimension.code}:${event.code}", "${dimension.displayName} / ${event.displayName}", "DIMENSION_BINDING", encodeSnapshot(snapshot, "dimension binding snapshot"))
             return binding
         }
         private fun logicUnitExecution(expansion: LogicalModelGovernanceService.LogicUnitExpansion): LogicUnitExecutionSnapshot {
@@ -367,7 +367,7 @@ class ReleaseFreezer(private val physicalAssets: PhysicalAssetGovernanceService,
                 releaseObjectId("peb", logical.id, expansion.logicalTableVersion, physical.id, ref.physicalTableVersion), "${expansion.logicalTableVersion}.${ref.physicalTableVersion}",
                 unit.id, unit.currentVersion, unit.logicType?.let { ScalarValueType.fromLogicType(it).name }, unit.valueShape, logical.id, expansion.logicalTableVersion,
                 physical.id, ref.physicalTableVersion, physical.dataSource, physical.catalogName, physical.schemaName, physical.tableName, physical.dialectId,
-                expansion.expressions.mapValues { SemanticExpressionCodec.toJsonNode(it.value) }, expansion.columns.mapValues { it.value.columnName },
+                expansion.expressions, expansion.columns.mapValues { it.value.columnName },
                 expansion.columns.mapValues { it.value.jdbcColumnType }, expansion.nativeTables, physicalAssets.physicalTableSourceConstraints(physical.id, ref.physicalTableVersion))
         }
         private fun freezeNativeTables(expression: SemanticExpression) {
@@ -376,7 +376,7 @@ class ReleaseFreezer(private val physicalAssets: PhysicalAssetGovernanceService,
         }
         private fun freezeNativeTable(dependency: NativeTableDependency) {
             val table = physicalAssets.physicalTableSnapshot(dependency.physicalTableId, dependency.physicalTableVersion)
-            references.freezeObject("PHYSICAL_TABLE", table.id, dependency.physicalTableVersion, table.code, table.displayName, "PHYSICAL_TABLE", json(dependency, "native table dependency"))
+            references.freezeObject("PHYSICAL_TABLE", table.id, dependency.physicalTableVersion, table.code, table.displayName, "PHYSICAL_TABLE", encodeSnapshot(dependency, "native table dependency"))
         }
         private inner class MappingSelections {
             private val closures = mutableMapOf<MetricInstanceRef, MetricSource.Closure>()
@@ -463,7 +463,7 @@ class ReleaseFreezer(private val physicalAssets: PhysicalAssetGovernanceService,
                 val key = ObjectRef(ReleaseObjectKind.require(type), id, version)
                 val frozen = ReleaseObjectRefRecord(releaseObjectId("ror", releaseId, releaseVersion, type, id, version), releaseId, releaseVersion, type, id, version,
                     required(code, "release_object_ref.object_code"), required(display, "release_object_ref.object_display_name"), role,
-                    required(snapshot, "release_object_ref.snapshot_summary_json"), createdAt)
+                    required(snapshot, "release_object_ref.snapshot_proto"), createdAt)
                 val paths = currentPaths.map { if (it.last() == "$type:$id@$version") it else it + "$type:$id@$version" }
                 val prior = identities.putIfAbsent(key, frozen)
                 if (prior != null) {
@@ -483,8 +483,20 @@ class ReleaseFreezer(private val physicalAssets: PhysicalAssetGovernanceService,
     private fun referenceable(status: String, type: String, id: String, version: Long) = GovernanceContract.requireReferenceableVersion(status, type, id, version)
     private fun required(value: String?, field: String): String = ProducerContracts.requireText(value, field).trim()
     private fun requireNotEmpty(values: List<*>, field: String) { if (values.isEmpty()) throw ProducerContractException("$field is required for release build") }
-    private fun json(value: Any, label: String): String = try { OlapJsonUtils.mapper().writeValueAsString(value) }
-        catch (failure: Exception) { throw ProducerContractException("$label invalid", failure) }
+    private fun encodeSnapshot(value: com.olap.prototype.query.contract.MetricAdoption, label: String): String = com.olap.prototype.codec.ProtoBytes.storage(com.olap.prototype.codec.GovernanceProto.toProto(value))
+    private fun encodeSnapshot(value: com.olap.prototype.governance.contract.MemberDefinitionRecord, label: String): String = com.olap.prototype.codec.ProtoBytes.storage(com.olap.prototype.codec.GovernanceProto.toProto(value))
+    private fun encodeSnapshot(value: com.olap.prototype.query.contract.PublishedMemberSource, label: String): String = com.olap.prototype.codec.ProtoBytes.storage(com.olap.prototype.codec.GovernanceProto.toProto(value))
+    private fun encodeSnapshot(value: com.olap.prototype.release.contract.MetricExecutionSnapshot, label: String): String = com.olap.prototype.codec.ProtoBytes.storage(com.olap.prototype.codec.GovernanceProto.toProto(value))
+    private fun encodeSnapshot(value: com.olap.prototype.release.contract.FrozenAnalysisDimensionMeaning, label: String): String = com.olap.prototype.codec.ProtoBytes.storage(com.olap.prototype.codec.GovernanceProto.toProto(value))
+    private fun encodeSnapshot(value: com.olap.prototype.release.contract.ReleaseScenarioSnapshot, label: String): String = com.olap.prototype.codec.ProtoBytes.storage(com.olap.prototype.codec.GovernanceProto.toProto(value))
+    private fun encodeSnapshot(value: com.olap.prototype.query.contract.PublishedRelationFilter, label: String): String = com.olap.prototype.codec.ProtoBytes.storage(com.olap.prototype.codec.GovernanceProto.toProto(value))
+    private fun encodeSnapshot(value: com.olap.prototype.release.contract.EventExecutionSnapshot, label: String): String = com.olap.prototype.codec.ProtoBytes.storage(com.olap.prototype.codec.GovernanceProto.toProto(value))
+    private fun encodeSnapshot(value: com.olap.prototype.release.contract.TopologyExecutionSnapshot, label: String): String = com.olap.prototype.codec.ProtoBytes.storage(com.olap.prototype.codec.GovernanceProto.toProto(value))
+    private fun encodeSnapshot(value: com.olap.prototype.release.contract.ReleaseJoinPathSnapshot, label: String): String = com.olap.prototype.codec.ProtoBytes.storage(com.olap.prototype.codec.GovernanceProto.toProto(value))
+    private fun encodeSnapshot(value: com.olap.prototype.release.contract.SourceUniqueKeySnapshot, label: String): String = com.olap.prototype.codec.ProtoBytes.storage(com.olap.prototype.codec.GovernanceProto.toProto(value))
+    private fun encodeSnapshot(value: com.olap.prototype.release.contract.LogicUnitExecutionSnapshot, label: String): String = com.olap.prototype.codec.ProtoBytes.storage(com.olap.prototype.codec.GovernanceProto.toProto(value))
+    private fun encodeSnapshot(value: com.olap.prototype.event.PublishedDimensionBinding, label: String): String = com.olap.prototype.codec.ProtoBytes.storage(com.olap.prototype.codec.GovernanceProto.toProto(value))
+    private fun encodeSnapshot(value: com.olap.prototype.contract.NativeTableDependency, label: String): String = com.olap.prototype.codec.ProtoBytes.storage(com.olap.prototype.codec.GovernanceProto.toProto(value))
     companion object {
         private const val PRODUCER_STAGE = "RELEASE_BUILD"
         internal fun releaseObjectId(prefix: String, vararg parts: Any?): String {

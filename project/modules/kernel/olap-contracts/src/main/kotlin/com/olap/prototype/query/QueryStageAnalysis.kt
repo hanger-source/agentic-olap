@@ -1,8 +1,5 @@
 package com.olap.prototype.query
 
-import com.fasterxml.jackson.annotation.JsonIgnore
-import com.fasterxml.jackson.annotation.JsonSubTypes
-import com.fasterxml.jackson.annotation.JsonTypeInfo
 import com.olap.prototype.calculation.Calculation
 import com.olap.prototype.calculation.CalculationOwner
 import com.olap.prototype.calculation.MetricRef
@@ -26,14 +23,10 @@ object QueryStageAnalysis {
     }
     data class SymbolId(val scope: ScopeId, val position: Int) { init { require(position >= 0) { "symbol position must be nonnegative" } } }
 
-    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "kind")
-    @JsonSubTypes(JsonSubTypes.Type(value = MetricOrigin::class, name = "METRIC"), JsonSubTypes.Type(value = DimensionOrigin::class, name = "DIMENSION"), JsonSubTypes.Type(value = OperationOrigin::class, name = "POST_OPERATION"), JsonSubTypes.Type(value = InputPresenceOrigin::class, name = "INPUT_PRESENCE"), JsonSubTypes.Type(value = SetOrigin::class, name = "SET_OUTPUT"), JsonSubTypes.Type(value = GroupingOrigin::class, name = "GROUPING_LEVEL"), JsonSubTypes.Type(value = OmittedDimensionOrigin::class, name = "OMITTED_DIMENSION"), JsonSubTypes.Type(value = MemberOrigin::class, name = "MEMBER"))
     sealed interface Origin { val scope: ScopeId }
     data class MetricOrigin(override val scope: ScopeId, val callId: String, val owner: CalculationOwner, val metric: MetricRef) : Origin { init { ScopedInputContract.requireId(callId) } }
     data class DimensionOrigin(override val scope: ScopeId, val dimension: ScopedInputContract.DimensionRef) : Origin
 
-    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "kind")
-    @JsonSubTypes(JsonSubTypes.Type(value = MappedMemberDimension::class, name = "MAPPED_DIMENSION"), JsonSubTypes.Type(value = MemberDimension::class, name = "SEMANTIC_DIMENSION"), JsonSubTypes.Type(value = MemberProperty::class, name = "PROPERTY"), JsonSubTypes.Type(value = MemberContainer::class, name = "CONTAINER_PROPERTY"))
     sealed interface MemberMeaning { val role: String }
     data class MappedMemberDimension(val dimension: ScopedInputContract.DimensionRef, override val role: String) : MemberMeaning { init { text(role) } }
     data class MemberDimension(val dimensionId: String, val dimensionVersion: String, override val role: String) : MemberMeaning { init { text(dimensionId); version(dimensionVersion); text(role) } }
@@ -68,7 +61,7 @@ object QueryStageAnalysis {
     class Symbol(val id: SymbolId, val name: String, val origin: Origin, dependencies: List<SymbolId>, val value: QueryValue) {
         val dependencies: List<SymbolId> = java.util.List.copyOf(dependencies)
         init { text(name) }
-        @get:JsonIgnore val quantity: QueryQuantity? get() = (value as? QueryValue.Measure)?.quantity
+        val quantity: QueryQuantity? get() = (value as? QueryValue.Measure)?.quantity
         override fun equals(other: Any?): Boolean = other is Symbol && id == other.id && name == other.name && origin == other.origin && dependencies == other.dependencies && value == other.value
         override fun hashCode(): Int = listOf(id, name, origin, dependencies, value).hashCode()
     }

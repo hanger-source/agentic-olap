@@ -32,9 +32,9 @@ class MetricGovernanceRepository(private val database: PlatformDatabase) {
     }
     fun saveMetricVersion(record: MetricVersionRecord) {
         GovernanceContract.requireVersionObject("metric_version", "metric_id", record.id, record.metricId, record.version, record.versionStatus, record.createdBy, record.createdAt)
-        requireText(record.contentJson, "metric_version.content_json")
+        requireText(record.contentProto, "metric_version.content_proto")
         try { insert(database, "metric_version", linkedMapOf("id" to record.id, "metric_id" to record.metricId, "version" to record.version, "version_status" to record.versionStatus,
-            "content_json" to record.contentJson, "diagnostic_json" to record.diagnosticJson, "source_version" to record.sourceVersion,
+            "content_proto" to record.contentProto, "diagnostic_json" to record.diagnosticJson, "source_version" to record.sourceVersion,
             "created_by" to record.createdBy, "created_at" to record.createdAt, "activated_by" to record.activatedBy, "activated_at" to record.activatedAt,
             "deprecated_by" to record.deprecatedBy, "deprecated_at" to record.deprecatedAt, "archived_by" to record.archivedBy, "archived_at" to record.archivedAt)) }
         catch (failure: Exception) { throw IllegalStateException("Failed to save exact metric_version", failure) }

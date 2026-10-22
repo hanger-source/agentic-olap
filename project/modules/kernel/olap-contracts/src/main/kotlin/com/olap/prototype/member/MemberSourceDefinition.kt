@@ -1,8 +1,5 @@
 package com.olap.prototype.member
 
-import com.fasterxml.jackson.annotation.JsonProperty
-import com.fasterxml.jackson.annotation.JsonSubTypes
-import com.fasterxml.jackson.annotation.JsonTypeInfo
 import com.olap.prototype.calculation.Calculation
 import com.olap.prototype.calculation.MetricDefinition
 import com.olap.prototype.event.EventRef
@@ -14,8 +11,6 @@ import com.olap.prototype.query.ScopedInputContract
 import com.olap.prototype.query.SetOutputContract
 
 /** 实际事件投影与完成计算来源，各持有自己的位置。 */
-@JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "kind")
-@JsonSubTypes(JsonSubTypes.Type(value = MemberSourceDefinition.Projection::class, name = "PROJECTION"), JsonSubTypes.Type(value = MemberSourceDefinition.Computed::class, name = "COMPUTED"))
 sealed interface MemberSourceDefinition {
     val result: MemberResult
     data class Projection(val event: EventRef, override val result: MemberResult) : MemberSourceDefinition {
@@ -46,8 +41,6 @@ sealed interface MemberSourceDefinition {
         }
     }
 
-    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "kind")
-    @JsonSubTypes(JsonSubTypes.Type(value = DimensionOutput::class, name = "DIMENSION"), JsonSubTypes.Type(value = PropertyOutput::class, name = "PROPERTY"), JsonSubTypes.Type(value = ComputedDimensionOutput::class, name = "COMPUTED_DIMENSION"), JsonSubTypes.Type(value = ComputedPropertyOutput::class, name = "COMPUTED_PROPERTY"), JsonSubTypes.Type(value = ContainerPropertyOutput::class, name = "CONTAINER_PROPERTY"), JsonSubTypes.Type(value = ComputedContainerPropertyOutput::class, name = "COMPUTED_CONTAINER_PROPERTY"))
     sealed interface Output { val displayName: String; val role: String }
     sealed interface ScalarOutput : Output { val valueType: ScalarValueType; val valueContract: MetricValueContract? }
 
@@ -60,22 +53,22 @@ sealed interface MemberSourceDefinition {
     }
     data class DimensionOutput(override val displayName: String, override val role: String, override val valueType: ScalarValueType,
         val dimensionId: String, val dimensionVersion: Long, val bindingId: String, val bindingVersion: Long,
-        @param:JsonProperty(value = "valueContract", required = true) override val valueContract: MetricValueContract?) : ScalarOutput {
+        override val valueContract: MetricValueContract?) : ScalarOutput {
         init { meaning(displayName, role); MetricDefinition.text(dimensionId, "dimensionId"); MetricDefinition.version(dimensionVersion); MetricDefinition.text(bindingId, "bindingId"); MetricDefinition.version(bindingVersion) }
     }
     data class PropertyOutput(override val displayName: String, override val role: String, override val valueType: ScalarValueType,
         val logicUnitId: String, val logicUnitVersion: Long, val accessPath: RelationAccessPath,
-        @param:JsonProperty(value = "valueContract", required = true) override val valueContract: MetricValueContract?) : ScalarOutput {
+        override val valueContract: MetricValueContract?) : ScalarOutput {
         init { meaning(displayName, role); MetricDefinition.text(logicUnitId, "logicUnitId"); MetricDefinition.version(logicUnitVersion) }
         fun requireValueType(actual: ScalarValueType) { require(valueType == actual) { "member property type differs from its exact LogicUnit: $logicUnitId@$logicUnitVersion" } }
     }
     data class ComputedDimensionOutput(override val displayName: String, override val role: String, override val valueType: ScalarValueType,
         val dimensionSlot: String, val symbol: String,
-        @param:JsonProperty(value = "valueContract", required = true) override val valueContract: MetricValueContract?) : ScalarOutput {
+        override val valueContract: MetricValueContract?) : ScalarOutput {
         init { meaning(displayName, role); ScopedInputContract.requireId(dimensionSlot); MetricDefinition.text(symbol, "completed output symbol") }
     }
     data class ComputedPropertyOutput(override val displayName: String, override val role: String, override val valueType: ScalarValueType, val symbol: String,
-        @param:JsonProperty(value = "valueContract", required = true) override val valueContract: MetricValueContract?) : ScalarOutput {
+        override val valueContract: MetricValueContract?) : ScalarOutput {
         init { meaning(displayName, role); MetricDefinition.text(symbol, "completed output symbol") }
     }
 

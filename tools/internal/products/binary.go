@@ -66,6 +66,14 @@ func (w Workspace) Binary(ctx context.Context, destination, distribution string)
 	for _, artifact := range build.RuntimeClasspath {
 		manifest.Runtime.Classpath = append(manifest.Runtime.Classpath, Identity{Path: "java/lib/" + filepath.Base(artifact.Path), SHA256: artifact.SHA256})
 	}
+	relativeClasspath := func(files []Identity) []Identity {
+		result := make([]Identity, 0, len(files))
+		for _, file := range files {
+			result = append(result, Identity{Path: "java/lib/" + filepath.Base(file.Path), SHA256: file.SHA256})
+		}
+		return result
+	}
+	manifest.Scripting = ScriptClasspaths{DSLAPIVersion: build.Scripting.DSLAPIVersion, Runtime: relativeClasspath(build.Scripting.Runtime), DSL: relativeClasspath(build.Scripting.DSL)}
 	if err = WriteJSON(filepath.Join(main, "distribution.json"), manifest); err != nil {
 		return err
 	}
@@ -270,7 +278,7 @@ func writeJVMDownloads(main, version string, build JVMBuild, available map[strin
 		entry["locations"] = append(entry["locations"].([]string), path)
 		return nil
 	}
-	for _, artifact := range build.RuntimeClasspath {
+	for _, artifact := range build.classpathFiles() {
 		name := filepath.Base(artifact.Path)
 		if err := add(name, "java/lib/"+name, artifact.SHA256); err != nil {
 			return err

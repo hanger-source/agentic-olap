@@ -1,9 +1,5 @@
 package com.olap.prototype.expression
 
-import com.fasterxml.jackson.annotation.JsonSubTypes
-import com.fasterxml.jackson.annotation.JsonTypeInfo
-import com.fasterxml.jackson.databind.annotation.JsonDeserialize
-import com.fasterxml.jackson.databind.annotation.JsonSerialize
 import com.olap.prototype.connector.ConnectorRef
 import com.olap.prototype.event.RelationAccessPath
 import com.olap.prototype.metric.MetricValueContract.Rounding
@@ -11,11 +7,7 @@ import com.olap.prototype.query.ScopedInputContract
 import java.math.BigDecimal
 
 /** 跨治理、发布与引擎的规范表达式。只引用精确版本，不接收物理名字或 SQL。 */
-@JsonSerialize(using = SemanticExpressionJsonSerializer::class)
-@JsonDeserialize(using = SemanticExpressionJsonDeserializer::class)
 sealed interface SemanticExpression {
-    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "kind")
-    @JsonSubTypes(JsonSubTypes.Type(value = LocalParent::class, name = "LOCAL"), JsonSubTypes.Type(value = RoleParent::class, name = "ROLE"))
     sealed interface RelationParent
     class LocalParent : RelationParent {
         override fun equals(other: Any?): Boolean = other is LocalParent
@@ -60,8 +52,6 @@ sealed interface SemanticExpression {
         override fun hashCode(): Int = listOf(function, arguments).hashCode()
     }
 
-    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "kind")
-    @JsonSubTypes(JsonSubTypes.Type(value = ScalarArgument::class, name = "SCALAR"), JsonSubTypes.Type(value = TableArgument::class, name = "PHYSICAL_TABLE"))
     sealed interface NativeArgument
     data class ScalarArgument(val expression: SemanticExpression) : NativeArgument
     data class TableArgument(val physicalTableId: String, val physicalTableVersion: Long) : NativeArgument {

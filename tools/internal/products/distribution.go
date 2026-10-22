@@ -25,6 +25,7 @@ type Distribution struct {
 	FormatVersion string              `json:"formatVersion"`
 	Version       string              `json:"version"`
 	Runtime       RuntimeDistribution `json:"runtime"`
+	Scripting     ScriptClasspaths    `json:"scripting"`
 	Service       ServiceDistribution `json:"service"`
 }
 
@@ -43,9 +44,9 @@ func (w Workspace) ServerDistribution(ctx context.Context, destination string) e
 	if err = CopyFile(service.Binary, filepath.Join(destination, "runtime", "agentic-olap-runtime")); err != nil {
 		return err
 	}
-	classpath := make([]Identity, 0, len(jvm.RuntimeClasspath))
+	files := make(map[string]Identity)
 	names := map[string]bool{}
-	for _, identity := range jvm.RuntimeClasspath {
+	for _, identity := range jvm.classpathFiles() {
 		source, err := identity.Verify()
 		if err != nil {
 			return err
@@ -59,7 +60,7 @@ func (w Workspace) ServerDistribution(ctx context.Context, destination string) e
 		if err = CopyFile(source, filepath.Join(destination, relative)); err != nil {
 			return err
 		}
-		classpath = append(classpath, Identity{Path: filepath.ToSlash(relative), SHA256: identity.SHA256})
+		files[identity.Path] = Identity{Path: filepath.ToSlash(relative), SHA256: identity.SHA256}
 	}
 	if err = w.goLicenses(ctx, filepath.Join(destination, "licenses", "go")); err != nil {
 		return err
@@ -86,8 +87,17 @@ func (w Workspace) ServerDistribution(ctx context.Context, destination string) e
 			return err
 		}
 	}
-	return WriteJSON(filepath.Join(destination, "distribution.json"), Distribution{FormatVersion: "agentic-olap-distribution/v2", Version: service.Version,
-		Runtime: RuntimeDistribution{MainClass: jvm.MainClass, Classpath: classpath}, Service: ServiceDistribution{Path: "runtime/agentic-olap-runtime", SHA256: service.SHA256, OS: service.OS, Arch: service.Arch}})
+	relative := func(group []Identity) []Identity {
+		result := make([]Identity, 0, len(group))
+		for _, file := range group {
+			result = append(result, files[file.Path])
+		}
+		return result
+	}
+	return WriteJSON(filepath.Join(destination, "distribution.json"), Distribution{FormatVersion: "agentic-olap-distribution/v3", Version: service.Version,
+		Runtime:   RuntimeDistribution{MainClass: jvm.MainClass, Classpath: relative(jvm.RuntimeClasspath)},
+		Scripting: ScriptClasspaths{DSLAPIVersion: jvm.Scripting.DSLAPIVersion, Runtime: relative(jvm.Scripting.Runtime), DSL: relative(jvm.Scripting.DSL)},
+		Service:   ServiceDistribution{Path: "runtime/agentic-olap-runtime", SHA256: service.SHA256, OS: service.OS, Arch: service.Arch}})
 }
 func ReadDistribution(root string) (Distribution, error) {
 	var manifest Distribution
@@ -97,10 +107,12 @@ func ReadDistribution(root string) (Distribution, error) {
 	if err := ReadJSON(filepath.Join(root, "distribution.json"), &manifest); err != nil {
 		return manifest, err
 	}
-	if manifest.FormatVersion != "agentic-olap-distribution/v2" || manifest.Version == "" || manifest.Runtime.MainClass == "" || len(manifest.Runtime.Classpath) == 0 {
+	if manifest.FormatVersion != "agentic-olap-distribution/v3" || manifest.Version == "" || manifest.Runtime.MainClass == "" || len(manifest.Runtime.Classpath) == 0 || manifest.Scripting.DSLAPIVersion != "agentic-olap-kotlin-dsl/v1" || len(manifest.Scripting.Runtime) == 0 || len(manifest.Scripting.DSL) == 0 {
 		return manifest, errors.New("服务发行清单不完整")
 	}
 	files := append([]Identity{{Path: manifest.Service.Path, SHA256: manifest.Service.SHA256}}, manifest.Runtime.Classpath...)
+	files = append(files, manifest.Scripting.Runtime...)
+	files = append(files, manifest.Scripting.DSL...)
 	for _, identity := range files {
 		path, err := cleanRelative(root, identity.Path)
 		if err != nil {

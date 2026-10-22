@@ -1,6 +1,5 @@
 package com.olap.prototype.release.catalog
 
-import com.fasterxml.jackson.databind.JsonNode
 import com.olap.prototype.calculation.*
 import com.olap.prototype.expression.SemanticExpression
 import com.olap.prototype.metric.MetricAggregation
@@ -10,6 +9,8 @@ import com.olap.prototype.query.PostOperationContract.Derive
 import com.olap.prototype.query.PostOperationContract.Project
 import com.olap.prototype.query.ResultExpression.*
 import com.olap.prototype.query.contract.PostProcessCapability
+import com.olap.prototype.query.contract.StageAuthorization
+import com.olap.prototype.query.contract.ExpressionAuthorization
 import com.olap.prototype.release.catalog.FrozenPublicationFixture.Companion.adoptedInstance
 import com.olap.prototype.release.catalog.FrozenPublicationFixture.Companion.call
 import com.olap.prototype.release.catalog.FrozenPublicationFixture.Companion.computation
@@ -37,8 +38,7 @@ class FrozenStatisticsExecutionTest {
             PublishedQueryDefinitionFixture(directory, "$dialect-statistics", release, catalog).use { definitions ->
                 val input = request(listOf(call(catalog, "first", "dispersion"), call(catalog, "second", "dispersion")), timed = false)
                 val saved = definitions.service.save(definitions.command("dispersion_query", computation(input)), "tester")
-                input.set<JsonNode>("computation", definitions.service.requireByIdAndVersion(saved.definitionId, saved.definitionVersion).intent.required("computation"))
-                val rows = execute(fixture, catalog, input)
+                val rows = execute(fixture, catalog, definitions.service.requireByIdAndVersion(saved.definitionId, saved.definitionVersion).intent.computation)
                 assertEquals(1, rows.size)
                 assertEquals(2, rows.first().size)
                 // 五个观察10、20、30、40、999的精确中心平方差/(n-1)为189860.2。
@@ -56,9 +56,10 @@ class FrozenStatisticsExecutionTest {
         val addition = Derive(ResultNumeric(ResultOperation(ResultOperator.ADD, listOf(ResultSymbol("first"), ResultSymbol("second"))), floating, null), "total", "两个完成标量相加")
         val projectTotal = Project(listOf("total"))
         val derivePermission = PostProcessCapability("derive", "DERIVE", "两个完成标量相加",
-            "{\"expressionContract\":{\"expressionKinds\":[\"NUMERIC\",\"OPERATION\",\"SYMBOL\"],\"operators\":[\"ADD\"]}}", 1,
+            StageAuthorization("DERIVE", emptySet(), emptySet(), ExpressionAuthorization(setOf(ExpressionAuthorization.Kind.NUMERIC,
+                ExpressionAuthorization.Kind.OPERATION, ExpressionAuthorization.Kind.SYMBOL), setOf(ResultOperator.ADD), emptySet(), emptySet(), emptySet())), 1,
             null, null, null, null, null, true, false, false, false)
-        val projectPermission = PostProcessCapability("project", "PROJECT", "输出完成合计", "{}", 2, null, null, null, null, null, true, false, false, false)
+        val projectPermission = PostProcessCapability("project", "PROJECT", "输出完成合计", StageAuthorization.current("PROJECT"), 2, null, null, null, null, null, true, false, false, false)
         listOf("h2", "duckdb").forEach { dialect -> listOf(false, true).forEach { internal -> FrozenPublicationFixture(directory, dialect, true).use { fixture ->
             val completed = Calculation.Measures(listOf(
                 Calculation.Call("first", Calculation.Fixed(MetricRef("maximum", "1")), "first", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted())),
@@ -80,9 +81,7 @@ class FrozenStatisticsExecutionTest {
             PublishedQueryDefinitionFixture(directory, "$dialect-$internal-stages", release, catalog).use { definitions ->
                 val saved = definitions.service.save(definitions.command("native_total", computation), "tester")
                 val restored = definitions.service.requireByIdAndVersion(saved.definitionId, saved.definitionVersion)
-                val input = request(listOf(call(catalog, "unused", "maximum")), timed = false)
-                input.set<JsonNode>("computation", restored.intent.required("computation"))
-                val rows = execute(fixture, catalog, input)
+                val rows = execute(fixture, catalog, restored.intent.computation)
                 assertEquals(1, rows.size)
                 // 两个完成MAX均为999；外层加法为1998，内部再明确消费factor=2为3996。
                 assertEquals(if (internal) 3996.0 else 1998.0, (rows.first().first() as Number).toDouble(), 1E-9, dialect)

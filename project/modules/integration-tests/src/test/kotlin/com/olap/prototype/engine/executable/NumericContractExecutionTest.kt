@@ -33,7 +33,7 @@ class NumericContractExecutionTest {
             listOf("CREATE TABLE numbers(n BIGINT)", "INSERT INTO numbers VALUES (0),(0),(1),(NULL)")).use { source ->
             val support = TestConnectors.registry.require(source.spec.connectorRef).compilation
             val discovered = NativeAggregateTypes.describe(support, ResultAggregation.Kind.AVG,
-                NativeValueType("BIGINT", null, null, true), false) as NativeAggregateTypes.Mapped
+                NativeValueType("BIGINT", null, null, true), false) as NativeAggregateMapping.Mapped
             source.connection.createStatement().use { statement -> statement.executeQuery("SELECT AVG(n) FROM numbers").use { rows ->
                 assertTrue(rows.next())
                 if (dialect == "h2") {
@@ -70,7 +70,7 @@ class NumericContractExecutionTest {
                         throw UnsupportedOperationException("private backend mapping detail")
                 }
             }
-            assertSame(NativeAggregateTypes.Unavailable, NativeAggregateTypes.describe(unsupported,
+            assertInstanceOf(NativeAggregateMapping.Unavailable::class.java, NativeAggregateTypes.describe(unsupported,
                 ResultAggregation.Kind.AVG, NativeValueType("BIGINT", null, null, true), false))
             val factory = org.apache.calcite.jdbc.JavaTypeFactoryImpl(SemanticCalciteTypeSystem(unsupported))
             assertThrows(NativeAggregateMappingException::class.java) {

@@ -1,10 +1,10 @@
 package com.olap.prototype.management.governance
 
+import com.olap.prototype.metric.MetricAggregation
 import com.olap.prototype.calculation.*
 import com.olap.prototype.event.EventIdentity
 import com.olap.prototype.event.EventRef
 import com.olap.prototype.event.RelationAccessPath
-import com.olap.prototype.expression.SemanticExpressionCodec
 import com.olap.prototype.governance.contract.*
 import com.olap.prototype.member.*
 import com.olap.prototype.query.*
@@ -33,7 +33,7 @@ class PublishedRelationMembersTest {
                 "独立关联记录位置", "data", "golden", listOf(unit("order_id", LogicType.STRING, true), unit("customer_id", LogicType.STRING), unit("pay_amount", LogicType.NUMBER))))
             f.topologies.createTopologyLogicalTableRef(TopologyLogicalTableRefCreateRequest(GovernanceOrderFixture.TOPOLOGY, 1, "registered_orders", 1, TopologyNodeRole.BRIDGE_NODE))
             val path = f.topologies.createJoinPath(JoinPathCreateRequest(GovernanceOrderFixture.TOPOLOGY, 1, "same_customer", "order_fact", 1,
-                "registered_orders", 1, "INNER", "MANY_TO_MANY", "{}", "SQL_EQUALS_NULL_NEVER_MATCHES", "golden",
+                "registered_orders", 1, "INNER", "MANY_TO_MANY", null, "SQL_EQUALS_NULL_NEVER_MATCHES", "golden",
                 listOf(JoinPathCreateRequest.KeyRefInput("order_fact.customer_id", 1, "registered_orders.customer_id", 1)))).joinPath
             val topology = f.topologies.createTopology(TopologyCreateRequest("registered", "登记关系", "trade.registered", "登记订单实现空间",
                 "registered_orders", 1, "data", "关联源主干", "golden")).topology
@@ -44,9 +44,25 @@ class PublishedRelationMembersTest {
             val parent = f.events.createEvent(EventCreateRequest(GovernanceOrderFixture.TOPOLOGY, 1, "related_orders", "可筛选的订单金额", "data", null, null,
                 identity("order_fact.order_id"), mapOf("customer_orders" to RelationAccessPath(listOf(RelationAccessPath.JoinRef(path.id, 1)))), emptyList(),
                 listOf(EventCreateRequest.LogicUnitRefInput("order_fact.pay_amount", 1)), "关联存在性筛选", "golden")).event
-            val metric = f.metrics.createMetric(MetricCreateRequest(parent.id, 1, "related_amount", "订单金额", "data", SemanticExpressionCodec.write(GovernanceOrderFixture.ref("order_fact.pay_amount")),
-                "SUM", false, "BASE", "ADDITIVE", null, emptyMap(), "关联记录数量不放大订单金额", GovernanceOrderFixture.amountMeaning(), null,
-                GovernanceOrderFixture.money(), com.olap.prototype.metric.MetricValueContract.Rounding.NONE, "golden")).metric
+            val metric = f.metrics.createMetric(MetricCreateRequest(
+                code = "related_amount",
+                displayName = "订单金额",
+                owner = "data",
+                definition = MetricDefinition.FactMeasure(
+                    event = com.olap.prototype.event.EventRef(parent.id, 1),
+                    input = GovernanceOrderFixture.ref("order_fact.pay_amount"),
+                    aggregation = MetricAggregation.SUM,
+                    distinct = false,
+                    privatePredicate = null,
+                    roles = emptyMap(),
+                    snapshotRule = null,
+                    valueContract = GovernanceOrderFixture.money(),
+                    aggregationRounding = com.olap.prototype.metric.MetricValueContract.Rounding.NONE
+                ),
+                description = "关联记录数量不放大订单金额",
+                businessMeaning = GovernanceOrderFixture.amountMeaning(),
+                createdBy = "golden"
+            )).metric
             f.activate("LOGICAL_TABLE", "registered_orders"); f.activate("TOPOLOGY", topology.id); f.activate("EVENT", registered.id)
             f.approveDefinitions(); f.seedSubjectDraft(); f.activateSubjectGraph(false)
             f.activate("EVENT", parent.id); f.activate("METRIC", metric.id); f.adopt(metric.id)
@@ -71,9 +87,8 @@ class PublishedRelationMembersTest {
                     MemberCondition.Predicate("amount", MemberCondition.Operator.GT, listOf(Calculation.Scalar(ScalarValueType.NUMBER, threshold))), null, emptyMap())
                 val scope = QueryComputation.Scope(QueryComputation.Measures(listOf(QueryComputation.Invocation("amount", f.adoptions.metricAdoption(MetricAdoption.identity(GovernanceOrderFixture.SUBJECT, metric.code), 1).instance, "total", emptyMap(), emptyMap(), emptyMap(), DimensionCondition.Unrestricted())),
                     emptyList(), null, emptyMap(), condition, DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(listOf("amount")), null), emptyMap(), emptyList())
-                val saved = definitions.save(QueryDefinitionCommand("related_$threshold", null, requireNotNull(publication.queryCapability.capabilityHash), "关联订单阈值",
-                    scenario.id, 1, "related_release", "1", f.intent(publication, scope)), "golden")
-                val reloaded = QueryComputation.parse(definitions.requireByIdAndVersion(saved.definitionId, saved.definitionVersion).intent.required("computation"))
+                val saved = definitions.save(QueryDefinitionCommand("related_$threshold", null, requireNotNull(publication.queryCapability.capabilityHash), "关联订单阈值", f.intent(publication, scope), null), "golden")
+                val reloaded = definitions.requireByIdAndVersion(saved.definitionId, saved.definitionVersion).intent.computation
                 val rows = f.execute(publication, reloaded).result.resultFrame.rows
                 assertEquals(1, rows.size)
                 assertEquals(0, BigDecimal(expected).compareTo(BigDecimal(rows.single().cells.single().value.toString())), "threshold=$threshold")

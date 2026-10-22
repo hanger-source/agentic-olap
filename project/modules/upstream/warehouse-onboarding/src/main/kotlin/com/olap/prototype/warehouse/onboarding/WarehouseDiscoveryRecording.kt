@@ -1,20 +1,20 @@
 package com.olap.prototype.warehouse.onboarding
 
 import com.olap.prototype.contract.ProducerContractException
+import com.olap.prototype.contract.ProducerContracts.requireText as required
 import com.olap.prototype.management.warehouse.WarehouseDiscoveredColumnRecord
 import com.olap.prototype.management.warehouse.WarehouseDiscoveredTableRecord
 import com.olap.prototype.management.warehouse.WarehouseDiscoveredUniqueKeyRecord
 import com.olap.prototype.management.warehouse.WarehouseDiscoverySnapshotRecord
 import com.olap.prototype.management.warehouse.WarehouseRegistryService
-import com.olap.prototype.util.OlapJsonUtils
+import com.olap.prototype.codec.GovernanceProto
+import com.olap.prototype.codec.ProtoBytes
 import com.olap.prototype.warehouse.contract.SnapshotUniqueKey
 import com.olap.prototype.warehouse.contract.SourceBindingRef
 import com.olap.prototype.warehouse.contract.SourceConfiguration
 import com.olap.prototype.warehouse.inspection.WarehouseSchemaSnapshot
 import com.olap.prototype.warehouse.inspection.WarehouseTableMetadata
-import java.security.MessageDigest
 import java.time.Instant
-import java.util.HexFormat
 import java.util.UUID
 
 /** 一次调查先形成完整观察，再在同一事务记录身份、范围和所有子事实。 */
@@ -60,8 +60,8 @@ internal class WarehouseDiscoveryRecording(private val registry: WarehouseRegist
         if (command.catalog != null && command.catalog != ref.catalog || command.schemaName != ref.schema)
             throw ProducerContractException("warehouse discovery returned a table outside the requested scope: $ref")
         val id = discoveryChildId(snapshotId, "table", "${ref.catalog}\u0000${ref.schema}\u0000${ref.table}")
-        val schema = mapOf("table" to table.table, "columns" to table.columns, "constraints" to table.constraints)
-        val hash = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(OlapJsonUtils.mapper().writeValueAsBytes(schema)))
+        val schema = SourceStructureRegistrationRequest.Table(table.table, table.columns, table.constraints)
+        val hash = ProtoBytes.digest(GovernanceProto.toProto(schema))
         return WarehouseDiscoveredTableRecord(id, snapshotId, ref.catalog ?: "", requireNotNull(ref.schema) { "discovered table schema is required" }, ref.table, table.table.remarks, null, hash, table.constraints, null, "DISCOVERED", observedAt)
     }
 }

@@ -13,7 +13,7 @@ object ReleaseCompilationContract {
     const val COMPILER_VERSION = "olap-v2-release-14"
     const val RULE_SET_VERSION = "olap-v2-rules-14"
 }
-data class ReleaseArtifactRecord(val releaseId: String, val releaseVersion: String, val subjectAreaId: String, val subjectAreaVersion: Long, val governanceClosureHash: String, val catalogHash: String, val artifactHash: String, val manifestJson: String)
+data class ReleaseArtifactRecord(val releaseId: String, val releaseVersion: String, val subjectAreaId: String, val subjectAreaVersion: Long, val governanceClosureHash: String, val catalogHash: String, val artifactHash: String, val manifestProto: String)
 data class ReleaseCatalogSnapshot(val scenarioId: String, val scenarioVersion: Long, val catalogHash: String)
 data class ReleaseCatalogRequest(val scenarioId: String, val scenarioVersion: Long, val releaseId: String, val releaseVersion: String) {
     init {
@@ -60,7 +60,7 @@ enum class ReleaseObjectKind {
         }
     }
 }
-class ReleaseObjectRef(val id: String, val releaseId: String, val releaseVersion: String, objectType: String, val objectId: String, val objectVersion: Long, val objectCode: String, val objectDisplayName: String, refRole: String, val snapshotSummaryJson: String, val createdAt: Instant) {
+class ReleaseObjectRef(val id: String, val releaseId: String, val releaseVersion: String, objectType: String, val objectId: String, val objectVersion: Long, val objectCode: String, val objectDisplayName: String, refRole: String, val snapshotProto: String, val createdAt: Instant) {
     val objectType: String
     val refRole: String
     init {
@@ -71,8 +71,8 @@ class ReleaseObjectRef(val id: String, val releaseId: String, val releaseVersion
         ProducerContracts.requireText(objectId, "objectId"); ProducerContracts.requireVersion(objectVersion, "objectVersion")
         ProducerContracts.requireText(objectCode, "objectCode"); ProducerContracts.requireText(objectDisplayName, "objectDisplayName")
     }
-    override fun equals(other: Any?): Boolean = other is ReleaseObjectRef && id == other.id && releaseId == other.releaseId && releaseVersion == other.releaseVersion && objectType == other.objectType && objectId == other.objectId && objectVersion == other.objectVersion && objectCode == other.objectCode && objectDisplayName == other.objectDisplayName && refRole == other.refRole && snapshotSummaryJson == other.snapshotSummaryJson && createdAt == other.createdAt
-    override fun hashCode(): Int = listOf(id, releaseId, releaseVersion, objectType, objectId, objectVersion, objectCode, objectDisplayName, refRole, snapshotSummaryJson, createdAt).hashCode()
+    override fun equals(other: Any?): Boolean = other is ReleaseObjectRef && id == other.id && releaseId == other.releaseId && releaseVersion == other.releaseVersion && objectType == other.objectType && objectId == other.objectId && objectVersion == other.objectVersion && objectCode == other.objectCode && objectDisplayName == other.objectDisplayName && refRole == other.refRole && snapshotProto == other.snapshotProto && createdAt == other.createdAt
+    override fun hashCode(): Int = listOf(id, releaseId, releaseVersion, objectType, objectId, objectVersion, objectCode, objectDisplayName, refRole, snapshotProto, createdAt).hashCode()
 }
 class ReleaseCatalogView(val scenarioId: String, val scenarioVersion: Long, val scenarioDisplayName: String, val releaseId: String, val releaseVersion: String, val releaseDisplayName: String, objectVersionRefs: List<ReleaseObjectRef>, metricAnalysisDimensionCapability: List<ReleaseMetricDimensionCapability>, dimensionMappings: List<ReleaseDimensionMapping>, timeAnchorRule: List<ReleaseTimeAnchorRule>, unavailableReason: List<ReleaseUnavailableReason>, diagnostics: List<ReleaseDiagnosticIssue>) {
     val objectVersionRefs: List<ReleaseObjectRef> = ProducerContracts.requireList(objectVersionRefs, "objectVersionRefs")

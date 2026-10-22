@@ -1,13 +1,15 @@
 package com.olap.prototype.engine.executable
 
 import com.olap.prototype.calculation.*
+import com.olap.prototype.codec.SemanticProto
+import com.olap.prototype.codec.ProtoBytes
 import com.olap.prototype.engine.EngineExecutionException
 import com.olap.prototype.engine.catalog.*
 import com.olap.prototype.engine.compiler.CompiledQuery
 import com.olap.prototype.engine.compiler.OlapSemanticCompiler
 import com.olap.prototype.engine.context.OlapQueryContext
 import com.olap.prototype.event.*
-import com.olap.prototype.expression.SemanticExpressionCodec
+import com.olap.prototype.expression.SemanticExpression
 import com.olap.prototype.integration.TestConnectors
 import com.olap.prototype.member.*
 import com.olap.prototype.metric.*
@@ -45,7 +47,7 @@ class RelationArgumentExecutionTest {
         val event = ExecutableEvent("orders", "1", "orders", "1", null,
             EventIdentity(listOf(EventIdentity.LogicUnitRef("orders.id", 1)), emptyMap()), emptyMap(), null, null, null)
         fun fact(input: String, aggregation: MetricAggregation, distinct: Boolean, contract: MetricValueContract) = MetricDefinition.FactMeasure(
-            EventRef("orders", 1), SemanticExpressionCodec.logicUnit("orders.$input", 1), aggregation, distinct, null, emptyMap(), null, contract, MetricValueContract.Rounding.NONE)
+            EventRef("orders", 1), SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, "orders.$input", 1), aggregation, distinct, null, emptyMap(), null, contract, MetricValueContract.Rounding.NONE)
         val dimension = Calculation.DimensionSlot("seller", sellerReference.id, sellerReference.version.toLong(), sellerReference.id)
         val outputs = listOf(SetOutputContract("seller", sellerShape), SetOutputContract("amount", SetOutputContract.Quantity(relationMoney)),
             SetOutputContract("people", SetOutputContract.Quantity(count)))
@@ -98,7 +100,7 @@ class RelationArgumentExecutionTest {
             logicUnits = units.associate { "orders.$it@1" to ExecutableLogicUnit("orders.$it", "1", if (it == "pay_text") ScalarValueType.TEXT else ScalarValueType.NUMBER, null, null, null, it, null, "orders", "1") },
             dimensions = dimensions.associate { "$it@1" to ExecutableDimension(it, "1", null, "trial", null, null) },
             dimensionBindings = dimensions.associate { id -> "$id@1" to ExecutableDimensionBinding(id, "1", id, "1", "orders", "1", "orders", "1",
-                "orders.$id", "1", SemanticExpressionCodec.logicUnit("orders.$id", 1), RelationAccessPath(emptyList()), emptyMap(), emptyList(), "orders", "1") },
+                "orders.$id", "1", SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, "orders.$id", 1), RelationAccessPath(emptyList()), emptyMap(), emptyList(), "orders", "1") },
             analysisDimensions = dimensions.associate { id -> "$id@1" to ExecutableAnalysisDimension(id, "1", null, id, id, "value",
                 listOf(ExecutableAnalysisDimensionLevel("value", id, null)), listOf(ExecutableAnalysisDimensionEventMapping("${id}_mapping", id, "1", "value", "orders", "1", id, "1", id, "1", "orders.$id", "1", "same_$id", "PROVEN_SAME_KEY"))) })
     }
@@ -111,7 +113,7 @@ class RelationArgumentExecutionTest {
         }
         return MemberSource.Projection("orders_rows", 1, MemberSourceDefinition.Projection(EventRef("orders", 1),
             MemberResult("支付记录", "payments", MemberShape.RAW_BAG, emptyList(), outputs, emptyMap(), null, emptyMap(), null)),
-            units.associateWith { SemanticExpressionCodec.logicUnit("orders.$it", 1) })
+            units.associateWith { SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, "orders.$it", 1) })
     }
 
     private fun paymentRows(): QueryComputation.Scope {
@@ -165,8 +167,7 @@ class RelationArgumentExecutionTest {
             val catalog = catalog(warehouse, withText = true)
             warehouse.finishSetup()
             val query = completedTextAndRatio(SetOutputContract.Scalar(SetOutputContract.ScalarType.TEXT))
-            val mapper = OlapJsonUtils.mapper()
-            val decoded = mapper.readValue(mapper.writeValueAsBytes(query), QueryComputation.Scope::class.java)
+            val decoded = SemanticProto.fromProto(ProtoBytes.decode(ProtoBytes.encode(SemanticProto.toProto(query)), com.olap.prototype.wire.semantic.QueryScope.getDefaultInstance()))
             val result = warehouse.execute(compile(catalog, decoded)).sortedBy { (it[0] as Number).toInt() }
             val expected = listOf(listOf("3", "30", "2", "2", "3", "20261003", "15"), listOf("4", null, "1", "1", null, null, null),
                 listOf("2", "12", "2", "1", "1", "", "12"))

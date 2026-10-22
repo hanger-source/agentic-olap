@@ -1,10 +1,11 @@
 package com.olap.prototype.management.governance
 
+import com.olap.prototype.metric.MetricAggregation
+import com.olap.prototype.calculation.MetricDefinition
 import com.olap.prototype.calculation.CalculationBindings
 import com.olap.prototype.contract.ProducerContractException
 import com.olap.prototype.event.EventIdentity
 import com.olap.prototype.expression.SemanticExpression
-import com.olap.prototype.expression.SemanticExpressionCodec
 import com.olap.prototype.governance.contract.*
 import com.olap.prototype.integration.TestConnectors
 import com.olap.prototype.metric.MetricBusinessMeaning
@@ -24,7 +25,7 @@ class PublishedLogicalDefinitionsTest {
             val f = GovernanceOrderFixture(database, directory, listOf("INSERT INTO main.orders VALUES ('1',100,'A','2026-07-21','c1'),('2',40,'A','2026-07-21','c2'),('3',10,'B','2026-07-21','c3')"))
             f.seed()
             fun expression(code: String, body: SemanticExpression) = LogicalTableCreateRequest.LogicUnitInput(code, code, LogicUnitSourceKind.EXPRESSION,
-                SemanticExpressionCodec.write(body), LogicType.NUMBER, null, false, false, false, false, true, emptyList())
+                body, LogicType.NUMBER, null, false, false, false, false, true, emptyList())
             fun definition(units: List<LogicalTableCreateRequest.LogicUnitInput>, physicalVersion: Long = 1) = LogicalTableCreateRequest(f.physicalId, physicalVersion,
                 "recognized", "确认口径", LogicalTableRole.FACT, "逐层定义", "trade", "golden", units)
             val a = GovernanceOrderFixture.ref("recognized.a")
@@ -48,16 +49,32 @@ class PublishedLogicalDefinitionsTest {
             val qualifiedV2 = SemanticExpression.Operation(SemanticExpression.Operator.ADD, listOf(GovernanceOrderFixture.ref("recognized.qualified"), GovernanceOrderFixture.ref("recognized.net", 2)))
             f.logical.reviseLogicalTable(GovernanceRevisionRequest("recognized", 1, definition(listOf(order, expression("qualified", qualifiedV2), expression("net", net(20))))))
             f.activate("LOGICAL_TABLE", "recognized", 2)
-            assertEquals(SemanticExpressionCodec.write(qualifiedV2), f.logical.logicUnitSnapshot("recognized.qualified", 2).expressionJson)
+            assertEquals(qualifiedV2, f.logical.logicUnitSnapshot("recognized.qualified", 2).expression)
             assertEquals(1, f.logical.listLogicUnitSourceRefs("recognized.qualified", 2).size)
             f.topologies.createTopology(TopologyCreateRequest("recognized", "确认订单", "trade.rules", "规则", "recognized", 2, "trade", "确定来源", "golden"))
             f.activate("TOPOLOGY", "trade.rules.recognized")
             val event = f.events.createEvent(EventCreateRequest("trade.rules.recognized", 1, "sold", "确认订单", "trade", null, null,
                 EventIdentity(listOf(EventIdentity.LogicUnitRef("recognized.order", 2)), emptyMap()), emptyMap(), emptyList(), listOf(EventCreateRequest.LogicUnitRefInput("recognized.qualified", 2)), "逐层确认口径", "golden")).event
             f.activate("EVENT", event.id)
-            val metric = f.metrics.createMetric(MetricCreateRequest(event.id, 1, "recognized_amount", "确认净额", "trade", SemanticExpressionCodec.write(GovernanceOrderFixture.ref("recognized.qualified", 2)),
-                "SUM", false, "BASE", "ADDITIVE", null, emptyMap(), "确认口径", MetricBusinessMeaning("原资格口径加本期净额", "元", "订单", emptyList()), null,
-                GovernanceOrderFixture.money(), MetricValueContract.Rounding.NONE, "golden")).metric
+            val metric = f.metrics.createMetric(MetricCreateRequest(
+                code = "recognized_amount",
+                displayName = "确认净额",
+                owner = "trade",
+                definition = MetricDefinition.FactMeasure(
+                    event = com.olap.prototype.event.EventRef(event.id, 1),
+                    input = GovernanceOrderFixture.ref("recognized.qualified", 2),
+                    aggregation = MetricAggregation.SUM,
+                    distinct = false,
+                    privatePredicate = null,
+                    roles = emptyMap(),
+                    snapshotRule = null,
+                    valueContract = GovernanceOrderFixture.money(),
+                    aggregationRounding = MetricValueContract.Rounding.NONE
+                ),
+                description = "确认口径",
+                businessMeaning = MetricBusinessMeaning("原资格口径加本期净额", "元", "订单", emptyList()),
+                createdBy = "golden"
+            )).metric
             f.activate("METRIC", metric.id)
             f.subjects.createSubjectArea(SubjectAreaCreateRequest("travel", 1, "rules", "口径采用", "trade", "精确引用", "golden"))
             val adoption = f.adoptions.createSubjectAreaMetricRef(SubjectAreaMetricRefCreateRequest("travel.rules", 1, metric.code, metric.displayName,

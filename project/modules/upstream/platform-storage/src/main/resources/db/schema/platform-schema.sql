@@ -36,7 +36,7 @@ CREATE TABLE physical_table_version (
   physical_table_id varchar not null,
   version bigint not null,
   version_status varchar not null,
-  content_json text not null,
+  content_proto text not null,
   diagnostic_json text,
   source_version bigint,
   created_by varchar not null,
@@ -57,7 +57,7 @@ CREATE TABLE physical_column_version (
   physical_column_id varchar not null,
   version bigint not null,
   version_status varchar not null,
-  content_json text not null,
+  content_proto text not null,
   diagnostic_json text,
   source_version bigint,
   created_by varchar not null,
@@ -74,7 +74,7 @@ CREATE TABLE physical_column_version (
 );
 
 CREATE TABLE warehouse_discovery_snapshot (
-    structure_provenance_json TEXT,
+    structure_provenance_proto TEXT,
   id varchar primary key,
   data_source varchar not null,
   dialect_id varchar not null,
@@ -109,7 +109,7 @@ CREATE TABLE warehouse_discovered_table (
   registered_physical_table_id varchar,
   status varchar not null,
   created_at timestamp not null,
-  constraints_json text,
+  constraints_proto text,
   unique(discovery_snapshot_id, catalog_name, schema_name, table_name)
 );
 
@@ -135,7 +135,7 @@ CREATE TABLE warehouse_discovered_unique_key (
     id varchar PRIMARY KEY,
     discovered_table_id varchar NOT NULL REFERENCES warehouse_discovered_table(id),
     rule_name varchar NOT NULL,
-    proof_json text NOT NULL,
+    proof_proto text NOT NULL,
     UNIQUE(discovered_table_id, rule_name)
 );
 
@@ -145,7 +145,7 @@ CREATE TABLE warehouse_source_collection (
     source_identity_hash varchar NOT NULL,
     declaration_sha256 varchar NOT NULL,
     collection_code varchar NOT NULL,
-    record_json text NOT NULL,
+    record_proto text NOT NULL,
     FOREIGN KEY(data_source_id, source_identity_hash)
       REFERENCES warehouse_source_binding(data_source_id, source_identity_hash),
     UNIQUE(data_source_id, source_identity_hash, declaration_sha256, collection_code)
@@ -193,7 +193,7 @@ CREATE TABLE logical_table_version (
   logical_table_id varchar not null,
   version bigint not null,
   version_status varchar not null,
-  content_json text not null,
+  content_proto text not null,
   diagnostic_json text,
   source_version bigint,
   created_by varchar not null,
@@ -224,7 +224,7 @@ CREATE TABLE logic_unit_version (
   logic_unit_id varchar not null,
   version bigint not null,
   version_status varchar not null,
-  content_json text not null,
+  content_proto text not null,
   diagnostic_json text,
   source_version bigint,
   created_by varchar not null,
@@ -282,7 +282,7 @@ CREATE TABLE topology_version (
   topology_id varchar not null,
   version bigint not null,
   version_status varchar not null,
-  content_json text not null,
+  content_proto text not null,
   diagnostic_json text,
   source_version bigint,
   created_by varchar not null,
@@ -332,10 +332,10 @@ CREATE TABLE join_path_version (
   join_path_id varchar not null,
   version bigint not null,
   version_status varchar not null,
-  content_json text not null,
+  content_proto text not null,
   join_type varchar not null,
   cardinality varchar not null,
-  temporal_config_json text,
+  temporal_config_proto text,
   null_policy varchar,
   diagnostic_json text,
   source_version bigint,
@@ -379,7 +379,7 @@ CREATE TABLE event_version (
   event_id varchar not null,
   version bigint not null,
   version_status varchar not null,
-  content_json text not null,
+  content_proto text not null,
   diagnostic_json text,
   source_version bigint,
   created_by varchar not null,
@@ -410,7 +410,7 @@ CREATE TABLE event_slice_filter (
   id varchar primary key,
   event_id varchar not null,
   event_version bigint not null,
-  filter_json text not null,
+  predicate_proto text not null,
   created_at timestamp not null
 );
 
@@ -426,7 +426,7 @@ CREATE TABLE metric_version (
   metric_id varchar not null,
   version bigint not null,
   version_status varchar not null,
-  content_json text not null,
+  content_proto text not null,
   diagnostic_json text,
   source_version bigint,
   created_by varchar not null,
@@ -458,7 +458,7 @@ CREATE TABLE dimension_version (
   dimension_id varchar not null,
   version bigint not null,
   version_status varchar not null,
-  content_json text not null,
+  content_proto text not null,
   diagnostic_json text,
   source_version bigint,
   created_by varchar not null,
@@ -495,7 +495,7 @@ CREATE TABLE analysis_dimension_version (
   analysis_dimension_id varchar not null,
   version bigint not null,
   version_status varchar not null,
-  content_json text not null,
+  content_proto text not null,
   diagnostic_json text,
   source_version bigint,
   created_by varchar not null,
@@ -525,7 +525,7 @@ CREATE TABLE scenario_version (
   scenario_id varchar not null,
   version bigint not null,
   version_status varchar not null,
-  content_json text not null,
+  content_proto text not null,
   diagnostic_json text,
   source_version bigint,
   created_by varchar not null,
@@ -555,7 +555,7 @@ CREATE TABLE subject_area_version (
   subject_area_id varchar not null,
   version bigint not null,
   version_status varchar not null,
-  content_json text not null,
+  content_proto text not null,
   diagnostic_json text,
   source_version bigint,
   created_by varchar not null,
@@ -581,7 +581,7 @@ CREATE TABLE release_object_ref (
   object_code varchar not null,
   object_display_name varchar not null,
   ref_role varchar not null,
-  snapshot_summary_json text,
+  snapshot_proto text,
   created_at timestamp not null,
   unique(release_id, release_version, object_type, object_id, object_version, ref_role)
 );
@@ -599,7 +599,7 @@ CREATE TABLE business_line_version (
   business_line_id varchar not null,
   version bigint not null,
   version_status varchar not null,
-  content_json text not null,
+  content_proto text not null,
   diagnostic_json text,
   source_version bigint,
   created_by varchar not null,
@@ -620,7 +620,7 @@ CREATE TABLE dimension_event_binding_version (
   binding_id varchar not null,
   version bigint not null,
   version_status varchar not null,
-  content_json text not null,
+  content_proto text not null,
   diagnostic_json text,
   source_version bigint,
   created_by varchar not null,
@@ -658,7 +658,7 @@ CREATE TABLE subject_area_metric_ref (
   subject_area_version bigint not null,
   code varchar not null,
   display_name varchar not null,
-  business_meaning_json text not null,
+  business_meaning_proto text not null,
   metric_id varchar not null,
   metric_version bigint not null,
   status varchar not null,
@@ -714,7 +714,6 @@ CREATE TABLE analysis_dimension_value_provider (
   source_table_version bigint,
   source_logic_unit_id varchar,
   source_logic_unit_version bigint,
-  mapping_json text,
   refresh_policy varchar not null,
   status varchar not null,
   created_by varchar not null,
@@ -764,7 +763,7 @@ CREATE TABLE member_definition_version (
   version_status varchar not null check (version_status IN ('DRAFT','ACTIVE','DEPRECATED','ARCHIVED')),
   active_identity varchar GENERATED ALWAYS AS
     (CASE WHEN version_status='ACTIVE' THEN member_definition_id ELSE NULL END),
-  content_json text not null,
+  content_proto text not null,
   source_version bigint,
   created_by varchar not null,
   created_at timestamp not null,
@@ -786,10 +785,10 @@ CREATE TABLE subject_area_member_source (
   subject_area_version bigint not null,
   code varchar not null,
   display_name varchar not null,
-  definition_origin_json text not null,
-  definition_json text,
-  bindings_json text not null,
-  fixed_arguments_json text not null,
+  definition_origin_proto text not null,
+  definition_proto text,
+  bindings_proto text not null,
+  fixed_arguments_proto text not null,
   primary key(id, subject_area_version),
   unique(subject_area_id, subject_area_version, code),
   foreign key(subject_area_id, subject_area_version) references subject_area_version(subject_area_id, version)
@@ -830,7 +829,7 @@ CREATE TABLE subject_area_metric_fixed_argument (
   adoption_id varchar not null,
   adoption_version bigint not null,
   parameter_name varchar not null,
-  value_json text not null,
+  value_proto text not null,
   primary key(adoption_id, adoption_version, parameter_name),
   foreign key(adoption_id, adoption_version) references subject_area_metric_ref(id, subject_area_version)
 );
@@ -880,7 +879,7 @@ CREATE TABLE subject_area_metric_member_binding (
   binding_kind varchar not null,
   source_id varchar,
   source_version bigint,
-  binding_json text not null,
+  binding_proto text not null,
   primary key(adoption_id, adoption_version, slot),
   foreign key(adoption_id, adoption_version) references subject_area_metric_ref(id, subject_area_version),
   foreign key(source_id, source_version) references subject_area_member_source(id, subject_area_version),
@@ -892,7 +891,7 @@ CREATE TABLE subject_area_metric_relation_binding (
   adoption_id varchar not null,
   adoption_version bigint not null,
   slot varchar not null,
-  binding_json text not null,
+  binding_proto text not null,
   primary key(adoption_id, adoption_version, slot),
   foreign key(adoption_id, adoption_version) references subject_area_metric_ref(id, subject_area_version)
 );
@@ -906,7 +905,7 @@ CREATE TABLE scenario_relation_filter_ref (
   event_version bigint not null,
   member_source_id varchar not null,
   member_source_version bigint not null,
-  definition_json text not null,
+  definition_proto text not null,
   unique(scenario_id, scenario_version, code),
   foreign key(scenario_id, scenario_version) references scenario_version(scenario_id, version),
   foreign key(event_id, event_version) references event_version(event_id, version),
@@ -918,7 +917,7 @@ CREATE TABLE scenario_member_source_ref (
   scenario_version bigint not null,
   source_id varchar not null,
   source_version bigint not null,
-  permission_json text not null,
+  permission_proto text not null,
   primary key(scenario_id, scenario_version, source_id),
   foreign key(scenario_id, scenario_version) references scenario_version(scenario_id, version),
   foreign key(source_id, source_version) references subject_area_member_source(id, subject_area_version)
@@ -956,7 +955,7 @@ CREATE TABLE scenario_filter_ref (
   filter_target_type varchar not null check (filter_target_type = 'ANALYSIS_DIMENSION'),
   target_id varchar not null,
   target_version bigint not null,
-  operator_policy_json text not null,
+  operators_proto text not null,
   value_provider_id varchar,
   required_by_default boolean not null,
   sort_order int not null,
@@ -970,7 +969,7 @@ CREATE TABLE scenario_pipeline_rule (
   scenario_version bigint not null,
   rule_type varchar not null,
   display_name varchar not null,
-  rule_config_json text not null,
+  authorization_proto text not null,
   status varchar not null,
   sort_order int not null,
   created_at timestamp not null,
@@ -995,9 +994,9 @@ CREATE TABLE release_executable_catalog (
   release_version varchar not null,
   scenario_id varchar not null,
   scenario_version bigint not null,
-  producer_catalog_json text not null,
+  producer_catalog_proto text not null,
   producer_catalog_hash varchar not null,
-  executable_catalog_json text not null,
+  executable_catalog_proto text not null,
   catalog_hash varchar not null,
   compiler_version varchar not null,
   created_at timestamp not null,
@@ -1016,7 +1015,7 @@ CREATE TABLE release_artifact (
   governance_closure_hash varchar not null,
   catalog_hash varchar not null,
   artifact_hash varchar not null,
-  manifest_json text not null,
+  manifest_proto text not null,
   created_by varchar not null,
   created_at timestamp not null,
   primary key (release_id, release_version),
@@ -1030,7 +1029,7 @@ CREATE TABLE release_query_capability (
   release_version varchar not null,
   scenario_id varchar not null,
   scenario_version bigint not null,
-  capability_json text not null,
+  capability_proto text not null,
   capability_hash varchar not null,
   rule_set_version varchar not null,
   created_at timestamp not null,
@@ -1087,7 +1086,6 @@ CREATE TABLE release_time_anchor_rule (
   analysis_dimension_id varchar,
   analysis_dimension_version bigint,
   level_code varchar,
-  alias_symbols_json text,
   partition_logic_unit_id varchar,
   partition_logic_unit_version bigint,
   diagnostic_json text,
@@ -1123,8 +1121,8 @@ CREATE TABLE release_dimension_mapping (
   logic_unit_id varchar not null,
   logic_unit_version bigint not null,
   logic_unit_display_name varchar not null,
-  join_path_refs_json text not null,
-  expression_json text not null,
+  join_path_refs_proto text not null,
+  expression_proto text not null,
   created_at timestamp not null,
   unique(release_id,release_version,analysis_dimension_id,analysis_dimension_version,level_code,event_id,event_version)
 );
@@ -1790,7 +1788,7 @@ CREATE TABLE query_definition_version (
   capability_hash varchar NOT NULL,
   intent_hash varchar NOT NULL,
   artifact_sha256 varchar NOT NULL,
-  artifact_json text NOT NULL,
+  artifact_proto text NOT NULL,
   created_by varchar NOT NULL,
   created_at timestamp NOT NULL,
   PRIMARY KEY(definition_id,version)
@@ -1815,11 +1813,12 @@ CREATE TABLE query_run (
   completed_at timestamp,
   history_enabled boolean NOT NULL,
   save_requested boolean NOT NULL,
-  intent_json text,
-  definition_json text,
+  intent_proto text,
+  definition_proto text,
   question text,
   execution_error text,
-  execution_evidence_json text,
+  execution_receipt_proto text,
+  service_observation_proto text,
   delivery_error text
 );
 CREATE INDEX idx_query_run_scope ON query_run(subject,release_id,release_version,scenario_id,scenario_version,accepted_at);
@@ -1853,4 +1852,4 @@ CREATE TABLE platform_storage_format (
 );
 
 -- 完整结构初始化完成后才写入格式身份。
-INSERT INTO platform_storage_format(singleton_id, format_version) VALUES (1, 15);
+INSERT INTO platform_storage_format(singleton_id, format_version) VALUES (1, 16);

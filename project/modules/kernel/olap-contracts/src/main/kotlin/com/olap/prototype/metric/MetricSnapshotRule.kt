@@ -1,6 +1,5 @@
 package com.olap.prototype.metric
 
-import com.fasterxml.jackson.annotation.JsonProperty
 import com.olap.prototype.contract.ProducerContractException
 import com.olap.prototype.contract.ProducerContracts
 import com.olap.prototype.expression.SemanticExpression
@@ -9,7 +8,7 @@ import com.olap.prototype.query.ScopedInputContract
 /** 精确指标版本的时间归约，不是查询后对汇总余额再求和。 */
 class MetricSnapshotRule(val reduction: Reduction, val entityRole: String, entityKeys: List<LogicUnitKey>, val timeKey: LogicUnitKey,
     tieBreakKeys: List<LogicUnitKey>, val nullPolicy: NullPolicy,
-    @param:JsonProperty(required = true) val meanValueContract: MetricValueContract?, val meanRounding: MetricValueContract.Rounding) {
+    val meanValueContract: MetricValueContract?, val meanRounding: MetricValueContract.Rounding) {
     val entityKeys: List<LogicUnitKey> = java.util.List.copyOf(entityKeys)
     val tieBreakKeys: List<LogicUnitKey> = java.util.List.copyOf(tieBreakKeys)
     enum class Reduction { FIRST, LAST, MEAN }

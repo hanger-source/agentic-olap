@@ -11,7 +11,6 @@ import com.olap.prototype.engine.context.OlapQueryContext
 import com.olap.prototype.engine.EngineExecutionException
 import com.olap.prototype.event.EventIdentity
 import com.olap.prototype.event.RelationAccessPath
-import com.olap.prototype.expression.SemanticExpressionCodec
 import com.olap.prototype.governance.contract.*
 import com.olap.prototype.metric.*
 import com.olap.prototype.query.*
@@ -96,10 +95,25 @@ class PublishedTimeSemanticsTest {
             val meaning = MetricBusinessMeaning("按实体选定期内最后事实再汇总", "元", "实体期末", listOf("不是每日发生额求和"))
             val rule = MetricSnapshotRule(MetricSnapshotRule.Reduction.LAST, "order", listOf(MetricSnapshotRule.LogicUnitKey("order_fact.order_id", 1)),
                 MetricSnapshotRule.LogicUnitKey("order_fact.pay_time", 1), emptyList(), MetricSnapshotRule.NullPolicy.PRESERVE_SELECTED, null, MetricValueContract.Rounding.NONE)
-            fun definition(code: String, snapshot: MetricSnapshotRule?) = MetricCreateRequest(GovernanceOrderFixture.EVENT, 1, code, "期末事实金额", "trade",
-                SemanticExpressionCodec.write(GovernanceOrderFixture.ref("order_fact.pay_amount")), "SUM", false, "BASE", "SEMI_ADDITIVE", null, emptyMap(), "", meaning,
-                snapshot, GovernanceOrderFixture.money(), MetricValueContract.Rounding.NONE, "golden")
-            assertThrows(ProducerContractException::class.java) { f.metrics.createMetric(definition("missing_rule", null)) }
+            fun definition(code: String, snapshot: MetricSnapshotRule) = MetricCreateRequest(
+                code = code,
+                displayName = "期末事实金额",
+                owner = "trade",
+                definition = MetricDefinition.FactMeasure(
+                    event = com.olap.prototype.event.EventRef(GovernanceOrderFixture.EVENT, 1),
+                    input = GovernanceOrderFixture.ref("order_fact.pay_amount"),
+                    aggregation = MetricAggregation.SUM,
+                    distinct = false,
+                    privatePredicate = null,
+                    roles = emptyMap(),
+                    snapshotRule = snapshot,
+                    valueContract = GovernanceOrderFixture.money(),
+                    aggregationRounding = MetricValueContract.Rounding.NONE
+                ),
+                description = "",
+                businessMeaning = meaning,
+                createdBy = "golden"
+            )
             val metric = f.metrics.createMetric(definition("snapshot_amount", rule)).metric
             f.activateSubjectGraph(false); f.activate("METRIC", metric.id); f.adopt(metric.id); f.grantMetric(metric.id, order = 2)
             f.activate("SUBJECT_AREA", GovernanceOrderFixture.SUBJECT); f.build("snapshot_release")
@@ -123,8 +137,24 @@ class PublishedTimeSemanticsTest {
     private fun event(code: String, time: String?, display: String) = EventCreateRequest(GovernanceOrderFixture.TOPOLOGY, 1, code, display, "trade", time, time?.let { 1L },
         EventIdentity(listOf(EventIdentity.LogicUnitRef("order_fact.order_id", 1)), mapOf("order" to listOf(EventIdentity.LogicUnitRef("order_fact.order_id", 1)))), emptyMap(),
         listOf(EventCreateRequest.LogicUnitRefInput("order_fact.destination", 1)), listOf(EventCreateRequest.LogicUnitRefInput("order_fact.pay_amount", 1)), "显式事实时间含义", "golden")
-    private fun metric(event: String, code: String, display: String) = MetricCreateRequest(event, 1, code, display, "trade", SemanticExpressionCodec.write(GovernanceOrderFixture.ref("order_fact.pay_amount")),
-        "SUM", false, "BASE", "ADDITIVE", null, emptyMap(), "完整关系金额", MetricBusinessMeaning("完整登记关系的金额", "元", "完整登记成员", listOf("不按发生期间裁剪")), null,
-        GovernanceOrderFixture.money(), MetricValueContract.Rounding.NONE, "golden")
+    private fun metric(event: String, code: String, display: String) = MetricCreateRequest(
+        code = code,
+        displayName = display,
+        owner = "trade",
+        definition = MetricDefinition.FactMeasure(
+            event = com.olap.prototype.event.EventRef(event, 1),
+            input = GovernanceOrderFixture.ref("order_fact.pay_amount"),
+            aggregation = MetricAggregation.SUM,
+            distinct = false,
+            privatePredicate = null,
+            roles = emptyMap(),
+            snapshotRule = null,
+            valueContract = GovernanceOrderFixture.money(),
+            aggregationRounding = MetricValueContract.Rounding.NONE
+        ),
+        description = "完整关系金额",
+        businessMeaning = MetricBusinessMeaning("完整登记关系的金额", "元", "完整登记成员", listOf("不按发生期间裁剪")),
+        createdBy = "golden"
+    )
     private fun period() = QueryComputation.TimeRange(ScopedInputContract.DimensionRef("travel.trade.business_date", "1", "day"), TemporalWindow(TemporalWindow.ValueType.DATE, TemporalWindow.BOUNDARY, "2026-07-01", "2026-08-01"))
 }

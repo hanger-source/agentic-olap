@@ -1,5 +1,7 @@
 package com.olap.prototype.governance.contract
 
+import com.olap.prototype.query.contract.StageAuthorization
+
 import com.olap.prototype.calculation.MetricRef
 import com.olap.prototype.contract.ProducerContractException
 import com.olap.prototype.contract.ProducerContracts
@@ -9,13 +11,12 @@ import com.olap.prototype.query.contract.FilterLeafOperator
 import com.olap.prototype.query.contract.MemberQueryPermission
 import com.olap.prototype.query.contract.PublishedRelationFilter
 import com.olap.prototype.query.contract.RelationFilterPermission
-import com.olap.prototype.util.OlapJsonUtils
 import java.time.Instant
 
 data class ScenarioCreateRequest(val subjectAreaId: String, val subjectAreaVersion: Long, val code: String, val displayName: String, val owner: String, val description: String?, val createdBy: String)
 data class ScenarioCreateResult(val scenario: ScenarioRecord, val scenarioVersion: ScenarioVersionRecord, val subjectAreaScenarioRef: SubjectAreaScenarioRefRecord)
 data class ScenarioRecord(val id: String, val subjectAreaId: String, val subjectAreaVersion: Long, val code: String, val displayName: String, val description: String?, val owner: String, val status: String, val currentVersion: Long, val createdBy: String, val createdAt: Instant, val updatedBy: String?, val updatedAt: Instant?)
-data class ScenarioVersionRecord(val id: String, val scenarioId: String, val version: Long, val versionStatus: String, val contentJson: String, val diagnosticJson: String?, val sourceVersion: Long?, val createdBy: String, val createdAt: Instant, val activatedBy: String?, val activatedAt: Instant?, val deprecatedBy: String?, val deprecatedAt: Instant?, val archivedBy: String?, val archivedAt: Instant?)
+data class ScenarioVersionRecord(val id: String, val scenarioId: String, val version: Long, val versionStatus: String, val contentProto: String, val diagnosticJson: String?, val sourceVersion: Long?, val createdBy: String, val createdAt: Instant, val activatedBy: String?, val activatedAt: Instant?, val deprecatedBy: String?, val deprecatedAt: Instant?, val archivedBy: String?, val archivedAt: Instant?)
 data class ScenarioMetricRefCreateRequest(val scenarioId: String, val scenarioVersion: Long, val adoptionId: String, val adoptionVersion: Long, val requiredByDefault: Boolean?, val sortOrder: Int?)
 data class ScenarioMetricRefCreateResult(val ref: ScenarioMetricRefRecord)
 data class ScenarioMetricRefRecord(val id: String, val scenarioId: String, val scenarioVersion: Long, val adoptionId: String, val adoptionVersion: Long, val requiredByDefault: Boolean, val sortOrder: Int, val createdAt: Instant)
@@ -31,38 +32,32 @@ class ScenarioFilterRefCreateRequest(val scenarioId: String, val scenarioVersion
     override fun hashCode(): Int = listOf(scenarioId, scenarioVersion, filterTargetType, targetId, targetVersion, valueProviderId, operators, requiredByDefault, sortOrder).hashCode()
 }
 data class ScenarioFilterRefCreateResult(val ref: ScenarioFilterRefRecord)
-data class ScenarioFilterRefRecord(val id: String, val scenarioId: String, val scenarioVersion: Long, val filterTargetType: String, val targetId: String, val targetVersion: Long, val operatorPolicyJson: String, val valueProviderId: String?, val requiredByDefault: Boolean, val sortOrder: Int, val createdAt: Instant)
+data class ScenarioFilterRefRecord(val id: String, val scenarioId: String, val scenarioVersion: Long, val filterTargetType: String, val targetId: String, val targetVersion: Long, val operators: List<String>, val valueProviderId: String?, val requiredByDefault: Boolean, val sortOrder: Int, val createdAt: Instant)
 data class ScenarioRelationFilterCreateRequest(val scenarioId: String, val scenarioVersion: Long, val code: String, val displayName: String, val eventId: String, val eventVersion: Long, val relationshipRole: String, val memberSourceId: String, val memberSourceVersion: Long, val permission: RelationFilterPermission, val requiredByDefault: Boolean?, val sortOrder: Int?)
 data class ScenarioRelationFilterRecord(val scenarioId: String, val scenarioVersion: Long, val code: String, val definition: PublishedRelationFilter) {
     init { require(definition.relation.version == scenarioVersion) { "relation filter belongs to its exact scenario version" } }
 }
 data class ScenarioPipelineRuleCreateRequest(val scenarioId: String, val scenarioVersion: Long, val ruleType: String, val sortOrder: Int?)
-data class ScenarioPipelineRuleContractRefreshRequest(val scenarioId: String, val scenarioVersion: Long, val ruleType: String, val approvedRuleConfigJson: String)
+data class ScenarioPipelineRuleContractRefreshRequest(val scenarioId: String, val scenarioVersion: Long, val ruleType: String, val approvedAuthorization: StageAuthorization)
 data class ScenarioPipelineRuleCreateResult(val rule: ScenarioPipelineRuleRecord)
-data class ScenarioPipelineRuleRecord(val id: String, val scenarioId: String, val scenarioVersion: Long, val ruleType: String, val displayName: String, val ruleConfigJson: String, val status: String, val sortOrder: Int, val createdAt: Instant) {
+data class ScenarioPipelineRuleRecord(val id: String, val scenarioId: String, val scenarioVersion: Long, val ruleType: String, val displayName: String, val authorization: StageAuthorization, val status: String, val sortOrder: Int, val createdAt: Instant) {
     init { ScenarioPipelineRulePolicy.requireScenarioPipelineRule(this) }
 }
 object ScenarioPipelineRulePolicy {
     @JvmStatic fun requireScenarioPipelineRule(record: ScenarioPipelineRuleRecord) {
         requireRuleType(record.ruleType, "scenario_pipeline_rule.rule_type")
         requireDisplayName(record.displayName, "scenario_pipeline_rule.display_name")
-        requireRuleConfigJson(record.ruleConfigJson, "scenario_pipeline_rule.rule_config_json")
+        require(record.authorization.operationType == record.ruleType) { "stage authorization differs from rule identity" }
         requireStatus(record.status, "scenario_pipeline_rule.status")
     }
     @JvmStatic fun requireRuleType(value: String?, field: String): String = PostOperationContract.requireType(value, field)
     @JvmStatic fun requireDisplayName(value: String?, field: String): String = ProducerContracts.requireText(value, field)
-    @JvmStatic fun requireRuleConfigJson(value: String?, field: String): String {
-        val text = ProducerContracts.requireText(value, field)
-        val node = try { OlapJsonUtils.mapper().readTree(text) } catch (failure: Exception) { throw ProducerContractException("$field must be a JSON object", failure) }
-        if (node == null || !node.isObject) throw ProducerContractException("$field must be a JSON object")
-        return text
-    }
     @JvmStatic fun requireStatus(value: String?, field: String): String = GovernanceContract.requireGovernanceLifecycleStatus(value, field)
 }
 data class ScenarioMetricCandidate(val adoptionId: String, val adoptionVersion: Long, val code: String, val displayName: String, val businessMeaning: MetricBusinessMeaning, val definition: MetricRef, val status: String, val statusDisplayName: String, val enabled: Boolean, val disabledReason: String?)
 data class ScenarioAnalysisDimensionCandidate(val analysisDimensionId: String, val analysisDimensionVersion: Long, val displayName: String, val status: String, val statusDisplayName: String, val defaultLevelCode: String, val enabled: Boolean, val disabledReason: String?)
 data class ScenarioFilterValueProviderCandidate(val valueProviderId: String, val levelCode: String, val providerType: String, val providerTypeDisplayName: String, val sourceLogicUnitId: String, val sourceLogicUnitVersion: Long, val sourceLogicUnitDisplayName: String, val status: String, val statusDisplayName: String, val enabled: Boolean, val disabledReason: String?)
-data class ScenarioPipelineRuleCandidate(val ruleType: String, val displayName: String, val ruleConfigJson: String, val enabled: Boolean, val disabledReason: String?)
+data class ScenarioPipelineRuleCandidate(val ruleType: String, val displayName: String, val authorization: StageAuthorization, val enabled: Boolean, val disabledReason: String?)
 class ScenarioFilterCandidate(val analysisDimensionId: String, val analysisDimensionVersion: Long, val displayName: String, val status: String, val statusDisplayName: String, val defaultLevelCode: String, valueProviders: List<ScenarioFilterValueProviderCandidate>, val enabled: Boolean, val disabledReason: String?) {
     val valueProviders: List<ScenarioFilterValueProviderCandidate> = java.util.List.copyOf(valueProviders)
     override fun equals(other: Any?): Boolean = other is ScenarioFilterCandidate && analysisDimensionId == other.analysisDimensionId && analysisDimensionVersion == other.analysisDimensionVersion && displayName == other.displayName && status == other.status && statusDisplayName == other.statusDisplayName && defaultLevelCode == other.defaultLevelCode && valueProviders == other.valueProviders && enabled == other.enabled && disabledReason == other.disabledReason

@@ -1,19 +1,5 @@
-import com.olap.prototype.calculation.*
 import com.olap.prototype.connector.*
 import com.olap.prototype.connector.loader.ConnectorPlugins
-import com.olap.prototype.member.*
-import com.olap.prototype.metric.MetricValueContract
-import com.olap.prototype.query.*
-import com.olap.prototype.query.PostOperationContract.OrderKey
-import com.olap.prototype.query.PostOperationContract.PostFilter
-import com.olap.prototype.query.PostOperationContract.Project
-import com.olap.prototype.query.PostOperationContract.Regroup
-import com.olap.prototype.query.PostOperationContract.ResultAggregate
-import com.olap.prototype.query.PostOperationContract.ResultGrouping
-import com.olap.prototype.query.PostOperationContract.SelectVersions
-import com.olap.prototype.query.PostOperationContract.ValidatedOperation
-import com.olap.prototype.query.PostOperationContract.VersionTies
-import com.olap.prototype.query.ResultExpression.*
 import com.olap.prototype.util.OlapJsonUtils
 import com.olap.prototype.warehouse.contract.JdbcConnectionSpec
 import java.nio.file.Files
@@ -21,7 +7,7 @@ import java.nio.file.Path
 import java.sql.Driver
 import java.util.Properties
 
-/** 准备真实业务数据和作者定义；资产建设、发布和查询属于外部 MCP 客户端。 */
+/** 准备未经业务计算的真实来源数据；建模、发布和查询由同目录 main.olap.kts 完成。 */
 object Procurement {
     @JvmStatic
     fun main(arguments: Array<String>) {
@@ -80,69 +66,7 @@ object Procurement {
             }
         }
         write(output.resolve("data-sources.json"), listOf(source.source()))
-        val po = Calculation.DimensionSlot("po", "example.purchase_order", 1, "purchase_order")
-        val mapper = OlapJsonUtils.mapper()
-        fun member(value: MemberSourceDefinition) = mapper.readTree(mapper.writerFor(MemberSourceDefinition::class.java).writeValueAsBytes(value))
-        fun metric(value: MetricDefinition) = mapper.readTree(mapper.writerFor(MetricDefinition::class.java).writeValueAsBytes(value))
-        write(output.resolve("authored-definitions.json"), linkedMapOf(
-            "latest_effective" to member(receiptDefinition(po, true)),
-            "latest_successful" to member(receiptDefinition(po, false)),
-            "sum" to metric(sumDefinition(po)), "total" to metric(totalDefinition(po)), "money" to money(),
-        ))
     }
-
-    private fun receiptDefinition(po: Calculation.DimensionSlot, latestFirst: Boolean): MemberSourceDefinition.Computed {
-        val outputs = linkedMapOf<String, Calculation.MemberOutput>(
-            "id" to Calculation.MemberProperty("delivery_identity", ScalarValueType.TEXT, null),
-            "po" to Calculation.MemberDimension("po", null),
-            "receipt" to Calculation.MemberProperty("record_identity", ScalarValueType.TEXT, null),
-            "revision" to Calculation.MemberProperty("version", ScalarValueType.NUMBER, null),
-            "status" to Calculation.MemberProperty("status", ScalarValueType.TEXT, null),
-            "amount" to Calculation.MemberProperty("amount", ScalarValueType.NUMBER, money()),
-            "delivered" to Calculation.MemberProperty("delivery_time", ScalarValueType.LOCAL_TIMESTAMP, null),
-        )
-        val versions = SelectVersions(listOf("receipt"), listOf(OrderKey("revision", "DESC", "LAST"),
-            OrderKey("delivered", "DESC", "LAST"), OrderKey("id", "ASC", "LAST")), VersionTies.FAIL, null)
-        val accepted = PostFilter(ResultOperation(ResultOperator.EQ,
-            listOf(ResultSymbol("status"), ResultArgument("accepted", ScalarValueType.TEXT))))
-        val stages: List<ValidatedOperation> = if (latestFirst) listOf(versions, accepted) else listOf(accepted, versions)
-        val calculation = Calculation(listOf(po), listOf(Calculation.MemberSlot("deliveries", "收货投递", "delivery",
-            MemberShape.RECORDS, outputs, null)), emptyList(), emptyList(), mapOf("accepted" to Calculation.Parameter(
-        Calculation.ParameterKind.SCALAR, "TEXT", emptyList(), null, null)), Calculation.Scope(
-        Calculation.Members("deliveries", "deliveries", outputs.keys.map { Calculation.MemberProjection(it, it) },
-            null, emptyMap(), MemberCondition.Unrestricted()), emptyMap(),
-        stages + Project(listOf("receipt", "po", "amount"))))
-        return MemberSourceDefinition.Computed(calculation, MemberResult("业务金额记录", "amount_record", MemberShape.RECORDS,
-            listOf("id"), mapOf(
-                "id" to MemberSourceDefinition.ComputedPropertyOutput("收货身份", "record_identity", ScalarValueType.TEXT, "receipt", null),
-                "po" to MemberSourceDefinition.ComputedDimensionOutput("采购单", "purchase_order", ScalarValueType.TEXT, "po", "po", null),
-                "amount" to MemberSourceDefinition.ComputedPropertyOutput("收货金额", "amount", ScalarValueType.NUMBER, "amount", money()),
-            ), emptyMap(), null, emptyMap(),
-            if (latestFirst) "先选最新状态再判有效，取消的收货不保留" else "先选成功投递再选最新成功，后续取消不抹除历史成功"))
-    }
-
-    private fun sumDefinition(po: Calculation.DimensionSlot): MetricCalculation {
-        val rows = Calculation.MemberSlot("rows", "业务金额记录", "amount_record", MemberShape.RECORDS, mapOf(
-            "id" to Calculation.MemberProperty("record_identity", ScalarValueType.TEXT, null),
-            "po" to Calculation.MemberDimension("po", null),
-            "amount" to Calculation.MemberProperty("amount", ScalarValueType.NUMBER, money()),
-        ), null)
-        val body = Calculation(listOf(po), listOf(rows), emptyList(), emptyList(), emptyMap(), Calculation.Scope(
-            Calculation.Members("records", "rows", listOf("id", "po", "amount").map { Calculation.MemberProjection(it, it) },
-                null, emptyMap(), MemberCondition.Unrestricted()), emptyMap(), listOf(sum(listOf("po"), "amount"))))
-        return MetricCalculation(body, "value", listOf("po"), money())
-    }
-
-    private fun totalDefinition(po: Calculation.DimensionSlot) = MetricCalculation(
-        Calculation(listOf(po), emptyList(), listOf(Calculation.MeasurementSlot("amount", emptyMap(), listOf(po), emptyList(), money())), emptyList(), emptyMap(), Calculation.Scope(Calculation.Measures(listOf(Calculation.Call("amount", Calculation.Measurement("amount"), "amount", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()))), listOf("po"), emptyList(), null, null,
-            emptyMap(), Calculation.Population(listOf("amount")), null), emptyMap(), listOf(sum(emptyList(), "amount")))),
-        "value", emptyList(), money())
-
-    private fun sum(keys: List<String>, input: String) = Regroup(ResultGrouping(keys,
-        listOf(ResultAggregate(input, ResultAggregation.Sum(money(), ResultAggregation.NullPolicy.IGNORE), "value", "记录金额合计")), null))
-
-    private fun money() = MetricValueContract(MetricValueContract.Fixed(MetricValueContract.UnitIdentity("iso4217", "CNY", 1)),
-        MetricValueContract.Exact(), MetricValueContract.Decimal(38, 2, MetricValueContract.Rounding.NONE), emptyMap(), MetricValueContract.Overflow.FAIL)
 
     private fun write(path: Path, value: Any) {
         Files.write(path, OlapJsonUtils.mapper().writerWithDefaultPrettyPrinter().writeValueAsBytes(value))

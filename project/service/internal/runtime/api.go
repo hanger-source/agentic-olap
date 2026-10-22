@@ -4,6 +4,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"google.golang.org/protobuf/types/known/anypb"
 	"io"
 )
 
@@ -38,6 +39,7 @@ type Reply struct {
 	Result      json.RawMessage
 	Error       json.RawMessage
 	Artifact    *ResultArtifact
+	Model       *anypb.Any
 	TimingNanos map[string]int64
 	Workers     []WorkerAcquisition
 }

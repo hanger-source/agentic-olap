@@ -10,7 +10,9 @@ import com.olap.prototype.integration.RuntimeDeploymentLimits
 import com.olap.prototype.integration.TestConnectors
 import com.olap.prototype.metric.MetricValueContract
 import com.olap.prototype.query.ScalarValueType
-import com.olap.prototype.query.contract.PublicationContentHash
+import com.olap.prototype.codec.GovernanceProto
+import com.olap.prototype.codec.ProtoBytes
+import com.olap.prototype.warehouse.onboarding.SourceStructureRegistrationRequest
 import com.olap.prototype.util.OlapJsonUtils
 import com.olap.prototype.warehouse.JdbcProvider
 import com.olap.prototype.warehouse.contract.JdbcConnectionSpec
@@ -141,7 +143,7 @@ class JdbcWarehouseInspectorTest {
         val logical = SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, "value", 1)
         val source = observed.source
         val binding = TestConnectors.physical(ExecutablePhysicalExecutionBinding("clock-source", "1", null, null, null, null, "clock-source", "1", "records", "1", spec.dataSourceId, spec.connectorRef, emptyList(), spec.dialectId, table.catalog, table.schema, table.table,
-            PhysicalSourceConstraints("clock-investigation", PublicationContentHash.compute(OlapJsonUtils.mapper().valueToTree(observed)), spec.sourceIdentityHash(), spec.connectorRef, source.databaseProductName, source.databaseProductVersion, source.driverName, source.driverVersion, observed.constraints, refs, emptyList(), StructureProvenance(StructureProvenance.Kind.DATABASE_CATALOG, "integration-test-catalog", "fixture-v1")),
+            PhysicalSourceConstraints("clock-investigation", ProtoBytes.digest(GovernanceProto.toProto(SourceStructureRegistrationRequest.Table(observed.table, observed.columns, observed.constraints))), spec.sourceIdentityHash(), spec.connectorRef, source.databaseProductName, source.databaseProductVersion, source.driverName, source.driverVersion, observed.constraints, refs, emptyList(), StructureProvenance(StructureProvenance.Kind.DATABASE_CATALOG, "integration-test-catalog", "fixture-v1")),
             emptyList(), logicUnitBindings = mapOf("value@1" to physical), physicalColumnBindings = names, physicalColumnTypes = types))
         val sql = CandidateValueCompiler.compile(binding, logical, 0, 10, mutableListOf(), connectors)
         return provider.executeFrame(sql, control, RuntimeDeploymentLimits.budget(), RuntimeDeploymentLimits.nativeMemoryBytes) { _, _ -> }.frame.rows.map { it.cells.first().value }.onEach { type.candidate(it) }

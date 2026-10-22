@@ -1,6 +1,9 @@
 syntax = "proto3";
 
-package agentic.olap.runtime.v1;
+import "google/protobuf/any.proto";
+import "query.proto";
+
+package agentic.olap.runtime.v2;
 
 option java_package = "com.olap.prototype.protocol";
 option java_multiple_files = true;
@@ -17,6 +20,12 @@ message Frame {
     WorkResponse work_response = 5;
     Cancel cancel = 6;
     Shutdown shutdown = 7;
+    ScriptRequest script_request = 8;
+    ScriptResponse script_response = 9;
+    CapabilityRequest capability_request = 10;
+    CapabilityResponse capability_response = 11;
+    ScriptWorkerFault script_worker_fault = 13;
+    ScriptOutput script_output = 14;
   }
 }
 
@@ -30,12 +39,13 @@ enum WorkerKind {
 }
 
 message Bootstrap {
-  string protocol = 1; // agentic-olap-runtime/v1, exact; no version fallback.
+  string protocol = 1; // agentic-olap-runtime/v2，版本必须精确一致。
   bytes deployment_json = 2; // metadata mode only; no credential values.
   bytes limits_json = 3;
   repeated string connector_manifests = 4;
   WorkerKind worker_kind = 5;
   bytes source_configurations_json = 6; // exact selected bindings only.
+  ScriptConfiguration scripting = 7;
 }
 
 message Principal {
@@ -49,6 +59,15 @@ message Request {
   Principal principal = 3;
   string operation = 4;
   bytes payload_json = 5;
+  CapabilityInvocation capability = 6;
+  DeliveryConfirmation delivery = 7;
+  google.protobuf.Any worker_model = 8;
+  ResultAuthorization result_authorization = 9;
+}
+
+message ResultAuthorization {
+  string operation_id = 1;
+  agentic.olap.query.v1.QueryResultReference reference = 2;
 }
 
 message Response {
@@ -58,6 +77,8 @@ message Response {
   bytes error_json = 4;
   ResultArtifact artifact = 5;
   RuntimeReady ready = 6;
+  google.protobuf.Any model = 7;
+  agentic.olap.query.v1.WorkerFailureFacts worker_failure = 8;
 }
 
 message Operation {
@@ -103,7 +124,8 @@ message AcquireWorker {
 
 message ExchangeWorker {
   string lease_id = 1;
-  bytes command_json = 2;
+  reserved 2;
+  google.protobuf.Any command_model = 3;
 }
 
 message ReleaseWorker {
@@ -128,10 +150,12 @@ message WorkResponse {
   string work_id = 2;
   string lease_id = 3;
   bool success = 4;
-  bytes result_json = 5;
+  reserved 5;
   bytes error_json = 6;
   // Transport/cancellation failures invalidate a lease; domain failures do not.
   bool lease_invalidated = 7;
+  google.protobuf.Any model = 8;
+  agentic.olap.query.v1.WorkerFailureFacts worker_failure = 9;
 }
 
 message Cancel {
@@ -139,3 +163,129 @@ message Cancel {
 }
 
 message Shutdown {}
+
+message CapabilityInvocation {
+  string operation_id = 1;
+  // 仅接受该操作正式声明的具体消息，不接受 Struct 或任意类型名。
+  google.protobuf.Any input = 2;
+}
+
+message ScriptConfiguration {
+  string dsl_api_version = 1;
+  repeated string compilation_classpath = 2;
+  uint64 maximum_source_bytes = 3;
+  uint64 maximum_output_bytes = 4;
+  uint64 maximum_frame_bytes = 5;
+  uint32 maximum_input_depth = 6;
+  uint64 maximum_input_nodes = 7;
+  uint64 maximum_request_bytes = 8;
+}
+
+message ScriptSource {
+  string source = 1;
+  string source_name = 2;
+  string dsl_api_version = 3;
+}
+
+message ScriptRequest {
+  string request_id = 1;
+  uint64 remaining_millis = 2;
+  ScriptSource source = 3;
+  bytes parameters_json = 4;
+  string caller_subject = 5;
+  string execution_directory = 6;
+}
+
+// 普通脚本输出与完成回执在同一有序通道中交付；原生 JVM stderr 另受进程级限额。
+message ScriptOutput {
+  enum Stream {
+    STREAM_UNSPECIFIED = 0;
+    STDOUT = 1;
+    STDERR = 2;
+  }
+  string request_id = 1;
+  Stream stream = 2;
+  bytes content = 3;
+}
+
+message SourceLocation {
+  string source_name = 1;
+  uint32 start_line = 2;
+  uint32 start_column = 3;
+  uint32 end_line = 4;
+  uint32 end_column = 5;
+}
+
+message ScriptDiagnostic {
+  string code = 1;
+  string stage = 2;
+  string severity = 3;
+  string message = 4;
+  SourceLocation location = 5;
+  CapabilityFailure capability_failure = 6;
+  repeated string field_path = 7;
+  string expected = 8;
+  string actual = 9;
+}
+
+message ScriptResponse {
+  string request_id = 1;
+  bool success = 2;
+  google.protobuf.Any result = 3;
+  repeated ScriptDiagnostic diagnostics = 4;
+  map<string, uint64> timing_nanos = 5;
+  bool recycle_worker = 6;
+}
+message ScriptWorkerFault { string request_id = 1; string code = 2; }
+
+// 仅脚本求值角色可发起；父主体、权限与期限由 Go 持有，不接受脚本填写。
+message CapabilityRequest {
+  string request_id = 1;
+  string call_id = 2;
+  CapabilityInvocation invocation = 3;
+}
+
+message CapabilityFailure {
+  string stage = 1;
+  string code = 2;
+  string message = 3;
+  bytes details_json = 4;
+  string operation_id = 5;
+  string call_id = 6;
+  repeated string field_path = 7;
+  string diagnostic_id = 8;
+}
+
+message CapabilityResponse {
+  string request_id = 1;
+  string call_id = 2;
+  string operation_request_id = 3;
+  bool success = 4;
+  google.protobuf.Any result = 5;
+  CapabilityFailure failure = 6;
+}
+
+enum DeliveryStatus {
+  DELIVERY_STATUS_UNSPECIFIED = 0;
+  DIRECT = 1;
+  SAVED = 2;
+  FAILED = 3;
+}
+
+message WorkerObservation {
+  string kind = 1;
+  string outcome = 2;
+  uint64 queue_nanos = 3;
+  uint64 startup_nanos = 4;
+}
+
+message DeliveryConfirmation {
+  string run_id = 1;
+  string sha256 = 2;
+  DeliveryStatus status = 3;
+  uint64 bytes = 4;
+  uint64 rows = 5;
+  map<string, uint64> timing_nanos = 6;
+  repeated WorkerObservation workers = 7;
+  google.protobuf.Any execution_receipt = 8;
+}

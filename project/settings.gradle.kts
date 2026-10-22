@@ -6,6 +6,18 @@ dependencyResolutionManagement {
 
 rootProject.name = "agentic-olap"
 
+include(":olap-protocol")
+project(":olap-protocol").projectDir = file("modules/protocol/olap-protocol")
+include(":json-io")
+project(":json-io").projectDir = file("modules/protocol/json-io")
+
+include(":dsl-api")
+project(":dsl-api").projectDir = file("modules/scripting/dsl-api")
+include(":script-runtime")
+project(":script-runtime").projectDir = file("modules/scripting/script-runtime")
+include(":olap-codec")
+project(":olap-codec").projectDir = file("modules/protocol/olap-codec")
+
 include(":examples")
 project(":examples").projectDir = file("../examples")
 

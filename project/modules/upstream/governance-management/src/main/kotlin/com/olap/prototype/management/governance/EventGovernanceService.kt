@@ -17,7 +17,6 @@ import com.olap.prototype.query.ScopedInputContract
 import com.olap.prototype.query.ScalarValueType
 import com.olap.prototype.query.TemporalJoinContract
 import com.olap.prototype.storage.PlatformDatabase
-import com.olap.prototype.util.OlapJsonUtils
 import java.time.Instant
 
 /** Owns event versions, explicit record/entity identity, positioned roles and slice predicates. */
@@ -47,7 +46,7 @@ class EventGovernanceService(private val database: PlatformDatabase, private val
         val now = Instant.now()
         val event = EventRecord(id, code, requireText(request.displayName, "event.display_name").trim(), topologyId, topologyVersion, timeId,
             request.eventTimeLogicUnitVersion, request.description, requireText(request.owner, "event.owner").trim(), "DRAFT", draft.version, actor, now, actor, now)
-        val version = EventVersionRecord("$id:v${draft.version}", id, draft.version, "DRAFT", json(EventSnapshots.versionContent(event, identity, roles, request.filterableLogicUnitRefs, request.measureLogicUnitRefs)),
+        val version = EventVersionRecord("$id:v${draft.version}", id, draft.version, "DRAFT", encodeDefinition(EventSnapshots.versionContent(event, identity, roles, request.filterableLogicUnitRefs, request.measureLogicUnitRefs)),
             "{}", draft.sourceVersion, actor, now, null, null, null, null, null, null)
         val refs = buildList {
             if (timeId != null) add(logicRef(event, timeId, requireNotNull(request.eventTimeLogicUnitVersion), "EVENT_TIME", now))
@@ -108,7 +107,7 @@ class EventGovernanceService(private val database: PlatformDatabase, private val
     }
     fun baseClocks(id: String, version: Long): Map<String, TemporalJoinContract.QueryClock> {
         val discovery = RelationClockDiscovery { topologies.temporalConstraint(it.joinPathId, it.joinPathVersion) }
-        val predicates = listEventSliceFilters(id, version).map { SemanticExpressionCodec.parse(it.filterJson, "event source predicate") }
+        val predicates = listEventSliceFilters(id, version).map { it.predicate }
         discovery.expression("event", RelationAccessPath(emptyList()), eventRoles(id, version), predicates)
         return discovery.slots()
     }
@@ -147,18 +146,18 @@ class EventGovernanceService(private val database: PlatformDatabase, private val
     internal fun saveEventSliceFilter(record: EventSliceFilterRecord) {
         val event = requireEvent(record.eventId, record.eventVersion)
         val expression = try {
-            SemanticExpressionCodec.parse(record.filterJson, "event_slice_filter.filter_json").also {
+            record.predicate.also {
                 requirePositionedExpression(record.eventId, record.eventVersion, RelationAccessPath(emptyList()), eventRoles(record.eventId, record.eventVersion), it, "FILTERABLE", "event predicate")
             }
         } catch (failure: ProducerContractException) { throw failure }
           catch (failure: IllegalArgumentException) { throw ProducerContractException(requireNotNull(failure.message)) }
         val refs = SemanticExpressionInspector.references(expression).map { it.id to it.version }.distinct()
-        if (refs.isEmpty() && SemanticExpressionInspector.quantifiers(expression).isEmpty()) throw ProducerContractException("event_slice_filter.filter_json 必须引用至少一个 LogicUnit: ${record.id}")
+        if (refs.isEmpty() && SemanticExpressionInspector.quantifiers(expression).isEmpty()) throw ProducerContractException("event_slice_filter.predicate_proto 必须引用至少一个 LogicUnit: ${record.id}")
         refs.forEach { (id, version) ->
             topologies.requireReachableLogicUnit(event.topologyId, event.topologyVersion, id, version, "event_slice_filter.logic_unit")
             requireLogicUnitRole(record.eventId, record.eventVersion, id, version, "FILTERABLE", "event_slice_filter.logic_unit")
         }
         repository.saveEventSliceFilter(record)
     }
-    private fun json(value: Any): String = try { OlapJsonUtils.mapper().writeValueAsString(value) } catch (failure: Exception) { throw ProducerContractException("event content_json invalid", failure) }
+    private fun encodeDefinition(value: GovernanceDefinition): String = com.olap.prototype.codec.ProtoBytes.storage(com.olap.prototype.codec.GovernanceProto.definition(value))
 }

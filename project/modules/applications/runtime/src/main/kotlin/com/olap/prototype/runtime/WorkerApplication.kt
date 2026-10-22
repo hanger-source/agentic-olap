@@ -1,15 +1,13 @@
 package com.olap.prototype.runtime
 
-import com.fasterxml.jackson.databind.node.ObjectNode
 import com.google.protobuf.ByteString
 import com.olap.prototype.connector.loader.ConnectorPlugins
+import com.olap.prototype.codec.ProtoBytes
 import com.olap.prototype.engine.EngineExecutionException
 import com.olap.prototype.protocol.Bootstrap
 import com.olap.prototype.protocol.Request
 import com.olap.prototype.protocol.Response
 import com.olap.prototype.protocol.WorkerKind
-import com.olap.prototype.server.ServerInputs.fields
-import com.olap.prototype.server.ServerInputs.text
 import com.olap.prototype.util.OlapJsonUtils
 import com.olap.prototype.warehouse.DeadlineExecutionControl
 import com.olap.prototype.warehouse.contract.SourceConfiguration
@@ -52,40 +50,55 @@ internal class WorkerApplication(bootstrap: Bootstrap, private val budgets: Runt
     @Synchronized
     fun response(request: Request): Response {
         var completedReadEvidence: SourceReadEvidence? = null
+        var sourceExecutionStarted: Boolean? = false
         return try {
             require(request.operation == "worker-command" && !request.hasPrincipal()) { "worker accepts only supervisor commands" }
             require(request.remainingMillis in 1..budgets.requestMillis) { "request exceeds deployed deadline" }
-            val command = BoundedJson.decode(request.payloadJson.toByteArray(), budgets.io)
-            require(command is ObjectNode) { "worker command must be an object" }
             DeadlineExecutionControl(request.remainingMillis).use { control ->
-                val result = when (val actual = role) {
-                    is Role.Engine -> actual.handler.execute(command, control) { completedReadEvidence = it }
-                    else -> {
-                        fields(command, setOf("operation", "payload"))
-                        val operation = text(command, "operation")
-                        val payload = command.required("payload")
-                        when (actual) {
-                            is Role.Query -> actual.handler.execute(operation, payload, control)
-                            is Role.Inspection -> actual.handler.execute(operation, payload, control)
-                            is Role.SourceInspection -> actual.handler.execute(operation, payload, control)
-                            is Role.Values -> actual.handler.execute(operation, payload, control)
-                            is Role.Engine -> error("engine dispatch scope differs")
+                    require(request.hasWorkerModel() && request.payloadJson.isEmpty) { "workers require their concrete Protobuf command" }
+                    val output = when (val actual = role) {
+                        is Role.Engine -> {
+                            val command = QueryWorkerProto.fromProto(ProtoBytes.unpack(request.workerModel,
+                                com.olap.prototype.wire.query.EngineWorkerCommand.getDefaultInstance(), budgets.frameBytes, budgets.io.inputDepth))
+                            if (command is EngineWorkerCommand.Execute) sourceExecutionStarted = null
+                            QueryWorkerProto.toProto(actual.handler.execute(command, control) { completedReadEvidence = it; sourceExecutionStarted = true })
+                        }
+                        is Role.Query -> QueryWorkerProto.toProto(actual.handler.execute(QueryWorkerProto.fromProto(ProtoBytes.unpack(request.workerModel,
+                            com.olap.prototype.wire.query.QueryWorkerCommand.getDefaultInstance(), budgets.frameBytes, budgets.io.inputDepth)), control))
+                        is Role.Inspection -> {
+                            val command = com.olap.prototype.codec.GovernanceProto.fromProto(ProtoBytes.unpack(request.workerModel,
+                                com.olap.prototype.wire.governance.SourceInspection.getDefaultInstance(), budgets.frameBytes, budgets.io.inputDepth))
+                            if (command != com.olap.prototype.source.contract.SourceInspection.Capabilities) sourceExecutionStarted = null
+                            com.olap.prototype.codec.GovernanceProto.toProto(actual.handler.execute(command, control))
+                        }
+                        is Role.SourceInspection -> {
+                            val command = SourceWorkerProto.fromProto(ProtoBytes.unpack(request.workerModel,
+                                com.olap.prototype.wire.query.SourceWorkerCommand.getDefaultInstance(), budgets.frameBytes, budgets.io.inputDepth))
+                            sourceExecutionStarted = null
+                            SourceWorkerProto.toProto(actual.handler.execute(command, control))
+                        }
+                        is Role.Values -> {
+                            val command = CandidateWorkerProto.fromProto(ProtoBytes.unpack(request.workerModel,
+                                com.olap.prototype.wire.query.CandidateWorkerCommand.getDefaultInstance(), budgets.frameBytes, budgets.io.inputDepth))
+                            if (command is CandidateWorkerCommand.Values) sourceExecutionStarted = null
+                            CandidateWorkerProto.toProto(actual.handler.execute(command, control))
                         }
                     }
-                }
-                val encoded = try { BoundedJson.encode(result, budgets.io.responseBytes) }
-                catch (failure: Exception) {
-                    val evidence = completedReadEvidence ?: throw failure
-                    throw EngineExecutionException("ENCODE_RESULT",
-                        if (failure is RuntimeResourceLimitException) failure.code else "WORKER_RESULT_ENCODING_FAILED",
-                        "source execution succeeded but worker result encoding failed", failure, sourceReadEvidence = evidence)
-                }
+                    val encoded = try { ProtoBytes.pack(output, budgets.io.responseBytes) }
+                    catch (failure: Exception) {
+                        val evidence = completedReadEvidence ?: throw failure
+                        throw EngineExecutionException("ENCODE_RESULT", "WORKER_RESULT_ENCODING_FAILED",
+                            "source execution succeeded but worker result encoding failed", failure, sourceReadEvidence = evidence, sourceExecutionStarted = true)
+                    }
                 Response.newBuilder().setRequestId(request.requestId).setSuccess(true)
-                    .setResultJson(ByteString.copyFrom(encoded)).build()
+                    .setModel(encoded).build()
             }
         } catch (failure: Exception) {
-            org.slf4j.LoggerFactory.getLogger("runtime.worker").warn("worker operation failed: kind={}, requestId={}", kind, request.requestId, failure)
+            val logger = org.slf4j.LoggerFactory.getLogger("runtime.worker")
+            logger.warn("worker operation failed: kind={}, requestId={}", kind, request.requestId, failure)
+            WorkerFailures.recordLocal(logger, kind, request.requestId, failure)
             Response.newBuilder().setRequestId(request.requestId).setSuccess(false)
+                .setWorkerFailure(WorkerFailures.facts(failure, sourceExecutionStarted))
                 .setErrorJson(ByteString.copyFrom(mapper.writeValueAsBytes(WorkerFailures.project(kind, failure)))).build()
         }
     }

@@ -1,11 +1,12 @@
 package com.olap.prototype.management.governance
 
+import com.olap.prototype.metric.MetricAggregation
+import com.olap.prototype.calculation.MetricDefinition
 import com.olap.prototype.calculation.CalculationBindings
 import com.olap.prototype.engine.EngineExecutionException
 import com.olap.prototype.event.EventIdentity
 import com.olap.prototype.event.RelationAccessPath
 import com.olap.prototype.expression.SemanticExpression
-import com.olap.prototype.expression.SemanticExpressionCodec
 import com.olap.prototype.governance.contract.*
 import com.olap.prototype.member.MemberCondition
 import com.olap.prototype.member.MemberRef
@@ -41,12 +42,28 @@ class PublishedExactRevisionsTest {
                 listOf(EventCreateRequest.LogicUnitRefInput("order_fact.pay_amount", 1)), "只统计A目的地", "golden")))
             // 事件分片沿既有正式持久表进入冻结；查询答案由独立订单输入决定。
             GovernanceRepository(database).saveEventSliceFilter(EventSliceFilterRecord("paid:v2:destination-a", GovernanceOrderFixture.EVENT, 2,
-                SemanticExpressionCodec.write(SemanticExpression.Operation(SemanticExpression.Operator.EQ,
-                    listOf(GovernanceOrderFixture.ref("order_fact.destination"), SemanticExpression.Literal("A")))), f.now))
+                SemanticExpression.Operation(SemanticExpression.Operator.EQ,
+                    listOf(GovernanceOrderFixture.ref("order_fact.destination"), SemanticExpression.Literal("A"))), f.now))
             f.activate("EVENT", GovernanceOrderFixture.EVENT, 2)
-            val selectedMetric = f.metrics.createMetric(MetricCreateRequest(GovernanceOrderFixture.EVENT, 2, "a_amount", "A目的地金额", "trade",
-                SemanticExpressionCodec.write(GovernanceOrderFixture.ref("order_fact.pay_amount")), "SUM", false, "BASE", "ADDITIVE", null, emptyMap(),
-                "A目的地支付金额", GovernanceOrderFixture.amountMeaning(), null, GovernanceOrderFixture.money(), MetricValueContract.Rounding.NONE, "golden")).metric
+            val selectedMetric = f.metrics.createMetric(MetricCreateRequest(
+                code = "a_amount",
+                displayName = "A目的地金额",
+                owner = "trade",
+                definition = MetricDefinition.FactMeasure(
+                    event = com.olap.prototype.event.EventRef(GovernanceOrderFixture.EVENT, 2),
+                    input = GovernanceOrderFixture.ref("order_fact.pay_amount"),
+                    aggregation = MetricAggregation.SUM,
+                    distinct = false,
+                    privatePredicate = null,
+                    roles = emptyMap(),
+                    snapshotRule = null,
+                    valueContract = GovernanceOrderFixture.money(),
+                    aggregationRounding = MetricValueContract.Rounding.NONE
+                ),
+                description = "A目的地支付金额",
+                businessMeaning = GovernanceOrderFixture.amountMeaning(),
+                createdBy = "golden"
+            )).metric
             f.activate("METRIC", selectedMetric.id)
             f.seedSubjectDraft()
             f.activateSubjectGraph(false)
@@ -124,10 +141,10 @@ class PublishedExactRevisionsTest {
             }
 
             val diff = DefinitionRevisionDiffService(database).read(DefinitionRevisionDiffRequest("SCENARIO", scenario, 1, 2))
-            assertTrue(diff.changes.any { it.classification == DefinitionRevisionDiff.Classification.AUTHORIZATION && it.path.contains("/permission/outputs/") &&
-                it.before?.asText() == "amount" && it.after == null })
-            assertTrue(diff.changes.any { it.classification == DefinitionRevisionDiff.Classification.AUTHORIZATION && it.path.endsWith("/permission/filters/amount") &&
-                it.before?.any { operator -> operator.asText() == "GTE" } == true && it.after == null })
+            val authorization = diff.changes.single { it.classification == DefinitionRevisionDiff.Classification.AUTHORIZATION && it.path == "/authorization/members" }
+            assertInstanceOf(DefinitionRevisionDiff.Value.Text::class.java, authorization.before)
+            assertInstanceOf(DefinitionRevisionDiff.Value.Text::class.java, authorization.after)
+            assertNotEquals(authorization.before, authorization.after)
             assertTrue(DefinitionImpact.Reference("MEMBER_SOURCE", first.id, "1") in diff.removedDependencies)
             assertTrue(DefinitionImpact.Reference("MEMBER_SOURCE", second.id, "2") in diff.addedDependencies)
             for ((version, release) in mapOf(1L to "access_v1", 2L to "access_v2")) {

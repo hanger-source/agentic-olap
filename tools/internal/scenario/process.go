@@ -227,7 +227,7 @@ func (s *service) stop() {
 	require(len(entries) == 0, "正常停止后仍留所属临时部署目录")
 }
 func (s *service) remote(phase string) *remote {
-	return connect(s.ctx, "http://"+s.address+"/mcp", s.token, "http-trial-manager", filepath.Join(s.root, phase))
+	return connect(s.ctx, "http://"+s.address+"/mcp", s.token, filepath.Join(s.root, phase))
 }
 
 type Options struct {
@@ -294,4 +294,15 @@ func runKernel(ctx context.Context, workspace products.Workspace, options Option
 	duration, err := time.ParseDuration(seconds + "s")
 	must(err)
 	exampleArguments(ctx, workspace, "kernel", filepath.Join(options.Output, "arguments.json"), []string{"--connectors", connectors, filepath.Join(options.Output, "run"), fmt.Sprint(duration.Milliseconds()), numberText(limits["nativeMemoryBytes"])})
+}
+
+func numberText(value any) string {
+	switch n := value.(type) {
+	case string:
+		return n
+	case interface{ String() string }:
+		return n.String()
+	default:
+		panic(failure{fmt.Errorf("值不是精确数字：%T", value)})
+	}
 }

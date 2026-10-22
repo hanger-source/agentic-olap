@@ -1,15 +1,13 @@
 package com.olap.prototype.query.usage
 
-import com.fasterxml.jackson.databind.JsonNode
 import com.olap.prototype.calculation.MetricInstanceRef
 import com.olap.prototype.calculation.MetricRef
 import com.olap.prototype.member.MemberRef
 import com.olap.prototype.query.contract.*
-import com.olap.prototype.query.definition.QueryDefinitionArtifact
-import com.olap.prototype.runtime.BoundedJson
+import com.olap.prototype.codec.ProtoBytes
+import com.olap.prototype.codec.QueryProto
 import com.olap.prototype.runtime.JsonResourceLimits
 import com.olap.prototype.storage.PlatformDatabase
-import com.olap.prototype.util.OlapJsonUtils
 import java.sql.PreparedStatement
 import java.sql.ResultSet
 import java.sql.SQLException
@@ -29,24 +27,21 @@ class QueryUsageRepository(private val database: PlatformDatabase, private val l
         val subjectAreaId: String, val subjectAreaVersion: Long,
         val catalogHash: String, val capabilityHash: String, val intentHash: String,
         val execution: Execution, val delivery: Delivery, val acceptedAt: Instant, val completedAt: Instant?,
-        val historyEnabled: Boolean, val saveRequested: Boolean, intent: JsonNode?,
-        val definition: QueryDefinitionArtifact.Reference?, val question: String?,
-        val executionError: String?, val deliveryError: String?, val result: ResultManifest?, executionEvidence: JsonNode?,
+        val historyEnabled: Boolean, val saveRequested: Boolean, val intent: QueryIntent?,
+        val definition: QueryReference?, val question: String?,
+        val executionError: String?, val deliveryError: String?, val result: ResultManifest?, val serviceObservation: QueryServiceObservation?,
+        val receipt: QueryExecutionReceipt?,
     ) {
-        private val frozenIntent = intent?.deepCopy<JsonNode>()
-        val intent: JsonNode? get() = frozenIntent?.deepCopy()
-        private val frozenExecutionEvidence = executionEvidence?.deepCopy<JsonNode>()
-        val executionEvidence: JsonNode? get() = frozenExecutionEvidence?.deepCopy()
         override fun equals(other: Any?): Boolean = other is Run && runId == other.runId && subject == other.subject &&
             publication == other.publication && subjectAreaId == other.subjectAreaId && subjectAreaVersion == other.subjectAreaVersion &&
             catalogHash == other.catalogHash && capabilityHash == other.capabilityHash && intentHash == other.intentHash &&
             execution == other.execution && delivery == other.delivery && acceptedAt == other.acceptedAt && completedAt == other.completedAt &&
-            historyEnabled == other.historyEnabled && saveRequested == other.saveRequested && frozenIntent == other.frozenIntent &&
+            historyEnabled == other.historyEnabled && saveRequested == other.saveRequested && intent == other.intent &&
             definition == other.definition && question == other.question && executionError == other.executionError &&
-            deliveryError == other.deliveryError && result == other.result && frozenExecutionEvidence == other.frozenExecutionEvidence
+            deliveryError == other.deliveryError && result == other.result && serviceObservation == other.serviceObservation && receipt == other.receipt
         override fun hashCode(): Int = listOf(runId, subject, publication, subjectAreaId, subjectAreaVersion, catalogHash,
             capabilityHash, intentHash, execution, delivery, acceptedAt, completedAt, historyEnabled, saveRequested,
-            frozenIntent, definition, question, executionError, deliveryError, result, frozenExecutionEvidence).hashCode()
+            intent, definition, question, executionError, deliveryError, result, serviceObservation, receipt).hashCode()
     }
 
     data class ResultManifest(val runId: String, val sha256: String, val bytes: Long, val rows: Long, val savedAt: Instant) {
@@ -60,24 +55,24 @@ class QueryUsageRepository(private val database: PlatformDatabase, private val l
     data class SemanticReference(val assetType: String, val id: String, val version: String)
     class Page(items: List<Run>, val nextOffset: Int?) { val items: List<Run> = Collections.unmodifiableList(ArrayList(items)) }
 
-    fun accept(runId: String, subject: String, entry: PublishedQueryEntry, intent: JsonNode,
-        definition: QueryDefinitionArtifact.Reference?, historyEnabled: Boolean, saveResult: Boolean, question: String?): Run {
+    fun accept(runId: String, subject: String, entry: PublishedQueryEntry, intent: QueryIntent,
+        definition: QueryReference?, historyEnabled: Boolean, saveResult: Boolean, question: String?): Run {
         requireRun(runId)
         text(subject)
         val coordinate = PublishedQueryEntry.key(entry.capability)
         require(PublishedQueryContract.coordinate(intent) == coordinate) { "run intent differs from its exact publication" }
         val context = entry.capability.subjectAreaCapabilityContext
         val references = linkedSetOf<SemanticReference>()
-        if (historyEnabled) collectReferences(PublishedQueryContract.parseIntent(intent, entry.capability), entry, references)
+        if (historyEnabled) collectReferences(intent.computation, entry, references)
         database.inTransaction {
             update("cannot record accepted run", """
                 INSERT INTO query_run(run_id,subject,scenario_id,scenario_version,release_id,release_version,subject_area_id,subject_area_version,
-                catalog_hash,capability_hash,intent_hash,execution_state,delivery_state,accepted_at,history_enabled,save_requested,intent_json,definition_json,question)
+                catalog_hash,capability_hash,intent_hash,execution_state,delivery_state,accepted_at,history_enabled,save_requested,intent_proto,definition_proto,question)
                 VALUES(?,?,?,?,?,?,?,?,?,?,?,'ACCEPTED','PENDING',?,?,?,?,?,?)
             """.trimIndent(), runId, subject, coordinate.scenarioId, coordinate.scenarioVersion, coordinate.releaseId, coordinate.releaseVersion,
                 context.subjectAreaId, context.subjectAreaVersion, entry.catalogHash, entry.capability.capabilityHash, QueryIntentHash.compute(intent),
-                Instant.now(), historyEnabled, saveResult, if (historyEnabled) json(intent) else null,
-                if (historyEnabled && definition != null) json(definition) else null, if (historyEnabled) question else null)
+                Instant.now(), historyEnabled, saveResult, if (historyEnabled) ProtoBytes.storage(QueryProto.toProto(intent)) else null,
+                if (historyEnabled && definition != null) ProtoBytes.storage(QueryProto.toProto(definition)) else null, if (historyEnabled) question else null)
             database.connection().use { connection ->
                 connection.prepareStatement("INSERT INTO query_usage_reference(run_id,asset_type,asset_id,asset_version) VALUES(?,?,?,?)").use {
                     for (reference in references) {
@@ -94,25 +89,24 @@ class QueryUsageRepository(private val database: PlatformDatabase, private val l
     fun dispatched(runId: String) = transition(runId, "execution_state='RUNNING'", "execution_state='ACCEPTED'")
 
     /** 交付观察不改写冻结结果字节；历史读取可区分内核执行与服务准备交付的耗时。 */
-    fun recordServiceObservation(runId: String, observation: JsonNode) = database.inTransaction {
+    fun recordServiceObservation(runId: String, observation: QueryServiceObservation) {
         requireRun(runId)
-        val evidence = query("cannot lock actual run observation", "SELECT execution_evidence_json FROM query_run WHERE run_id=? FOR UPDATE", listOf(runId)) { rows ->
-            require(rows.next()) { "run is unavailable" }
-            parse(rows.getString(1), JsonNode::class.java)
-        } ?: return@inTransaction
-        val updated = (evidence as com.fasterxml.jackson.databind.node.ObjectNode).apply { set<JsonNode>("serviceObservation", observation) }
-        check(update("cannot record service observation", "UPDATE query_run SET execution_evidence_json=? WHERE run_id=? AND execution_state NOT IN ('ACCEPTED','RUNNING') AND (history_enabled=TRUE OR save_requested=TRUE)",
-            json(updated), runId) == 1) { "run is unavailable for service observation" }
+        val run = require(runId)
+        check(run.execution !in setOf(Execution.ACCEPTED, Execution.RUNNING)) { "service observation requires a committed execution outcome" }
+        if (!run.historyEnabled && !run.saveRequested) return
+        check(update("cannot record service observation", "UPDATE query_run SET service_observation_proto=? WHERE run_id=? AND execution_state NOT IN ('ACCEPTED','RUNNING') AND (history_enabled=TRUE OR save_requested=TRUE)",
+            ProtoBytes.storage(com.olap.prototype.codec.QueryUsageProto.toProto(observation)), runId) == 1) { "run is unavailable for service observation" }
     }
 
-    fun complete(runId: String, outcome: Execution, error: String?, evidence: JsonNode) {
+    fun complete(runId: String, outcome: Execution, error: String?, receipt: QueryExecutionReceipt) {
         requireRun(runId)
+        require(receipt.runId == runId) { "execution receipt differs from its actual run identity" }
         require(outcome in setOf(Execution.SUCCEEDED, Execution.FAILED, Execution.CANCELLED, Execution.INTERRUPTED)) { "actual execution terminal outcome is required" }
         check(update("cannot record execution outcome", """
             UPDATE query_run SET execution_state=?,execution_error=?,completed_at=?,
-            execution_evidence_json=CASE WHEN history_enabled=TRUE OR save_requested=TRUE THEN ? ELSE NULL END
+            execution_receipt_proto=CASE WHEN history_enabled=TRUE OR save_requested=TRUE THEN ? ELSE NULL END
             WHERE run_id=? AND (execution_state='RUNNING' OR (execution_state='ACCEPTED' AND ?<>'SUCCEEDED'))
-        """.trimIndent(), outcome, error, Instant.now(), json(evidence), runId, outcome) == 1) { "run execution outcome cannot replace its committed state" }
+        """.trimIndent(), outcome, error, Instant.now(), ProtoBytes.storage(QueryProto.toProto(receipt)), runId, outcome) == 1) { "run execution outcome cannot replace its committed state" }
     }
 
     fun resultSaved(runId: String, sha256: String, bytes: Long, rows: Long): ResultManifest {
@@ -136,16 +130,20 @@ class QueryUsageRepository(private val database: PlatformDatabase, private val l
     }
 
     fun interruptUnfinished(): Int = database.inTransaction {
-        fun interrupted(source: String) = json(mapOf("clientOutcome" to "INTERRUPTED",
-            "sourceOutcome" to mapOf("state" to source), "sourceReadEvidence" to null))
-        val error = json(mapOf("stage" to "SERVICE_INTERRUPTION", "code" to "EXECUTION_RECORD_INTERRUPTED",
-            "message" to "service restarted before a terminal execution fact was committed", "details" to emptyMap<String, Any>()))
-        val count = update("cannot mark interrupted runs", """
-            UPDATE query_run SET execution_evidence_json=CASE WHEN history_enabled=TRUE OR save_requested=TRUE
-              THEN CASE WHEN execution_state='ACCEPTED' THEN ? ELSE ? END ELSE NULL END,
-              execution_state='INTERRUPTED',execution_error=?,completed_at=?
-            WHERE execution_state IN ('ACCEPTED','RUNNING')
-        """.trimIndent(), interrupted("NOT_SUBMITTED"), interrupted("UNKNOWN"), error, Instant.now())
+        val unfinished = query("cannot find interrupted runs", "SELECT run_id,execution_state FROM query_run WHERE execution_state IN ('ACCEPTED','RUNNING')", emptyList()) { rows ->
+            buildList { while (rows.next()) add(rows.getString(1) to rows.getString(2)) }
+        }
+        var count = 0
+        unfinished.forEach { (runId, previous) ->
+            val submitted = previous == "RUNNING"
+            val receipt = QueryExecutionReceipt(runId, if (submitted) QueryExecutionStatus.OUTCOME_UNKNOWN else QueryExecutionStatus.NOT_EXECUTED,
+                null, null, false, 0L, QueryClientOutcome.INTERRUPTED,
+                if (submitted) com.olap.prototype.warehouse.contract.SourceExecutionState.UNKNOWN else com.olap.prototype.warehouse.contract.SourceExecutionState.NOT_SUBMITTED,
+                null, null, emptyMap(), QueryExecutionFailure("SERVICE_INTERRUPTION", "EXECUTION_RECORD_INTERRUPTED",
+                    "service restarted before a terminal execution fact was committed", null, emptyList()))
+            count += update("cannot mark interrupted run", "UPDATE query_run SET execution_receipt_proto=CASE WHEN history_enabled=TRUE OR save_requested=TRUE THEN ? ELSE NULL END,execution_state='INTERRUPTED',execution_error=?,completed_at=? WHERE run_id=? AND execution_state=?",
+                ProtoBytes.storage(QueryProto.toProto(receipt)), receipt.error?.message, Instant.now(), runId, previous)
+        }
         update("cannot mark interrupted result deliveries", "UPDATE query_run SET delivery_state='FAILED',delivery_error='service restarted before a delivery outcome was committed' WHERE delivery_state='PENDING'")
         count
     }
@@ -154,7 +152,7 @@ class QueryUsageRepository(private val database: PlatformDatabase, private val l
     fun purgeHistoryBefore(cutoff: Instant): Int = database.inTransaction {
         update("cannot apply explicit history retention", "DELETE FROM query_usage_note WHERE run_id IN (SELECT run_id FROM query_run WHERE accepted_at<? AND history_enabled=TRUE)", cutoff)
         update("cannot apply explicit history retention", "DELETE FROM query_usage_reference WHERE run_id IN (SELECT run_id FROM query_run WHERE accepted_at<? AND history_enabled=TRUE)", cutoff)
-        update("cannot apply explicit history retention", "UPDATE query_run SET history_enabled=FALSE,intent_json=NULL,definition_json=NULL,question=NULL,execution_evidence_json=NULL WHERE accepted_at<? AND history_enabled=TRUE", cutoff)
+        update("cannot apply explicit history retention", "UPDATE query_run SET history_enabled=FALSE,intent_proto=NULL,definition_proto=NULL,question=NULL,execution_receipt_proto=NULL,service_observation_proto=NULL WHERE accepted_at<? AND history_enabled=TRUE", cutoff)
     }
 
     fun require(runId: String): Run {
@@ -173,10 +171,11 @@ class QueryUsageRepository(private val database: PlatformDatabase, private val l
         return Run(id, row.getString("subject"), QueryCapabilityRequest(row.getString("scenario_id"), row.getLong("scenario_version"), row.getString("release_id"), row.getString("release_version")),
             row.getString("subject_area_id"), row.getLong("subject_area_version"), row.getString("catalog_hash"), row.getString("capability_hash"), row.getString("intent_hash"),
             Execution.valueOf(row.getString("execution_state")), Delivery.valueOf(row.getString("delivery_state")), row.getTimestamp("accepted_at").toInstant(), row.getTimestamp("completed_at")?.toInstant(),
-            row.getBoolean("history_enabled"), row.getBoolean("save_requested"), parse(row.getString("intent_json"), JsonNode::class.java),
-            parse(row.getString("definition_json"), QueryDefinitionArtifact.Reference::class.java), row.getString("question"), row.getString("execution_error"), row.getString("delivery_error"),
+            row.getBoolean("history_enabled"), row.getBoolean("save_requested"), row.getString("intent_proto")?.let { QueryProto.fromProto(ProtoBytes.decode(ProtoBytes.stored(it), com.olap.prototype.wire.query.QueryIntent.getDefaultInstance(), limits.inputFileBytes, limits.inputDepth)) },
+            row.getString("definition_proto")?.let { QueryProto.fromProto(ProtoBytes.decode(ProtoBytes.stored(it), com.olap.prototype.wire.query.QueryReference.getDefaultInstance(), limits.inputFileBytes, limits.inputDepth)) }, row.getString("question"), row.getString("execution_error"), row.getString("delivery_error"),
             saved?.let { ResultManifest(id, row.getString("sha256"), row.getLong("byte_count"), row.getLong("row_count"), it.toInstant()) },
-            parse(row.getString("execution_evidence_json"), JsonNode::class.java))
+            row.getString("service_observation_proto")?.let { com.olap.prototype.codec.QueryUsageProto.fromProto(ProtoBytes.decode(ProtoBytes.stored(it), com.olap.prototype.wire.query.QueryServiceObservation.getDefaultInstance(), limits.inputFileBytes, limits.inputDepth)) },
+            row.getString("execution_receipt_proto")?.let { QueryProto.fromProto(ProtoBytes.decode(ProtoBytes.stored(it), com.olap.prototype.wire.query.QueryExecutionReceipt.getDefaultInstance(), limits.inputFileBytes, limits.inputDepth)) })
     }
 
     fun appendNote(runId: String, subject: String, note: String): Note {
@@ -239,36 +238,36 @@ class QueryUsageRepository(private val database: PlatformDatabase, private val l
         } }
     }
 
-    /** 遍历实际类型化查询值，字段来自共同 Jackson 绑定，不维护另一份 DSL 引用解析器。 */
-    private fun collectReferences(value: Any?, entry: PublishedQueryEntry, references: MutableSet<SemanticReference>) {
-        when (value) {
-            null -> return
-            is MetricInstanceRef -> {
-                references.add(SemanticReference("METRIC_INSTANCE", value.id, ""))
-                val definition = entry.metricDefinition(value).definition
-                references.add(SemanticReference("METRIC", definition.id, definition.version))
-            }
-            is MetricRef -> references.add(SemanticReference("METRIC", value.id, value.version))
-            is MemberRef -> references.add(SemanticReference("MEMBER_SOURCE", value.id, value.version.toString()))
-            is Map<*, *> -> value.values.forEach { collectReferences(it, entry, references) }
-            is Iterable<*> -> value.forEach { collectReferences(it, entry, references) }
-            is CharSequence, is Number, is Boolean, is Enum<*> -> return
-            else -> {
-                for (field in mapper.serializationConfig.introspect(mapper.constructType(value.javaClass)).findProperties()) {
-                    if (!field.couldSerialize()) continue
-                    val accessor = requireNotNull(field.accessor) { "typed query property has no accessor: ${field.name}" }
-                    accessor.fixAccess(true)
-                    collectReferences(accessor.getValue(value), entry, references)
-                }
+    /** 只访问正式引用节点；参数文本和普通业务身份不会被猜成依赖。 */
+    private fun collectReferences(scope: com.olap.prototype.query.QueryComputation.Scope, entry: PublishedQueryEntry, references: MutableSet<SemanticReference>) {
+        fun metric(value: MetricRef) { references.add(SemanticReference("METRIC", value.id, value.version)) }
+        fun instance(value: MetricInstanceRef) {
+            references.add(SemanticReference("METRIC_INSTANCE", value.id, ""))
+            metric(entry.metricDefinition(value).definition)
+        }
+        fun member(value: MemberRef) { references.add(SemanticReference("MEMBER_SOURCE", value.id, value.version.toString())) }
+        fun memberBinding(value: com.olap.prototype.calculation.CalculationBindings.Member) {
+            when (value) {
+                is com.olap.prototype.calculation.CalculationBindings.SourceCall -> { member(value.source); value.members.values.forEach(::memberBinding) }
+                is com.olap.prototype.calculation.CalculationBindings.LocalRef, is com.olap.prototype.calculation.CalculationBindings.InputParameter -> Unit
             }
         }
+        when (val root = scope.root) {
+            is com.olap.prototype.query.QueryComputation.Members -> { member(root.source); root.members.values.forEach(::memberBinding) }
+            is com.olap.prototype.query.QueryComputation.Measures -> root.calls.forEach { instance(it.instance); it.members.values.forEach(::memberBinding) }
+            is com.olap.prototype.query.QueryComputation.Compute -> {
+                root.calculation.callSites().forEach { site -> (site.call.target as? com.olap.prototype.calculation.Calculation.Fixed)?.let { metric(it.metric) } }
+                root.calculation.memberSlots.mapNotNull { it.fixedSource }.forEach(::member)
+                root.bindings.measurements.values.forEach(::instance)
+                root.bindings.members.values.forEach(::memberBinding)
+                root.members.values.forEach(::memberBinding)
+            }
+            is com.olap.prototype.query.QueryComputation.Reuse, is com.olap.prototype.query.QueryComputation.SetInputs -> Unit
+        }
+        scope.inputs.values.forEach { collectReferences(it.computation, entry, references) }
     }
 
-    private fun json(value: Any): String = BoundedJson.encode(value, limits.inputFileBytes).toString(Charsets.UTF_8)
-    private fun <T> parse(value: String?, type: Class<T>): T? = value?.let { mapper.treeToValue(BoundedJson.decode(it.toByteArray(Charsets.UTF_8), limits), type) }
-
     companion object {
-        private val mapper = OlapJsonUtils.mapper()
         private val RUN = Regex("run-[0-9a-f]{32}")
         private val HASH = Regex("[0-9a-f]{64}")
         private const val DELIVERABLE = "execution_state IN ('SUCCEEDED','FAILED','CANCELLED','INTERRUPTED') AND delivery_state='PENDING'"

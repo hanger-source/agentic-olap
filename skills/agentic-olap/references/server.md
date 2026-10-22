@@ -4,7 +4,7 @@
 
 ## 安装与启动
 
-连接器 API 为 `agentic-olap-connector/v11-kotlin-native-collection-relations-calcite-1.42`，存储格式为 `15`。服务、连接器和 SDK 使用同轮交付构件；独立插件须使用本版正式 Maven SDK 重新构建，集合展开实现与精确绑定要求见[连接说明](connections.md)。
+连接器 API 为 `agentic-olap-connector/v11-kotlin-native-collection-relations-calcite-1.42`，存储格式为 `16`。服务、连接器和 SDK 使用同轮交付构件；独立插件须使用本版正式 Maven SDK 重新构建，集合展开实现与精确绑定要求见[连接说明](connections.md)。
 
 需要 Node.js 20 或更高版本。macOS arm64 产品通过一个 npm 包交付 Go 程序和 JRE；npm 安装脚本从 JitPack 取得自有 Kotlin 运行构件和内置连接器，从 Maven Central 取得第三方 JVM 库和 H2／DuckDB 驱动，全部按发行清单锁定，完成摘要校验及本地安装。需要允许该安装脚本，下载失败会使安装失败。安装完成后启动只使用本地文件，不再下载依赖。SDK 的正式 Maven 坐标和文档由 `agentic-olap sdk` 读取。使用者无需安装编译工具或自行编译产品源码：
 
@@ -19,11 +19,11 @@ agentic-olap start
 agentic-olap info
 agentic-olap tools
 agentic-olap call list-data-sources --payload '{}'
-agentic-olap call discover-governance-commands --payload '{}'
-agentic-olap call describe-governance-command --payload '{"operation":"create-business-line"}'
+agentic-olap call describe-script-api --payload '{}'
+agentic-olap call execute-script --payload '{"source":"olap.output(olap.sources.list(EmptyRequest))","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v1","parameters":{}}'
 ~~~
 
-`tools` 通过官方 MCP 客户端读取可见工具；`call` 将 JSON 对象作为工具 payload 提交，输出真实 MCP 响应，业务失败以非零退出。参数合同由 `describe-operation` 及治理描述工具提供。如何建设、复用和查询语义，见随同交付的 [Agent skill](../SKILL.md)。
+`tools` 通过官方 MCP 客户端读取可见工具；`call` 将 JSON 对象作为工具 payload 提交，输出真实 MCP 响应，业务失败以非零退出。`describe-operation` 提供 MCP 提交封套，`describe-script-api` 提供脚本实际使用的 Kotlin 方法、构造器和回执。脚本版本取服务发现结果。如何建设、复用和查询语义，见随同交付的 [Agent skill](../SKILL.md)。
 
 已有适用定义或发布时直接复用；新业务含义通过服务中的治理工具沉淀，不要求修改产品源码、执行批量建模脚本或每次重新发布。
 
@@ -52,7 +52,7 @@ agentic-olap call describe-governance-command --payload '{"operation":"create-bu
 
 ## 取得连接器并绑定数据源
 
-连接器发行方交付 manifest、插件 JAR 和具体实现需要的依赖；JDBC 实现包含实际驱动，HTTP 实现拥有自己的协议、鉴权和结果映射。H2、DuckDB 插件已随 npm 安装，通过 `agentic-olap connectors` 读取可直接用于配置的精确 manifest 路径和引用；扩展开发 SDK 通过 `agentic-olap sdk` 读取本地路径。其他业务源插件由使用方独立提供。具体用法见[插件取得说明](connections.md#取得插件组)，保持 manifest 中的实际版本与字节摘要，不能只放一个数据库驱动或猜测哈希。
+连接器发行方交付 manifest、插件 JAR 和具体实现需要的依赖；JDBC 实现包含实际驱动，HTTP 实现拥有自己的协议、鉴权和结果映射。H2、DuckDB 插件已随 npm 安装，通过 `agentic-olap connectors` 读取可直接用于配置的精确 manifest 路径和引用；扩展开发 SDK 通过 `agentic-olap sdk` 读取 JitPack 仓库、精确 Maven 坐标和随包文档。其他业务源插件由使用方独立提供。具体用法见[插件取得说明](connections.md#取得插件组)，保持 manifest 中的实际版本与字节摘要，不能只放一个数据库驱动或猜测哈希。
 
 插件组取得、显式结构登记和原生函数的用法见[连接说明](connections.md)。
 
@@ -75,12 +75,11 @@ agentic-olap call describe-governance-command --payload '{"operation":"create-bu
 修改配置后重启同一服务，再核对实际来源：
 
 ~~~sh
-agentic-olap call read-connector-capabilities --payload '{}'
-agentic-olap call list-data-sources --payload '{}'
-agentic-olap call inspect-warehouse --payload '{"operation":"discover","payload":{"dataSourceId":"business","sourceIdentityHash":"替换为list-data-sources所选绑定的实际64位摘要","limit":20}}'
+agentic-olap call describe-script-api --payload '{"operation":"inspect-warehouse"}'
+agentic-olap call execute-script --payload '{"source":"olap.output(olap.sources.list(EmptyRequest))","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v1","parameters":{}}'
 ~~~
 
-同一 `dataSourceId` 可以有多个访问绑定。明确选定 `list-data-sources` 返回的 `sourceIdentityHash`，调查与显式结构登记原样传入该摘要，不猜最新绑定。来源列表只证明登记可见；实际调查结果才说明本次连接与调查成立。空表结果可能来自真实空库或调查范围。连接、授权或业务口径不足时取得实际信息，不自动换来源、补零或扩大权限。
+同一 `dataSourceId` 可以有多个访问绑定。明确选定 `olap.sources.list(EmptyRequest)` 返回的 `binding.sourceIdentityHash`，调查与显式结构登记原样传入该摘要，不猜最新绑定。来源列表只证明登记可见；实际调查结果才说明本次连接与调查成立。空表结果可能来自真实空库或调查范围。连接、授权或业务口径不足时取得实际信息，不自动换来源、补零或扩大权限。
 
 ## 外部认证的远程服务
 
@@ -90,7 +89,7 @@ agentic-olap call inspect-warehouse --payload '{"operation":"discover","payload"
 agentic-olap start --config /absolute/deployment/server.json
 ~~~
 
-`--config` 不与 `--home/--port` 混用，也不生成或改写该配置。顶层配置包含 `listen/auth/dataRoot/connectors/dataSources/limits/history`；[server.example.json](server.example.json) 是完整的外部认证空库模板。实际地址、主体、来源、权限与预算由部署方填写。
+`--config` 不与 `--home/--port` 混用，也不生成或改写该配置。顶层配置包含 `listen/auth/dataRoot/connectors/dataSources/limits/history/scripting`；[server.example.json](server.example.json) 是完整的外部认证空库模板。实际地址、主体、来源、权限与预算由部署方填写。
 
 外部认证明确使用 `auth.mode="external-jwt"`，与本地令牌模式分别选择，不互相兜底。认证部分形状如下，所有占位值必须替换：
 
@@ -104,7 +103,7 @@ agentic-olap start --config /absolute/deployment/server.json
   "grants": [{
     "subjects": ["external-analyst"],
     "scopes": ["olap.query"],
-    "operations": ["describe-operation", "list-publications", "read-publication"],
+    "operations": ["describe-operation", "describe-script-api", "list-publications", "read-publication"],
     "dataSources": ["business"],
     "subjectAreas": ["replace-with-actual-subject-area-id"],
     "releases": ["business-release"],
@@ -113,9 +112,9 @@ agentic-olap start --config /absolute/deployment/server.json
 }
 ~~~
 
-该示例 grant 仅允许列出的三项读取；实际治理或查询所需操作按服务合同逐项授权。服务从 JWKS 验签，校验 issuer、audience、算法和有效期；JWT 必须有 `iss/aud/exp/sub`，`sub` 为非空文本。文本 `scope` claim 按空白拆分，其他 claim 不自动转为权限。
+该示例 grant 只授予列出的发现和读取权限。执行脚本还需 `execute-script`，脚本调用的治理、来源、查询与结果权限仍须逐项授予；只允许运行脚本不会扩大其内部能力。服务从 JWKS 验签，校验 issuer、audience、算法和有效期；JWT 必须有 `iss/aud/exp/sub`，`sub` 为非空文本。文本 `scope` claim 按空白拆分，其他 claim 不自动转为权限。
 
-每条 grant 要求主体精确匹配，并包含它要求的全部 scope；`operations` 为精确工具名。资源数组 `dataSources/subjectAreas/releases` 可使用精确身份或显式 `"*"`，空数组不授予该类资源，不支持前缀模式。共享定义治理还需要 `allGovernanceAssets=true`；发布访问需要同一 grant 同时覆盖其主题域和发布，执行另核对实际来源。创建命令中的主体须与认证主体一致。
+每条 grant 要求主体精确匹配，并包含它要求的全部 scope；`operations` 为正式权限标识。部分与工具名相同，类型化治理方法仍对应 `read-governance/write-governance` 等共同权限，执行脚本还分别核对实际能力与资源；不能把方法名直接当权限名。资源数组 `dataSources/subjectAreas/releases` 可使用精确身份或显式 `"*"`，空数组不授予该类资源，不支持前缀模式。共享定义治理还需要 `allGovernanceAssets=true`；发布访问需要同一 grant 同时覆盖其主题域和发布，执行另核对实际来源。创建命令中的主体须与认证主体一致。
 
 完整模板保留了空资源数组。配置业务源时，将其稳定 `dataSourceId` 明确加入获准主体的 `dataSources`。空库可以先授予共享定义治理权限，取得实际创建返回的主题域 ID 和自行指定的发布 ID 后配置发布范围；也可以由部署方显式授权 `"*"` 覆盖未来资源。修改授权配置后重启同一服务，再用该主体的真实令牌发现工具并调用获准操作。
 
@@ -135,6 +134,8 @@ agentic-olap call list-publications --payload '{"subjectAreaId":"实际主题域
 
 大结果在执行时显式选择 `saveResult: true`，成功交付后按返回引用分页读取。结果与执行使用同一 runId；保存或 manifest 提交失败会如实报告，不伪造引用或重新执行查询。单位、NULL和递归值保持原含义。
 
-`limits` 声明请求、并发、背压、工作进程、原生内存及结果预算。结果采用共同 `resultRows/resultValues/resultBytes/resultDepth`，`pendingOutputBytes` 须容纳一个完整输出帧。工作进程按需使用，预算不是每个进程可以同时无限占用资源的承诺。预算调整由服务配置决定，业务 Agent 不会自行扩大。
+`scripting` 声明脚本 JVM 池容量、堆预算、每段程序的正式能力调用上限，以及 `nativeLogBytes` 原生诊断预算，准确字段与值使用完整模板。普通 `System.out/err` 经有序帧受本次响应预算限制；原生 FD2 诊断按 worker 生命周期限额，不作为逐请求精确归属。worker 在同一 Subject＋Scopes 归属内复用，本次临时目录由 `olap.temporaryDirectory` 提供；`File(".")` 仍是稳定 worker 私有根。正常结束释放本次状态和受管资源，不承诺把任意 JVM 全局副作用恢复为新进程。
+
+`limits` 声明请求、并发、背压、来源工作进程、原生内存及结果预算。结果采用共同 `resultRows/resultValues/resultBytes/resultDepth`，`pendingOutputBytes` 须容纳一个完整输出帧。工作进程按需使用，预算不是每个进程可以同时无限占用资源的承诺。预算调整由服务配置决定，业务 Agent 不会自行扩大。
 
 持久根在所有写入进程停止后整体备份，恢复时使用匹配版本的运行构件和精确连接器。业务数据库按自己的生命周期备份；不要复制运行中元数据库的单个文件或编辑内部存储来绕过版本合同。

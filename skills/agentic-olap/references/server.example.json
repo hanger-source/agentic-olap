@@ -15,10 +15,9 @@
       "subjects": ["replace-with-external-token-subject"],
       "scopes": ["olap.manage"],
       "operations": [
-        "describe-operation", "list-data-sources", "read-connector-capabilities", "inspect-warehouse", "candidate-values",
-        "discover-governance-reads", "describe-governance-read",
-        "read-governance", "discover-governance-commands", "describe-governance-command", "write-governance",
-        "list-publications", "read-publication", "search-semantics", "read-semantic-catalog", "read-semantic-asset", "read-semantic-definition", "read-query-language-contract", "read-semantic-expression-contract",
+        "describe-script-api", "execute-script", "describe-operation", "list-data-sources", "read-connector-capabilities", "inspect-warehouse", "candidate-values",
+        "read-governance", "write-governance", "register-source-dataset", "read-query-capability",
+        "list-publications", "read-publication",
         "validate-query", "explain-query", "execute-query", "save-query", "update-query", "read-query", "list-queries", "read-deployment-availability",
         "read-query-result", "read-query-result-metadata", "read-query-result-value", "profile-query-result",
         "search-query-usage", "read-query-usage", "append-query-usage-note"
@@ -32,6 +31,7 @@
   "dataRoot": "/var/lib/agentic-olap",
   "connectors": [],
   "dataSources": [],
+  "scripting": {"workerCount": 2, "jvmHeapMiB": 768, "maxCalls": 100, "nativeLogBytes": 1048576},
   "limits": {
     "requestSeconds": 120.0,
     "startupSeconds": 60.0,

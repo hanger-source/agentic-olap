@@ -5,7 +5,6 @@ import com.olap.prototype.contract.ProducerContracts.requireText
 import com.olap.prototype.contract.ProducerContracts.requireVersion
 import com.olap.prototype.governance.contract.*
 import com.olap.prototype.storage.PlatformDatabase
-import com.olap.prototype.util.OlapJsonUtils
 import java.time.Instant
 
 class BusinessLineGovernanceRepository(private val database: PlatformDatabase) {
@@ -23,8 +22,8 @@ class BusinessLineGovernanceRepository(private val database: PlatformDatabase) {
     }
     fun saveBusinessLineVersion(record: BusinessLineVersionRecord) {
         GovernanceContract.requireVersionObject("business_line_version", "business_line_id", record.id, record.businessLineId, record.version, record.versionStatus, record.createdBy, record.createdAt)
-        requireText(record.contentJson, "business_line_version.content_json")
-        try { GovernanceJdbcSupport.insert(database, "business_line_version", linkedMapOf("id" to record.id, "business_line_id" to record.businessLineId, "version" to record.version, "version_status" to record.versionStatus, "content_json" to record.contentJson, "diagnostic_json" to record.diagnosticJson, "source_version" to record.sourceVersion, "created_by" to record.createdBy, "created_at" to record.createdAt, "activated_by" to record.activatedBy, "activated_at" to record.activatedAt, "deprecated_by" to record.deprecatedBy, "deprecated_at" to record.deprecatedAt, "archived_by" to record.archivedBy, "archived_at" to record.archivedAt)) }
+        requireText(record.contentProto, "business_line_version.content_proto")
+        try { GovernanceJdbcSupport.insert(database, "business_line_version", linkedMapOf("id" to record.id, "business_line_id" to record.businessLineId, "version" to record.version, "version_status" to record.versionStatus, "content_proto" to record.contentProto, "diagnostic_json" to record.diagnosticJson, "source_version" to record.sourceVersion, "created_by" to record.createdBy, "created_at" to record.createdAt, "activated_by" to record.activatedBy, "activated_at" to record.activatedAt, "deprecated_by" to record.deprecatedBy, "deprecated_at" to record.deprecatedAt, "archived_by" to record.archivedBy, "archived_at" to record.archivedAt)) }
         catch (failure: Exception) { throw IllegalStateException("Failed to save business_line_version: ${record.id}", failure) }
     }
 }
@@ -40,8 +39,8 @@ class BusinessLineGovernanceService(private val database: PlatformDatabase) {
         val draft = GovernanceDraftVersions(database).start(GovernanceDraftVersions.Asset.BUSINESS_LINE, code, revision, request.createdBy)
         val actor = requireText(request.createdBy, "business_line.created_by").trim(); val now = Instant.now()
         val record = BusinessLineRecord(code, code, requireText(request.displayName, "business_line.display_name").trim(), request.description, requireText(request.owner, "business_line.owner").trim(), "DRAFT", draft.version, actor, now, actor, now)
-        val content = try { OlapJsonUtils.mapper().writeValueAsString(BusinessLineSnapshots.versionContent(record)) }
-            catch (failure: Exception) { throw ProducerContractException("business line content_json invalid", failure) }
+        val content = try { com.olap.prototype.codec.ProtoBytes.storage(com.olap.prototype.codec.GovernanceProto.definition(BusinessLineSnapshots.versionContent(record))) }
+            catch (failure: Exception) { throw ProducerContractException("business line content_proto invalid", failure) }
         val version = BusinessLineVersionRecord("$code:v${draft.version}", code, draft.version, "DRAFT", content, "{}", draft.sourceVersion, actor, now, null, null, null, null, null, null)
         saveBusinessLine(record); saveBusinessLineVersion(version)
         return BusinessLineCreateResult(record, version)

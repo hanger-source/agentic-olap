@@ -6,11 +6,16 @@ import com.olap.prototype.member.MemberCondition
 import com.olap.prototype.query.QueryComputation
 import com.olap.prototype.query.ScalarValueType
 import com.olap.prototype.query.contract.QueryCapabilityRequest
+import com.olap.prototype.query.contract.QueryExecutionReceipt
+import com.olap.prototype.query.contract.QueryExecutionStatus
+import com.olap.prototype.query.contract.QueryClientOutcome
+import com.olap.prototype.codec.ProtoBytes
+import com.olap.prototype.codec.QueryProto
+import com.olap.prototype.engine.executable.ExecutableExecutionResult
+import com.olap.prototype.warehouse.contract.SourceExecutionState
 import com.olap.prototype.query.definition.*
 import com.olap.prototype.query.usage.QueryUsageRepository
 import com.olap.prototype.release.catalog.JdbcPublishedQueryEntryProvider
-import com.olap.prototype.runtime.BoundedJson
-import com.olap.prototype.runtime.RuntimeResourceLimitException
 import com.olap.prototype.storage.PlatformDatabase
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
@@ -20,6 +25,9 @@ import java.time.Instant
 import java.util.UUID
 
 class PublishedQueryHistoryTest {
+    private fun receipt(runId: String, execution: ExecutableExecutionResult) = QueryExecutionReceipt(runId, QueryExecutionStatus.SUCCEEDED,
+        null, execution.businessResult, false, execution.businessResult.rows.size.toLong(), QueryClientOutcome.COMPLETED,
+        SourceExecutionState.SUCCEEDED, null, execution.sourceReadEvidence, execution.result.stageNanos, null)
     @Test
     fun persistsExactQueriesAndExecutionFactsIndependentlyOfDeliveryAndOptionalHistory(@TempDir directory: Path) {
         PlatformDatabase.inMemory().use { database ->
@@ -30,8 +38,7 @@ class PublishedQueryHistoryTest {
             val original = c.freeze(approved)
             val repository = JdbcQueryDefinitionRepository(database, RuntimeDeploymentLimits.io)
             val reference = repository.requireReference(original.definitionId, original.definitionVersion)
-            val update = QueryDefinitionCommand(original.definitionId, 1, requireNotNull(publication.queryCapability.capabilityHash), "实际合格订单明确修订",
-                "travel.trade.formed", 1, "formed_orders", "1", original.intent)
+            val update = QueryDefinitionCommand(original.definitionId, 1, requireNotNull(publication.queryCapability.capabilityHash), "实际合格订单明确修订", original.intent, null)
             assertEquals(2L, c.queries.update(original.definitionId, update, "analyst").definitionVersion)
             assertThrows(IllegalArgumentException::class.java) { c.queries.update(original.definitionId, update, "analyst") }
             val reopened = JdbcQueryDefinitionRepository(database, RuntimeDeploymentLimits.io)
@@ -42,22 +49,24 @@ class PublishedQueryHistoryTest {
             val run = "run-${UUID.randomUUID().toString().replace("-", "")}"
             usage.accept(run, "analyst", provider.require(coordinate), original.intent, reference, true, true, "七月合格订单有哪些？")
             usage.dispatched(run)
-            val actual = c.f.execute(publication, QueryComputation.parse(original.intent.required("computation"))).result.resultFrame
+            val execution = c.f.execute(publication, original.intent.computation)
+            val actual = execution.result.resultFrame
             assertEquals(1, actual.rows.size); assertEquals("3", actual.rows.single()["order"])
-            usage.complete(run, QueryUsageRepository.Execution.SUCCEEDED, null, com.olap.prototype.util.OlapJsonUtils.mapper().createObjectNode())
+            usage.complete(run, QueryUsageRepository.Execution.SUCCEEDED, null, receipt(run, execution))
             usage.resultFailed(run, "结果存储不可用，执行成功事实保留")
             for (produceDirect in listOf(true, false)) {
                 val direct = "run-${UUID.randomUUID().toString().replace("-", "")}"
                 usage.accept(direct, "analyst", provider.require(coordinate), original.intent, reference, false, false, null)
                 assertFalse(usage.require(direct).saveRequested); assertEquals(QueryUsageRepository.Delivery.PENDING, usage.require(direct).delivery)
                 usage.dispatched(direct)
-                val result = c.f.execute(publication, QueryComputation.parse(original.intent.required("computation"))).result.resultFrame
-                assertEquals(1, result.rows.size)
-                usage.complete(direct, QueryUsageRepository.Execution.SUCCEEDED, null, com.olap.prototype.util.OlapJsonUtils.mapper().createObjectNode())
+                val directExecution = c.f.execute(publication, original.intent.computation)
+                assertEquals(1, directExecution.result.resultFrame.rows.size)
+                val receipt = receipt(direct, directExecution)
+                usage.complete(direct, QueryUsageRepository.Execution.SUCCEEDED, null, receipt)
                 if (produceDirect) usage.directProduced(direct)
                 else {
-                    val failure = assertThrows(RuntimeResourceLimitException::class.java) { BoundedJson.encode(result, 1) }
-                    usage.resultFailed(direct, failure.code)
+                    val failure = assertThrows(IllegalArgumentException::class.java) { ProtoBytes.encode(QueryProto.toProto(receipt), 1) }
+                    usage.resultFailed(direct, requireNotNull(failure.message))
                 }
                 val persisted = QueryUsageRepository(database, RuntimeDeploymentLimits.io).require(direct)
                 assertEquals(QueryUsageRepository.Execution.SUCCEEDED, persisted.execution)

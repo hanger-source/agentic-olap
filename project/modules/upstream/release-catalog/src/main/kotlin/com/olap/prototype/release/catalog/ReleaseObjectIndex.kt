@@ -1,18 +1,19 @@
 package com.olap.prototype.release.catalog
 
-import com.fasterxml.jackson.core.JsonProcessingException
+import com.olap.prototype.codec.GovernanceProto
+import com.olap.prototype.codec.ProtoBytes
 import com.olap.prototype.calculation.MetricInstanceRef
 import com.olap.prototype.calculation.MetricRef
 import com.olap.prototype.calculation.MetricSource
 import com.olap.prototype.contract.ProducerContractException
 import com.olap.prototype.contract.ProducerContracts
+import com.olap.prototype.contract.NativeTableDependency
 import com.olap.prototype.member.MemberRef
 import com.olap.prototype.query.contract.MetricAdoption
 import com.olap.prototype.query.contract.PublishedMemberSource
-import com.olap.prototype.release.contract.MetricExecutionSnapshot
-import com.olap.prototype.release.contract.ReleaseObjectRef
-import com.olap.prototype.release.contract.ScenarioMetricReference
-import com.olap.prototype.util.OlapJsonUtils
+import com.olap.prototype.release.contract.*
+import com.olap.prototype.event.PublishedDimensionBinding
+import com.olap.prototype.query.contract.PublishedRelationFilter
 import java.util.Collections
 
 /** 一次冻结读取的精确引用与解码缓存；原引用顺序仍由发布目录拥有。 */
@@ -43,7 +44,7 @@ class ReleaseObjectIndex(objects: List<ReleaseObjectRef>) {
         ?: throw ProducerContractException("exact frozen source object is missing: $type:$id@$version")
     fun <T : Any> read(type: String, id: String, version: Long, representation: Class<T>): T {
         val key = Decoded(Key(type, id, version), representation)
-        val value = decoded.getOrPut(key) { OlapJsonUtils.mapper().readValue(ProducerContracts.requireText(require(type, id, version).snapshotSummaryJson, "frozen snapshot"), representation) }
+        val value = decoded.getOrPut(key) { decode(require(type, id, version).snapshotProto, representation) }
         return representation.cast(value)
     }
     fun <T : Any> read(reference: ReleaseObjectRef, representation: Class<T>): T = read(reference.objectType, reference.objectId, reference.objectVersion, representation)
@@ -76,5 +77,25 @@ class ReleaseObjectIndex(objects: List<ReleaseObjectRef>) {
         if (adoption.adoptionId != id || adoption.subjectAreaVersion != version) throw ProducerContractException("frozen adoption differs from its exact reference")
     }
     private fun <T : Any> exact(kind: String, id: String, version: Long, representation: Class<T>): T = try { read(kind, id, version, representation) }
-    catch (failure: JsonProcessingException) { throw ProducerContractException("invalid exact frozen $kind", failure) }
+    catch (failure: com.google.protobuf.InvalidProtocolBufferException) { throw ProducerContractException("invalid exact frozen $kind", failure) }
+
+    /** 读取点选择固定正式消息；持久化内容不能指定类或选择其他解码器。 */
+    private fun decode(stored: String?, representation: Class<*>): Any {
+        val bytes = ProtoBytes.stored(ProducerContracts.requireText(stored, "frozen snapshot"))
+        return when (representation) {
+            MetricAdoption::class.java -> GovernanceProto.fromProto(ProtoBytes.decode(bytes, com.olap.prototype.wire.governance.MetricAdoption.getDefaultInstance()))
+            PublishedMemberSource::class.java -> GovernanceProto.fromProto(ProtoBytes.decode(bytes, com.olap.prototype.wire.governance.PublishedMemberSource.getDefaultInstance()))
+            MetricExecutionSnapshot::class.java -> GovernanceProto.fromProto(ProtoBytes.decode(bytes, com.olap.prototype.wire.governance.MetricExecutionSnapshot.getDefaultInstance()))
+            EventExecutionSnapshot::class.java -> GovernanceProto.fromProto(ProtoBytes.decode(bytes, com.olap.prototype.wire.governance.EventExecutionSnapshot.getDefaultInstance()))
+            LogicUnitExecutionSnapshot::class.java -> GovernanceProto.fromProto(ProtoBytes.decode(bytes, com.olap.prototype.wire.governance.LogicUnitExecutionSnapshot.getDefaultInstance()))
+            TopologyExecutionSnapshot::class.java -> GovernanceProto.fromProto(ProtoBytes.decode(bytes, com.olap.prototype.wire.governance.TopologyExecutionSnapshot.getDefaultInstance()))
+            PublishedDimensionBinding::class.java -> GovernanceProto.fromProto(ProtoBytes.decode(bytes, com.olap.prototype.wire.governance.PublishedDimensionBinding.getDefaultInstance()))
+            ReleaseJoinPathSnapshot::class.java -> GovernanceProto.fromProto(ProtoBytes.decode(bytes, com.olap.prototype.wire.governance.ReleaseJoinPathSnapshot.getDefaultInstance()))
+            FrozenAnalysisDimensionMeaning::class.java -> GovernanceProto.fromProto(ProtoBytes.decode(bytes, com.olap.prototype.wire.governance.FrozenAnalysisDimensionMeaning.getDefaultInstance()))
+            PublishedRelationFilter::class.java -> GovernanceProto.fromProto(ProtoBytes.decode(bytes, com.olap.prototype.wire.governance.PublishedRelationFilter.getDefaultInstance()))
+            SourceUniqueKeySnapshot::class.java -> GovernanceProto.fromProto(ProtoBytes.decode(bytes, com.olap.prototype.wire.governance.SourceUniqueKeySnapshot.getDefaultInstance()))
+            NativeTableDependency::class.java -> GovernanceProto.fromProto(ProtoBytes.decode(bytes, com.olap.prototype.wire.governance.NativeTableDependency.getDefaultInstance()))
+            else -> throw ProducerContractException("unsupported frozen representation: ${representation.simpleName}")
+        }
+    }
 }

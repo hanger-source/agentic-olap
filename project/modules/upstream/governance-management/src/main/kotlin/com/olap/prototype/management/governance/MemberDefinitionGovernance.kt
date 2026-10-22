@@ -10,7 +10,8 @@ import com.olap.prototype.member.MemberSourceDefinition
 import com.olap.prototype.query.ScalarValueType
 import com.olap.prototype.query.ScopedInputContract
 import com.olap.prototype.storage.PlatformDatabase
-import com.olap.prototype.util.OlapJsonUtils
+import com.olap.prototype.codec.GovernanceProto
+import com.olap.prototype.codec.ProtoBytes
 import java.time.Instant
 import java.util.UUID
 
@@ -18,14 +19,14 @@ class MemberDefinitionRepository(private val database: PlatformDatabase) {
     internal fun save(record: MemberDefinitionRecord, sourceVersion: Long?) {
         try {
             if (sourceVersion == null) GovernanceJdbcSupport.insert(database, "member_definition", mapOf("id" to record.id))
-            GovernanceJdbcSupport.insert(database, "member_definition_version", linkedMapOf("id" to "${record.id}:v${record.currentVersion}", "member_definition_id" to record.id, "version" to record.currentVersion, "version_status" to "DRAFT", "content_json" to OlapJsonUtils.mapper().writeValueAsString(record), "source_version" to sourceVersion, "created_by" to record.createdBy, "created_at" to record.createdAt))
+            GovernanceJdbcSupport.insert(database, "member_definition_version", linkedMapOf("id" to "${record.id}:v${record.currentVersion}", "member_definition_id" to record.id, "version" to record.currentVersion, "version_status" to "DRAFT", "content_proto" to ProtoBytes.storage(GovernanceProto.toProto(record)), "source_version" to sourceVersion, "created_by" to record.createdBy, "created_at" to record.createdAt))
         } catch (failure: Exception) { throw IllegalStateException("cannot save exact member definition", failure) }
     }
     fun read(id: String, version: Long): MemberDefinitionRecord {
         ProducerContracts.requireText(id, "member definition id"); ProducerContracts.requireVersion(version, "member definition version")
         return try {
-            GovernanceJdbcSupport.query(database, "SELECT content_json,version_status FROM member_definition_version WHERE member_definition_id=? AND version=?", listOf(id, version)) { rows ->
-                val content = OlapJsonUtils.mapper().readValue(rows.getString(1), MemberDefinitionRecord::class.java)
+            GovernanceJdbcSupport.query(database, "SELECT content_proto,version_status FROM member_definition_version WHERE member_definition_id=? AND version=?", listOf(id, version)) { rows ->
+                val content = GovernanceProto.fromProto(ProtoBytes.decode(ProtoBytes.stored(rows.getString(1)), com.olap.prototype.wire.governance.MemberDefinitionRecord.getDefaultInstance()))
                 if (content.id != id || content.currentVersion != version) throw ProducerContractException("member definition snapshot coordinate mismatch")
                 content.copy(status = rows.getString(2), currentVersion = version)
             }.singleOrNull() ?: throw ProducerContractException("exact member definition is missing: $id@$version")

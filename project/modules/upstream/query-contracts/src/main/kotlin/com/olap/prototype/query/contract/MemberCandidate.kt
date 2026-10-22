@@ -1,8 +1,5 @@
 package com.olap.prototype.query.contract
 
-import com.fasterxml.jackson.annotation.JsonProperty
-import com.fasterxml.jackson.annotation.JsonSubTypes
-import com.fasterxml.jackson.annotation.JsonTypeInfo
 import com.olap.prototype.calculation.Calculation
 import com.olap.prototype.calculation.MetricDefinition
 import com.olap.prototype.member.MemberShape
@@ -43,8 +40,8 @@ class MemberCandidate(val sourceId: String, val sourceVersion: Long, val display
         require(this.unitDimensions.keys == units) { "member unit dimensions must exactly cover the approved quantity slots" }
     }
     data class TimeRangeCapability(val slot: String, val valueType: ScalarValueType) { init { MetricDefinition.text(slot, "member time slot") } }
-    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "kind")
-    @JsonSubTypes(JsonSubTypes.Type(value = Dimension::class, name = "DIMENSION"), JsonSubTypes.Type(value = Property::class, name = "PROPERTY"), JsonSubTypes.Type(value = ContainerProperty::class, name = "CONTAINER_PROPERTY"))
+
+
     sealed interface Output { val displayName: String; val role: String }
     sealed interface ScalarOutput : Output { val valueType: ScalarValueType; val valueContract: MetricValueContract? }
     data class ContainerProperty(override val displayName: String, override val role: String, val shape: SetOutputContract.Shape) : Output {
@@ -52,13 +49,13 @@ class MemberCandidate(val sourceId: String, val sourceVersion: Long, val display
     }
     class Dimension(override val displayName: String, override val role: String, override val valueType: ScalarValueType,
         val dimensionId: String, val dimensionVersion: Long, mappings: List<ScopedInputContract.DimensionRef>,
-        @param:JsonProperty(required = true) override val valueContract: MetricValueContract?) : ScalarOutput {
+         override val valueContract: MetricValueContract?) : ScalarOutput {
         val mappings: List<ScopedInputContract.DimensionRef> = java.util.List.copyOf(mappings)
         override fun equals(other: Any?): Boolean = other is Dimension && displayName == other.displayName && role == other.role && valueType == other.valueType && dimensionId == other.dimensionId && dimensionVersion == other.dimensionVersion && mappings == other.mappings && valueContract == other.valueContract
         override fun hashCode(): Int = listOf(displayName, role, valueType, dimensionId, dimensionVersion, mappings, valueContract).hashCode()
     }
     data class Property(override val displayName: String, override val role: String, override val valueType: ScalarValueType,
-        @param:JsonProperty(required = true) override val valueContract: MetricValueContract?) : ScalarOutput
+         override val valueContract: MetricValueContract?) : ScalarOutput
     override fun equals(other: Any?): Boolean = other is MemberCandidate && sourceId == other.sourceId && sourceVersion == other.sourceVersion && displayName == other.displayName && entity == other.entity && role == other.role && shape == other.shape && identitySlots == other.identitySlots && outputs == other.outputs && permission == other.permission && filterTypes == other.filterTypes && filterValueContracts == other.filterValueContracts && unitDimensions == other.unitDimensions && timeRange == other.timeRange && clockSlots == other.clockSlots && parameters == other.parameters && fixedArguments == other.fixedArguments && groupingCandidates == other.groupingCandidates && memberParameters == other.memberParameters && relationParameters == other.relationParameters
     override fun hashCode(): Int = listOf(sourceId, sourceVersion, displayName, entity, role, shape, identitySlots, outputs, permission, filterTypes, filterValueContracts, unitDimensions, timeRange, clockSlots, parameters, fixedArguments, groupingCandidates, memberParameters, relationParameters).hashCode()
     companion object {

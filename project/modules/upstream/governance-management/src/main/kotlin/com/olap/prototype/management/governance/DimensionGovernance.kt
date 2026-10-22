@@ -12,7 +12,6 @@ import com.olap.prototype.management.governance.GovernanceJdbcSupport.insert
 import com.olap.prototype.management.governance.GovernanceJdbcSupport.query
 import com.olap.prototype.query.ScopedInputContract
 import com.olap.prototype.storage.PlatformDatabase
-import com.olap.prototype.util.OlapJsonUtils
 import java.time.Instant
 
 interface DimensionBindingReferenceResolver {
@@ -59,18 +58,18 @@ class DimensionGovernanceRepository(private val database: PlatformDatabase) {
 
     fun saveDimensionVersion(record: DimensionVersionRecord) {
         GovernanceContract.requireVersionObject("dimension_version", "dimension_id", record.id, record.dimensionId, record.version, record.versionStatus, record.createdBy, record.createdAt)
-        requireText(record.contentJson, "dimension_version.content_json")
+        requireText(record.contentProto, "dimension_version.content_proto")
         try { insert(database, "dimension_version", linkedMapOf("id" to record.id, "dimension_id" to record.dimensionId, "version" to record.version,
-            "version_status" to record.versionStatus, "content_json" to record.contentJson, "diagnostic_json" to record.diagnosticJson, "source_version" to record.sourceVersion,
+            "version_status" to record.versionStatus, "content_proto" to record.contentProto, "diagnostic_json" to record.diagnosticJson, "source_version" to record.sourceVersion,
             "created_by" to record.createdBy, "created_at" to record.createdAt, "activated_by" to record.activatedBy, "activated_at" to record.activatedAt,
             "deprecated_by" to record.deprecatedBy, "deprecated_at" to record.deprecatedAt, "archived_by" to record.archivedBy, "archived_at" to record.archivedAt)) }
         catch (failure: Exception) { throw IllegalStateException("Failed to save dimension_version: ${record.id}", failure) }
     }
     fun saveDimensionEventBindingVersion(record: DimensionEventBindingVersionRecord) {
         GovernanceContract.requireVersionObject("dimension_event_binding_version", "binding_id", record.id, record.bindingId, record.version, record.versionStatus, record.createdBy, record.createdAt)
-        requireText(record.contentJson, "dimension_event_binding_version.content_json")
+        requireText(record.contentProto, "dimension_event_binding_version.content_proto")
         try { insert(database, "dimension_event_binding_version", linkedMapOf("id" to record.id, "binding_id" to record.bindingId, "version" to record.version,
-            "version_status" to record.versionStatus, "content_json" to record.contentJson, "diagnostic_json" to record.diagnosticJson, "source_version" to record.sourceVersion,
+            "version_status" to record.versionStatus, "content_proto" to record.contentProto, "diagnostic_json" to record.diagnosticJson, "source_version" to record.sourceVersion,
             "created_by" to record.createdBy, "created_at" to record.createdAt, "activated_by" to record.activatedBy, "activated_at" to record.activatedAt,
             "deprecated_by" to record.deprecatedBy, "deprecated_at" to record.deprecatedAt, "archived_by" to record.archivedBy, "archived_at" to record.archivedAt)) }
         catch (failure: Exception) { throw IllegalStateException("Failed to save dimension_event_binding_version: ${record.id}", failure) }
@@ -106,7 +105,7 @@ class DimensionGovernanceService(
         val now = Instant.now()
         val record = DimensionRecord(code, code, namespace, text(request.dimensionCodeNamespaceDisplayName, "dimension.dimension_code_namespace_display_name"), local,
             text(request.displayName, "dimension.display_name"), request.description, text(request.owner, "dimension.owner"), "DRAFT", draft.version, actor, now, actor, now)
-        val version = DimensionVersionRecord("$code:v${draft.version}", code, draft.version, "DRAFT", json(DimensionSnapshots.dimensionVersionContent(record)),
+        val version = DimensionVersionRecord("$code:v${draft.version}", code, draft.version, "DRAFT", encodeDefinition(DimensionSnapshots.dimensionVersionContent(record)),
             "{}", draft.sourceVersion, actor, now, null, null, null, null, null, null)
         saveDimension(record); saveDimensionVersion(version)
         return DimensionCreateResult(record, version)
@@ -135,23 +134,21 @@ class DimensionGovernanceService(
         val now = Instant.now()
         val id = revision?.objectId ?: "$dimensionId:event:${event.id}:logic:$unitId"
         val draft = GovernanceDraftVersions(database).start(GovernanceDraftVersions.Asset.DIMENSION_EVENT_BINDING, id, revision, actor)
-        val expression = bindingExpression(request.expressionJson, unitId, unitVersion)
+        val expression = bindingExpression(request.expression, unitId, unitVersion)
         val binding = DimensionEventBindingRecord(id, dimensionId, dimensionVersion, event.id, eventVersion, event.topologyId, event.topologyVersion,
             unitId, unitVersion, expression, "DRAFT", draft.version, actor, now, actor, now)
-        events.requirePositionedExpression(event.id, eventVersion, accessPath, roles, SemanticExpressionCodec.parse(expression, "dimension binding expression"), null, "dimension expression")
+        events.requirePositionedExpression(event.id, eventVersion, accessPath, roles, expression, null, "dimension expression")
         val version = DimensionEventBindingVersionRecord("$id:v${draft.version}", id, draft.version, "DRAFT",
-            json(DimensionSnapshots.dimensionEventBindingVersionContent(binding, accessPath, roles)), "{}", draft.sourceVersion, actor, now, null, null, null, null, null, null)
+            encodeDefinition(DimensionSnapshots.dimensionEventBindingVersionContent(binding, accessPath, roles)), "{}", draft.sourceVersion, actor, now, null, null, null, null, null, null)
         saveDimensionEventBinding(binding); saveDimensionEventBindingVersion(version)
         return DimensionEventBindingCreateResult(binding, version)
     }
-    private fun bindingExpression(authored: String?, id: String, version: Long): String {
-        if (authored.isNullOrBlank()) return SemanticExpressionCodec.write(SemanticExpressionCodec.logicUnit(id, version))
-        val expression = try { SemanticExpressionCodec.parse(authored, "dimension_event_binding.expression_json") }
-        catch (failure: IllegalArgumentException) { throw ProducerContractException(requireNotNull(failure.message)) }
+    private fun bindingExpression(authored: SemanticExpression?, id: String, version: Long): SemanticExpression {
+        val expression = authored ?: SemanticExpressionCodec.logicUnit(id, version)
         if (SemanticExpressionInspector.references(expression).none {
             it.referenceKind in setOf(SemanticExpression.ReferenceKind.LOGIC_UNIT, SemanticExpression.ReferenceKind.ROLE_LOGIC_UNIT) && it.id == id && it.version == version
-        }) throw ProducerContractException("dimension_event_binding.expression_json 必须引用已绑定 LogicUnit: $id@$version")
-        return SemanticExpressionCodec.write(expression)
+        }) throw ProducerContractException("dimension_event_binding.expression_proto 必须引用已绑定 LogicUnit: $id@$version")
+        return expression
     }
     internal fun saveDimensionEventBinding(record: DimensionEventBindingRecord) {
         requireDimensionVersion(record.dimensionId, record.dimensionVersion, "dimension_event_binding.dimension_version")
@@ -193,6 +190,5 @@ class DimensionGovernanceService(
     }
     private fun text(value: String?, field: String): String = value?.trim()?.takeUnless { it.isEmpty() } ?: throw ProducerContractException("$field is required")
     private fun positive(value: Long?, field: String): Long = value?.takeIf { it > 0 } ?: throw ProducerContractException("$field is required and must be a positive version")
-    private fun json(value: Any): String = try { OlapJsonUtils.mapper().writeValueAsString(value) }
-        catch (failure: Exception) { throw ProducerContractException("canonical governance content_json invalid", failure) }
+    private fun encodeDefinition(value: GovernanceDefinition): String = com.olap.prototype.codec.ProtoBytes.storage(com.olap.prototype.codec.GovernanceProto.definition(value))
 }

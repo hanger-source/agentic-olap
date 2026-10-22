@@ -2,7 +2,7 @@
 
 完整 MCP 服务通过来源插件访问数据。使用方提供与其网络、鉴权和查询协议相符的插件，服务负责语义管理、发布、规划、SQL 生成、执行要求检查及结果合同校验。HTTP 查询服务是来源访问实现，不需要数据库端口、JDBC URL、数据库凭据或 catalog 权限。业务公式、资格规则和指标组合仍通过语义定义和 Query 表达。
 
-本文描述源码中的来源访问合同：连接器 API 为 `agentic-olap-connector/v11-kotlin-native-collection-relations-calcite-1.42`，元数据存储格式为 `15`。服务、SDK 与插件须来自同一发行或同轮源码构建，安装发行物时以该发行声明及实际服务合同为准。旧存储格式明确拒绝，服务不会自动改写已有持久根。
+本文描述源码中的来源访问合同：连接器 API 为 `agentic-olap-connector/v11-kotlin-native-collection-relations-calcite-1.42`，元数据存储格式为 `16`。服务、SDK 与插件须来自同一发行或同轮源码构建，安装发行物时以该发行声明及实际服务合同为准。旧存储格式明确拒绝，服务不会自动改写已有持久根。
 
 ## 配置来源
 
@@ -26,7 +26,7 @@
 
 `dataSourceId` 是稳定业务来源身份；`SourceBindingRef={dataSourceId,sourceIdentityHash}` 标识一份不可变访问绑定。摘要由来源 ID、精确插件引用、方言、规范化身份参数和凭据槽名共同形成，不包括运行参数、凭据值与保存凭据的环境变量名。运行参数只能改变预算、等待或诊断行为，不能改变数据选择、类型、文本比较或计算口径；超限须明确失败，不能截断为成功。改变插件、端点或其他身份参数产生不同摘要。同一来源 ID 可以部署多个不同绑定；同一绑定不能同时配置两套运行策略。
 
-Agent 从 `list-data-sources` 取得获授权的 `dataSourceId/sourceIdentityHash/connectorRef/dialectId/accessCapabilities`，按本次业务用途明确选择绑定，不按列表顺序、唯一性猜测或“最新”选择。调查与结构登记均提交返回的精确 `sourceIdentityHash`。该摘要不是数据库内容快照或结构版本。
+Agent 从 `olap.sources.list(EmptyRequest)` 取得获授权的 `binding/connectorRef/dialectId/accessCapabilities`，按本次业务用途明确选择绑定，不按列表顺序、唯一性猜测或“最新”选择。调查与结构登记均提交返回的精确 `sourceIdentityHash`。该摘要不是数据库内容快照或结构版本。
 
 JDBC 实现的 `identityParameters` 为 `jdbcUrl`、可选 `username` 和 `driverClassName`，`runtimeParameters` 为 `{}`，凭据槽为可选 `password`。这些字段只由 JDBC 插件解释。HTTP 插件不填写虚假的 JDBC 字段。
 
@@ -34,10 +34,10 @@ JDBC 实现的 `identityParameters` 为 `jdbcUrl`、可选 `username` 和 `drive
 
 结构获取与 SQL 执行分开。两种结构供应方式都进入相同的物理定义、语义建设和发布流程：
 
-- 使用方显式提供结构：通过 MCP `describe-governance-command` 读取 `register-source-structure` 的准确输入，再通过 `write-governance` 调用该命令。输入包括已授权 `dataSourceId/sourceIdentityHash`、catalog/schema 范围、`authority`、`revision`、表、字段、SQL 类型及约束声明，以及认证主体对应的 `requestedBy`。不需要先调用 `discover-source`。
-- 插件提供结构：实现 `SourceAccess.discover`，从数据库 catalog、使用方配置或外部目录取得结构。`discover-source` 同样提交精确 `dataSourceId/sourceIdentityHash`，仅对声明支持调查的来源调用该实现。通过 `inspect-warehouse` 调查时，除读取调查能力合同外，内部 payload 也须携带这两个字段。
+- 使用方显式提供结构：通过 `describe-script-api` 读取 `register-source-structure` 对应方法和 `SourceStructureRegistrationRequest` 的正式构造器，再在 kts 中调用 `olap.governance.registerSourceStructure`。输入包括已授权 `dataSourceId/sourceIdentityHash`、catalog/schema 范围、`authority`、`revision`、表、字段、SQL 类型及约束声明，以及 `requestedBy=olap.caller.subject`。不需要先调用 `discover-source`。
+- 插件提供结构：实现 `SourceAccess.discover`，从数据库 catalog、使用方配置或外部目录取得结构。`discover-source` 同样提交精确 `dataSourceId/sourceIdentityHash`，仅对声明支持调查的来源调用该实现。通过 `olap.sources.inspect` 调查时，除读取能力变体外，其余正式请求均持有精确 `SourceBindingRef`。
 
-`register-source-structure` 返回保存后的 snapshot、tables 和 columns。随后按 `create-physical-table` 的合同选择该 `discoveredTableId`，完整治理字段，再建立逻辑、指标及其他可组合定义，采用并发布。`list-source-discoveries`、`read-source-discovery` 和列读取返回已保存的结构，读取它们不触发数据库探测。
+`olap.governance.registerSourceStructure` 返回 `SourceDiscoveryReceipt`，给出实际保存的 `snapshotId`、状态和表、列计数。用该引用调用 `olap.semantics.sourceDiscovery`、`discoveredTables` 和 `discoveredColumns` 读取已保存结构，再以实际 `discoveredTableId` 构造物理定义，继续建设、采用并发布其他语义。读取已保存结构不触发数据库探测。
 
 同一物理表身份的新版本可以显式采用同一稳定业务来源的另一访问绑定，但必须通过该绑定的结构证据建立，不覆盖旧版本。发布冻结所采用的精确绑定；新部署可以同时保留旧、新绑定。执行旧发布时，旧绑定必须仍在本次部署中；缺失返回 `SOURCE_BINDING_NOT_DEPLOYED`，不自动改用同 ID 的另一绑定。切换当前业务使用的访问绑定，需要明确修订采用及其依赖并发布，再由调用者选择该精确发布。
 
@@ -79,24 +79,32 @@ JDBC 实现的 `identityParameters` 为 `jdbcUrl`、可选 `username` 和 `drive
 
 精确 AVG 的原生结果由连接器 `typeSystem.deriveAvgAggType`、`nativeAggregate` 和 `decimalAverageRounding` 如实声明，核心再处理最终业务结果的 DECIMAL 容量和舍入。作者指定最终精度不能补救原生聚合已丢失的信息。原生类型推导明确拒绝时返回 `NATIVE_AGGREGATE_MAPPING_UNAVAILABLE` 和实际输入类型；插件实现者应先研究真实后端映射，不能用浮点、客户端舍入或未经证明的 SUM/COUNT 改写替代。
 
-作者通过 `describe-operation` 选择 `read-connector-capabilities` 读取输入合同，再向该操作提交类型化聚合查询。例如，对已经获准的精确连接器查询 BIGINT 的全局 AVG：
+作者通过 `describe-script-api` 读取 `read-connector-capabilities` 的方法和正式参数，再在脚本中提交具体聚合查询。例如，以下程序使用已获准来源所指的精确连接器读取 BIGINT 全局 AVG 映射：
 
-```json
-{
-  "aggregate": {
-    "connectorRef": {"id": "<获准连接器ID>", "version": "<精确版本>", "sha256": "<精确摘要>"},
-    "aggregation": "AVG",
-    "inputType": {"name": "BIGINT", "precision": null, "scale": null, "nullable": true},
-    "grouped": false
-  }
+~~~kotlin
+import com.olap.prototype.contract.NativeValueType
+
+val selected = olap.sources.list(EmptyRequest).items.single {
+    it.binding.dataSourceId == parameters.text("dataSourceId") &&
+        it.binding.sourceIdentityHash == parameters.text("sourceIdentityHash")
 }
-```
+olap.output(olap.sources.connectorCapabilities(
+    ConnectorCapabilitiesRequest(
+        aggregate = ConnectorCapabilitiesRequest.Aggregate(
+            connectorRef = selected.connectorRef,
+            aggregation = ResultAggregation.Kind.AVG,
+            inputType = NativeValueType("BIGINT", null, null, nullable = true),
+            grouped = false
+        )
+    )
+))
+~~~
 
 `aggregation` 使用正式聚合枚举；`inputType` 是传入聚合的表达式原生类型，包含实际可空性和完整容量，不是最终业务结果合同。DECIMAL 必须指定 precision、scale，有长度的文本必须指定 precision；类型或容量不能被后端类型工厂静默改写。`grouped=false` 表示没有分组键的全局聚合，`true` 表示存在普通分组键；分组集合中的空分组按全局方式查询。该上下文用于原生结果可空性推导。
 
 响应的 `aggregate.mapping` 为 `MAPPED` 时给出 `resultType` 和 `aggregationRounding`；AVG 使用实际类型系统、原生聚合函数及舍入声明，二者容量不一致时明确拒绝。浮点 AVG 的 aggregationRounding 为 NONE，非 AVG 也为 NONE。`UNAVAILABLE` 携带 `NATIVE_AGGREGATE_MAPPING_UNAVAILABLE`，表示插件没有为该类型兑现映射；不会返回推测的容量或舍入。精确连接器必须用于本主体获准的来源，不能借此读取任意已安装插件。
 
-读取不连接数据源、不执行 SQL，披露的是精确插件的编译声明，不验证后端实际版本、连接状态或完整 Query。`MAPPED` 不代替单位、算术保证、NULL、溢出和最终结果容量检查。数值 AVG 的 `valueContract` 仍为必填；作者明确填写的 `aggregationRounding` 必须匹配原生策略，`valueContract.result.rounding` 仅负责额外的最终输出舍入。原 SQL 没有 ROUND，不能据此把原生策略填为 NONE；插件也不能用未经核实的统一舍入值宣称支持。
+读取不连接数据源、不执行 SQL，披露的是精确插件的编译声明，不验证后端实际版本、连接状态或完整 Query。`MAPPED` 不代替单位、算术保证、NULL、溢出和最终结果容量检查。数值 AVG 的 `valueContract` 仍为必填；事实度量的 `aggregationRounding`、完成关系中 `ResultAggregation.Average.rounding` 都须明确接受相应原生策略，`valueContract.result.rounding` 仅负责额外的最终输出舍入。原 SQL 没有 ROUND，不能据此把原生策略填为 NONE；插件也不能用未经核实的统一舍入值宣称支持。
 
 `expandCollection` 接收当前输入行的类型化数组表达式，返回原生展开关系、完整元素和序号三部分 SQL AST。核心拥有逐行人口、INNER／OUTER 及输出投影，不强制相关派生表形状；插件可以直接映射表函数或下标生成。序号从 1 开始，实际 NULL 元素仍有位置，OUTER 缺行则元素与序号均为 NULL。完整接口与原生映射范式见[连接器 API](../project/modules/kernel/connector-api/README.md)。一种原生常量展开成功，不代表同一后端已支持真实输入行或聚合结果的相关展开。
 
@@ -110,11 +118,11 @@ JDBC 实现的 `identityParameters` 为 `jdbcUrl`、可选 `username` 和 `drive
 
 ## 调用原生标量函数
 
-通过 `read-connector-capabilities` 的空 payload 读取当前主体可访问来源所用的精确连接器；响应的 `connectors` 每项包含 `connectorRef`、`nativeScalarFunctions`、`compilationCapabilities`、`parameterSubmission` 和 `configurationParameters`。这些是精确插件的声明，不连接来源或证明完整查询可用。函数声明给出 `id`、有序 `parameters`、`resultType`、`arithmetic` 和 `stability`，不按 SQL 方言或产品名称猜函数。
+通过 `olap.sources.connectorCapabilities(ConnectorCapabilitiesRequest(aggregate=null))` 读取当前主体可访问来源所用的精确连接器；响应的 `connectors` 每项包含 `connectorRef`、`nativeScalarFunctions`、`compilationCapabilities`、`parameterSubmission` 和 `configurationParameters`。这些是精确插件的声明，不连接来源或证明完整查询可用。函数声明给出 `id`、有序 `parameters`、`resultType`、`arithmetic` 和 `stability`，不按 SQL 方言或产品名称猜函数。
 
 `compilationCapabilities` 只列出插件明确支持的编译能力。`CORRELATED_DERIVED_PROJECTION` 表示派生关系投影可以引用外层查询值，普通 EXISTS 的条件相关不需要这项能力。若数值求值绑定实际需要这种投影而插件未声明，编译在提交 SQL 前返回 `NATIVE_COMPILATION_CAPABILITY_MISSING`，并指出 `capability=CORRELATED_DERIVED_PROJECTION`、`operation=NUMERIC_EVALUATION_BINDING`。不退回重复内联、移除人口守卫或提前计算未选中分支。
 
-`NATIVE_CALL` 表达式提交精确 `connectorRef`、`function` 和有序 `arguments`。`SCALAR` 参数为 `{kind:"SCALAR",expression:完整标量表达式}`；`PHYSICAL_TABLE` 参数为 `{kind:"PHYSICAL_TABLE",physicalTableId,physicalTableVersion}`。物理表参数引用已采用的精确版本，必须与调用所在来源的绑定、插件及方言一致，作为真实来源依赖冻结和核验。Query 内联调用只能引用本次精确发布允许的表闭包；它不是表名文本，也不接受任意 SQL。实际参数形状从表达式合同读取。技术调查 `profile-relationship` 不提供已采用表解析，不支持 `NATIVE_CALL`。
+`SemanticExpression.NativeCall` 提交精确 `connectorRef`、`function` 和有序 `arguments`。参数使用正式 Scalar 与 PhysicalTable 变体，分别持有完整表达式或精确物理表身份和版本。物理表参数引用已采用的精确版本，必须与调用所在来源的绑定、插件及方言一致，作为真实来源依赖冻结和核验。Query 内联调用只能引用本次精确发布允许的表闭包；它不是表名文本，也不接受任意 SQL。实际 Kotlin 构造器与封闭变体从服务 API 发现读取。技术调查 `profile-relationship` 不提供已采用表解析，不支持 `NATIVE_CALL`。
 
 调用保留在本次来源 SQL 中执行。来源要求通过 `uses` 明确区分 `ROWS`（读取数据行）与 `NATIVE_TABLE`（原生函数的表参数）；两者都核对精确来源身份与授权，行约束及有限集合核验按实际 `ROWS` 用途要求。仅作函数参数的表也进入依赖闭包，无需伪造字段引用。
 
@@ -142,7 +150,7 @@ HTTP 服务的分页、截断或未完成状态由插件识别；必须按明确
 
 `readBasis` 为 `Unknown(reason)` 或 `Versioned(authority,version,partitions,pinning)`，描述本次实际读取的数据基础。结构 snapshot、schemaHash、访问绑定及定义版本均不替代它。动态函数仍在同一 SQL 内求值；插件不能事前另查一个分区值，再宣称它就是该 SQL 实际采用的值。不能取得完整读基础时如实返回 Unknown。
 
-保存结果可以按精确引用回读，不要求来源再次执行。按保存查询重新执行会建立新运行，默认读取当时数据。只有来源能强制使用指定版本时才声明 `PINNED_READ`，并接受 `SourceSqlRequest.expectedReadBasis`；核心核验返回读基础与请求完全一致，不自动换成最新。`execute-query.readBasis` 使用已知的 VERSIONED 基础；不支持 pin、版本已不可用或实际基础不符时准确拒绝。可 pin 不等于历史版本永久保留，也不意味着任意动态“最新”查询已可重放。
+保存结果可以按精确引用回读，不要求来源再次执行。按保存查询重新执行会建立新运行，默认读取当时数据。只有来源能强制使用指定版本时才声明 `PINNED_READ`，并接受 `SourceSqlRequest.expectedReadBasis`；核心核验返回读基础与请求完全一致，不自动换成最新。`QueryExecutionRequest.readBasis` 使用已知的 Versioned 基础；不支持 pin、版本已不可用或实际基础不符时准确拒绝。可 pin 不等于历史版本永久保留，也不意味着任意动态“最新”查询已可重放。
 
 一次完整计算要求同一精确 `SourceBindingRef`、方言和连接器。跨绑定的输入在编译时返回 `SOURCE_BINDING_CONFLICT` 及具体作用域和来源引用。保存结果是读取交付物，当前没有把结果引用重新导入为 Query 输入的入口；需要物化时由外部系统维护真实来源，并通过正常结构与语义登记采用。产品不隐式联邦查询或客户端重算。
 

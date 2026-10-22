@@ -6,7 +6,6 @@ import com.olap.prototype.governance.contract.*
 import com.olap.prototype.query.SourceJoinContract
 import com.olap.prototype.query.TemporalJoinContract
 import com.olap.prototype.storage.PlatformDatabase
-import com.olap.prototype.util.OlapJsonUtils
 import java.time.Instant
 
 class TopologyGovernanceService(private val database: PlatformDatabase, private val logicalModel: LogicalModelGovernanceService) : TopologyReferenceResolver {
@@ -14,7 +13,7 @@ class TopologyGovernanceService(private val database: PlatformDatabase, private 
     private val versionRefs = GovernanceVersionRefRepository(database)
     private val snapshots = GovernanceSnapshotReader(database)
     override fun temporalConstraint(joinPathId: String, joinPathVersion: Long): TemporalJoinContract.Constraint? =
-        TemporalJoinContract.parse(text(joinPathSnapshot(joinPathId, joinPathVersion).temporalConfigJson, "exact relationship temporal contract"), "exact relationship temporal contract")
+        joinPathSnapshot(joinPathId, joinPathVersion).temporal
 
     fun createTopology(request: TopologyCreateRequest): TopologyCreateResult = database.inTransaction { createTopology(request, null) }
     fun reviseTopology(request: GovernanceRevisionRequest<TopologyCreateRequest>): TopologyCreateResult = database.inTransaction { createTopology(request.definition, request) }
@@ -35,7 +34,7 @@ class TopologyGovernanceService(private val database: PlatformDatabase, private 
         val topology = TopologyRecord(id, code, text(request.displayName, "topology.display_name"), namespace,
             text(request.topologyImplementationNamespaceDisplayName, "topology.topology_implementation_namespace_display_name"), backboneId, request.description,
             text(request.owner, "topology.owner"), "DRAFT", draft.version, actor, now, actor, now)
-        val version = TopologyVersionRecord("$id:v${draft.version}", id, draft.version, "DRAFT", json(TopologySnapshots.topologyVersionContent(topology)), "{}", draft.sourceVersion,
+        val version = TopologyVersionRecord("$id:v${draft.version}", id, draft.version, "DRAFT", encodeDefinition(TopologySnapshots.topologyVersionContent(topology)), "{}", draft.sourceVersion,
             actor, now, null, null, null, null, null, null)
         val ref = TopologyLogicalTableRefRecord("$id:v${draft.version}:logical-table:$backboneId:v$backboneVersion:BACKBONE_FACT", id, draft.version, backboneId, backboneVersion, "BACKBONE_FACT", now)
         saveTopology(topology); saveTopologyVersion(version); saveTopologyLogicalTableRef(ref)
@@ -97,7 +96,7 @@ class TopologyGovernanceService(private val database: PlatformDatabase, private 
             val table = byTable[tableId] ?: throw ProducerContractException("topology_binding_context.logic_unit.logical_table not found: $tableId")
             ReachableLogicUnitCandidateRecord(unit.id, tableId, text(table.displayName, "topology_binding_context.logic_unit.logical_table_display_name"),
                 text(unit.code, "topology_binding_context.logic_unit.code"), text(unit.displayName, "topology_binding_context.logic_unit.display_name"),
-                text(unit.sourceKind, "topology_binding_context.logic_unit.source_kind"), unit.expressionJson, unit.logicType, unit.valueShape,
+                text(unit.sourceKind, "topology_binding_context.logic_unit.source_kind"), unit.expression, unit.logicType, unit.valueShape,
                 unit.logicType?.let { GovernanceContract.requireLogicType(it, "topology_binding_context.logic_unit.logic_type").displayName }, unit.isTime,
                 unit.isPrimaryKey, unit.isForeignKey, unit.filterable, unit.aggregatable, text(unit.status, "topology_binding_context.logic_unit.status"),
                 positive(unit.currentVersion, "topology_binding_context.logic_unit.current_version"), text(unit.createdBy, "topology_binding_context.logic_unit.created_by"), unit.createdAt, unit.updatedBy, unit.updatedAt)
@@ -137,7 +136,7 @@ class TopologyGovernanceService(private val database: PlatformDatabase, private 
         logicalModel.requireLogicalTableVersion(target, targetVersion, "join_path.target_logical_table_version")
         val join = text(request.joinType, "join_path.join_type")
         val cardinality = text(request.cardinality, "join_path.cardinality")
-        val temporal = text(request.temporalConfigJson, "join_path.temporal_config_json")
+        val temporal = request.temporal
         val policy = text(request.nullPolicy, "join_path.null_policy")
         SourceJoinContract.require(join, cardinality, policy)
         val actor = text(request.createdBy, "join_path.created_by")
@@ -152,7 +151,7 @@ class TopologyGovernanceService(private val database: PlatformDatabase, private 
         }
         val path = JoinPathRecord(id, topologyId, topologyVersion, code, source, sourceVersion, target, targetVersion, join, cardinality, temporal, policy, "DRAFT", draft.version, actor, now)
         requireJoinPathDefinition(path)
-        val version = JoinPathVersionRecord("$id:v${draft.version}", id, draft.version, "DRAFT", json(TopologySnapshots.joinPathVersionContent(path)), join, cardinality, temporal, policy,
+        val version = JoinPathVersionRecord("$id:v${draft.version}", id, draft.version, "DRAFT", encodeDefinition(TopologySnapshots.joinPathVersionContent(path)), join, cardinality, temporal, policy,
             "{}", draft.sourceVersion, actor, now, null, null, null, null, null, null)
         val ref = TopologyJoinPathRefRecord("$topologyId:v$topologyVersion:join-path:$id:v${draft.version}", topologyId, topologyVersion, id, draft.version, now)
         val keys = request.keyRefs.mapIndexed { index, input ->
@@ -166,8 +165,7 @@ class TopologyGovernanceService(private val database: PlatformDatabase, private 
     }
 
     private fun validateTemporal(path: JoinPathRecord) {
-        val constraint = try { TemporalJoinContract.parse(text(path.temporalConfigJson, "join_path.temporal_config_json"), "join_path.temporal_config_json") }
-        catch (invalid: IllegalArgumentException) { throw ProducerContractException(requireNotNull(invalid.message), invalid) }
+        val constraint = path.temporal
         constraint?.intervals?.forEach { interval ->
             val clock = interval.sourceTime
             if (clock is TemporalJoinContract.LogicUnitTime) {
@@ -273,5 +271,5 @@ class TopologyGovernanceService(private val database: PlatformDatabase, private 
     private fun text(value: String?, field: String): String = value?.trim()?.takeUnless { it.isEmpty() } ?: throw ProducerContractException("$field is required")
     private fun positive(value: Long?, field: String): Long = value?.takeIf { it > 0 } ?: throw ProducerContractException("$field is required and must be a positive version")
     private fun simpleCode(value: String, field: String): String = text(value, field).also { if (!it.matches(Regex("[a-z][a-z0-9_]*"))) throw ProducerContractException("$field must be lower snake case and start with a letter") }
-    private fun json(value: Any): String = try { OlapJsonUtils.mapper().writeValueAsString(value) } catch (failure: Exception) { throw ProducerContractException("canonical governance content_json invalid", failure) }
+    private fun encodeDefinition(value: GovernanceDefinition): String = com.olap.prototype.codec.ProtoBytes.storage(com.olap.prototype.codec.GovernanceProto.definition(value))
 }

@@ -76,6 +76,7 @@ internal object ServerFailures {
             cause = cause.cause
         }
         val projected = when {
+            code == "CANCELLED" -> Projection(actualStage, code, "operation was cancelled", emptyMap())
             failure is SecurityException -> Projection(actualStage, "AUTHORIZATION_DENIED", "operation or resource is not authorized", emptyMap())
             failure is CancellationException -> Projection(actualStage, "CANCELLED", "operation was cancelled", emptyMap())
             failure is RuntimeResourceLimitException -> Projection(actualStage, failure.code, "operation exceeded its resource budget", emptyMap())
@@ -108,11 +109,12 @@ internal object ServerFailures {
         if (inputRule != null) return Projection(actualStage, code, error.required("message").textValue(),
             select(error.path("evidenceContext"), "fieldPath", "expectedType", "actualType", "expectedKind", "actualKind"))
         val facts = if (failure.kind == RemoteWorkers.Kind.ENGINE) error.path("evidenceContext") else error
-        error.get("sourceFailure")?.takeUnless { it.isNull }?.let { source ->
-            return Projection(source.required("stage").textValue(), source.required("code").textValue(), source.required("safeMessage").textValue(),
-                mapOf("sourceFailure" to source, "sourceReadEvidence" to error.get("sourceReadEvidence")))
+        failure.sourceFailure?.let { source ->
+            return Projection(source.stage, source.code, source.safeMessage,
+                mapOf("sourceFailure" to source, "sourceReadEvidence" to failure.sourceReadEvidence))
         }
         val projected = when {
+            code == "CANCELLED" -> Projection(actualStage, code, "operation was cancelled", emptyMap())
             code == "CONTRACT_VIOLATION" -> Projection(actualStage, code, error.required("message").textValue(), emptyMap())
             code == "RELATION_INPUT_CONTRACT_MISMATCH" -> Projection(actualStage, code, error.required("message").textValue(),
                 select(facts, "scope", "inputScope", "requirements", "actualKey", "actualOutputs"))
@@ -133,7 +135,7 @@ internal object ServerFailures {
             }
             else -> Projection(actualStage, code, "operation failed; consult the authorized service diagnostics", emptyMap())
         }
-        return error.get("sourceReadEvidence")?.takeUnless { it.isNull }?.let {
+        return failure.sourceReadEvidence?.let {
             projected.copy(details = projected.details + ("sourceReadEvidence" to it))
         } ?: projected
     }

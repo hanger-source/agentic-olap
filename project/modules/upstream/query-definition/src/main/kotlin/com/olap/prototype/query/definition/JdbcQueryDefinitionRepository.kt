@@ -1,10 +1,10 @@
 package com.olap.prototype.query.definition
 
 import com.olap.prototype.query.contract.QueryDefinitionView
-import com.olap.prototype.runtime.BoundedJson
+import com.olap.prototype.query.contract.QueryReference
+import com.olap.prototype.codec.ProtoBytes
 import com.olap.prototype.runtime.JsonResourceLimits
 import com.olap.prototype.storage.PlatformDatabase
-import com.olap.prototype.util.OlapJsonUtils
 import java.sql.ResultSet
 import java.sql.Timestamp
 import java.util.UUID
@@ -35,10 +35,12 @@ class JdbcQueryDefinitionRepository(private val database: PlatformDatabase, priv
             }
             val view = QueryDefinitionArtifact.view(id, version, command, context)
             val artifact = QueryDefinitionArtifact.encode(view, limits)
-            val encoded = BoundedJson.encode(artifact, limits.inputFileBytes).toString(Charsets.UTF_8)
+            val encoded = ProtoBytes.storage(com.olap.prototype.wire.query.QueryDefinitionArtifact.newBuilder()
+                .setFormatVersion(artifact.formatVersion).setSha256(artifact.sha256)
+                .setDefinition(com.google.protobuf.ByteString.copyFrom(artifact.definition)).build())
             connection.prepareStatement("""
                 INSERT INTO query_definition_version
-                (definition_id,version,name,scenario_id,scenario_version,release_id,release_version,subject_area_id,subject_area_version,catalog_hash,capability_hash,intent_hash,artifact_sha256,artifact_json,created_by,created_at)
+                (definition_id,version,name,scenario_id,scenario_version,release_id,release_version,subject_area_id,subject_area_version,catalog_hash,capability_hash,intent_hash,artifact_sha256,artifact_proto,created_by,created_at)
                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """.trimIndent()).use {
                 it.setString(1, id)
@@ -65,8 +67,8 @@ class JdbcQueryDefinitionRepository(private val database: PlatformDatabase, priv
 
     override fun findByIdAndVersion(definitionId: String, definitionVersion: Long): QueryDefinitionView? = read(definitionId, definitionVersion)?.view
 
-    fun requireReference(id: String, version: Long): QueryDefinitionArtifact.Reference =
-        QueryDefinitionArtifact.Reference(id, version, requireStored(id, version).artifact.sha256)
+    fun requireReference(id: String, version: Long): QueryReference =
+        QueryReference(id, version, requireStored(id, version).artifact.sha256)
 
     fun requireArtifact(id: String, version: Long): QueryDefinitionArtifact.Artifact = requireStored(id, version).artifact
 
@@ -88,8 +90,9 @@ class JdbcQueryDefinitionRepository(private val database: PlatformDatabase, priv
     }
 
     private fun stored(row: ResultSet): Stored {
-        val artifact = OlapJsonUtils.mapper().treeToValue(
-            BoundedJson.decode(row.getString("artifact_json").toByteArray(Charsets.UTF_8), limits), QueryDefinitionArtifact.Artifact::class.java)
+        val envelope = ProtoBytes.decode(ProtoBytes.stored(row.getString("artifact_proto")),
+            com.olap.prototype.wire.query.QueryDefinitionArtifact.getDefaultInstance(), limits.inputFileBytes, limits.inputDepth)
+        val artifact = QueryDefinitionArtifact.Artifact(envelope.formatVersion, envelope.sha256, envelope.definition.toByteArray())
         val view = QueryDefinitionArtifact.decode(artifact, limits)
         check(row.getString("definition_id") == view.definitionId && row.getLong("version") == view.definitionVersion &&
             row.getString("artifact_sha256") == artifact.sha256 && row.getString("scenario_id") == view.scenarioId &&

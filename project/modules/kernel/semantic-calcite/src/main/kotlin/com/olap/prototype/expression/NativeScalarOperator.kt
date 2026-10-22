@@ -7,6 +7,8 @@ import org.apache.calcite.sql.type.OperandTypes
 import org.apache.calcite.tools.RelBuilder
 import java.security.MessageDigest
 import java.util.HexFormat
+import java.io.ByteArrayOutputStream
+import java.io.DataOutputStream
 
 /** Rex中的精确原生身份；只有插件拥有SQL AST渲染。 */
 class NativeScalarOperator private constructor(expression: SemanticExpression.NativeCall,
@@ -34,8 +36,20 @@ class NativeScalarOperator private constructor(expression: SemanticExpression.Na
     }
 
     companion object {
-        private fun identity(expression: SemanticExpression.NativeCall): String = "NATIVE_CALL_" +
-            HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(SemanticExpressionCodec.write(expression).toByteArray(Charsets.UTF_8)))
+        private fun identity(expression: SemanticExpression.NativeCall): String {
+            // 标量是Rex调用操作数；原生操作符身份只拥有连接器、函数和不作为Rex列的表实参。
+            val fields = listOf(expression.connectorRef.id, expression.connectorRef.version, expression.connectorRef.sha256, expression.function) +
+                expression.arguments.flatMap { argument -> when (argument) {
+                    is SemanticExpression.ScalarArgument -> listOf("SCALAR")
+                    is SemanticExpression.TableArgument -> listOf("PHYSICAL_TABLE", argument.physicalTableId, argument.physicalTableVersion.toString())
+                } }
+            val bytes = ByteArrayOutputStream()
+            DataOutputStream(bytes).use { output ->
+                output.writeInt(fields.size)
+                fields.forEach { field -> val encoded = field.toByteArray(Charsets.UTF_8); output.writeInt(encoded.size); output.write(encoded) }
+            }
+            return "NATIVE_CALL_" + HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes.toByteArray()))
+        }
 
         fun compile(builder: RelBuilder, scope: NativeExpressionScope, call: SemanticExpression.NativeCall,
             operands: (SemanticExpression) -> RexNode): RexNode {

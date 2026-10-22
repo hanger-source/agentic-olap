@@ -37,7 +37,7 @@ class OlapSemanticCompiler(private val compiler: CalciteRelCompiler) {
         val relational = try { compiler.compile(graph, analyses, resolved, context) }
         catch (cancelled: java.util.concurrent.CancellationException) { throw cancelled }
         catch (failure: EngineExecutionException) { throw EngineExecutionException(failure.stage, failure.code, failure.message, failure,
-            observedEvidence(query) + failure.evidenceContext, query, failure.sourceFailure, failure.sourceReadEvidence) }
+            observedEvidence(query) + failure.evidenceContext, query, failure.sourceFailure, failure.sourceReadEvidence, failure.sourceExecutionStarted, failure.stageNanos) }
         catch (failure: SourceCapabilityException) {
             throw EngineExecutionException("SOURCE_ACCESS", failure.code, failure.message, failure,
                 observedEvidence(query) + mapOf("dataSourceId" to failure.dataSourceId, "operation" to failure.operation, "capability" to failure.capability.name), query)
@@ -51,7 +51,7 @@ class OlapSemanticCompiler(private val compiler: CalciteRelCompiler) {
                     optimizedRelationalPlan = RelOptUtil.toString(relational.optimized), rawRelationalPlanJson = CalcitePlanEvidence.write(relational.raw),
                     optimizedRelationalPlanJson = CalcitePlanEvidence.write(relational.optimized),
                     sqlRelationalPlan = RelOptUtil.toString(relational.sqlRelation), sqlRelationalPlanJson = CalcitePlanEvidence.write(relational.sqlRelation),
-                    compilationScale = relational.scale)
+                    compilationScale = relational.scale, sqlPlan = CalcitePlanEvidence.describe(relational.sqlRelation))
             }
         }
     }

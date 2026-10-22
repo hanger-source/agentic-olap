@@ -1,18 +1,28 @@
 package com.olap.prototype.governance.application
 
-import com.fasterxml.jackson.core.JsonProcessingException
-import com.fasterxml.jackson.core.type.TypeReference
-import com.fasterxml.jackson.databind.DeserializationFeature
-import com.fasterxml.jackson.databind.JavaType
-import com.fasterxml.jackson.databind.JsonNode
 import com.olap.prototype.contract.ContractSelectionException
 import com.olap.prototype.contract.ProducerContractException
 import com.olap.prototype.contract.InputContractException
 import com.olap.prototype.contract.ProducerContracts
 import com.olap.prototype.governance.contract.*
+import com.olap.prototype.governance.contract.GovernanceReadRequests.AssetVersionRequest
+import com.olap.prototype.governance.contract.GovernanceReadRequests.DefinitionDependenciesRequest
+import com.olap.prototype.governance.contract.GovernanceReadRequests.ReleaseIdentityRequest
+import com.olap.prototype.governance.contract.GovernanceReadRequests.Page
+import com.olap.prototype.governance.contract.GovernanceReadRequests.EmptyInput
+import com.olap.prototype.governance.contract.GovernanceReadRequests.OperationInput
+import com.olap.prototype.governance.contract.GovernanceReadRequests.DescribeCommandInput
+import com.olap.prototype.governance.contract.GovernanceReadRequests.PageInput
+import com.olap.prototype.governance.contract.GovernanceReadRequests.SourceDiscoveriesInput
+import com.olap.prototype.governance.contract.GovernanceReadRequests.SnapshotInput
+import com.olap.prototype.governance.contract.GovernanceReadRequests.SnapshotPageInput
+import com.olap.prototype.governance.contract.GovernanceReadRequests.DiscoveredTablePageInput
+import com.olap.prototype.governance.contract.GovernanceReadRequests.SourcePageInput
+import com.olap.prototype.governance.contract.GovernanceReadRequests.IdentityInput
+import com.olap.prototype.governance.contract.GovernanceReadRequests.VersionInput
+import com.olap.prototype.governance.contract.GovernanceReadRequests.VersionPageInput
+import com.olap.prototype.governance.contract.GovernanceReadRequests.SubjectPageInput
 import com.olap.prototype.management.governance.*
-import com.olap.prototype.util.OlapJsonUtils
-import com.olap.prototype.util.WireTypeShape
 import com.olap.prototype.warehouse.WarehouseExecutionControl
 import com.olap.prototype.warehouse.WarehouseSourceInspection
 import com.olap.prototype.warehouse.contract.SourceBindingRef
@@ -21,6 +31,10 @@ import com.olap.prototype.warehouse.onboarding.SourceStructureRegistrationReques
 import com.olap.prototype.warehouse.onboarding.WarehouseDiscoveryCommand
 import com.olap.prototype.warehouse.onboarding.WarehouseOnboardingService
 import java.util.Collections
+import java.lang.reflect.Type
+import com.olap.prototype.dsl.ApiDiscovery
+import com.olap.prototype.dsl.transport.CapabilityRegistry
+import com.olap.prototype.warehouse.onboarding.SourceDiscoveryReceipt
 
 /** 写入只接受已认证主体；同一次类型解码依次执行作者核对、来源准入与领域操作。 */
 class GovernanceOperations(
@@ -83,24 +97,24 @@ class GovernanceOperations(
             command("deprecate", lifecycle::deprecate, actor { it.deprecatedBy }),
             command("build-release", releases::build, actor { it.createdBy }),
             "register-source-structure" to Command<SourceStructureRegistrationRequest>(
-                mapper.constructType(SourceStructureRegistrationRequest::class.java),
+                SourceStructureRegistrationRequest::class.java,
                 { request, control, _ ->
                     requireAuthorizedBinding(SourceBindingRef(request.dataSourceId, request.sourceIdentityHash))
                     control.checkCancellation()
-                    onboarding.registerStructure(request)
+                    onboarding.registerStructure(request).let { recorded -> SourceDiscoveryReceipt(recorded.snapshot.id, recorded.snapshot.dataSource, recorded.snapshot.sourceIdentityHash, recorded.snapshot.status, recorded.truncated, recorded.snapshot.tableCount, recorded.columns.size) }
                 }, { request, authorize -> authorize(request.dataSourceId) }, actor { it.requestedBy }),
             "discover-source" to Command<WarehouseDiscoveryCommand>(
-                mapper.constructType(WarehouseDiscoveryCommand::class.java),
+                WarehouseDiscoveryCommand::class.java,
                 { request, control, inspection ->
                     requireAuthorizedBinding(SourceBindingRef(request.dataSourceId, request.sourceIdentityHash))
-                    onboarding.discover(request, control, inspection)
+                    onboarding.discover(request, control, inspection).let { recorded -> SourceDiscoveryReceipt(recorded.snapshot.id, recorded.snapshot.dataSource, recorded.snapshot.sourceIdentityHash, recorded.snapshot.status, recorded.truncated, recorded.snapshot.tableCount, recorded.columns.size) }
                 }, { request, authorize -> authorize(request.dataSourceId) }, actor { it.requestedBy }),
         )
     }
 
     fun dispatchAuthenticated(
         operation: String,
-        payload: JsonNode,
+        request: Any,
         control: WarehouseExecutionControl,
         subject: String,
         inspection: WarehouseSourceInspection,
@@ -108,10 +122,10 @@ class GovernanceOperations(
     ): Any {
         ProducerContracts.requireText(subject, "authenticated subject")
         val command = commands[operation] ?: throw ProducerContractException("authenticated governance dispatch requires a registered write command")
-        return command.execute(payload, control, subject, inspection, authorizeSource)
+        return command.execute(request, control, subject, inspection, authorizeSource)
     }
 
-    fun read(operation: String, payload: JsonNode, control: WarehouseExecutionControl): Any {
+    fun read(operation: String, payload: Any, control: WarehouseExecutionControl): Any {
         control.checkCancellation()
         val result = reads.read(operation, payload)
         control.checkCancellation()
@@ -121,47 +135,15 @@ class GovernanceOperations(
     fun readAssetVersion(request: AssetVersionRequest): Any = reads.readAssetVersion(request)
 
     private fun describeWriteCommand(input: DescribeCommandInput): Any {
-        val operation = input.operation?.takeIf { it.isNotBlank() } ?: throw ContractSelectionException("operation must be explicit")
-        val selected = commands[operation] ?: throw ContractSelectionException("unsupported write command")
-        val shape = GovernanceCommandSchema.describe(selected.type, input.path, input.variant)
-        val described = linkedMapOf<String, Any>()
-        mapper.valueToTree<JsonNode>(shape).fields().forEachRemaining { described[it.key] = it.value }
-        described["operation"] = operation
-        described["path"] = input.path ?: emptyList<String>()
-        input.variant?.let { described["variant"] = it }
-        described["selectionContract"] = mapOf(
-            "path" to "EXACT_JSON_FIELD_NAMES_FROM_COMMAND_ROOT_COLLECTIONS_FOLLOW_ELEMENT_OR_VALUE_TYPE_NO_INDEXES",
-            "variant" to "EXACT_WIRE_UNION_TAG_AT_PATH_ENDPOINT",
-            "placement" to "INPUT_SHAPE_REPLACES_ONLY_THE_SELECTED_COMMAND_FIELD_OR_VARIANT", "unknownSelectors" to "REJECT")
-        when (operation) {
-            "revise-subject-area" -> described["revisionContract"] = mapOf(
-                "sourceVersion" to "EXACT_LATEST_SUBJECT_VERSION_NEW_DRAFT_CREATED_OLD_ACTIVE_VERSION_PRESERVED",
-                "carry" to "EXPLICIT_SELECTED_IDENTITIES_FROM_READ_SUBJECT_CONTEXT_SELECTION_EMPTY_MEANS_NONE_DEPENDENCY_OMISSIONS_REJECTED",
-                "definitions" to "SHARED_DEFINITIONS_AND_EXACT_SOURCE_BINDINGS_REUSED_NO_BUSINESS_FORMULA_REWRITE",
-                "children" to "NEW_EXACT_DIMENSION_AND_SCENARIO_VERSIONS_MEMBER_AND_METRIC_ADOPTIONS_REBOUND_AND_REVALIDATED_ATOMICALLY",
-                "authorization" to "ONLY_SELECTED_EXISTING_SCENARIO_RULE_CONTENT_CARRIED_NEW_VERSIONS_REQUIRE_EXPLICIT_ACTIVATION",
-                "frozenQueries" to "OLD_RELEASES_AND_SAVED_QUERIES_KEEP_THEIR_EXACT_COORDINATES",
-                "failure" to "STALE_CHILD_VERSION_MISSING_DEPENDENCY_OR_INVALID_BINDING_ROLLS_BACK_THE_ENTIRE_REVISION")
-            "activate" -> described["lifecycleContract"] = GovernanceActivationObjectType.contract()
-            "deprecate" -> described["lifecycleContract"] = GovernanceActivationObjectType.deprecationContract()
-            "revise-member-adoption" -> described["revisionContract"] = mapOf(
-                "source" to "EXACT_EXISTING_SHARED_ADOPTION_IN_DRAFT_SUBJECT_AREA_IDENTITY_AND_CODE_PRESERVED",
-                "expectedDefinition" to "EXACT_CURRENT_SHARED_REFERENCE_REQUIRED_STALE_REFERENCE_RETURNS_MEMBER_ADOPTION_CONFLICT",
-                "definition" to "EXPLICIT_REFERENCEABLE_SHARED_DEFINITION_NO_LATEST_SELECTION",
-                "bindings" to "COMPLETE_REPLACEMENT_BINDINGS_AND_FIXED_ARGUMENTS_NOT_A_PATCH",
-                "dependencies" to "ALL_CONTEXT_CALCULATIONS_AND_EXISTING_SCENARIO_PERMISSIONS_REVALIDATED_IN_ONE_TRANSACTION_FAILURE_ROLLS_BACK",
-                "references" to "NO_AUTOMATIC_DOWNSTREAM_REWRITE_OR_PERMISSION_CHANGE_OLD_CONTEXTS_AND_RELEASES_UNCHANGED",
-                "impact" to "READ_DEFINITION_IMPACT_FOR_MEMBER_SOURCE_AND_READ_THE_EXACT_SOURCE_BEFORE_REVISION")
-            "revise-analysis-dimension" -> described["revisionContract"] = mapOf(
-                "sourceVersion" to "LATEST_VERSION_OF_THIS_IDENTITY_REQUIRED_DRAFT_SOURCE_ARCHIVED_ACTIVE_SOURCE_PRESERVED_NEW_DRAFT_CREATED",
-                "definition" to "ROOT_REPLACEMENT_WITH_REQUESTED_DEFAULT_LEVEL_AND_SUBJECT_AREA_REFERENCE_ONLY",
-                "children" to "NO_COPY_OF_OLD_LEVELS_EVENT_MAPPINGS_VALUE_PROVIDERS_OR_VALUE_ALIGNMENTS_EXPLICIT_RECONSTRUCTION",
-                "subjectArea" to "IDENTITY_PRESERVED_SAME_VERSION_CAS_REPLACES_OLD_REF_NEW_DRAFT_SUBJECT_VERSION_ADDS_REF",
-                "readChildren" to listOf("read-analysis-dimension-levels", "read-analysis-dimension-mappings", "read-analysis-dimension-providers", "read-analysis-dimension-alignments"),
-                "createChildren" to listOf("create-analysis-dimension-event-mapping", "create-analysis-dimension-value-provider", "create-analysis-dimension-value-alignment"))
-        }
-        return WireTypeShape.withContentHash(described)
+        val operation = requireNotNull(input.operation?.takeIf { it.isNotBlank() }) { "operation must be explicit" }
+        require(input.path.isNullOrEmpty() && input.variant == null) { "Kotlin API discovery selects a formal type or operation; JSON field selectors are not supported" }
+        return ApiDiscovery.operation(operation)
     }
+
+    fun writeInputType(operation: String): Type = commands[operation]?.type
+        ?: throw ProducerContractException("unsupported authenticated governance command: $operation")
+    fun writeOutputType(operation: String): Type = CapabilityRegistry.require(operation).outputType
+    fun readInputType(operation: String): Type = GovernanceReads.inputType(operation)
 
     private fun requireAuthorizedBinding(reference: SourceBindingRef) {
         val source = discoverySources[reference]
@@ -171,16 +153,16 @@ class GovernanceOperations(
     }
 
     private class Command<T>(
-        val type: JavaType,
+        val type: Type,
         private val handler: (T, WarehouseExecutionControl, WarehouseSourceInspection) -> Any,
         private val authorizeAccess: (T, (String) -> Unit) -> Unit,
         private val verifyActor: (T, String) -> Unit,
     ) {
-        fun execute(payload: JsonNode, control: WarehouseExecutionControl, subject: String,
+        fun execute(value: Any, control: WarehouseExecutionControl, subject: String,
             inspection: WarehouseSourceInspection, authorizeSource: (String) -> Unit): Any {
-            if (!payload.isObject) throw ProducerContractException("governance command payload must be a JSON object")
-            val request: T = try { mapper.readerFor(type).readValue(payload.traverse(mapper)) }
-                catch (invalid: JsonProcessingException) { throw InputContractException.decoding(invalid, payload) }
+            val raw = when (type) { is Class<*> -> type; is java.lang.reflect.ParameterizedType -> type.rawType as Class<*>; else -> error("unsupported command type") }
+            require(raw.isInstance(value)) { "command input differs from its registered type: $type" }
+            @Suppress("UNCHECKED_CAST") val request = value as T
             verifyActor(request, subject)
             authorizeAccess(request, authorizeSource)
             control.checkCancellation()
@@ -188,35 +170,13 @@ class GovernanceOperations(
         }
     }
 
-    data class AssetVersionRequest(val assetType: String?, val id: String?, val version: Long)
-    data class DefinitionDependenciesRequest(val assetType: String, val id: String, val version: Long, val offset: Int, val limit: Int)
-    data class ReleaseIdentityRequest(val releaseId: String, val releaseVersion: String)
-    class Page(items: List<*>, val total: Int, val nextOffset: Int?) { val items: List<*> = Collections.unmodifiableList(ArrayList(items)) }
-    class EmptyInput
-    data class OperationInput(val operation: String?)
-    class DescribeCommandInput(val operation: String?, path: List<String>?, val variant: String?) {
-        val path: List<String>? = path?.let { Collections.unmodifiableList(ArrayList(it)) }
-    }
-    data class PageInput(val offset: Int?, val limit: Int?)
-    data class SourceDiscoveriesInput(val dataSourceId: String?, val catalog: String?, val schemaName: String?, val offset: Int?, val limit: Int?)
-    data class SnapshotInput(val snapshotId: String?)
-    data class SnapshotPageInput(val snapshotId: String?, val offset: Int?, val limit: Int?)
-    data class DiscoveredTablePageInput(val discoveredTableId: String?, val offset: Int?, val limit: Int?)
-    data class SourcePageInput(val dataSourceId: String?, val offset: Int?, val limit: Int?)
-    data class IdentityInput(val id: String?)
-    data class VersionInput(val id: String?, val version: Long)
-    data class VersionPageInput(val id: String?, val version: Long, val offset: Int?, val limit: Int?)
-    data class SubjectPageInput(val subjectAreaId: String?, val offset: Int?, val limit: Int?)
-
     companion object {
-        private val mapper = OlapJsonUtils.mapper().copy().enable(DeserializationFeature.FAIL_ON_NUMBERS_FOR_ENUMS,
-            DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
         private val noActor: (Any?, String) -> Unit = { _, _ -> }
         private fun <T> actor(author: (T) -> String?): (T, String) -> Unit = { request, subject ->
             if (subject != author(request)) throw SecurityException("command actor conflicts with authenticated principal")
         }
-        private inline fun <reified T> command(name: String, noinline handler: (T) -> Any, noinline actor: (T, String) -> Unit): Pair<String, Command<*>> =
-            name to Command(mapper.constructType(object : TypeReference<T>() {}),
+        private fun <T> command(name: String, handler: (T) -> Any, actor: (T, String) -> Unit): Pair<String, Command<*>> =
+            name to Command(CapabilityRegistry.require(name).inputType,
                 { request, _, _ -> handler(request) }, { _, _ -> }, actor)
 
         fun readOperations(): List<String> = GovernanceReads.operations()

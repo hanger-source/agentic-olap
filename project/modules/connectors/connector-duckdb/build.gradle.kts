@@ -1,4 +1,5 @@
 dependencies {
+    implementation(project(":json-io"))
     api(project(":connector-api"))
     api(project(":warehouse-jdbc"))
 }

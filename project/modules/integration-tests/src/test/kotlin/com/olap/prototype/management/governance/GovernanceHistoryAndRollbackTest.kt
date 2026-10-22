@@ -4,6 +4,7 @@ import com.olap.prototype.connector.SourceProvider
 import com.olap.prototype.contract.JdbcColumnType
 import com.olap.prototype.contract.ProducerContractException
 import com.olap.prototype.event.EventIdentity
+import com.olap.prototype.expression.SemanticExpression
 import com.olap.prototype.governance.application.GovernanceApplication
 import com.olap.prototype.governance.application.GovernanceOperations
 import com.olap.prototype.governance.contract.*
@@ -36,8 +37,8 @@ class GovernanceHistoryAndRollbackTest {
             stored.physicalColumn("pc_amount", "amount_v2", version = 2, displayName = "金额列 v2", dataType = "decimal")
             stored.logicalTable("order_fact", "FACT", 1, "DEPRECATED", "订单事实 v1")
             stored.logicalTable("order_fact", "FACT", 2, "ACTIVE", "订单事实 v2")
-            stored.logicUnit("order_fact", "order_fact.amount", "amount", "NUMBER", aggregatable = true, version = 1, status = "DEPRECATED", displayName = "金额 v1", expression = "{\"sql\":\"amount_v1\"}")
-            stored.logicUnit("order_fact", "order_fact.amount", "amount", "NUMBER", aggregatable = true, version = 2, displayName = "金额 v2", expression = "{\"sql\":\"amount_v2\"}")
+            stored.logicUnit("order_fact", "order_fact.amount", "amount", "NUMBER", aggregatable = true, version = 1, status = "DEPRECATED", displayName = "金额 v1", expression = SemanticExpression.Reference(SemanticExpression.ReferenceKind.PHYSICAL_COLUMN, "pc_amount", 1))
+            stored.logicUnit("order_fact", "order_fact.amount", "amount", "NUMBER", aggregatable = true, version = 2, displayName = "金额 v2", expression = SemanticExpression.Reference(SemanticExpression.ReferenceKind.PHYSICAL_COLUMN, "pc_amount", 2))
             val refSql = "INSERT INTO logical_table_logic_unit_ref (id,logical_table_id,logical_table_version,logic_unit_id,logic_unit_version,created_at) VALUES (?,?,?,?,?,?)"
             stored.execute(refSql, "order_fact:v1:logic-unit:amount:v1", "order_fact", 1, "order_fact.amount", 1, stored.now)
             stored.execute(refSql, "order_fact:v2:logic-unit:amount:v2", "order_fact", 2, "order_fact.amount", 2, stored.now)
@@ -50,7 +51,7 @@ class GovernanceHistoryAndRollbackTest {
             val snapshots = GovernanceSnapshotReader(database)
             assertEquals("订单事实 v1", snapshots.logicalTable("order_fact", 1).displayName)
             assertEquals("金额 v1", snapshots.logicUnit("order_fact.amount", 1).displayName)
-            assertEquals("{\"sql\":\"amount_v1\"}", snapshots.logicUnit("order_fact.amount", 1).expressionJson)
+            assertEquals(SemanticExpression.Reference(SemanticExpression.ReferenceKind.PHYSICAL_COLUMN, "pc_amount", 1), snapshots.logicUnit("order_fact.amount", 1).expression)
         }
     }
 
@@ -64,7 +65,7 @@ class GovernanceHistoryAndRollbackTest {
             val onboarding = WarehouseOnboardingService(assets, WarehouseRegistryService(database, registry, assets)) { null }
             val operations = GovernanceOperations(GovernanceApplication(database, connectors), emptyMap(), onboarding)
             assertThrows(ProducerContractException::class.java) {
-                operations.dispatchAuthenticated("build-release", OlapJsonUtils.mapper().valueToTree(SubjectAreaReleaseBuildRequest("rel_trade", "1", "交易发布", "trade", 1, "tester")),
+                operations.dispatchAuthenticated("build-release", SubjectAreaReleaseBuildRequest("rel_trade", "1", "交易发布", "trade", 1, "tester"),
                     RuntimeDeploymentLimits.CONTROL, "tester", JdbcSourceInspection(JdbcWarehouseInspector(connectors), connectors)) { }
             }
             assertEquals(0L, stored.count("subject_area_release", "release_id", "rel_trade"))
@@ -157,7 +158,7 @@ class GovernanceHistoryAndRollbackTest {
             topologies.createTopology(topology())
             topologies.createTopologyLogicalTableRef(TopologyLogicalTableRefCreateRequest("trade.payment.payment", 1, "customer_dim", 1, TopologyNodeRole.DIM_NODE))
             assertThrows(RuntimeException::class.java) {
-                topologies.createJoinPath(JoinPathCreateRequest("trade.payment.payment", 1, "order_customer", "order_fact", 1, "customer_dim", 1, "LEFT", "MANY_TO_ONE", "{}",
+                topologies.createJoinPath(JoinPathCreateRequest("trade.payment.payment", 1, "order_customer", "order_fact", 1, "customer_dim", 1, "LEFT", "MANY_TO_ONE", null,
                     "SQL_EQUALS_NULL_NEVER_MATCHES", "tester", listOf(JoinPathCreateRequest.KeyRefInput("order_fact.customer_id", 1, "customer_dim.missing_customer_id", 1))))
             }
             val id = "trade.payment.payment:join:order_customer"

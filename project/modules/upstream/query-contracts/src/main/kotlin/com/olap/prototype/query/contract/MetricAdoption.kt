@@ -1,6 +1,5 @@
 package com.olap.prototype.query.contract
 
-import com.fasterxml.jackson.annotation.JsonIgnore
 import com.olap.prototype.calculation.Calculation
 import com.olap.prototype.calculation.CalculationBindings
 import com.olap.prototype.calculation.MetricDefinition
@@ -24,8 +23,8 @@ class MetricAdoption(val adoptionId: String, val subjectAreaId: String, val subj
         MetricDefinition.text(code, "adoption code"); MetricDefinition.text(displayName, "adoption displayName")
         require(adoptionId == identity(subjectAreaId, code)) { "adoption identity differs from its owning context and code" }
     }
-    @get:JsonIgnore val instance: MetricInstanceRef get() = instance(adoptionId, subjectAreaVersion)
-    @get:JsonIgnore val computation: MetricInstance get() = MetricInstance(definition, bindings, fixedArguments, displayName)
+     val instance: MetricInstanceRef get() = instance(adoptionId, subjectAreaVersion)
+     val computation: MetricInstance get() = MetricInstance(definition, bindings, fixedArguments, displayName)
     override fun equals(other: Any?): Boolean = other is MetricAdoption && adoptionId == other.adoptionId && subjectAreaId == other.subjectAreaId && subjectAreaVersion == other.subjectAreaVersion && code == other.code && displayName == other.displayName && businessMeaning == other.businessMeaning && definition == other.definition && bindings == other.bindings && fixedArguments == other.fixedArguments
     override fun hashCode(): Int = listOf(adoptionId, subjectAreaId, subjectAreaVersion, code, displayName, businessMeaning, definition, bindings, fixedArguments).hashCode()
     companion object {

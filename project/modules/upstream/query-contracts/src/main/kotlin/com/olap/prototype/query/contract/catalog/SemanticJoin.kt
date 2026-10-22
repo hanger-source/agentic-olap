@@ -1,48 +1,41 @@
 package com.olap.prototype.query.contract.catalog
 
-import com.fasterxml.jackson.annotation.JsonInclude
-import com.fasterxml.jackson.annotation.JsonProperty
-import com.fasterxml.jackson.annotation.JsonSubTypes
-import com.fasterxml.jackson.annotation.JsonTypeInfo
 import com.olap.prototype.query.ScalarValueType
 import com.olap.prototype.query.SourceJoinContract
 import com.olap.prototype.query.contract.SealedSourceCollectionMeaning
 
 /** 关联的语义键、区间和独立物理位置派生的有限源说明。 */
-class SemanticJoin(@param:JsonProperty(required = true) val joinType: SourceJoinContract.JoinType,
-    @param:JsonProperty(required = true) val cardinality: SourceJoinContract.Cardinality,
-    @param:JsonProperty(required = true) val nullPolicy: SourceJoinContract.NullPolicy,
-    @param:JsonProperty(required = true) keys: List<KeyPair>, @param:JsonProperty(required = true) intervals: List<Interval>,
+class SemanticJoin(val joinType: SourceJoinContract.JoinType,
+    val cardinality: SourceJoinContract.Cardinality,
+    val nullPolicy: SourceJoinContract.NullPolicy,
+    keys: List<KeyPair>, intervals: List<Interval>,
     sourceSealedSourceCollections: CatalogOptional<List<SealedSourceCollectionMeaning>> = CatalogOptional.absent(),
     targetSealedSourceCollections: CatalogOptional<List<SealedSourceCollectionMeaning>> = CatalogOptional.absent()) {
-    val keys: List<KeyPair> = CatalogJson.nonempty(keys)
+    val keys: List<KeyPair> = CatalogValues.nonempty(keys)
     val intervals: List<Interval> = java.util.List.copyOf(intervals)
-    @get:JsonInclude(value = JsonInclude.Include.CUSTOM, valueFilter = CatalogOptional.Missing::class)
     val sourceSealedSourceCollections: CatalogOptional<List<SealedSourceCollectionMeaning>> = collections(sourceSealedSourceCollections)
-    @get:JsonInclude(value = JsonInclude.Include.CUSTOM, valueFilter = CatalogOptional.Missing::class)
     val targetSealedSourceCollections: CatalogOptional<List<SealedSourceCollectionMeaning>> = collections(targetSealedSourceCollections)
-    data class KeyPair(@param:JsonProperty(required = true) val source: PublicExpression, @param:JsonProperty(required = true) val target: PublicExpression) {
+    data class KeyPair(val source: PublicExpression, val target: PublicExpression) {
         init { local(source); local(target) }
     }
     enum class ClockScope { JOIN_SOURCE, TOPOLOGY_BACKBONE, QUERY }
-    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "kind")
-    @JsonSubTypes(JsonSubTypes.Type(value = LogicClock::class, name = "LOGIC_UNIT"), JsonSubTypes.Type(value = QueryClock::class, name = "QUERY_CLOCK"))
+
     sealed interface Clock
-    data class LogicClock(@param:JsonProperty(required = true) val logicUnitId: String, @param:JsonProperty(required = true) val logicUnitVersion: Long) : Clock {
-        init { CatalogJson.text(logicUnitId); CatalogJson.version(logicUnitVersion) }
+    data class LogicClock(val logicUnitId: String, val logicUnitVersion: Long) : Clock {
+        init { CatalogValues.text(logicUnitId); CatalogValues.version(logicUnitVersion) }
     }
-    data class QueryClock(@param:JsonProperty(required = true) val clockRef: String, @param:JsonProperty(required = true) val valueType: ScalarValueType,
-        @param:JsonProperty(required = true) val description: String) : Clock {
+    data class QueryClock(val clockRef: String, val valueType: ScalarValueType,
+        val description: String) : Clock {
         init {
             require(clockRef.matches(Regex("clock_[0-9a-f]{64}"))) { "exact public query clock required" }
             require(valueType in setOf(ScalarValueType.DATE, ScalarValueType.LOCAL_TIMESTAMP, ScalarValueType.OFFSET_TIMESTAMP)) { "query clock requires a temporal type" }
-            CatalogJson.text(description)
+            CatalogValues.text(description)
         }
     }
-    class Interval(@param:JsonProperty(required = true) val clock: Clock, @param:JsonProperty(required = true) val clockScope: ClockScope,
-        @param:JsonProperty(required = true) clockAccess: List<SemanticJoin>, @param:JsonProperty(required = true) val from: PublicExpression,
-        @param:JsonProperty(required = true) val to: PublicExpression, @param:JsonProperty(required = true) val fromInclusive: Boolean,
-        @param:JsonProperty(required = true) val toInclusive: Boolean, @param:JsonProperty(required = true) val openEndedTo: Boolean) {
+    class Interval(val clock: Clock, val clockScope: ClockScope,
+        clockAccess: List<SemanticJoin>, val from: PublicExpression,
+        val to: PublicExpression, val fromInclusive: Boolean,
+        val toInclusive: Boolean, val openEndedTo: Boolean) {
         val clockAccess: List<SemanticJoin> = java.util.List.copyOf(clockAccess)
         init {
             local(from); local(to)

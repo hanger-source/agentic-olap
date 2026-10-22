@@ -15,7 +15,7 @@ agentic-olap start
 | 要做什么 | 从这里进入 |
 | --- | --- |
 | 安装、启动并接入自己的业务源 | [服务使用与部署](../skills/agentic-olap/references/server.md) |
-| 让 AI 使用服务中的定义与查询 | [AI 使用指引](agent-usage.md)，从服务发现工具、口径和完整请求合同 |
+| 让 AI 使用服务中的定义与查询 | [AI 使用指引](agent-usage.md)，从服务发现 Kotlin API、口径和正式构造器 |
 | 扩展 HTTP 来源或显式提供结构 | [来源访问扩展](source-access.md)，说明源码 API 与发行版本边界 |
 | 配置外部 JWT 远程服务 | [远程部署](../skills/agentic-olap/references/server.md#外部认证的远程服务) |
 | 研发构建并查看自含业务结果 | [贡献说明](../CONTRIBUTING.md)、[自含业务用法](../examples/README.md) |
@@ -35,7 +35,7 @@ agentic-olap start
 | 从本地或远程 MCP 服务建设和查询 | [AI 使用指引](agent-usage.md)；产品 CLI 已提供工具发现与调用 |
 | 实现并发行独立后端插件 | [连接器 API](../project/modules/kernel/connector-api/README.md) |
 
-npm 安装备齐服务及内部运行时；使用者配置实际连接、凭据、权限和预算。业务 Agent 从统一服务发现能力与已有资产，结合业务背景选择定义和组织完整查询；新增业务口径通过服务中的语义管理完成。
+npm 安装备齐服务、脚本编译环境及内部运行时；使用者配置实际连接、凭据、权限和预算。业务 Agent 用 `describe-script-api` 发现实际方法和正式类型，用 `execute-script` 提交完整 Kotlin 程序，结合业务背景选择定义并组织完整查询；新增业务口径通过相同客户端的治理能力完成。构造模型本身没有业务副作用，调用正式方法才读取、写入或执行。
 
 ## 理解与开发
 
@@ -49,7 +49,7 @@ npm 安装备齐服务及内部运行时；使用者配置实际连接、凭据�
 
 内部实现见[运行机制](architecture.md#服务与运行机制)：Go 服务拥有外部入口与进程监督，Kotlin 应用拥有语义、治理、授权与权威元数据；两端使用 Protobuf 通信。服务部署和业务接入始终使用上面的统一产品入口。
 
-Kotlin 模块由 `project/settings.gradle.kts` 组织，Go 服务使用 `project/service/go.mod`，内部协议由 `project/protocol/runtime.proto` 生成。独立 `tools` Go module 的 `olap-dev` 统一编排研发构建与试验；产品运行不调用源码构建或修改工具。
+Kotlin 模块由 `project/settings.gradle.kts` 组织，Go 服务使用 `project/service/go.mod`，`project/protocol/` 分别声明运行监督、语义、治理、查询及 worker 的正式消息。独立 `tools` Go module 的 `olap-dev` 统一编排研发构建与试验；产品运行不调用源码构建或修改工具。
 
 
 正式业务示例及研发试验使用仓库自含数据，由[研发命令](../tools/README.md)统一启动，消费同轮服务与公开 MCP 接口。

@@ -21,13 +21,13 @@ go -C tools run ./cmd/olap-dev example --example procurement --artifacts .tmp/pr
 go -C tools run ./cmd/olap-dev example --example subscriptions --artifacts .tmp/subscriptions --distribution .tmp/server-distribution
 ```
 
-每个产物目录必须尚不存在。三例按顺序运行，共用精确发行构件，各自持有业务数据、元数据与结果。业务值见`.tmp/<example>/http/business/observations.json`，同目录`queries.json`保留完整查询，`mcp-calls.jsonl`保留实际公开调用；原始记录与独立预期见各自说明。
+每个产物目录必须尚不存在。三例按顺序运行，共用精确发行构件，各自持有业务数据、元数据与结果。`.tmp/<example>/http/report.json` 保存各阶段的正式脚本回执，包括保存查询和结果的精确引用；`http/business/mcp-calls.jsonl`、`http/reopened/mcp-calls.jsonl` 等阶段目录保存实际 MCP 请求与响应。完整定义、Query 和独立业务预期见各例的 `main.olap.kts`；原始记录见各自说明。
 
 三个业务客户端只持有自己的作者输入、远程地址与令牌，通过正式 MCP 消费服务，不读取服务器元数据或私有执行文件。
 
 ## 用法中的调用关系
 
-Kotlin 准备者只建立原始业务数据和类型化定义模板，没有治理或发布副作用。`tools/internal/scenario` 中的 Go 客户端通过官方 MCP SDK 完成源调查、定义与采用建设、精确发布、完整 Query 校验和执行，按返回引用分页读取结果与历史。查询作者与独立业务预期也在该研发包中，不进入产品运行依赖。
+Kotlin 准备者建立原始业务数据；示例作者在 kts 中构造正式定义和 Query。`tools/internal/scenario` 的 Go 客户端通过官方 MCP SDK 提交整段程序，脚本中的正式能力依次完成调查、定义与采用建设、发布、查询和结果读取，Go 仍负责实际保存与交付。业务数据、作者程序及独立结果预期留在示例和研发包，不进入产品运行依赖。
 
 普通临时查询不创建保存定义或任务。订单内联查询由调用者组织`COMPUTE`，其他查询复用沉淀后的高层定义；客户端另行明确调用保存与精确复用。开发场景持有自己的真实签名者、服务进程和故障现场，观察外部认证、重启、结果存储失败、行/字节预算和只读源边界。这些研发职责不进入产品业务工具。
 

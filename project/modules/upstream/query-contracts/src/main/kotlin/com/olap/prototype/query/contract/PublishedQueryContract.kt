@@ -1,7 +1,5 @@
 package com.olap.prototype.query.contract
 
-import com.fasterxml.jackson.core.type.TypeReference
-import com.fasterxml.jackson.databind.JsonNode
 import com.olap.prototype.calculation.*
 import com.olap.prototype.contract.ProducerContractException
 import com.olap.prototype.contract.InputContractException
@@ -11,52 +9,21 @@ import com.olap.prototype.member.MemberSource
 import com.olap.prototype.metric.MetricValueContract
 import com.olap.prototype.query.*
 import com.olap.prototype.time.TemporalWindow
-import com.olap.prototype.util.OlapJsonUtils
 
 /** 完整查询核验与引擎共用的精确发布批准；不改变定义内部的私有依赖政策。 */
 object PublishedQueryContract {
-    const val FORMAT_VERSION = "olap-query-intent/v6"
-    private val intentFields: Map<String, Any> = mapOf(
-        "formatVersion" to mapOf("type" to "string", "const" to FORMAT_VERSION),
-        "scenarioId" to mapOf("type" to "non-empty string"),
-        "scenarioVersion" to mapOf("type" to "positive signed 64-bit integer"),
-        "releaseId" to mapOf("type" to "non-empty string"),
-        "releaseVersion" to mapOf("type" to "non-empty string"),
-        "computation" to mapOf("type" to "object", "contractReference" to "read-query-language-contract.scopedInputContract",
-            "stagesContractReference" to "read-query-language-contract.postOperationContract"),
-    )
-    fun intentContract(): Map<String, Any> = mapOf("intentFormatVersion" to FORMAT_VERSION, "kind" to "object",
-        "requiredFields" to intentFields.keys.sorted(), "fields" to intentFields, "additionalFields" to "REJECT",
-        "publicationCoordinates" to mapOf("placement" to "FLAT_FIELDS_ON_INTENT", "fields" to listOf("scenarioId", "scenarioVersion", "releaseId", "releaseVersion"), "meaning" to "EXACT_AUTHORIZED_PUBLICATION"))
-
-    fun authorize(intent: JsonNode, capability: QueryCapabilityView) { Authorization(capability).authorizeScope(parseIntent(intent, capability), 0) }
+    const val FORMAT_VERSION = QueryIntent.FORMAT_VERSION
+    fun authorize(intent: QueryIntent, capability: QueryCapabilityView) = authorize(intent.formatVersion, intent.publication, intent.computation, capability)
     fun authorize(formatVersion: String, coordinate: QueryCapabilityRequest, computation: QueryComputation.Scope, capability: QueryCapabilityView) {
         requirePublication(formatVersion, coordinate, capability)
         Authorization(capability).authorizeScope(computation, 0)
     }
-    fun parseIntent(intent: JsonNode, capability: QueryCapabilityView): QueryComputation.Scope {
-        val coordinate = coordinate(intent)
-        requirePublication(intent.required("formatVersion").textValue(), coordinate, capability)
-        return QueryComputation.parse(intent.required("computation"))
-    }
-    fun coordinate(intent: JsonNode): QueryCapabilityRequest {
-        if (!intent.isObject) fail("query intent must be an explicit object")
-        val actual = intent.fieldNames().asSequence().toSet()
-        if (actual != intentFields.keys) fail("query intent requires exactly ${intentFields.keys.sorted()}; missing=${(intentFields.keys - actual).sorted()}; unexpected=${(actual - intentFields.keys).sorted()}; expected formatVersion=$FORMAT_VERSION; read-query-language-contract.intentContract describes the complete intent")
-        if (!intent.required("formatVersion").isTextual || intent.required("formatVersion").textValue() != FORMAT_VERSION) fail("query intent formatVersion must be $FORMAT_VERSION")
-        listOf("scenarioId", "releaseId", "releaseVersion").forEach { field ->
-            if (!intent.required(field).isTextual || intent.required(field).textValue().isBlank()) fail("query intent $field must be a non-empty string")
-        }
-        if (!intent.required("computation").isObject) fail("query intent computation must be an object described by read-query-language-contract.scopedInputContract")
-        val version = intent.required("scenarioVersion")
-        if (!version.isIntegralNumber || !version.canConvertToLong() || version.longValue() <= 0) fail("query scenarioVersion must be a positive signed 64-bit integer")
-        return QueryCapabilityRequest(intent.required("scenarioId").textValue(), version.longValue(), intent.required("releaseId").textValue(), intent.required("releaseVersion").textValue())
-    }
+    fun coordinate(intent: QueryIntent): QueryCapabilityRequest = intent.publication
     private fun requirePublication(formatVersion: String, coordinate: QueryCapabilityRequest, capability: QueryCapabilityView) {
-        QueryCapabilityHash.requireValid(capability)
+        require((capability.capabilityHash?.matches(Regex("[a-f0-9]{64}")) == true)) { "exact capability hash is required" }
         if (capability.subjectAreaCapabilityContext.subjectAreaScenarioRefStatus != "ACTIVE") fail("published scenario adoption is not active")
         if (formatVersion != FORMAT_VERSION) fail("query intent formatVersion must be $FORMAT_VERSION")
-        if (coordinate != FrozenQueryCapabilityFiles.key(capability)) fail("query coordinate differs from publication")
+        if (coordinate != PublishedQueryEntry.key(capability)) fail("query coordinate differs from publication")
     }
     private fun requireRootInput(scope: QueryComputation.Scope, id: String, path: List<Any>) {
         if (scope.inputs[id]?.mode != "ROOT") throw InputContractException.violation(InputContractException.Rule.ROOT_INPUT_REQUIRED,
@@ -79,10 +46,9 @@ object PublishedQueryContract {
         private val unitEquations = linkedMapOf<String, MutableSet<MetricValueContract.UnitEquation>>()
         private val matrix = linkedMapOf<MetricInstanceRef, MutableList<MetricAnalysisDimensionCapability>>()
         private val stageRules = linkedMapOf<String, MutableList<PostProcessCapability>>()
-        private val stageContracts = hashMapOf<String, Map<String, Any?>>()
+
         private val compilationCatalog: ExecutableCatalog by lazy(LazyThreadSafetyMode.NONE) {
-            try { OlapJsonUtils.mapper().treeToValue(capability.nativeDefinitions.catalog, ExecutableCatalog::class.java) }
-            catch (failure: java.io.IOException) { throw ProducerContractException("published inline binding catalog is invalid", failure) }
+            capability.nativeDefinitions.catalog
         }
         init {
             capability.analysisDimensionCandidates.forEach { dimension -> dimension.availableLevelCodes.forEach { level ->
@@ -95,9 +61,6 @@ object PublishedQueryContract {
             capability.metricCandidates.forEach { metric -> metric.valueContract.unitEquations.forEach { (name, equation) -> unitEquations.getOrPut(name) { linkedSetOf() }.add(equation) } }
             capability.metricAnalysisDimensionMatrix.forEach { matrix.getOrPut(it.instance) { mutableListOf() }.add(it) }
             capability.postProcessCapabilities.filter { it.available }.forEach { stageRules.getOrPut(it.ruleType) { mutableListOf() }.add(it) }
-        }
-        private fun stageArguments(rule: PostProcessCapability): Map<String, Any?> = stageContracts.getOrPut(rule.ruleId) {
-            OlapJsonUtils.mapper().readValue(rule.ruleConfigJson, object : TypeReference<Map<String, Any?>>() {})
         }
         fun authorizeScope(scope: QueryComputation.Scope, depth: Int, path: List<Any> = listOf("computation")) {
             chargeScope(depth)
@@ -393,7 +356,7 @@ object PublishedQueryContract {
             authorizeFrozenMemberConditions(compilationCatalog.requireMemberSource(root.source), root.arguments, root.members, root.relations, depth + 1)
         }
         fun authorizeMemberValues(call: QueryComputation.Members) {
-            requirePublication(FORMAT_VERSION, FrozenQueryCapabilityFiles.key(capability), capability)
+            requirePublication(FORMAT_VERSION, PublishedQueryEntry.key(capability), capability)
             if (call.outputs.size != 1 || call.outputs.first() !is QueryComputation.Slot) fail("member candidate values require one direct approved slot")
             authorizeMembers(call, 0, true)
         }
@@ -450,7 +413,7 @@ object PublishedQueryContract {
             PostOperationTraversal.valueContracts(stage).forEach(::authorizeUnitEquations)
             val rules = stageRules[stage.operationType].orEmpty()
             if (rules.size != 1) fail("query stage requires one exact approved rule: ${stage.operationType}")
-            try { PublishedStagePolicy.require(stage, stageArguments(rules.single()), "query.stages") }
+            try { PublishedStagePolicy.require(stage, rules.single().authorization, "query.stages") }
             catch (failure: Exception) { throw ProducerContractException("query stage differs from frozen permission: ${failure.message}", failure) }
         }
         private fun authorizeSetQuantities(shape: SetOutputContract.Shape) {

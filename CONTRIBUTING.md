@@ -37,11 +37,11 @@ go -C tools run ./cmd/olap-dev test --distribution .tmp/dev-distribution
 
 `project/service` 使用一个 Go module，依赖由 `go.mod` 和 `go.sum` 固定。服务、运行监督、认证与结果字节交付分别按包归属。领域语义、授权和治理不在 Go 中复制。`tools` 是独立的研发 Go module，拥有构建、发行及正式 MCP 客户端试验，生产服务不依赖它。
 
-Kotlin 模块由 `project/settings.gradle.kts` 统一登记，公共版本由 `project/gradle/libs.versions.toml` 声明。`kernel/` 保存通用计算，`upstream/` 保存治理、采用、发布与存储，`applications/` 保存应用装配及插件装载，`connectors/` 保存具体后端实现。集成试验位于 `project/modules/integration-tests/`，示例在 `examples/`。
+Kotlin 模块由 `project/settings.gradle.kts` 统一登记，公共版本由 `project/gradle/libs.versions.toml` 声明。`kernel/` 保存通用计算，`upstream/` 保存治理、采用、发布与存储，`applications/` 保存应用装配及插件装载，`scripting/` 保存纯 DSL API 与脚本编译求值，`protocol/` 保存纯生成协议和显式字段转换，`connectors/` 保存具体后端实现。集成试验位于 `project/modules/integration-tests/`，示例在 `examples/`。
 
-`project/protocol/runtime.proto` 是内部通信的唯一来源。Gradle 生成两端代码；领域对象仍由 Kotlin 正式模型拥有，Protobuf 只承载实际进程通信。生成的 JVM Java 消息属于构建输出，手写 JVM 生产与试验源码使用 Kotlin。公开 Query、MCP 和插件配置继续使用各自正式合同。
+`project/protocol/` 的 schema 分别声明运行监督、正式语义、治理、查询与 worker 消息。Gradle 生成两端代码，`olap-protocol` 只依赖官方 Protobuf 运行库；`olap-codec` 显式转换具体消息与正式领域类型。纯合同不依赖编码实现。禁止反射序列化任意模型、Struct 语义树或按类名恢复对象。生成的 JVM Java 消息属于构建输出，手写生产与试验源码使用 Kotlin。MCP 保留提交封套、发现与结果读取；作者通过整段 kts 构造正式模型，不维护 JSON AST。
 
-Go 是唯一进程监督者，拥有 JVM 启动、工作池、期限、取消及关闭。Kotlin 元数据应用唯一持有权威 H2 库，工作进程只取得本次已授权的执行输入和来源环境。不要增加第二套进程池、发布授权或运行状态。
+Go 是唯一进程监督者，拥有 JVM 启动、工作池、期限、取消及关闭。Kotlin 元数据应用唯一持有权威 H2 库，工作进程只取得本次已授权的执行输入和来源环境。脚本使用 Go 的有上限 JVM 池，按同一 Subject＋Scopes 归属复用，来源计算与脚本保有不同工作容量。每次脚本独立建立求值状态、客户端、回调与受管临时子目录；正常释放不承诺清除任意 JVM 全局副作用。不要在 Kotlin 增加第二套进程监督、发布授权或运行状态。
 
 公开连接器 SDK、内部进程协议、产品发行版本和语义资产版本分别管理。JVM 构件使用 `com.github.hanger-source.agentic-olap` group，版本为 `v` 加 `project/cli/package.json` 的产品版本。SDK 由 JitPack 按源码仓库的精确发行标签构建；独立插件配置 JitPack 仓库和精确坐标，第三方依赖由 Maven Central 提供。SDK 构件公开下载，无需使用者令牌。插件通过 JVM ServiceLoader 注册，精确身份和类加载由公开装载器核验。
 
@@ -61,7 +61,7 @@ Go 是唯一进程监督者，拥有 JVM 启动、工作池、期限、取消及
 
 Gradle 的实际解析结果生成 `project/build/jvm-artifacts.json`；研发入口记录源码输入、精确构件、依赖与摘要。Go 构建记录保存自身源码、模块依赖和二进制摘要。记录中的 HEAD 是源码起点，未提交内容仍由输入摘要识别，不能冒称已提交版本。
 
-服务发行清单为 `agentic-olap-distribution/v2`，包含一个 Go 服务程序和 JVM 主类的精确 JAR 列表。装配只消费同轮记录，运行时逐项核验路径与摘要，不扫描目录选取旧包。npm 产品包另包含 JDK 21 工具生成的 JRE；用户通过 npm 安装后直接启动，无需源码或构建工具。
+服务发行清单为 `agentic-olap-distribution/v3`，包含一个 Go 服务程序，以及服务、脚本运行和 DSL 三组精确类路径。装配只消费同轮记录，运行时逐项核验路径与摘要，不扫描目录选取旧包。npm 产品包另包含 JDK 21 工具生成的 JRE；用户通过 npm 安装后直接启动，无需源码或构建工具。
 
 `project/cli/package.json` 拥有单一 npm 包的版本、平台限制和原生命令入口。产品包通过实际安装试验后才能作为发行证据；skill 直接从本仓库的 `skills/agentic-olap` 交付。源码、文档、skill、SDK 和发布工作流采用同一精确标签。构建、安装、源码 push 和公开发布是不同动作，不自动互相授予权限。
 

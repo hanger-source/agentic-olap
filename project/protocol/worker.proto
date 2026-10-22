@@ -1,0 +1,34 @@
+syntax = "proto3";
+package agentic.olap.query.v1;
+option java_package = "com.olap.prototype.wire.query";
+option java_multiple_files = true;
+option go_package = "github.com/hanger-source/agentic-olap/service/internal/protocol/worker;worker";
+import "query.proto";
+import "semantic.proto";
+import "governance.proto";
+
+message EngineWorkerCommand { oneof kind { agentic.olap.governance.v1.PublishedExecutableCatalog load = 1; EngineUnload unload = 2; EngineInspect inspect = 3; EngineExecute execute = 4; } }
+message EngineUnload { string catalog_id = 1; string content_hash = 2; }
+message EngineInspect { string mode = 1; string catalog_id = 2; string request_id = 3; QueryIntent intent = 4; }
+message EngineExecute { string catalog_id = 1; string request_id = 2; QueryIntent intent = 3; repeated SourceBinding bindings = 4; SourceVersion read_basis = 5; }
+message EngineWorkerResult { oneof kind { EngineCatalogReceipt loaded = 1; EngineCatalogReceipt unloaded = 2; EngineInputResolution resolved = 3; EngineExecutionPayload executed = 4; } }
+message EngineCatalogReceipt { string catalog_id = 1; string content_hash = 2; }
+message EngineInputResolution { QueryCapabilityCoordinate publication = 1; string request_id = 2; string catalog_id = 3; string catalog_hash = 4; string intent_hash = 5; SourceBinding binding = 6; agentic.olap.semantic.v1.ConnectorRef connector_ref = 7; map<string,int64> timing_nanos = 8; QueryExplanationView explanation = 9; }
+message EngineExecutionDiagnostics { string sql = 1; map<string,string> alias_mapping = 2; optional string audit_report = 3; }
+message EngineExecutionPayload { QueryCapabilityCoordinate publication = 1; string request_id = 2; BusinessResult result = 3; SourceReadEvidence source_read_evidence = 4; map<string,int64> stage_nanos = 5; EngineExecutionDiagnostics diagnostics = 6; QueryExplanationView explanation = 7; }
+message QueryWorkerCommand { oneof kind { agentic.olap.governance.v1.PublishedQueryEntry load = 1; QueryUnload unload = 2; QueryIntent validate = 3; } }
+message QueryUnload { QueryCapabilityCoordinate coordinate = 1; string catalog_hash = 2; string capability_hash = 3; }
+message QueryWorkerResult { oneof kind { QueryCapabilityReceipt loaded = 1; QueryCapabilityCoordinate unloaded = 2; string validated_capability_hash = 3; } }
+message QueryCapabilityReceipt { QueryCapabilityCoordinate coordinate = 1; string catalog_hash = 2; string capability_hash = 3; }
+message SourceWorkerCommand { oneof kind { SourceWorkerDiscover discover = 1; agentic.olap.governance.v1.SourceInspectionPreview preview = 2; SourceWorkerVerify verify = 3; } }
+message SourceWorkerDiscover { agentic.olap.governance.v1.SourceInspectionSnapshot inspection = 1; repeated SourceTemporalRules temporal_keys = 2; repeated SourceSnapshotRules snapshot_unique_keys = 3; }
+message SourceTemporalRules { string table = 1; repeated agentic.olap.governance.v1.JdbcTableConstraintsTemporalRule rules = 2; }
+message SourceSnapshotRules { string table = 1; repeated agentic.olap.governance.v1.SnapshotUniqueKeyRule rules = 2; }
+message SourceWorkerVerify { SourceBinding binding = 1; agentic.olap.governance.v1.SealedSourceDataset declaration = 2; }
+message SourceWorkerResult { oneof kind { SourceWorkerDiscovery discovery = 1; agentic.olap.governance.v1.WarehousePreview preview = 2; bool verified = 3; } }
+message SourceWorkerDiscovery { agentic.olap.governance.v1.WarehouseSchemaSnapshot snapshot = 1; repeated SourceSnapshotKeys unique_keys = 2; }
+message SourceSnapshotKeys { string table = 1; repeated agentic.olap.governance.v1.SnapshotUniqueKey keys = 2; }
+message CandidateWorkerCommand { oneof kind { CandidatePublication load = 1; CandidatePublicationIdentity unload = 2; CandidateRequest resolve = 3; CandidateRequest values = 4; } }
+message CandidatePublication { agentic.olap.governance.v1.PublishedQueryEntry entry = 1; agentic.olap.governance.v1.PublishedExecutableCatalog executable = 2; }
+message CandidatePublicationIdentity { QueryCapabilityCoordinate coordinate = 1; string catalog_hash = 2; string capability_hash = 3; string semantic_catalog_hash = 4; }
+message CandidateWorkerResult { oneof kind { CandidatePublicationIdentity loaded = 1; CandidatePublicationIdentity unloaded = 2; CandidateResolution resolved = 3; CandidateValues values = 4; } }

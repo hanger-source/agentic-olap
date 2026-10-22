@@ -1,9 +1,9 @@
 package com.olap.prototype.management.governance
 
+import com.olap.prototype.metric.MetricAggregation
 import com.olap.prototype.calculation.*
 import com.olap.prototype.event.EventIdentity
 import com.olap.prototype.event.RelationAccessPath
-import com.olap.prototype.expression.SemanticExpressionCodec
 import com.olap.prototype.governance.contract.*
 import com.olap.prototype.metric.MetricBusinessMeaning
 import com.olap.prototype.metric.MetricValueContract
@@ -26,9 +26,25 @@ class PublishedCrossEventCalculationTest {
             val event = f.events.createEvent(EventCreateRequest(topology.id, 1, "paid", "退款成功", "trade", "order_fact.pay_time", 1,
                 EventIdentity(listOf(EventIdentity.LogicUnitRef("order_fact.order_id", 1)), mapOf("order" to listOf(EventIdentity.LogicUnitRef("order_fact.order_id", 1)))), emptyMap(),
                 listOf(EventCreateRequest.LogicUnitRefInput("order_fact.destination", 1)), listOf(EventCreateRequest.LogicUnitRefInput("order_fact.pay_amount", 1)), "退款事件", "golden")).event
-            val refund = f.metrics.createMetric(MetricCreateRequest(event.id, 1, "refund_amount", "退款金额", "trade", SemanticExpressionCodec.write(GovernanceOrderFixture.ref("order_fact.pay_amount")),
-                "SUM", false, "BASE", "ADDITIVE", null, emptyMap(), "退款金额", MetricBusinessMeaning("成功退款金额", "元", "退款", emptyList()), null,
-                GovernanceOrderFixture.money(), MetricValueContract.Rounding.NONE, "golden")).metric
+            val refund = f.metrics.createMetric(MetricCreateRequest(
+                code = "refund_amount",
+                displayName = "退款金额",
+                owner = "trade",
+                definition = MetricDefinition.FactMeasure(
+                    event = com.olap.prototype.event.EventRef(event.id, 1),
+                    input = GovernanceOrderFixture.ref("order_fact.pay_amount"),
+                    aggregation = MetricAggregation.SUM,
+                    distinct = false,
+                    privatePredicate = null,
+                    roles = emptyMap(),
+                    snapshotRule = null,
+                    valueContract = GovernanceOrderFixture.money(),
+                    aggregationRounding = MetricValueContract.Rounding.NONE
+                ),
+                description = "退款金额",
+                businessMeaning = MetricBusinessMeaning("成功退款金额", "元", "退款", emptyList()),
+                createdBy = "golden"
+            )).metric
             val net = f.metrics.createMetricCalculation(MetricCalculationCreateRequest("net_amount", "净交易额", "trade",
                 GovernanceOrderFixture.combinedAmount(f.paymentId, refund.id, ResultExpression.ResultOperator.SUBTRACT), "支付减退款", GovernanceOrderFixture.amountMeaning(), "golden")).metric
             f.activateSubjectGraph(false); f.activate("TOPOLOGY", topology.id); f.activate("EVENT", event.id); f.activate("METRIC", refund.id)

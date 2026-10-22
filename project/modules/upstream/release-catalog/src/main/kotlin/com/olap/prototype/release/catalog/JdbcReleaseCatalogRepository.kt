@@ -4,7 +4,8 @@ import com.olap.prototype.contract.ProducerContractException
 import com.olap.prototype.contract.ProducerContracts
 import com.olap.prototype.contract.SqlConnectionProvider
 import com.olap.prototype.release.contract.*
-import com.olap.prototype.util.OlapJsonUtils
+import com.olap.prototype.codec.GovernanceProto
+import com.olap.prototype.codec.ProtoBytes
 import java.sql.ResultSet
 import java.sql.SQLException
 import java.time.Instant
@@ -21,13 +22,13 @@ class JdbcReleaseCatalogRepository(private val connections: SqlConnectionProvide
     override fun findReleaseObjectVersionRefs(releaseId: String, releaseVersion: String): List<ReleaseObjectRef> = query(
         """
         SELECT id,release_id,release_version,object_type,object_id,object_version,
-               object_code,object_display_name,ref_role,snapshot_summary_json,created_at
+               object_code,object_display_name,ref_role,snapshot_proto,created_at
           FROM release_object_ref WHERE release_id=? AND release_version=?
          ORDER BY ref_role,object_type,object_id,object_version
         """.trimIndent(),
         { row -> ReleaseObjectRef(text(row, "id"), text(row, "release_id"), text(row, "release_version"), text(row, "object_type"),
             text(row, "object_id"), version(row, "object_version"), text(row, "object_code"), text(row, "object_display_name"),
-            text(row, "ref_role"), row.getString("snapshot_summary_json"), instant(row, "created_at")) },
+            text(row, "ref_role"), row.getString("snapshot_proto"), instant(row, "created_at")) },
         releaseId, releaseVersion,
     )
     override fun findReleaseMetricDimensionCapabilities(releaseId: String, releaseVersion: String, scenarioId: String?, scenarioVersion: Long?): List<ReleaseMetricDimensionCapability> = query(
@@ -68,7 +69,7 @@ class JdbcReleaseCatalogRepository(private val connections: SqlConnectionProvide
                r.event_id,r.event_version,r.topology_id,r.topology_version,r.topology_implementation_namespace_code,
                r.topology_implementation_namespace_display_name,r.effective_time_logic_unit_id,r.effective_time_logic_unit_version,
                r.effective_time_logic_unit_display_name,r.time_role,r.analysis_dimension_id,r.analysis_dimension_version,
-               ar.object_display_name AS analysis_dimension_display_name,r.level_code,r.alias_symbols_json,
+               ar.object_display_name AS analysis_dimension_display_name,r.level_code,
                r.partition_logic_unit_id,r.partition_logic_unit_version,r.diagnostic_json,r.created_at
           FROM release_time_anchor_rule r
           LEFT JOIN release_object_ref ar ON ar.release_id=r.release_id AND ar.release_version=r.release_version
@@ -80,7 +81,7 @@ class JdbcReleaseCatalogRepository(private val connections: SqlConnectionProvide
             text(row, "topology_id"), version(row, "topology_version"), text(row, "topology_implementation_namespace_code"),
             text(row, "topology_implementation_namespace_display_name"), text(row, "effective_time_logic_unit_id"), version(row, "effective_time_logic_unit_version"),
             text(row, "effective_time_logic_unit_display_name"), text(row, "time_role"), row.getString("analysis_dimension_id"), version(row, "analysis_dimension_version"),
-            row.getString("analysis_dimension_display_name"), row.getString("level_code"), row.getString("alias_symbols_json"),
+            row.getString("analysis_dimension_display_name"), row.getString("level_code"),
             row.getString("partition_logic_unit_id"), nullableLong(row, "partition_logic_unit_version"), row.getString("diagnostic_json"), instant(row, "created_at")) },
         releaseId, releaseVersion,
     )
@@ -97,8 +98,8 @@ class JdbcReleaseCatalogRepository(private val connections: SqlConnectionProvide
             text(row, "dimension_id"), version(row, "dimension_version"), text(row, "dimension_code_namespace"), text(row, "dimension_code_namespace_display_name"),
             text(row, "dimension_display_name"), text(row, "binding_id"), version(row, "binding_version"), row.getString("value_alignment_key"), text(row, "value_alignment_status"),
             text(row, "topology_id"), version(row, "topology_version"), text(row, "topology_implementation_namespace_code"), text(row, "topology_implementation_namespace_display_name"),
-            text(row, "logic_unit_id"), version(row, "logic_unit_version"), text(row, "logic_unit_display_name"), releaseJoinPathRefs(text(row, "join_path_refs_json")),
-            text(row, "expression_json"), instant(row, "created_at")) }, releaseId, releaseVersion,
+            text(row, "logic_unit_id"), version(row, "logic_unit_version"), text(row, "logic_unit_display_name"), releaseJoinPathRefs(text(row, "join_path_refs_proto")),
+            com.olap.prototype.codec.SemanticProto.fromProto(ProtoBytes.decode(ProtoBytes.stored(text(row, "expression_proto")), com.olap.prototype.wire.semantic.SemanticExpression.getDefaultInstance())), instant(row, "created_at")) }, releaseId, releaseVersion,
     )
     override fun findReleaseUnavailableReasons(releaseId: String, releaseVersion: String, scenarioId: String?, scenarioVersion: Long?): List<ReleaseUnavailableReason> = query(
         """
@@ -128,9 +129,9 @@ class JdbcReleaseCatalogRepository(private val connections: SqlConnectionProvide
             text(row, "code"), text(row, "message"), text(row, "stage"), text(row, "target"), text(row, "target_version_ref"),
             row.getBoolean("blocker"), row.getBoolean("page_blocking"), row.getBoolean("executable_blocking")) }, releaseId, releaseVersion, scenarioId, scenarioVersion,
     )
-    private fun releaseJoinPathRefs(json: String): List<ReleaseJoinPathRef> = try {
-        OlapJsonUtils.mapper().readValue(json, OlapJsonUtils.mapper().typeFactory.constructCollectionType(List::class.java, ReleaseJoinPathRef::class.java))
-    } catch (failure: Exception) { throw ProducerContractException("release_dimension_mapping.join_path_refs_json invalid") }
+    private fun releaseJoinPathRefs(encoded: String): List<ReleaseJoinPathRef> = try {
+        ProtoBytes.decode(ProtoBytes.stored(encoded), com.olap.prototype.wire.governance.ReleaseJoinPathReferences.getDefaultInstance()).referencesList.map(GovernanceProto::fromProto)
+    } catch (failure: Exception) { throw ProducerContractException("release_dimension_mapping.join_path_refs_proto invalid") }
     private fun singleText(sql: String, vararg parameters: Any?): String {
         val rows = query(sql, { row -> row.getString(1)?.takeIf { it.isNotBlank() } ?: throw ProducerContractException("release catalog field is required at column index: 1") }, *parameters)
         if (rows.isEmpty()) throw ProducerContractException("canonical row missing for query: ${sql.trim()}")

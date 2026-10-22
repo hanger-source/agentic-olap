@@ -7,12 +7,43 @@ import com.olap.prototype.engine.EngineExecutionException
 import com.olap.prototype.protocol.WorkerKind
 import com.olap.prototype.server.SourceInspectionFailure
 import com.olap.prototype.warehouse.SourceGuaranteeException
+import com.olap.prototype.codec.QuerySourceProto
+import com.olap.prototype.wire.query.WorkerFailureFacts
 import java.util.Collections
 import java.util.IdentityHashMap
 import java.util.concurrent.CancellationException
 
 /** 工作进程诊断是私有事实；metadata按操作责任选择可公开的消息与证据。 */
 internal object WorkerFailures {
+    fun recordLocal(logger: org.slf4j.Logger, kind: WorkerKind, requestId: String, failure: Exception) {
+        if (!logger.isDebugEnabled) return
+        val seen = Collections.newSetFromMap(IdentityHashMap<Throwable, Boolean>())
+        var cause: Throwable? = failure
+        while (cause != null && seen.add(cause)) {
+            if (cause is EngineExecutionException) logger.debug("worker execution context: kind={}, requestId={}, compiledQuery={}, evidenceContext={}",
+                kind, requestId, cause.compiledQuery, cause.evidenceContext)
+            cause = cause.cause
+        }
+    }
+    /** 从真实失败类型携带的事实投影，不从诊断JSON恢复来源模型。 */
+    fun facts(failure: Exception, executionStarted: Boolean?): WorkerFailureFacts {
+        val engine = failure as? EngineExecutionException
+        val seen = Collections.newSetFromMap(IdentityHashMap<Throwable, Boolean>())
+        var cause: Throwable? = failure
+        var source: SourceExecutionException? = null
+        while (cause != null && seen.add(cause)) {
+            if (cause is SourceExecutionException) { source = cause; break }
+            cause = cause.cause
+        }
+        return WorkerFailureFacts.newBuilder().apply {
+            (engine?.sourceReadEvidence ?: source?.readEvidence)?.let { setSourceReadEvidence(QuerySourceProto.toProto(it)) }
+            (engine?.sourceFailure ?: source?.failure)?.let { setSourceFailure(QuerySourceProto.toProto(it)) }
+            (engine?.sourceExecutionStarted ?: executionStarted)?.let(::setSourceExecutionStarted)
+            SourceInspectionFailure.facts(failure)?.let(::setInspectionFailure)
+            if (engine != null) putAllStageNanos(engine.stageNanos)
+        }.build()
+    }
+
     fun project(kind: WorkerKind, failure: Exception): Map<String, Any?> {
         if (kind == WorkerKind.SOURCE_INSPECTION || kind == WorkerKind.INSPECTION)
             return SourceInspectionFailure.project(failure)
@@ -35,17 +66,13 @@ internal object WorkerFailures {
         if (failure is ProducerContractException) return mapOf("stage" to "CONTRACT_INPUT", "code" to "CONTRACT_VIOLATION", "message" to failure.message)
         if (kind == WorkerKind.ENGINE && failure is EngineExecutionException) return mapOf(
             "type" to failure.javaClass.name, "message" to failure.message, "stage" to failure.stage,
-            "code" to failure.code, "evidenceContext" to failure.evidenceContext, "sourceFailure" to failure.sourceFailure,
-            "sourceReadEvidence" to failure.sourceReadEvidence,
-            "compiledQuery" to failure.compiledQuery, "causeType" to failure.cause?.javaClass?.name,
-            "causeMessage" to failure.cause?.message)
+            "code" to failure.code, "evidenceContext" to controlledContext(failure.evidenceContext))
         val seen = Collections.newSetFromMap(IdentityHashMap<Throwable, Boolean>())
         var cause: Throwable? = failure
         while (cause != null && seen.add(cause)) {
             when (cause) {
                 is SourceExecutionException -> return mapOf("type" to cause.javaClass.name,
-                    "stage" to cause.failure.stage, "code" to cause.failure.code, "sourceFailure" to cause.failure,
-                    "sourceReadEvidence" to cause.readEvidence)
+                    "stage" to cause.failure.stage, "code" to cause.failure.code)
                 is ConnectorUnavailableException -> return mapOf("type" to cause.javaClass.name,
                     "message" to cause.message, "code" to "CONNECTOR_NOT_DEPLOYED",
                     "evidenceContext" to mapOf("connectorRef" to cause.connectorRef))
@@ -65,8 +92,11 @@ internal object WorkerFailures {
             cause = cause.cause
         }
         if (failure is EngineExecutionException) return mapOf("type" to failure.javaClass.name,
-            "message" to failure.message, "stage" to failure.stage, "code" to failure.code, "evidenceContext" to failure.evidenceContext)
+            "message" to failure.message, "stage" to failure.stage, "code" to failure.code, "evidenceContext" to controlledContext(failure.evidenceContext))
         return mapOf("type" to failure.javaClass.name, "message" to failure.message,
             "code" to if (kind == WorkerKind.CANDIDATE_VALUES) "CANDIDATE_VALUE_REQUEST_FAILED" else "WORKER_OPERATION_FAILED")
     }
+    private fun controlledContext(context: Map<String, Any?>): Map<String, Any?> = context.filterKeys { it in setOf(
+        "fieldPath", "expectedType", "actualType", "expectedKind", "actualKind", "scope", "inputScope", "requirements", "actualKey", "actualOutputs",
+        "aggregate", "inputType", "capability", "operation", "inputs", "connectorRef", "dataSourceId", "sourceIdentityHash", "sourceSqlState", "sourceFailureType") }
 }

@@ -1,38 +1,32 @@
 package com.olap.prototype.runtime
 
-import com.fasterxml.jackson.databind.JsonNode
 import com.olap.prototype.connector.ConnectorRegistry
-import com.olap.prototype.server.ServerInputs
-import com.olap.prototype.util.OlapJsonUtils
 import com.olap.prototype.warehouse.WarehouseExecutionControl
 import com.olap.prototype.warehouse.WarehouseSourceInspection
-import com.olap.prototype.warehouse.contract.SealedSourceDataset
 import com.olap.prototype.warehouse.contract.SourceConfiguration
 import com.olap.prototype.warehouse.inspection.PluginWarehouseInspector
 import com.olap.prototype.warehouse.inspection.WarehousePreviewRequest
+import com.olap.prototype.warehouse.inspection.WarehouseSchemaSnapshotRequest
 
 internal class SourceInspectionHandler(connectors: ConnectorRegistry, private val source: SourceConfiguration) {
     private val inspector = PluginWarehouseInspector(connectors)
-    private val mapper = OlapJsonUtils.mapper()
-
-    fun execute(operation: String, payload: JsonNode, control: WarehouseExecutionControl): Any = when (operation) {
-        "discover-source" -> {
-            val request = mapper.treeToValue(payload, WarehouseSourceInspection.DiscoveryRequest::class.java)
-            require(request.inspection.connection == source) { "inspection source differs from supervisor capability" }
-            inspector.discover(request, control)
+    fun execute(command: SourceWorkerCommand, control: WarehouseExecutionControl): SourceWorkerResult = when (command) {
+        is SourceWorkerCommand.Discover -> {
+            val input = command.inspection
+            require(input.binding == source.bindingRef()) { "inspection source differs from supervisor capability" }
+            val request = WarehouseSourceInspection.DiscoveryRequest(WarehouseSchemaSnapshotRequest(source, input.catalog,
+                input.schemaName, input.tablePattern, input.tableTypes, input.limit), command.temporalKeys, command.snapshotUniqueKeys)
+            SourceWorkerResult.Discovery(inspector.discover(request, control))
         }
-        "preview-source" -> {
-            val request = mapper.treeToValue(payload, WarehousePreviewRequest::class.java)
-            require(request.connection == source) { "inspection source differs from supervisor capability" }
-            inspector.preview(request, control)
+        is SourceWorkerCommand.Preview -> {
+            val input = command.inspection
+            require(input.binding == source.bindingRef()) { "inspection source differs from supervisor capability" }
+            SourceWorkerResult.Preview(inspector.preview(WarehousePreviewRequest(source, input.table, input.limit), control))
         }
-        "verify-sealed-source" -> {
-            ServerInputs.fields(payload, setOf("connection", "declaration"))
-            require(mapper.treeToValue(payload.required("connection"), SourceConfiguration::class.java) == source) { "inspection source differs from supervisor capability" }
-            inspector.verifySealedDataset(source,
-                mapper.treeToValue(payload.required("declaration"), SealedSourceDataset::class.java), control)
-            mapOf("verified" to true)
+        is SourceWorkerCommand.Verify -> {
+            require(command.binding == source.bindingRef()) { "inspection source differs from supervisor capability" }
+            inspector.verifySealedDataset(source, command.declaration, control)
+            SourceWorkerResult.Verified
         }
-        else -> throw IllegalArgumentException("unsupported technical source inspection")
     }
 }

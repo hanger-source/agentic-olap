@@ -1,15 +1,12 @@
 package com.olap.prototype.release.catalog
 
-import com.fasterxml.jackson.databind.JsonNode
-import com.fasterxml.jackson.databind.node.ArrayNode
-import com.fasterxml.jackson.databind.node.ObjectNode
+import com.olap.prototype.calculation.MetricDefinition
 import com.olap.prototype.connector.ConnectorRegistry
 import com.olap.prototype.contract.NativeTableDependency
 import com.olap.prototype.engine.catalog.*
 import com.olap.prototype.expression.SemanticExpression
-import com.olap.prototype.expression.SemanticExpressionCodec
 import com.olap.prototype.expression.SemanticExpressionTree
-import com.olap.prototype.util.OlapJsonUtils
+import com.olap.prototype.member.MemberSource
 import com.olap.prototype.warehouse.contract.*
 
 /** 无物理定位的正式编译投影；只重命名坐标，不创造键、类型或来源保证。 */
@@ -24,7 +21,7 @@ class QueryCompilationCatalog private constructor(private val connectors: Connec
     private val collections = linkedMapOf<String, String>()
     private val physicalTables = linkedMapOf<String, String>()
 
-    private fun catalog(original: ExecutableCatalog): JsonNode {
+    private fun catalog(original: ExecutableCatalog): ExecutableCatalog {
         val ordered = original.physicalExecutionBindings.toSortedMap()
         ordered.forEach { (key, source) ->
             bindings[key] = "binding-${bindings.size}@${source.bindingVersion}"
@@ -60,18 +57,27 @@ class QueryCompilationCatalog private constructor(private val connectors: Connec
                 catalogName = "", schemaName = "native", tableName = name, sourceConstraints = evidence(source, source.sourceConstraints, ownerTable(source)),
                 snapshotUniqueKeys = source.snapshotUniqueKeys.map { snapshot -> SnapshotUniqueKey(SnapshotUniqueKey.Rule(snapshot.rule.name,
                     snapshot.rule.columns.map { column(source, ownerTable(source), it) }), snapshot.anchor) },
-                nativeTableDependencies = nativeTables, logicUnitBindings = source.logicUnitBindings,
+                nativeTableDependencies = nativeTables, logicUnitBindings = source.logicUnitBindings.mapValues { expression(it.value) },
                 physicalColumnBindings = source.physicalColumnBindings.map { (reference, fieldName) -> refs.getValue(reference) to column(source, ownerTable(source), fieldName) }.toMap(),
                 physicalColumnTypes = source.physicalColumnTypes.mapKeys { refs.getValue(it.key) },
             )
         }.toMap()
-        val neutral = ExecutableCatalog(
-            manifest = original.manifest, metrics = original.metrics, metricInstances = original.metricInstances, memberSources = original.memberSources,
-            relationFilters = original.relationFilters, analysisDimensions = original.analysisDimensions, events = original.events,
+        return ExecutableCatalog(
+            manifest = original.manifest, metrics = original.metrics.mapValues { (_, value) ->
+                val definition = value.definition
+                if (definition is MetricDefinition.FactMeasure) value.copy(definition = MetricDefinition.FactMeasure(definition.event,
+                    expression(definition.input), definition.aggregation, definition.distinct, definition.privatePredicate?.let(::expression),
+                    definition.roles, definition.snapshotRule, definition.valueContract, definition.aggregationRounding)) else value
+            }, metricInstances = original.metricInstances, memberSources = original.memberSources.mapValues { (_, source) -> when (source) {
+                is MemberSource.Projection -> MemberSource.Projection(source.id, source.version, source.definition, source.outputExpressions.mapValues { expression(it.value) })
+                is MemberSource.Computed -> source
+            } },
+            relationFilters = original.relationFilters, analysisDimensions = original.analysisDimensions,
+            events = original.events.mapValues { (_, value) -> value.copy(baseFilter = value.baseFilter?.let(::expression)) },
             topologies = original.topologies, dimensions = original.dimensions,
             dimensionBindings = original.dimensionBindings.mapValues { (_, value) -> ExecutableDimensionBinding(value.bindingId, value.bindingVersion,
                 value.dimensionId, value.dimensionVersion, value.eventId, value.eventVersion, value.topologyId, value.topologyVersion,
-                value.logicUnitId, value.logicUnitVersion, value.expression, value.accessPath, value.roles, value.joinPathRefs,
+                value.logicUnitId, value.logicUnitVersion, expression(value.expression), value.accessPath, value.roles, value.joinPathRefs,
                 bindingId(value.physicalExecutionBindingId, value.physicalExecutionBindingVersion), value.physicalExecutionBindingVersion) },
             logicUnits = original.logicUnits.mapValues { (_, value) -> ExecutableLogicUnit(value.logicUnitId, value.logicUnitVersion, value.valueType,
                 value.valueShape, value.topologyId, value.topologyVersion, value.logicUnitCode, value.displayName,
@@ -82,18 +88,6 @@ class QueryCompilationCatalog private constructor(private val connectors: Connec
                 value.effectiveTimeLogicUnitDisplayName, bindingId(value.physicalExecutionBindingId, value.physicalExecutionBindingVersion), value.physicalExecutionBindingVersion, value.timeRole) },
             joinPaths = original.joinPaths, physicalExecutionBindings = projected,
         )
-        return expressions(OlapJsonUtils.mapper().valueToTree(neutral))
-    }
-
-    private fun expressions(node: JsonNode): JsonNode {
-        when (node) {
-            is ObjectNode -> {
-                if (node.path("kind").asText() in setOf("PHYSICAL_COLUMN", "NATIVE_CALL")) return SemanticExpressionCodec.toJsonNode(expression(SemanticExpressionCodec.parse(node, "frozen compilation expression")))
-                node.fieldNames().asSequence().toList().forEach { node.set<JsonNode>(it, expressions(node[it])) }
-            }
-            is ArrayNode -> for (index in 0 until node.size()) node.set(index, expressions(node[index]))
-        }
-        return node
     }
     private fun expression(value: SemanticExpression): SemanticExpression = SemanticExpressionTree.rewrite(value) { node ->
         when {
@@ -145,5 +139,5 @@ class QueryCompilationCatalog private constructor(private val connectors: Connec
     private fun adoptColumn(reference: String): String = refs.getOrPut(reference) { "field-${refs.size}${reference.substring(reference.lastIndexOf('@'))}" }
     private fun table(source: ExecutablePhysicalExecutionBinding, table: JdbcTableConstraints.Table): String = tables.getOrPut(coordinate(source, table)) { "relation-${tables.size}" }
     private fun column(source: ExecutablePhysicalExecutionBinding, table: JdbcTableConstraints.Table, name: String): String = columns.getOrPut(ColumnLocator(coordinate(source, table), name)) { "column-${columns.size}" }
-    companion object { fun project(catalog: ExecutableCatalog, connectors: ConnectorRegistry): JsonNode = QueryCompilationCatalog(connectors).catalog(catalog) }
+    companion object { fun project(catalog: ExecutableCatalog, connectors: ConnectorRegistry): ExecutableCatalog = QueryCompilationCatalog(connectors).catalog(catalog) }
 }

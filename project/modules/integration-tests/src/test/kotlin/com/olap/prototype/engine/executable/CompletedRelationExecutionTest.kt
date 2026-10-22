@@ -12,6 +12,24 @@ import com.olap.prototype.integration.TestConnectors
 import com.olap.prototype.member.MemberCondition
 import com.olap.prototype.metric.*
 import com.olap.prototype.query.*
+import com.olap.prototype.query.PostOperationContract.Project
+import com.olap.prototype.query.PostOperationContract.Sort
+import com.olap.prototype.query.PostOperationContract.TopN
+import com.olap.prototype.query.PostOperationContract.PostFilter
+import com.olap.prototype.query.PostOperationContract.Derive
+import com.olap.prototype.query.PostOperationContract.Cumulative
+import com.olap.prototype.query.PostOperationContract.Rank
+import com.olap.prototype.query.PostOperationContract.OrderedRank
+import com.olap.prototype.query.PostOperationContract.OffsetValue
+import com.olap.prototype.query.PostOperationContract.PartitionAggregate
+import com.olap.prototype.query.PostOperationContract.WindowAggregate
+import com.olap.prototype.query.PostOperationContract.Regroup
+import com.olap.prototype.query.PostOperationContract.ResultGrouping
+import com.olap.prototype.query.PostOperationContract.ResultAggregate
+import com.olap.prototype.query.PostOperationContract.JoinInput
+import com.olap.prototype.query.PostOperationContract.OrderKey
+import com.olap.prototype.query.PostOperationContract.AncestorClosure
+import com.olap.prototype.query.ResultExpression.*
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
@@ -37,10 +55,10 @@ class CompletedRelationExecutionTest {
             EventIdentity(listOf(EventIdentity.LogicUnitRef("orders.id", 1)), emptyMap()), emptyMap(), null, null, null)
         val dimensions = listOf("region", "hour", "customer")
         val bindings = dimensions.associate { id -> "$id@1" to ExecutableDimensionBinding(id, "1", id, "1", "orders", "1", "orders", "1",
-            "orders.$id", "1", SemanticExpressionCodec.logicUnit("orders.$id", 1), RelationAccessPath(emptyList()), emptyMap(), emptyList(), "orders", "1") }
+            "orders.$id", "1", SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, "orders.$id", 1), RelationAccessPath(emptyList()), emptyMap(), emptyList(), "orders", "1") }
         return ExecutableCatalog(ExecutableCatalogManifest("completed_relation", ExecutableCatalogManifest.SCHEMA_VERSION),
             metrics = mapOf(MetricRef("amount", "1").key() to ExecutableMetric(MetricRef("amount", "1"), MetricDefinition.FactMeasure(EventRef("orders", 1),
-                SemanticExpressionCodec.logicUnit("orders.amount", 1), MetricAggregation.SUM, false, null, emptyMap(), null, money, MetricValueContract.Rounding.NONE))),
+                SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, "orders.amount", 1), MetricAggregation.SUM, false, null, emptyMap(), null, money, MetricValueContract.Rounding.NONE))),
             physicalExecutionBindings = mapOf("orders@1" to physical), topologies = mapOf("orders@1" to topology), events = mapOf("orders@1" to event),
             logicUnits = names.keys.associate { id -> "orders.$id@1" to ExecutableLogicUnit("orders.$id", "1", if (id == "region") ScalarValueType.TEXT else ScalarValueType.NUMBER,
                 null, null, null, id, null, "orders", "1") }, dimensionBindings = bindings,
@@ -71,13 +89,12 @@ class CompletedRelationExecutionTest {
         val graph = ExecutableInputGraph.index(input)
         return CalciteRelCompiler(TestConnectors.registry).compile(graph, ExecutableStageAnalysis.analyze(graph), ExecutableSourceResolver().resolve(catalog, graph), OlapQueryContext("completed_relation")).lowering
     }
-    private fun op(type: String, arguments: Map<String, Any?>) = PostOperationCodec.parse(type, arguments)
-    private fun symbol(name: String): Map<String, Any?> = mapOf("kind" to "SYMBOL", "symbol" to name)
-    private fun comparison(operator: String, left: Map<String, Any?>, right: Map<String, Any?>): Map<String, Any?> = mapOf("kind" to "OPERATION", "operator" to operator, "operands" to listOf(left, right))
-    private fun quantityLiteral(value: String): Map<String, Any?> = mapOf("kind" to "QUANTITY_LITERAL", "value" to value, "valueContract" to money)
-    private fun numeric(expression: Map<String, Any?>, contract: MetricValueContract): Map<String, Any?> = mapOf("kind" to "NUMERIC", "expression" to expression, "valueContract" to contract, "unitEquation" to null)
-    private fun order(symbol: String, direction: String): Map<String, Any?> = mapOf("symbol" to symbol, "direction" to direction, "nulls" to "LAST")
-    private fun join(input: String, occurrence: String, type: String, condition: Map<String, Any?>) = op("JOIN_INPUT", mapOf("inputId" to input, "occurrenceId" to occurrence, "joinType" to type, "condition" to condition))
+    private fun symbol(name: String): ResultExpression = ResultSymbol(name)
+    private fun comparison(operator: String, left: ResultExpression, right: ResultExpression): ResultExpression = ResultOperation(ResultOperator.valueOf(operator), listOf(left, right))
+    private fun quantityLiteral(value: String): ResultExpression = ResultQuantityLiteral(BigDecimal(value), money)
+    private fun numeric(expression: ResultExpression, contract: MetricValueContract): ResultExpression = ResultNumeric(expression, contract, null)
+    private fun order(symbol: String, direction: String) = OrderKey(symbol, direction, "LAST")
+    private fun join(input: String, occurrence: String, type: String, condition: ResultExpression) = JoinInput(input, occurrence, type, condition)
 
     @Test fun bindsCustomerGroupingAndRejectsAnotherNumericDimensionOrRole(@TempDir directory: Path) {
         warehouse(directory, "duckdb", "(1,'A',1,1,10),(2,'B',2,1,10),(3,'A',3,2,NULL),(4,'B',4,3,7)").use { warehouse ->
@@ -117,12 +134,12 @@ class CompletedRelationExecutionTest {
         for (dialect in listOf("h2", "duckdb")) warehouse(directory, dialect,
             "(1,'A',1,1,0),(2,'A',2,2,2),(3,'A',3,3,2),(4,'A',4,4,NULL),(5,'B',1,5,1000000000001),(6,'B',2,6,1000000000002),(7,'B',3,7,1000000000003),(8,'C',1,8,7),(9,'C',2,9,7),(10,'D',1,10,9),(11,'D',2,11,NULL),(12,'E',1,12,NULL)").use { warehouse ->
             val catalog = catalog(warehouse); warehouse.finishSetup()
-            val partition = mapOf("input" to "value", "aggregation" to "STDDEV_SAMP", "nullPolicy" to "IGNORE", "partitionBy" to listOf("region"),
-                "outputAlias" to "partition_sd", "outputDisplayName" to "分区样本标准差", "valueContract" to deviation, "aggregationRounding" to "NONE")
-            val window = partition + mapOf("outputAlias" to "rolling_sd", "outputDisplayName" to "累计样本标准差", "orderKeys" to listOf(order("hour", "ASC")),
-                "frame" to mapOf("mode" to "ROWS", "lower" to mapOf("kind" to "UNBOUNDED_PRECEDING"), "upper" to mapOf("kind" to "CURRENT_ROW")))
-            val root = stages(measures(catalog, "observations", listOf("region", "hour")), listOf(op("PARTITION_AGGREGATE", partition), op("WINDOW_AGGREGATE", window),
-                op("SORT", mapOf("orderKeys" to listOf(order("region", "ASC"), order("hour", "ASC")))), op("PROJECT", mapOf("symbols" to listOf("region", "hour", "partition_sd", "rolling_sd")))))
+            val aggregation = ResultAggregation.SampleDeviation(deviation, ResultAggregation.NullPolicy.IGNORE)
+            val partition = PartitionAggregate("value", listOf("region"), "partition_sd", "分区样本标准差", aggregation)
+            val window = WindowAggregate("value", listOf("region"), "rolling_sd", "累计样本标准差", listOf(order("hour", "ASC")), aggregation,
+                WindowFrameContract.Frame("ROWS", WindowFrameContract.Bound("UNBOUNDED_PRECEDING", null, null), WindowFrameContract.Bound("CURRENT_ROW", null, null)))
+            val root = stages(measures(catalog, "observations", listOf("region", "hour")), listOf(partition, window,
+                Sort(listOf(order("region", "ASC"), order("hour", "ASC"))), Project(listOf("region", "hour", "partition_sd", "rolling_sd"))))
             val rows = warehouse.execute(compile(catalog, root)); assertEquals(12, rows.size)
             val bagDeviation = sqrt(4.0 / 3.0)
             rows.forEach { row ->
@@ -135,16 +152,16 @@ class CompletedRelationExecutionTest {
                 }
             }
             for (nullPolicy in listOf("IGNORE", "PROPAGATE")) {
-                val aggregate = mapOf("input" to "value", "aggregation" to "STDDEV_SAMP", "nullPolicy" to nullPolicy, "outputAlias" to "sd", "outputDisplayName" to "组内样本标准差", "valueContract" to deviation, "aggregationRounding" to "NONE")
-                val regroup = mapOf("groupBy" to listOf("region"), "aggregates" to listOf(aggregate), "groupingLevels" to null)
-                val grouped = warehouse.execute(compile(catalog, stages(measures(catalog, "observations", listOf("region", "hour")), listOf(op("REGROUP", regroup)))))
+                val aggregate = ResultAggregate("value", ResultAggregation.SampleDeviation(deviation, ResultAggregation.NullPolicy.valueOf(nullPolicy)), "sd", "组内样本标准差")
+                val regroup = Regroup(ResultGrouping(listOf("region"), listOf(aggregate), null))
+                val grouped = warehouse.execute(compile(catalog, stages(measures(catalog, "observations", listOf("region", "hour")), listOf(regroup))))
                 assertEquals(5, grouped.size)
                 grouped.forEach { row -> val group = row[0] as String
                     if (group in setOf("D", "E") || nullPolicy == "PROPAGATE" && group == "A") assertNull(row[1])
                     else assertEquals(when (group) { "A" -> bagDeviation; "B" -> 1.0; else -> 0.0 }, (row[1] as Number).toDouble(), 1E-9)
                 }
                 val empty = warehouse.execute(compile(catalog, stages(measures(catalog, "empty_observations", listOf("region", "hour")), listOf(
-                    op("POST_FILTER", mapOf("expression" to mapOf("kind" to "LITERAL", "value" to false))), op("REGROUP", regroup + ("groupBy" to emptyList<String>()))))))
+                    PostFilter(ResultLiteral(false)), Regroup(ResultGrouping(emptyList(), listOf(aggregate), null))))))
                 assertEquals(1, empty.size); assertNull(empty.single().single())
             }
         }
@@ -152,16 +169,15 @@ class CompletedRelationExecutionTest {
     private fun scope(input: ExecutableInputScope, mode: String? = input.inputMode,
         inputs: Map<String, ExecutableInputScope> = input.additionalInputs, operations: List<PostOperationContract.ValidatedOperation> = input.postOps) =
         ExecutableInputScope(mode, input.root, input.objectRestrictions, inputs, operations)
-    private fun sum(input: String, output: String): Map<String, Any?> = mapOf("input" to input, "aggregation" to "SUM", "nullPolicy" to "IGNORE",
-        "outputAlias" to output, "outputDisplayName" to output, "valueContract" to money, "aggregationRounding" to "NONE")
+    private fun sum(input: String, output: String) = ResultAggregate(input, ResultAggregation.Sum(money, ResultAggregation.NullPolicy.IGNORE), output, output)
     @Test fun regroupsProjectedBagBeforeScalarAlignment(@TempDir directory: Path) {
         for (dialect in listOf("h2", "duckdb")) warehouse(directory, dialect, "(1,'A',1,1,10),(2,'A',2,2,10),(3,'B',1,3,7)").use { warehouse ->
             val catalog = catalog(warehouse); warehouse.finishSetup()
-            val projected = op("PROJECT", mapOf("symbols" to listOf("value")))
+            val projected = Project(listOf("value"))
             val child = scope(measures(catalog, "cohort", listOf("region", "hour")), "KEY_ALIGNMENT", operations = listOf(projected))
             val root = scope(measures(catalog, "primary", listOf("region", "hour")), inputs = mapOf("cohort" to child))
             assertThrows(IllegalArgumentException::class.java) { compile(catalog, root) }
-            val regroup = op("REGROUP", mapOf("groupBy" to emptyList<String>(), "aggregates" to listOf(sum("value", "total")), "groupingLevels" to null))
+            val regroup = Regroup(ResultGrouping(emptyList(), listOf(sum("value", "total")), null))
             val rows = warehouse.execute(compile(catalog, scope(root, inputs = mapOf("cohort" to stages(child, listOf(projected, regroup))))))
             assertEquals(3, rows.size)
             rows.forEach { assertEquals(0, BigDecimal("27").compareTo(it[3] as BigDecimal)); assertEquals(true, it[4]) }
@@ -173,14 +189,14 @@ class CompletedRelationExecutionTest {
             val catalog = catalog(warehouse); warehouse.finishSetup()
             for (kind in listOf("INNER", "LEFT", "SCALAR")) {
                 val right = scope(measures(catalog, "lookup", if (kind == "SCALAR") emptyList() else listOf("region", "hour")), "RELATION")
-                val condition = if (kind == "SCALAR") mapOf("kind" to "LITERAL", "value" to true) else comparison("AND",
+                val condition = if (kind == "SCALAR") ResultLiteral(true) else comparison("AND",
                     comparison("EQ", symbol("region"), symbol("matched__region")), comparison("AND",
                         comparison("EQ", symbol("matched__hour"), symbol("hour")), comparison("OR",
                             comparison("GT", symbol("matched__value"), quantityLiteral("0")), comparison("EQ", symbol("matched__value"), quantityLiteral("0")))))
                 val projected = scope(measures(catalog, "observations", listOf("region", "hour")), "KEY_ALIGNMENT", mapOf("lookup" to right), listOf(
-                    join("lookup", "matched", if (kind == "SCALAR") "INNER" else kind, condition), op("PROJECT", mapOf("symbols" to listOf("region", "hour", "matched__value")))))
+                    join("lookup", "matched", if (kind == "SCALAR") "INNER" else kind, condition), Project(listOf("region", "hour", "matched__value"))))
                 val root = scope(measures(catalog, "primary", listOf("region", "hour")), inputs = mapOf("cohort" to projected), operations = listOf(
-                    op("PROJECT", mapOf("symbols" to listOf("region", "hour", "value", "cohort__matched__value", "cohort__present")))))
+                    Project(listOf("region", "hour", "value", "cohort__matched__value", "cohort__present"))))
                 val rows = warehouse.execute(compile(catalog, root)); assertEquals(4, rows.size, "$dialect/$kind")
                 rows.forEach { row ->
                     val expected = if (row[0] == null) "3" else when ("${row[0]}/${(row[1] as Number).toInt()}") {
@@ -197,16 +213,15 @@ class CompletedRelationExecutionTest {
     @Test fun alignsManyToOneCollectionsRegroupedFromANonLeadingKeyWithoutDuplicatingAmounts(@TempDir directory: Path) {
         for (dialect in listOf("h2", "duckdb")) warehouse(directory, dialect, "(1,'A',1,1,10),(2,'A',1,2,10),(3,'A',2,3,20),(4,'B',1,4,7),(5,NULL,1,5,3)").use { warehouse ->
             val catalog = catalog(warehouse); warehouse.finishSetup()
-            val aggregate = mapOf("input" to "native_row", "aggregation" to "ARRAY_AGG", "nullPolicy" to "RESPECT", "outputAlias" to "detail_rows",
-                "outputDisplayName" to "原生明细bag", "aggregationRounding" to "NONE", "valueContract" to null)
+            val aggregate = ResultAggregate("native_row", ResultAggregation.Collect(false), "detail_rows", "原生明细bag")
             val details = scope(measures(catalog, "detail", listOf("customer", "region", "hour")), "RELATION", operations = listOf(
-                op("DERIVE", mapOf("outputAlias" to "native_row", "outputDisplayName" to "小时与原金额", "expression" to mapOf("kind" to "ROW", "operands" to listOf(symbol("hour"), symbol("value"))))),
-                op("REGROUP", mapOf("groupBy" to listOf("region"), "aggregates" to listOf(aggregate), "groupingLevels" to null))))
+                Derive(ResultRow(listOf(symbol("hour"), symbol("value"))), "native_row", "小时与原金额"),
+                Regroup(ResultGrouping(listOf("region"), listOf(aggregate), null))))
             val projected = scope(measures(catalog, "observations", listOf("region")), "KEY_ALIGNMENT", mapOf("details" to details), listOf(
                 join("details", "matched", "LEFT", comparison("EQ", symbol("region"), symbol("matched__region"))),
-                op("PROJECT", mapOf("symbols" to listOf("region", "value", "matched__detail_rows")))))
+                Project(listOf("region", "value", "matched__detail_rows"))))
             val root = scope(measures(catalog, "primary", listOf("region")), inputs = mapOf("cohort" to projected), operations = listOf(
-                op("PROJECT", mapOf("symbols" to listOf("region", "value", "cohort__value", "cohort__matched__detail_rows", "cohort__present")))))
+                Project(listOf("region", "value", "cohort__value", "cohort__matched__detail_rows", "cohort__present"))))
             val rows = warehouse.execute(compile(catalog, root)); assertEquals(3, rows.size, dialect); assertEquals(1, rows.count { it[0] == null }, dialect)
             rows.forEach { row ->
                 val region = row[0] as String?; val amount = when (region) { null -> "3"; "A" -> "40"; else -> "7" }
@@ -230,7 +245,7 @@ class CompletedRelationExecutionTest {
             for (condition in listOf(region, comparison("AND", region, region), comparison("OR", exact, region))) {
                 val right = scope(measures(catalog, "lookup", listOf("region", "hour")), "RELATION")
                 val bag = scope(measures(catalog, "observations", listOf("region", "hour")), inputs = mapOf("lookup" to right), operations = listOf(
-                    join("lookup", "matched", "INNER", condition), op("PROJECT", mapOf("symbols" to listOf("region", "hour", "matched__value")))))
+                    join("lookup", "matched", "INNER", condition), Project(listOf("region", "hour", "matched__value"))))
                 val rows = warehouse.execute(compile(catalog, bag)); assertEquals(5, rows.size, dialect)
                 assertEquals(setOf("A/1/10", "A/1/20", "A/2/10", "A/2/20", "B/1/7"), rows.map {
                     "${it[0]}/${(it[1] as Number).toInt()}/${(it[2] as BigDecimal).stripTrailingZeros().toPlainString()}"
@@ -244,10 +259,10 @@ class CompletedRelationExecutionTest {
     @Test fun reusesCompletedRelationAtIndependentOccurrencesWithoutCollapsingBags(@TempDir directory: Path) {
         warehouse(directory, "duckdb", "(1,'A',1,1,10),(2,'A',1,2,20),(3,'B',1,3,7),(4,NULL,1,4,3)").use { warehouse ->
             val catalog = catalog(warehouse); warehouse.finishSetup()
-            val relation = scope(measures(catalog, "detail", listOf("region", "customer")), "RELATION", operations = listOf(op("PROJECT", mapOf("symbols" to listOf("region", "value")))))
+            val relation = scope(measures(catalog, "detail", listOf("region", "customer")), "RELATION", operations = listOf(Project(listOf("region", "value"))))
             for (kind in listOf("INNER", "LEFT", "SEMI", "ANTI")) {
                 val input = scope(measures(catalog, "primary", listOf("region")), inputs = mapOf("detail" to relation), operations = listOf(
-                    join("detail", "matched", kind, comparison("EQ", symbol("region"), symbol("matched__region"))), op("PROJECT", mapOf("symbols" to listOf("region", "value")))))
+                    join("detail", "matched", kind, comparison("EQ", symbol("region"), symbol("matched__region"))), Project(listOf("region", "value"))))
                 val joined = warehouse.execute(compile(catalog, input))
                 assertEquals(when (kind) { "INNER" -> 3; "LEFT" -> 4; "SEMI" -> 2; else -> 1 }, joined.size, kind)
                 assertEquals(if (kind == "LEFT" || kind == "ANTI") 1 else 0, joined.count { it[0] == null }, kind)
@@ -255,7 +270,7 @@ class CompletedRelationExecutionTest {
             val root = scope(measures(catalog, "primary", listOf("region")), inputs = mapOf("detail" to relation), operations = listOf(
                 join("detail", "first", "INNER", comparison("EQ", symbol("region"), symbol("first__region"))),
                 join("detail", "second", "INNER", comparison("EQ", symbol("region"), symbol("second__region"))),
-                op("PROJECT", mapOf("symbols" to listOf("region", "value", "first__value", "second__value")))))
+                Project(listOf("region", "value", "first__value", "second__value"))))
             val rows = warehouse.execute(compile(catalog, root)); assertEquals(5, rows.size); assertEquals(4, rows.count { it[0] == "A" })
             assertEquals(setOf("10.00/10.00", "10.00/20.00", "20.00/10.00", "20.00/20.00"), rows.filter { it[0] == "A" }.map { "${it[2]}/${it[3]}" }.toSet())
             assertFalse(rows.any { it[0] == null })
@@ -272,7 +287,7 @@ class CompletedRelationExecutionTest {
     @Test fun takesPopulationFromCompletedInputsAndKeepsNullGroupsDistinctFromMissingGroups(@TempDir directory: Path) {
         warehouse(directory, "duckdb", "(1,'A',1,1,10),(2,'A',2,2,20),(3,'B',1,3,7),(4,NULL,1,4,NULL)").use { warehouse ->
             val catalog = catalog(warehouse); warehouse.finishSetup()
-            val limited = populationExample(catalog, listOf(op("POST_FILTER", mapOf("expression" to comparison("GT", symbol("value"), quantityLiteral("20"))))))
+            val limited = populationExample(catalog, listOf(PostFilter(comparison("GT", symbol("value"), quantityLiteral("20")))))
             assertEquals(1, warehouse.execute(compile(catalog, limited)).size)
             val rows = warehouse.execute(compile(catalog, populationExample(catalog, emptyList()))); assertEquals(3, rows.size)
             val nullGroup = rows.single { it[0] == null }; assertNull(nullGroup[1]); assertNull(nullGroup[2]); assertEquals(true, nullGroup[3])
@@ -283,11 +298,11 @@ class CompletedRelationExecutionTest {
         for (dialect in listOf("h2", "duckdb")) warehouse(directory, dialect, "(1,'A',1,1,10),(2,'A',3,2,NULL),(3,'A',4,3,30),(4,'B',1,4,7),(5,'B',4,5,2)").use { warehouse ->
             val catalog = catalog(warehouse); warehouse.finishSetup()
             val root = stages(measures(catalog, "primary", listOf("region", "hour")), listOf(
-                op("CUMULATIVE", mapOf("input" to "value", "orderBy" to "hour", "direction" to "ASC", "partitionBy" to listOf("region"), "outputAlias" to "cumulative", "outputDisplayName" to "累计金额", "valueContract" to money, "aggregationRounding" to "NONE")),
-                op("POST_FILTER", mapOf("expression" to comparison("GTE", symbol("hour"), mapOf("kind" to "TYPED_LITERAL", "valueType" to "NUMBER", "value" to "3")))),
-                op("RANK", mapOf("orderBy" to "cumulative", "direction" to "DESC", "partitionBy" to listOf("region"), "outputAlias" to "rank", "outputDisplayName" to "排名")),
-                op("TOP_N", mapOf("orderKeys" to listOf(order("rank", "ASC"), order("region", "ASC"), order("hour", "DESC")), "limit" to 2)),
-                op("PROJECT", mapOf("symbols" to listOf("region", "hour", "cumulative", "rank")))))
+                Cumulative("value", "hour", "ASC", listOf("region"), "cumulative", "累计金额", ResultAggregation.Sum(money, ResultAggregation.NullPolicy.IGNORE)),
+                PostFilter(comparison("GTE", symbol("hour"), ResultTypedLiteral(ScalarValueType.NUMBER, BigDecimal("3")))),
+                Rank("cumulative", "DESC", listOf("region"), "rank", "排名"),
+                TopN(listOf(order("rank", "ASC"), order("region", "ASC"), order("hour", "DESC")), 2),
+                Project(listOf("region", "hour", "cumulative", "rank"))))
             val rows = warehouse.execute(compile(catalog, root)); assertEquals(listOf("A", "B"), rows.map { it[0] })
             assertEquals(listOf(BigDecimal("40.00"), BigDecimal("9.00")), rows.map { it[2] })
             assertTrue(rows.all { (it[1] as Number).toInt() == 4 && (it[3] as Number).toLong() == 1L })
@@ -299,16 +314,12 @@ class CompletedRelationExecutionTest {
             val catalog = catalog(warehouse)
             warehouse.finishSetup()
             val root = stages(measures(catalog, "primary", listOf("region", "hour")), listOf(
-                op("CUMULATIVE", mapOf("input" to "value", "orderBy" to "hour", "direction" to "ASC", "partitionBy" to listOf("region"),
-                    "outputAlias" to "cumulative", "outputDisplayName" to "累计金额", "valueContract" to money, "aggregationRounding" to "NONE")),
-                op("OFFSET_VALUE", mapOf("input" to "cumulative", "function" to "LAG", "offset" to 1, "partitionBy" to listOf("region"),
-                    "orderKeys" to listOf(order("hour", "ASC")), "outputAlias" to "previous", "outputDisplayName" to "上期累计")),
-                op("DERIVE", mapOf("expression" to numeric(comparison("SUBTRACT", symbol("cumulative"), symbol("previous")), money),
-                    "outputAlias" to "increase", "outputDisplayName" to "本期增加")),
-                op("ROW_NUMBER", mapOf("partitionBy" to listOf("region"), "orderKeys" to listOf(order("increase", "DESC"), order("hour", "ASC")),
-                    "outputAlias" to "position", "outputDisplayName" to "增加排名")),
-                op("SORT", mapOf("orderKeys" to listOf(order("region", "ASC"), order("hour", "ASC")))),
-                op("PROJECT", mapOf("symbols" to listOf("region", "hour", "cumulative", "previous", "increase", "position")))))
+                Cumulative("value", "hour", "ASC", listOf("region"), "cumulative", "累计金额", ResultAggregation.Sum(money, ResultAggregation.NullPolicy.IGNORE)),
+                OffsetValue("cumulative", listOf("region"), "previous", "上期累计", listOf(order("hour", "ASC")), "LAG", 1),
+                Derive(numeric(comparison("SUBTRACT", symbol("cumulative"), symbol("previous")), money), "increase", "本期增加"),
+                OrderedRank(PostOperationContract.ROW_NUMBER, listOf("region"), "position", "增加排名", listOf(order("increase", "DESC"), order("hour", "ASC"))),
+                Sort(listOf(order("region", "ASC"), order("hour", "ASC"))),
+                Project(listOf("region", "hour", "cumulative", "previous", "increase", "position"))))
             fun amount(value: Any?): String? = value?.let { BigDecimal(it.toString()).stripTrailingZeros().toPlainString() }
             val rows = warehouse.execute(compile(catalog, root)).map { row ->
                 listOf(row[0], (row[1] as Number).toInt(), amount(row[2]), amount(row[3]), amount(row[4]), (row[5] as Number).toLong())
@@ -326,12 +337,12 @@ class CompletedRelationExecutionTest {
         warehouse(directory, "duckdb", "(1,'A',1,1,10),(2,'A',54,2,20)").use { warehouse ->
             val catalog = catalog(warehouse); warehouse.finishSetup()
             val later = scope(measures(catalog, "later", listOf("hour")), "RELATION")
-            val shifted = numeric(comparison("ADD", numeric(symbol("hour"), code), mapOf("kind" to "EXACT_NUMBER", "value" to "53")), code)
+            val shifted = numeric(comparison("ADD", numeric(symbol("hour"), code), ResultLiteral(BigDecimal("53"))), code)
             val root = scope(measures(catalog, "primary", listOf("hour")), inputs = mapOf("later" to later), operations = listOf(
                 join("later", "following", "INNER", comparison("EQ", shifted, numeric(symbol("following__hour"), code))),
-                op("PROJECT", mapOf("symbols" to listOf("hour", "value", "following__value")))))
+                Project(listOf("hour", "value", "following__value"))))
             assertEquals(listOf(listOf(1, BigDecimal("10.00"), BigDecimal("20.00"))), warehouse.execute(compile(catalog, root)))
-            val invalid = scope(root, inputs = emptyMap(), operations = listOf(op("DERIVE", mapOf("outputAlias" to "invented_money", "outputDisplayName" to "错误单位", "expression" to numeric(symbol("hour"), money)))))
+            val invalid = scope(root, inputs = emptyMap(), operations = listOf(Derive(numeric(symbol("hour"), money), "invented_money", "错误单位")))
             assertThrows(IllegalArgumentException::class.java) { compile(catalog, invalid) }
         }
     }

@@ -8,13 +8,12 @@ import com.olap.prototype.event.RelationFilter
 import com.olap.prototype.governance.contract.*
 import com.olap.prototype.member.MemberSourceDefinition
 import com.olap.prototype.query.PostOperationContract
-import com.olap.prototype.query.PostOperationSchema
+import com.olap.prototype.query.contract.StageAuthorization
 import com.olap.prototype.query.ScopedInputContract
 import com.olap.prototype.query.contract.FilterLeafOperatorPolicy
 import com.olap.prototype.query.contract.MemberQueryPermission
 import com.olap.prototype.query.contract.PublishedRelationFilter
 import com.olap.prototype.storage.PlatformDatabase
-import com.olap.prototype.util.OlapJsonUtils
 import java.time.Instant
 
 /** Scenario grants are owned by an exact scenario; changing them requires the parent draft lock. */
@@ -42,7 +41,7 @@ class ScenarioGovernanceService(private val database: PlatformDatabase, private 
         val actor = text(request.createdBy, "scenario.created_by")
         val now = Instant.now()
         val scenario = ScenarioRecord(id, subject, subjectVersion, code, text(request.displayName, "scenario.display_name"), request.description, text(request.owner, "scenario.owner"), "DRAFT", draft.version, actor, now, actor, now)
-        val version = ScenarioVersionRecord("$id:v${draft.version}", id, draft.version, "DRAFT", json(ScenarioSnapshots.scenarioVersionContent(scenario)), "{}", draft.sourceVersion, actor, now, null, null, null, null, null, null)
+        val version = ScenarioVersionRecord("$id:v${draft.version}", id, draft.version, "DRAFT", encodeDefinition(ScenarioSnapshots.scenarioVersionContent(scenario)), "{}", draft.sourceVersion, actor, now, null, null, null, null, null, null)
         val ref = SubjectAreaScenarioRefRecord("$subject:v$subjectVersion:scenario:$id:v${draft.version}", subject, subjectVersion, id, draft.version, "DRAFT", actor, now)
         saveScenario(scenario); saveScenarioVersion(version); saveSubjectAreaScenarioRef(ref, selected)
         return ScenarioCreateResult(scenario, version, ref)
@@ -179,7 +178,7 @@ class ScenarioGovernanceService(private val database: PlatformDatabase, private 
         val targetVersion = positive(request.targetVersion, "scenario_filter_ref.target_version")
         request.valueProviderId?.let { text(it, "scenario_filter_ref.value_provider_id") }
         if (request.operators.isEmpty()) throw ProducerContractException("scenario_filter_ref.operators must be an explicit non-empty operator list")
-        val policy = try { FilterLeafOperatorPolicy.policyJson(request.operators.map { it.name }, "scenario_filter_ref.operator_policy_json") }
+        val policy = try { FilterLeafOperatorPolicy.requireOperatorSet(request.operators.map { it.name }, "scenario_filter_ref.operators").toList() }
             catch (invalid: IllegalArgumentException) { throw ProducerContractException(requireNotNull(invalid.message), invalid) }
         val ref = ScenarioFilterRefRecord("$id:v$version:filter:$type:$target:v$targetVersion", id, version, type, target, targetVersion, policy, request.valueProviderId,
             flag(request.requiredByDefault, "scenario_filter_ref.required_by_default"), order(request.sortOrder, "scenario_filter_ref.sort_order"), Instant.now())
@@ -188,7 +187,7 @@ class ScenarioGovernanceService(private val database: PlatformDatabase, private 
     }
     internal fun saveScenarioFilterRef(record: ScenarioFilterRefRecord) {
         val scenario = requireScenarioVersion(record.scenarioId, record.scenarioVersion, "scenario_filter_ref.scenario_version")
-        try { FilterLeafOperatorPolicy.requireOperatorSet(record.operatorPolicyJson, "scenario_filter_ref.operator_policy_json") }
+        try { FilterLeafOperatorPolicy.requireOperatorSet(record.operators, "scenario_filter_ref.operators") }
         catch (invalid: IllegalArgumentException) { throw ProducerContractException("${invalid.message} in ${record.id}", invalid) }
         if (record.filterTargetType != "ANALYSIS_DIMENSION") throw ProducerContractException("scenario_filter_ref.filter_target_type unsupported: ${record.filterTargetType} in ${scenario.id}")
         val opened = openedDimension(record.scenarioId, record.scenarioVersion, record.targetId, record.targetVersion, "scenario_filter_ref.target_version")
@@ -204,14 +203,14 @@ class ScenarioGovernanceService(private val database: PlatformDatabase, private 
     }
     fun listScenarioFilterRefs(id: String, version: Long): List<ScenarioFilterRefRecord> = repository.listScenarioFilterRefs(id, version)
 
-    private fun stageCandidates(): List<ScenarioPipelineRuleCandidate> = PostOperationContract.operationTypes().map { ScenarioPipelineRuleCandidate(it, PostOperationContract.displayName(it), json(PostOperationSchema.argumentContract(it)), true, null) }
+    private fun stageCandidates(): List<ScenarioPipelineRuleCandidate> = PostOperationContract.operationTypes().map { ScenarioPipelineRuleCandidate(it, PostOperationContract.displayName(it), StageAuthorization.current(it), true, null) }
     fun createScenarioPipelineRule(request: ScenarioPipelineRuleCreateRequest): ScenarioPipelineRuleCreateResult = database.inTransaction {
         editable(request.scenarioId, request.scenarioVersion)
         val id = text(request.scenarioId, "scenario_pipeline_rule.scenario_id")
         val version = positive(request.scenarioVersion, "scenario_pipeline_rule.scenario_version")
         val type = ScenarioPipelineRulePolicy.requireRuleType(request.ruleType, "scenario_pipeline_rule.rule_type")
         val candidate = stageCandidates().firstOrNull { it.ruleType == type } ?: throw ProducerContractException("scenario_pipeline_rule candidate not found: $type")
-        val rule = ScenarioPipelineRuleRecord("$id:v$version:pipeline:$type", id, version, type, candidate.displayName, candidate.ruleConfigJson, "DRAFT", order(request.sortOrder, "scenario_pipeline_rule.sort_order"), Instant.now())
+        val rule = ScenarioPipelineRuleRecord("$id:v$version:pipeline:$type", id, version, type, candidate.displayName, candidate.authorization, "DRAFT", order(request.sortOrder, "scenario_pipeline_rule.sort_order"), Instant.now())
         saveScenarioPipelineRule(rule)
         ScenarioPipelineRuleCreateResult(rule)
     }
@@ -228,12 +227,9 @@ class ScenarioGovernanceService(private val database: PlatformDatabase, private 
         val type = ScenarioPipelineRulePolicy.requireRuleType(request.ruleType, "scenario_pipeline_rule.rule_type")
         val existing = listScenarioPipelineRules(id, version).filter { it.ruleType == type }
         if (existing.size != 1) throw ProducerContractException("contract refresh requires exactly one existing scenario stage: $type")
-        val approved = ScenarioPipelineRulePolicy.requireRuleConfigJson(request.approvedRuleConfigJson, "scenario_pipeline_rule.approved_rule_config_json")
         val candidate = stageCandidates().first { it.ruleType == type }
-        try {
-            if (OlapJsonUtils.mapper().readTree(approved) != OlapJsonUtils.mapper().readTree(candidate.ruleConfigJson)) throw ProducerContractException("approved rule contract must exactly match the deployed language candidate: $type")
-        } catch (failure: com.fasterxml.jackson.core.JsonProcessingException) { throw ProducerContractException("cannot parse the approved stage contract", failure) }
-        existing.single().copy(ruleConfigJson = candidate.ruleConfigJson).also(repository::updateScenarioPipelineRuleContract)
+        require(request.approvedAuthorization == candidate.authorization) { "approved stage authorization must match the deployed explicit language candidate: $type" }
+        existing.single().copy(authorization = candidate.authorization).also(repository::updateScenarioPipelineRuleContract)
     }
 
     fun scenarioConfigurationCandidates(id: String, version: Long): ScenarioConfigurationCandidatesView {
@@ -295,5 +291,5 @@ class ScenarioGovernanceService(private val database: PlatformDatabase, private 
     private fun flag(value: Boolean?, field: String): Boolean = value ?: throw ProducerContractException("$field is required")
     private fun order(value: Int?, field: String): Int = value?.takeIf { it > 0 } ?: throw ProducerContractException("$field must be positive")
     private fun matching(actual: Any?, expected: Any?, actualField: String, expectedField: String) { if (actual == null || actual != expected) throw ProducerContractException("$actualField must match $expectedField") }
-    private fun json(value: Any): String = try { OlapJsonUtils.mapper().writeValueAsString(value) } catch (failure: Exception) { throw ProducerContractException("canonical governance content_json invalid", failure) }
+    private fun encodeDefinition(value: GovernanceDefinition): String = com.olap.prototype.codec.ProtoBytes.storage(com.olap.prototype.codec.GovernanceProto.definition(value))
 }

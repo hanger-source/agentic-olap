@@ -1,9 +1,7 @@
 package com.olap.prototype.server
 
 import com.fasterxml.jackson.databind.JsonNode
-import com.fasterxml.jackson.databind.node.ObjectNode
 import com.olap.prototype.contract.ProducerContractException
-import com.olap.prototype.util.OlapJsonUtils
 
 internal object ServerInputs {
     fun fields(payload: JsonNode, allowed: Set<String>) {
@@ -29,7 +27,4 @@ internal object ServerInputs {
             throw ProducerContractException("invalid $field")
         return number.intValue()
     }
-
-    fun command(operation: String, payload: JsonNode): ObjectNode =
-        OlapJsonUtils.mapper().createObjectNode().put("operation", operation).set("payload", payload)
 }

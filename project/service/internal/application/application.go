@@ -1,17 +1,22 @@
 package application
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"time"
 
 	"github.com/hanger-source/agentic-olap/service/internal/config"
+	pb "github.com/hanger-source/agentic-olap/service/internal/protocol"
+	q "github.com/hanger-source/agentic-olap/service/internal/protocol/query"
 	"github.com/hanger-source/agentic-olap/service/internal/results"
 	"github.com/hanger-source/agentic-olap/service/internal/runtime"
 	"github.com/hanger-source/agentic-olap/service/internal/wire"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
 )
 
 type Application struct {
@@ -45,219 +50,228 @@ func (a *Application) Operations(ctx context.Context, p runtime.Principal) (map[
 	if !reply.Success {
 		return nil, errors.New("operation discovery is not authorized")
 	}
-	var v struct {
+	var value struct {
 		Operations map[string]runtime.Operation `json:"operations"`
 	}
-	if err = json.Unmarshal(reply.Result, &v); err != nil {
+	if err = json.Unmarshal(reply.Result, &value); err != nil {
 		return nil, err
 	}
-	if v.Operations == nil {
-		return nil, errors.New("authorized operation discovery is incomplete")
+	if value.Operations == nil {
+		return nil, errors.New("operation discovery is incomplete")
 	}
-	return v.Operations, nil
+	return value.Operations, nil
 }
 func (a *Application) Invoke(ctx context.Context, p runtime.Principal, operation string, payload json.RawMessage) (Envelope, error) {
-	started := time.Now()
-	if operation == "ready" || operation == "authorize-result" || operation == "complete-result-delivery" || operation == "operation-discovery" {
+	switch operation {
+	case "ready", "authorize-script", "authorize-result", "complete-result-delivery", "operation-discovery", "call-capability":
 		return Envelope{}, &wire.InputError{Cause: errors.New("internal operation is not public")}
 	}
 	if _, err := wire.Object(payload, a.Config.Limits.InputDepth, a.Config.Limits.InputNodes); err != nil {
 		return Envelope{}, &wire.InputError{Cause: err}
 	}
+	if operation == "execute-script" {
+		return a.script(ctx, p, payload)
+	}
 	for _, name := range a.Runtime.Ready().ResultOperations {
 		if name == operation {
-			return a.read(ctx, p, operation, payload)
+			return a.readJSON(ctx, p, operation, payload)
 		}
 	}
 	reply, err := a.Runtime.Call(ctx, p, operation, payload)
 	if err != nil {
 		return Envelope{}, err
 	}
-	if reply.Artifact == nil {
-		if operation == "read-deployment-availability" && reply.Success {
-			return a.availability(ctx, reply)
-		}
-		return envelope(reply), nil
+	if reply.Artifact != nil || reply.Model != nil {
+		return Envelope{}, errors.New("structured read returned an unexpected model or result artifact")
 	}
-	if operation != "execute-query" || !reply.Success {
-		return Envelope{}, errors.New("result artifact has no accepted execution")
+	if operation == "read-deployment-availability" && reply.Success {
+		return a.availability(ctx, reply)
 	}
-	return a.deliver(ctx, p, reply, started)
+	return envelope(reply), nil
 }
-
-func (a *Application) availability(ctx context.Context, reply runtime.Reply) (Envelope, error) {
-	view, err := wire.Object(reply.Result, a.Config.Limits.InputDepth, a.Config.Limits.InputNodes)
+func (a *Application) script(ctx context.Context, p runtime.Principal, raw json.RawMessage) (Envelope, error) {
+	var submission runtime.ScriptSubmission
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&submission); err != nil {
+		return Envelope{}, &wire.InputError{Cause: err}
+	}
+	authorized, err := a.Runtime.Call(ctx, p, "authorize-script", []byte(`{}`))
 	if err != nil {
 		return Envelope{}, err
 	}
-	checks, ok := view["checks"].([]any)
-	if !ok {
-		return Envelope{}, errors.New("availability response requires checks")
+	if !authorized.Success {
+		return envelope(authorized), nil
 	}
-	for _, item := range checks {
-		if err := ctx.Err(); err != nil {
-			return Envelope{}, err
+	report, err := a.Runtime.Script(ctx, p, submission, func(callCtx context.Context, invocation *pb.CapabilityInvocation) (runtime.Reply, error) {
+		return a.InvokeCapability(callCtx, p, invocation)
+	})
+	if report == nil {
+		return Envelope{}, err
+	}
+	encoded, encodeErr := json.Marshal(report)
+	if encodeErr != nil {
+		return Envelope{}, encodeErr
+	}
+	response := Envelope{RequestID: report.RequestID, Success: report.Success, Result: encoded, Error: json.RawMessage("null")}
+	if !report.Success {
+		response.Error, _ = json.Marshal(map[string]any{"stage": "SCRIPT", "code": "SCRIPT_NOT_COMPLETED", "message": "script did not complete; inspect diagnostics and actual capability calls"})
+	}
+	return response, nil
+}
+func (a *Application) InvokeCapability(ctx context.Context, p runtime.Principal, invocation *pb.CapabilityInvocation) (runtime.Reply, error) {
+	if invocation == nil {
+		return runtime.Reply{}, errors.New("formal capability invocation is required")
+	}
+	for _, operation := range a.Runtime.Ready().ResultOperations {
+		if invocation.OperationId == operation {
+			request, err := results.RequestMessage(operation)
+			if err != nil {
+				return runtime.Reply{}, err
+			}
+			if err = anypb.UnmarshalTo(invocation.Input, request, proto.UnmarshalOptions{RecursionLimit: a.Config.Limits.InputDepth}); err != nil {
+				return runtime.Reply{}, &wire.InputError{Cause: err}
+			}
+			return a.read(ctx, p, operation, request)
 		}
-		check, ok := item.(map[string]any)
-		if !ok {
-			return Envelope{}, errors.New("availability check must be an object")
-		}
-		if check["kind"] != "RESULT_READ" || check["status"] != "NOT_CHECKED" {
-			continue
-		}
-		ref, err := results.ReferenceFrom(check["reference"])
+	}
+	reply, err := a.Runtime.CallCapability(ctx, p, invocation)
+	if err != nil {
+		return reply, err
+	}
+	if invocation.OperationId == "read-deployment-availability" && reply.Success {
+		return a.typedAvailability(ctx, reply)
+	}
+	if reply.Artifact == nil {
+		return reply, nil
+	}
+	if invocation.OperationId != "execute-query" || !reply.Success {
+		return reply, errors.New("result artifact has no accepted execution")
+	}
+	return a.deliver(ctx, p, reply)
+}
+func (a *Application) readJSON(ctx context.Context, p runtime.Principal, operation string, raw []byte) (Envelope, error) {
+	request, err := results.RequestMessage(operation)
+	if err != nil {
+		return Envelope{}, err
+	}
+	if err = (protojson.UnmarshalOptions{RecursionLimit: a.Config.Limits.InputDepth}).Unmarshal(raw, request); err != nil {
+		return Envelope{}, &wire.InputError{Cause: err}
+	}
+	reply, err := a.read(ctx, p, operation, request)
+	if err != nil {
+		return Envelope{}, err
+	}
+	if reply.Success {
+		reply.Result, err = protojson.MarshalOptions{EmitDefaultValues: true}.Marshal(reply.Model)
 		if err != nil {
 			return Envelope{}, err
 		}
-		observed := a.Results.Inspect(ref)
-		if err := ctx.Err(); err != nil {
-			return Envelope{}, err
-		}
-		check["status"] = observed.Status
-		issues := []any{}
-		for _, code := range observed.Issues {
-			issues = append(issues, map[string]any{"code": code, "message": "saved result bytes are not readable by this deployment", "details": map[string]any{}})
-		}
-		check["issues"] = issues
-	}
-	reply.Result, err = wire.Canonical(view)
-	if err != nil {
-		return Envelope{}, err
 	}
 	return envelope(reply), nil
 }
-func (a *Application) read(ctx context.Context, p runtime.Principal, operation string, raw json.RawMessage) (Envelope, error) {
-	payload, err := wire.Object(raw, a.Config.Limits.InputDepth, a.Config.Limits.InputNodes)
+func (a *Application) read(ctx context.Context, p runtime.Principal, operation string, request proto.Message) (runtime.Reply, error) {
+	ref, err := results.RequestReference(request)
 	if err != nil {
-		return Envelope{}, &wire.InputError{Cause: err}
+		return runtime.Reply{}, &wire.InputError{Cause: err}
 	}
-	ref, err := results.ReferenceFrom(payload["resultReference"])
+	reply, err := a.Runtime.AuthorizeResult(ctx, p, operation, ref.Proto())
+	if err != nil || !reply.Success {
+		return reply, err
+	}
+	authorized := new(q.QueryResultReference)
+	if err = anypb.UnmarshalTo(reply.Model, authorized, proto.UnmarshalOptions{RecursionLimit: a.Config.Limits.InputDepth}); err != nil {
+		return reply, err
+	}
+	if !proto.Equal(authorized, ref.Proto()) {
+		return reply, errors.New("result authorization selected a different exact reference")
+	}
+	page, err := a.Results.Page(ctx, request)
 	if err != nil {
-		return Envelope{}, &wire.InputError{Cause: err}
+		return reply, err
 	}
-	authorization, _ := json.Marshal(map[string]any{"resultReference": ref, "operation": operation})
-	reply, err := a.Runtime.Call(ctx, p, "authorize-result", authorization)
-	if err != nil {
-		return Envelope{}, err
-	}
-	if !reply.Success {
-		return envelope(reply), nil
-	}
-	var allowed struct {
-		ResultReference results.Reference `json:"resultReference"`
-	}
-	if err = json.Unmarshal(reply.Result, &allowed); err != nil {
-		return Envelope{}, err
-	}
-	if allowed.ResultReference != ref {
-		return Envelope{}, errors.New("result authorization returned a different exact reference")
-	}
-	page, err := a.Results.Page(ctx, operation, payload)
-	if err != nil {
-		return Envelope{}, err
-	}
-	encoded, err := wire.Canonical(page)
-	if err != nil {
-		return Envelope{}, err
-	}
-	reply.Result = encoded
-	return envelope(reply), nil
+	reply.Model, err = anypb.New(page)
+	reply.Result = nil
+	return reply, err
 }
-func (a *Application) complete(p runtime.Principal, payload map[string]any) error {
-	ctx, cancel := context.WithTimeout(context.Background(), min(5*time.Second, time.Duration(a.Config.Limits.RequestSeconds*float64(time.Second))))
-	defer cancel()
-	raw, err := wire.Canonical(payload)
-	if err != nil {
-		return err
-	}
-	reply, err := a.Runtime.Call(ctx, p, "complete-result-delivery", raw)
-	if err != nil {
-		return err
-	}
-	if !reply.Success {
-		return errors.New("delivery manifest was not committed")
-	}
-	return nil
-}
-func (a *Application) deliver(ctx context.Context, p runtime.Principal, reply runtime.Reply, started time.Time) (Envelope, error) {
+func (a *Application) deliver(ctx context.Context, p runtime.Principal, reply runtime.Reply) (runtime.Reply, error) {
+	started := time.Now()
 	artifact := reply.Artifact
 	ref := results.Reference{RunID: artifact.RunID, SHA256: artifact.SHA256}
-	observation := map[string]any{"scope": "SERVER_BEFORE_DELIVERY_CONFIRMATION", "timingNanos": reply.TimingNanos, "workers": reply.Workers}
-	payload := map[string]any{"runId": ref.RunID, "resultReference": nil, "error": nil, "resultBytes": int64(0), "resultRows": artifact.Rows, "serviceObservation": observation}
-	finishFailure := func(original error) (Envelope, error) {
-		reply.TimingNanos["SERVICE_PREPARE_DELIVERY"] = time.Since(started).Nanoseconds()
-		payload["deliveryStatus"] = "FAILED"
-		payload["error"] = map[string]any{"message": "result delivery failed; execution was not repeated"}
-		if err := a.complete(p, payload); err != nil {
-			original = errors.Join(original, err)
-		}
-		slog.Error("result delivery failed", "runId", ref.RunID, "error", original)
-		return Envelope{}, &DeliveryFailure{ref.RunID, original}
+	receipt := new(q.QueryExecutionReceipt)
+	if reply.Model == nil {
+		return reply, &DeliveryFailure{ref.RunID, errors.New("execution omitted its declared receipt")}
 	}
-	if err := ref.Validate(); err != nil {
-		return finishFailure(err)
+	if err := anypb.UnmarshalTo(reply.Model, receipt, proto.UnmarshalOptions{RecursionLimit: a.Config.Limits.InputDepth}); err != nil {
+		return reply, &DeliveryFailure{ref.RunID, err}
 	}
-	result, err := wire.Object(reply.Result, a.Config.Limits.InputDepth, a.Config.Limits.InputNodes)
-	if err != nil {
-		return finishFailure(err)
-	}
-	if result["runId"] != ref.RunID {
-		return finishFailure(errors.New("delivery run differs from execution"))
-	}
-	stored := time.Now()
-	if artifact.Save {
-		size, err := a.Results.Save(ctx, ref, artifact.Content)
-		if err != nil {
-			return finishFailure(err)
-		}
-		payload["deliveryStatus"] = "SAVED"
-		payload["resultReference"] = ref
-		payload["resultBytes"] = size
-		result["result"] = nil
-		result["resultReference"] = ref
-	} else {
-		if err := a.Results.Validate(ref, artifact.Content); err != nil {
-			return finishFailure(err)
-		}
-		payload["deliveryStatus"] = "DIRECT"
-		result["result"] = json.RawMessage(artifact.Content)
-		result["resultReference"] = nil
-	}
-	reply.TimingNanos["RESULT_STORE"] = time.Since(stored).Nanoseconds()
-	timings, ok := result["timingNanos"].(map[string]any)
-	if !ok {
-		return finishFailure(errors.New("execution omitted its timing facts"))
-	}
+	confirmation := &pb.DeliveryConfirmation{RunId: ref.RunID, Sha256: ref.SHA256, Bytes: uint64(len(artifact.Content)), Rows: artifact.Rows, ExecutionReceipt: reply.Model, TimingNanos: map[string]uint64{}}
 	for stage, nanos := range reply.TimingNanos {
-		timings[stage] = nanos
-	}
-	observation["timingNanos"] = timings
-	result["workers"] = reply.Workers
-	size, err := wire.ResponseSize(result)
-	if err != nil {
-		return finishFailure(err)
-	}
-	if size > min(256*1024, a.Config.Limits.ResponseBytes) {
-		return finishFailure(fmt.Errorf("direct result exceeds response capacity; request explicit result saving"))
-	}
-	reply.TimingNanos["SERVICE_PREPARE_DELIVERY"] = time.Since(started).Nanoseconds()
-	timings["SERVICE_PREPARE_DELIVERY"] = reply.TimingNanos["SERVICE_PREPARE_DELIVERY"]
-	confirmation := time.Now()
-	if err = a.complete(p, payload); err != nil {
-		return Envelope{}, &DeliveryFailure{ref.RunID, err}
-	}
-	timings["SERVICE_PREPARE_DELIVERY"] = reply.TimingNanos["SERVICE_PREPARE_DELIVERY"]
-	timings["RESULT_DELIVERY_CONFIRM"] = time.Since(confirmation).Nanoseconds()
-	timings["SERVICE_TOTAL"] = time.Since(started).Nanoseconds()
-	if size, err := wire.ResponseSize(result); err != nil || size > min(256*1024, a.Config.Limits.ResponseBytes) {
-		if err == nil {
-			err = errors.New("execution response exceeds capacity after delivery confirmation; inspect the recorded run")
+		if nanos < 0 {
+			return reply, errors.New("runtime timing is negative")
 		}
-		return Envelope{}, &DeliveryFailure{ref.RunID, err}
+		confirmation.TimingNanos[stage] = uint64(nanos)
 	}
-	reply.Result, err = wire.Canonical(result)
+	for _, worker := range reply.Workers {
+		confirmation.Workers = append(confirmation.Workers, &pb.WorkerObservation{Kind: worker.Kind, Outcome: worker.Outcome, QueueNanos: uint64(worker.QueueNanos), StartupNanos: uint64(worker.StartupNanos)})
+	}
+	finish := func(status pb.DeliveryStatus) (runtime.Reply, error) {
+		confirmation.Status = status
+		confirmation.TimingNanos["SERVICE_PREPARE_DELIVERY"] = uint64(time.Since(started).Nanoseconds())
+		finalization, cancel := context.WithTimeout(context.WithoutCancel(ctx), min(5*time.Second, time.Duration(a.Config.Limits.RequestSeconds*float64(time.Second))))
+		defer cancel()
+		return a.Runtime.ConfirmDelivery(finalization, p, confirmation)
+	}
+	failed := func(cause error) (runtime.Reply, error) {
+		if _, err := finish(pb.DeliveryStatus_FAILED); err != nil {
+			cause = errors.Join(cause, err)
+		}
+		slog.Error("result delivery failed", "runId", ref.RunID, "error", cause)
+		reply.Success = false
+		reply.Artifact = nil
+		reply.Model = nil
+		reply.Error, _ = json.Marshal(map[string]any{"stage": "RESULT_DELIVERY", "code": "RESULT_DELIVERY_FAILED", "message": "result delivery failed; execution was not repeated", "details": map[string]any{"runId": ref.RunID}})
+		return reply, nil
+	}
+	record, err := a.Results.Record(ref, artifact.Content)
 	if err != nil {
-		return Envelope{}, &DeliveryFailure{ref.RunID, err}
+		return failed(err)
 	}
-	return envelope(reply), nil
+	preparedReceipt := proto.Clone(record.Receipt).(*q.QueryExecutionReceipt)
+	preparedReceipt.Result = nil
+	if receipt.RunId != ref.RunID || receipt.Result != nil || receipt.Saved || receipt.ResultReference != nil || receipt.Rows != int64(artifact.Rows) || !proto.Equal(receipt, preparedReceipt) {
+		return failed(errors.New("execution receipt differs from its prepared artifact"))
+	}
+	delivered := proto.Clone(receipt).(*q.QueryExecutionReceipt)
+	if artifact.Save {
+		delivered.ResultReference = ref.Proto()
+		delivered.Saved = true
+	} else {
+		delivered.Result = record.Receipt.Result
+	}
+	if proto.Size(delivered) > a.Config.Limits.ResponseBytes {
+		return failed(errors.New("direct result exceeds capacity; request explicit saving"))
+	}
+	storeStarted := time.Now()
+	if artifact.Save {
+		_, err = a.Results.Save(ctx, ref, artifact.Content)
+	}
+	if err != nil {
+		return failed(err)
+	}
+	confirmation.TimingNanos["RESULT_STORE"] = uint64(time.Since(storeStarted).Nanoseconds())
+	status := pb.DeliveryStatus_DIRECT
+	if artifact.Save {
+		status = pb.DeliveryStatus_SAVED
+	}
+	finalized, err := finish(status)
+	if err != nil {
+		return reply, &DeliveryFailure{ref.RunID, err}
+	}
+	if !finalized.Success {
+		return finalized, &DeliveryFailure{ref.RunID, errors.New("delivery confirmation was rejected")}
+	}
+	finalized.RequestID = reply.RequestID
+	finalized.Artifact = nil
+	return finalized, nil
 }

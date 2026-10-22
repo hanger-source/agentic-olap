@@ -1,19 +1,14 @@
 package com.olap.prototype.query
 
-import com.fasterxml.jackson.annotation.JsonProperty
-import com.fasterxml.jackson.annotation.JsonSubTypes
-import com.fasterxml.jackson.annotation.JsonTypeInfo
 import com.olap.prototype.calculation.Calculation
 import com.olap.prototype.member.MemberCondition
 import com.olap.prototype.time.TemporalWindow
 
 /** 对正式发布筛选入口的类型化条件。 */
-@JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "kind")
-@JsonSubTypes(JsonSubTypes.Type(value = DimensionCondition.Unrestricted::class, name = "TRUE"), JsonSubTypes.Type(value = DimensionCondition.Predicate::class, name = "LEAF"), JsonSubTypes.Type(value = DimensionCondition.Exists::class, name = "EXISTS"), JsonSubTypes.Type(value = DimensionCondition.All::class, name = "AND"), JsonSubTypes.Type(value = DimensionCondition.Any::class, name = "OR"), JsonSubTypes.Type(value = DimensionCondition.Not::class, name = "NOT"))
 sealed interface DimensionCondition {
     class Unrestricted : DimensionCondition { override fun equals(other: kotlin.Any?): Boolean = other is Unrestricted; override fun hashCode(): Int = 0 }
     class Exists(val instanceId: String, val filterRefId: String, val predicate: MemberCondition,
-        @param:JsonProperty(value = "range", required = true) val range: TemporalWindow?, clocks: Map<String, TemporalClockBindings.Value>) : DimensionCondition {
+        val range: TemporalWindow?, clocks: Map<String, TemporalClockBindings.Value>) : DimensionCondition {
         val clocks: Map<String, TemporalClockBindings.Value> = java.util.Map.copyOf(clocks)
         init { ScopedInputContract.requireId(instanceId); require(filterRefId.isNotBlank()) { "relation filter reference is required" } }
         override fun equals(other: kotlin.Any?): Boolean = other is Exists && instanceId == other.instanceId && filterRefId == other.filterRefId && predicate == other.predicate && range == other.range && clocks == other.clocks

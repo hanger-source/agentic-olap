@@ -1,6 +1,5 @@
 package com.olap.prototype.management.governance
 
-import com.fasterxml.jackson.databind.node.ObjectNode
 import com.olap.prototype.calculation.*
 import com.olap.prototype.contract.InputContractException
 import com.olap.prototype.contract.ProducerContractException
@@ -10,7 +9,6 @@ import com.olap.prototype.query.*
 import com.olap.prototype.query.contract.*
 import com.olap.prototype.release.catalog.JdbcPublishedQueryEntryProvider
 import com.olap.prototype.storage.PlatformDatabase
-import com.olap.prototype.util.OlapJsonUtils
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
@@ -124,18 +122,7 @@ class PublishedComputedOrdersTest {
             assertThrows(ProducerContractException::class.java) { c.freeze(QueryComputation.Scope(QueryComputation.Compute(inline, bindings, emptyMap(), mapOf("rows" to rejected, "eligible" to july), emptyMap()), emptyMap(), emptyList())) }
         }
         val accepted = QueryComputation.Scope(QueryComputation.Compute(inline, bindings, emptyMap(), mapOf("rows" to july, "eligible" to july), emptyMap()), emptyMap(), emptyList())
-        val syntax = OlapJsonUtils.mapper().valueToTree<ObjectNode>(accepted)
-        for (field in listOf("dimensionSlots", "measurementSlots")) {
-            val invalid = syntax.deepCopy()
-            val call = invalid.at("/root/calculation/computation/root/measurement/root/calls/0") as ObjectNode
-            (call.required(field) as ObjectNode).put("sum", "sum")
-            val failure = assertThrows(InputContractException::class.java) { QueryComputation.parse(invalid) }
-            assertEquals(InputContractException.Rule.MEASUREMENT_BINDING_OVERRIDE, failure.rule)
-            assertEquals(listOf("computation", "root", "calculation", "computation", "root", "measurement", "root", "calls", 0, field), failure.details["fieldPath"])
-            assertEquals("EMPTY_MAP", failure.details["expectedKind"])
-            assertEquals("NONEMPTY_MAP", failure.details["actualKind"])
-        }
-        number(70.0, c.execute(QueryComputation.parse(syntax)).result.resultFrame.rows.single()["qualified_sum"])
+        number(70.0, c.execute(accepted).result.resultFrame.rows.single()["qualified_sum"])
     }
 
     private fun assertPublicationPages(c: ComputedOrderFixture) {

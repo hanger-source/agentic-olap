@@ -1,6 +1,5 @@
 package com.olap.prototype.governance.contract
 
-import com.fasterxml.jackson.annotation.JsonProperty
 import com.olap.prototype.calculation.Calculation
 import com.olap.prototype.calculation.CalculationBindings
 import com.olap.prototype.calculation.MetricInstanceRef
@@ -11,11 +10,11 @@ import java.time.Instant
 data class BusinessLineCreateRequest(val code: String, val displayName: String, val owner: String, val description: String?, val createdBy: String)
 data class BusinessLineCreateResult(val businessLine: BusinessLineRecord, val businessLineVersion: BusinessLineVersionRecord)
 data class BusinessLineRecord(val id: String, val code: String, val displayName: String, val description: String?, val owner: String, val status: String, val currentVersion: Long, val createdBy: String, val createdAt: Instant, val updatedBy: String?, val updatedAt: Instant?)
-data class BusinessLineVersionRecord(val id: String, val businessLineId: String, val version: Long, val versionStatus: String, val contentJson: String, val diagnosticJson: String?, val sourceVersion: Long?, val createdBy: String, val createdAt: Instant, val activatedBy: String?, val activatedAt: Instant?, val deprecatedBy: String?, val deprecatedAt: Instant?, val archivedBy: String?, val archivedAt: Instant?)
+data class BusinessLineVersionRecord(val id: String, val businessLineId: String, val version: Long, val versionStatus: String, val contentProto: String, val diagnosticJson: String?, val sourceVersion: Long?, val createdBy: String, val createdAt: Instant, val activatedBy: String?, val activatedAt: Instant?, val deprecatedBy: String?, val deprecatedAt: Instant?, val archivedBy: String?, val archivedAt: Instant?)
 data class SubjectAreaCreateRequest(val businessLineId: String, val businessLineVersion: Long, val code: String, val displayName: String, val owner: String, val description: String?, val createdBy: String)
 data class SubjectAreaCreateResult(val subjectArea: SubjectAreaRecord, val subjectAreaVersion: SubjectAreaVersionRecord)
 data class SubjectAreaRecord(val id: String, val code: String, val displayName: String, val businessLineId: String, val businessLineVersion: Long, val description: String?, val owner: String, val status: String, val currentVersion: Long, val createdBy: String, val createdAt: Instant, val updatedBy: String?, val updatedAt: Instant?)
-data class SubjectAreaVersionRecord(val id: String, val subjectAreaId: String, val version: Long, val versionStatus: String, val contentJson: String, val diagnosticJson: String?, val sourceVersion: Long?, val createdBy: String, val createdAt: Instant, val activatedBy: String?, val activatedAt: Instant?, val deprecatedBy: String?, val deprecatedAt: Instant?, val archivedBy: String?, val archivedAt: Instant?)
+data class SubjectAreaVersionRecord(val id: String, val subjectAreaId: String, val version: Long, val versionStatus: String, val contentProto: String, val diagnosticJson: String?, val sourceVersion: Long?, val createdBy: String, val createdAt: Instant, val activatedBy: String?, val activatedAt: Instant?, val deprecatedBy: String?, val deprecatedAt: Instant?, val archivedBy: String?, val archivedAt: Instant?)
 data class SubjectAreaAnalysisDimensionRefRecord(val id: String, val subjectAreaId: String, val subjectAreaVersion: Long, val analysisDimensionId: String, val analysisDimensionVersion: Long, val status: String, val selectedBy: String, val selectedAt: Instant)
 data class SubjectAreaScenarioRefRecord(val id: String, val subjectAreaId: String, val subjectAreaVersion: Long, val scenarioId: String, val scenarioVersion: Long, val status: String, val selectedBy: String, val selectedAt: Instant)
 class SubjectAreaMetricRefCreateRequest(val subjectAreaId: String, val subjectAreaVersion: Long, val code: String, val displayName: String, val businessMeaning: MetricBusinessMeaning, val metricId: String, val metricVersion: Long, val bindings: CalculationBindings, fixedArguments: Map<String, Calculation.Value>, val selectedBy: String) {
@@ -25,7 +24,7 @@ class SubjectAreaMetricRefCreateRequest(val subjectAreaId: String, val subjectAr
 }
 data class SubjectAreaMetricRefCreateResult(val subjectAreaMetricRef: SubjectAreaMetricRefRecord)
 data class SubjectAreaMetricRefRecord(val id: String, val subjectAreaId: String, val subjectAreaVersion: Long, val code: String, val displayName: String, val businessMeaning: MetricBusinessMeaning, val metricId: String, val metricVersion: Long, val status: String, val selectedBy: String, val selectedAt: Instant) {
-    @get:JsonProperty(value = "instance", access = JsonProperty.Access.READ_ONLY)
+
     val instance: MetricInstanceRef get() = MetricAdoption.instance(id, subjectAreaVersion)
 }
 data class SubjectAreaReleaseBuildRequest(val releaseId: String, val releaseVersion: String, val releaseDisplayName: String, val subjectAreaId: String, val subjectAreaVersion: Long, val createdBy: String)

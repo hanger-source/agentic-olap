@@ -214,8 +214,7 @@ class SubjectAreaAdoptionService(private val database: PlatformDatabase, private
         is MemberSourceDefinition.Projection -> {
             val expressions = definition.result.outputs.mapValuesTo(linkedMapOf()) { (_, output) ->
                 when (output) {
-                    is MemberSourceDefinition.DimensionOutput -> SemanticExpressionCodec.parse(text(dimensions.dimensionEventBindingSnapshot(output.bindingId, output.bindingVersion).expressionJson,
-                        "member dimension expression"), "member dimension expression")
+                    is MemberSourceDefinition.DimensionOutput -> requireNotNull(dimensions.dimensionEventBindingSnapshot(output.bindingId, output.bindingVersion).expression) { "member dimension expression is required" }
                     is MemberSourceDefinition.PropertyOutput -> SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, output.logicUnitId, output.logicUnitVersion)
                     is MemberSourceDefinition.ContainerPropertyOutput -> MemberSourceDefinition.propertyReference(output)
                     else -> throw ProducerContractException("event projection contains a computed output")

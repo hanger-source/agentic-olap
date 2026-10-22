@@ -1,10 +1,10 @@
 package com.olap.prototype.management.governance
 
 import com.olap.prototype.calculation.*
+import com.olap.prototype.codec.GovernanceProto
 import com.olap.prototype.contract.ProducerContractException
 import com.olap.prototype.engine.EngineExecutionException
 import com.olap.prototype.governance.contract.*
-import com.olap.prototype.integration.RuntimeDeploymentLimits
 import com.olap.prototype.member.MemberCondition
 import com.olap.prototype.metric.*
 import com.olap.prototype.query.*
@@ -18,9 +18,7 @@ import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.math.BigDecimal
-import java.nio.file.Files
 import java.nio.file.Path
-import java.nio.file.StandardCopyOption
 import java.time.Instant
 import java.util.concurrent.CancellationException
 
@@ -79,14 +77,8 @@ class ImmutableGovernancePublicationTest {
             val coordinate = ReleaseCatalogRequest(GovernanceOrderFixture.SCENARIO, 1, "release_trade", "1")
             val publication = f.publication()
             val capability = publication.queryCapability
-            val frozen = f.artifacts.loadCatalog(coordinate)
             val originalHash = f.artifacts.catalogHash(coordinate)
-            val originalBytes = f.mapper.writeValueAsString(publication)
-            val semantic = PublishedSemanticCatalogProducer().produce(capability, frozen, publication)
-            val input = directory.resolve("query-input.json")
-            f.mapper.writeValue(input.toFile(), FrozenQueryCapabilityFiles.Input("olap-query-construction-input/v15", listOf(PublishedQueryEntry(capability, originalHash, semantic.sha256, semantic))))
-            assertEquals(capability, FrozenQueryCapabilityFiles(input, RuntimeDeploymentLimits.io).entries().single().capability)
-            System.getProperty("olap.test.queryInputExportDirectory")?.let { Files.copy(input, Path.of(it).resolve("query-input.json"), StandardCopyOption.REPLACE_EXISTING) }
+            val originalBytes = GovernanceProto.toProto(publication).toByteArray()
             val city = ScopedInputContract.DimensionRef("travel.trade.destination", "1", "destination")
             val window = QueryComputation.TimeRange(ScopedInputContract.DimensionRef("travel.trade.business_date", "1", "day"),
                 TemporalWindow(TemporalWindow.ValueType.DATE, TemporalWindow.BOUNDARY, "2026-07-01", "2026-08-01"))
@@ -114,12 +106,28 @@ class ImmutableGovernancePublicationTest {
             assertEquals(listOf("BETWEEN", "GTE"), capability.filterCandidates.single { it.filterRefId == timeFilter.id }.operators)
             assertNull(capability.filterCandidates.single { it.filterRefId == cityFilter.id }.valueProviderId)
             assertThrows(RuntimeException::class.java) { f.build() }
-            f.metrics.reviseMetric(GovernanceRevisionRequest(f.paymentId, 1, MetricCreateRequest(GovernanceOrderFixture.EVENT, 1, "pay_amount", "平均支付金额", "trade",
-                com.olap.prototype.expression.SemanticExpressionCodec.write(GovernanceOrderFixture.ref("order_fact.pay_amount")), "AVG", false, "BASE", "REAGGREGATE", null, emptyMap(), "修订口径",
-                MetricBusinessMeaning("平均支付金额", "元", "订单", emptyList()), null, CustomerCalculationDefinitions.approximateMoney(), MetricValueContract.Rounding.NONE, "golden")))
+            f.metrics.reviseMetric(GovernanceRevisionRequest(f.paymentId, 1, MetricCreateRequest(
+                code = "pay_amount",
+                displayName = "平均支付金额",
+                owner = "trade",
+                definition = MetricDefinition.FactMeasure(
+                    event = com.olap.prototype.event.EventRef(GovernanceOrderFixture.EVENT, 1),
+                    input = GovernanceOrderFixture.ref("order_fact.pay_amount"),
+                    aggregation = MetricAggregation.AVG,
+                    distinct = false,
+                    privatePredicate = null,
+                    roles = emptyMap(),
+                    snapshotRule = null,
+                    valueContract = CustomerCalculationDefinitions.approximateMoney(),
+                    aggregationRounding = MetricValueContract.Rounding.NONE
+                ),
+                description = "修订口径",
+                businessMeaning = MetricBusinessMeaning("平均支付金额", "元", "订单", emptyList()),
+                createdBy = "golden"
+            )))
             assertEquals("SUM", f.metrics.metricSnapshot(f.paymentId, 1).factMeasure().aggregation.name)
             assertEquals("AVG", f.metrics.metricSnapshot(f.paymentId, 2).factMeasure().aggregation.name)
-            assertEquals(originalHash, f.artifacts.catalogHash(coordinate)); assertEquals(originalBytes, f.mapper.writeValueAsString(f.publication()))
+            assertEquals(originalHash, f.artifacts.catalogHash(coordinate)); assertArrayEquals(originalBytes, GovernanceProto.toProto(f.publication()).toByteArray())
             database.inTransaction {
                 database.connection().use { connection ->
                     for (kind in listOf("METRIC", "ANALYSIS_DIMENSION")) {
@@ -129,7 +137,7 @@ class ImmutableGovernancePublicationTest {
                                 it.setString(1, kind); assertTrue(it.executeUpdate() > 0)
                             }
                             assertThrows(ProducerContractException::class.java) { ReleaseCatalogProducer(JdbcReleaseCatalogRepository(database::connection)).produce(coordinate) }
-                            assertEquals(originalBytes, f.mapper.writeValueAsString(f.publication()))
+                            assertArrayEquals(originalBytes, GovernanceProto.toProto(f.publication()).toByteArray())
                         } finally { connection.rollback(point) }
                     }
                 }
@@ -143,7 +151,7 @@ class ImmutableGovernancePublicationTest {
             PhysicalTableColumnsUpdateRequest.ColumnInput(it.columnName, "新草稿${it.displayName}", it.dataType, it.description, it.nullable, it.jdbcColumnType)
         }))
         val units = f.logical.listLogicalTableLogicUnitRefs("order_fact", 1).map { f.logical.logicUnitSnapshot(it.logicUnitId, it.logicUnitVersion) }.map { unit ->
-            LogicalTableCreateRequest.LogicUnitInput(unit.code, unit.displayName, LogicUnitSourceKind.valueOf(unit.sourceKind), unit.expressionJson,
+            LogicalTableCreateRequest.LogicUnitInput(unit.code, unit.displayName, LogicUnitSourceKind.valueOf(unit.sourceKind), unit.expression,
                 unit.logicType?.let(LogicType::valueOf), unit.valueShape, unit.isTime, unit.isPrimaryKey, unit.isForeignKey, unit.filterable, unit.aggregatable,
                 f.logical.listLogicUnitSourceRefs(unit.id, 1).map { LogicalTableCreateRequest.SourceRefInput(it.physicalColumnId, it.physicalColumnVersion, LogicUnitSourceRefRole.valueOf(it.refRole)) })
         }

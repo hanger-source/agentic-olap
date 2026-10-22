@@ -1,4 +1,6 @@
 dependencies {
+    implementation(project(":olap-codec"))
+    implementation(project(":json-io"))
     api(project(":olap-contracts"))
     api(project(":warehouse-contracts"))
     api(project(":warehouse-jdbc"))

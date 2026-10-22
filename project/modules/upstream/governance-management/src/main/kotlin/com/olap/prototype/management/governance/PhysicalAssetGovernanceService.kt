@@ -210,8 +210,6 @@ class PhysicalAssetGovernanceService(
     }
     fun physicalTableSourceConstraints(id: String, version: Long): PhysicalSourceConstraints {
         val content = snapshots.physicalTableContent(id, version)
-        if (!content.has("sourceConstraints")) throw ProducerContractException("physical table version lacks source constraint declaration: $id@$version")
-        if (content.get("sourceConstraints").isNull) throw ProducerContractException("physical table version has no frozen source evidence: $id@$version")
         val evidence = PhysicalAssetSnapshots.sourceConstraints(content)
         val table = snapshots.physicalTable(id, version)
         val binding = warehouseDataSources.findSourceBinding(SourceBindingRef(table.dataSource, evidence.sourceIdentityHash))
@@ -250,7 +248,7 @@ class PhysicalAssetGovernanceService(
 
     private fun columnVersion(column: PhysicalColumnRecord, sourceVersion: Long?, actor: String, now: Instant, sensitivity: String?) =
         PhysicalColumnVersionRecord("${column.id}:v${column.currentVersion}", column.id, column.currentVersion, column.status,
-            PhysicalAssetSnapshots.physicalColumnSnapshotJson(column, sensitivity), "{}", sourceVersion, actor, now, null, null, null, null, null, null)
+            PhysicalAssetSnapshots.physicalColumnSnapshotProto(column, sensitivity), "{}", sourceVersion, actor, now, null, null, null, null, null, null)
     private fun tableVersion(table: PhysicalTableRecord, content: String, sourceVersion: Long?, actor: String, now: Instant) =
         PhysicalTableVersionRecord("${table.id}:v${table.currentVersion}", table.id, table.currentVersion, "DRAFT", content, "{}", sourceVersion, actor, now, null, null, null, null, null, null)
     private fun columnRefs(columns: List<PhysicalColumnRecord>): Map<String, String> = columns.associateTo(linkedMapOf()) { it.columnName to "${it.id}@${it.currentVersion}" }

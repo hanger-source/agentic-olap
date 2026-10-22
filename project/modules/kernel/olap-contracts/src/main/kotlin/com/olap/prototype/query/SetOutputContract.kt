@@ -1,7 +1,5 @@
 package com.olap.prototype.query
 
-import com.fasterxml.jackson.annotation.JsonSubTypes
-import com.fasterxml.jackson.annotation.JsonTypeInfo
 import com.olap.prototype.calculation.Calculation
 import com.olap.prototype.calculation.CalculationBindings
 import com.olap.prototype.calculation.MetricDefinition
@@ -10,8 +8,6 @@ import com.olap.prototype.metric.MetricValueContract
 /** 集合按共同语义槽位合并；重复规则属于SetOp，技术类型合并属于Calcite。 */
 data class SetOutputContract(val name: String, val shape: Shape) {
     init { PostOperationContract.requireAlias(name) }
-    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "kind")
-    @JsonSubTypes(JsonSubTypes.Type(value = Dimension::class, name = "DIMENSION"), JsonSubTypes.Type(value = DimensionSlot::class, name = "DIMENSION_SLOT"), JsonSubTypes.Type(value = MemberDimension::class, name = "MEMBER_DIMENSION"), JsonSubTypes.Type(value = Property::class, name = "PROPERTY"), JsonSubTypes.Type(value = Scalar::class, name = "SCALAR"), JsonSubTypes.Type(value = Quantity::class, name = "QUANTITY"), JsonSubTypes.Type(value = Row::class, name = "ROW"), JsonSubTypes.Type(value = Array::class, name = "ARRAY"))
     sealed interface Shape
     data class Dimension(val dimension: ScopedInputContract.DimensionRef) : Shape
     data class DimensionSlot(val slot: String) : Shape { init { ScopedInputContract.requireId(slot) } }

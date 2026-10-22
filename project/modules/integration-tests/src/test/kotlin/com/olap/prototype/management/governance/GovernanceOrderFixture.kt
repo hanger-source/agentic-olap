@@ -1,6 +1,7 @@
 package com.olap.prototype.management.governance
 
-import com.fasterxml.jackson.databind.JsonNode
+import com.olap.prototype.codec.GovernanceProto
+import com.olap.prototype.codec.ProtoBytes
 import com.olap.prototype.calculation.*
 import com.olap.prototype.connector.JdbcAccess
 import com.olap.prototype.connector.SourceProvider
@@ -9,9 +10,9 @@ import com.olap.prototype.engine.catalog.ExecutablePostOperationCapabilities
 import com.olap.prototype.engine.compiler.OlapSemanticCompiler
 import com.olap.prototype.engine.executable.*
 import com.olap.prototype.event.EventIdentity
+import com.olap.prototype.event.EventRef
 import com.olap.prototype.event.RelationAccessPath
 import com.olap.prototype.expression.SemanticExpression
-import com.olap.prototype.expression.SemanticExpressionCodec
 import com.olap.prototype.governance.application.ReleaseFreezer
 import com.olap.prototype.governance.application.SubjectAreaReleaseBuildService
 import com.olap.prototype.governance.contract.*
@@ -19,6 +20,7 @@ import com.olap.prototype.integration.RuntimeDeploymentLimits
 import com.olap.prototype.integration.TestConnectors
 import com.olap.prototype.management.warehouse.*
 import com.olap.prototype.metric.MetricBusinessMeaning
+import com.olap.prototype.metric.MetricAggregation
 import com.olap.prototype.metric.MetricValueContract
 import com.olap.prototype.query.*
 import com.olap.prototype.query.contract.*
@@ -88,8 +90,8 @@ internal class GovernanceOrderFixture(val database: PlatformDatabase, val direct
             EventIdentity(listOf(EventIdentity.LogicUnitRef("order_fact.order_id", 1)), mapOf("order" to listOf(EventIdentity.LogicUnitRef("order_fact.order_id", 1)))),
             emptyMap(), listOf(EventCreateRequest.LogicUnitRefInput("order_fact.destination", 1), EventCreateRequest.LogicUnitRefInput("order_fact.customer_id", 1)),
             listOf(EventCreateRequest.LogicUnitRefInput("order_fact.pay_amount", 1)), "支付成功事件", "golden"))
-        paymentId = metrics.createMetric(MetricCreateRequest(EVENT, 1, "pay_amount", "支付金额", "trade", SemanticExpressionCodec.write(ref("order_fact.pay_amount")),
-            "SUM", false, "BASE", "ADDITIVE", null, emptyMap(), "支付金额", amountMeaning(), null, money(), MetricValueContract.Rounding.NONE, "golden")).metric.id
+        paymentId = metrics.createMetric(MetricCreateRequest("pay_amount", "支付金额", "trade", MetricDefinition.FactMeasure(EventRef(EVENT, 1), ref("order_fact.pay_amount"),
+            MetricAggregation.SUM, false, null, emptyMap(), null, money(), MetricValueContract.Rounding.NONE), "支付金额", amountMeaning(), "golden")).metric.id
     }
 
     private fun preparePhysical() {
@@ -106,9 +108,8 @@ internal class GovernanceOrderFixture(val database: PlatformDatabase, val direct
         val collections = sourceDeclaration?.let { declaration ->
             val jdbc = (connectors.require(spec.connectorRef).access as JdbcAccess).jdbc
             val anchor = JdbcConnectionFactory(connectors).openReadOnly(spec).use { jdbc.sourceAnchor(it, spec, RuntimeDeploymentLimits.CONTROL::checkCancellation) }
-            val json = mapper.writeValueAsString(declaration(anchor))
-            val hash = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(json.toByteArray(Charsets.UTF_8)))
-            onboarding.registerSourceDataset(SourceDatasetRegistrationRequest("duckdb", spec.sourceIdentityHash(), json, hash), RuntimeDeploymentLimits.CONTROL, inspection)
+            val dataset = declaration(anchor)
+            onboarding.registerSourceDataset(SourceDatasetRegistrationRequest("duckdb", spec.sourceIdentityHash(), dataset), RuntimeDeploymentLimits.CONTROL, inspection)
         } ?: emptyList()
         val input = PhysicalTableCreateRequest("warehouse.orders", "orders", "交易订单物理表", "黄金场景订单", "交易", "data", "internal", "warehouse", "duckdb", "duckdb",
             table.catalogName, table.schemaName, requireNotNull(table.schemaHash), PhysicalTableCreateRequest.SourceConstraintsInput(table.id, collections.map { it.id }), "golden", discovered.columns.map {
@@ -200,17 +201,13 @@ internal class GovernanceOrderFixture(val database: PlatformDatabase, val direct
         return engine.execute(publication.catalog, request, observer, RuntimeDeploymentLimits.CONTROL)
     }
 
-    fun intent(publication: PublishedExecutableCatalog, computation: QueryComputation.Scope): JsonNode = mapper.valueToTree(mapOf(
-        "formatVersion" to PublishedQueryContract.FORMAT_VERSION, "scenarioId" to publication.coordinate.scenarioId,
-        "scenarioVersion" to publication.coordinate.scenarioVersion, "releaseId" to publication.coordinate.releaseId,
-        "releaseVersion" to publication.coordinate.releaseVersion, "computation" to computation))
+    fun intent(publication: PublishedExecutableCatalog, computation: QueryComputation.Scope): QueryIntent = QueryIntent(publication.coordinate, computation)
 
     fun kernelRequest(publication: PublishedExecutableCatalog, computation: QueryComputation.Scope): ExecutableQueryRequest {
         try {
             val intent = intent(publication, computation)
-            val parsed = PublishedQueryContract.parseIntent(intent, publication.queryCapability)
-            PublishedQueryContract.authorize(PublishedQueryContract.FORMAT_VERSION, publication.coordinate, parsed, publication.queryCapability)
-            return ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION, "golden_query", publication.catalog.manifest.catalogId, parsed)
+            PublishedQueryContract.authorize(intent, publication.queryCapability)
+            return ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION, "golden_query", publication.catalog.manifest.catalogId, intent.computation)
         } catch (failure: RuntimeException) {
             throw com.olap.prototype.engine.EngineExecutionException("AUTHORIZE_INPUT", "EXECUTABLE_QUERY_NOT_PUBLISHED", "Published query rejected: ${failure.message}", failure)
         }

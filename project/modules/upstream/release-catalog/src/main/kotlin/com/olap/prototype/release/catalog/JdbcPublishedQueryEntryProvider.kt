@@ -17,7 +17,7 @@ class JdbcPublishedQueryEntryProvider(private val database: PlatformDatabase) : 
         val capability = capabilities.load(coordinate)
         val executable = artifacts.loadExecutableCatalog(catalogCoordinate)
         val semantic = PublishedSemanticCatalogProducer().produce(capability, artifacts.loadCatalog(catalogCoordinate), executable)
-        Publication(PublishedQueryEntry(capability, artifacts.catalogHash(catalogCoordinate), semantic.sha256, semantic), executable)
+        Publication(PublishedQueryEntry(capability, com.olap.prototype.codec.PublicationProto.contentHash(executable), semantic.sha256, semantic), executable)
     }
     fun list(offset: Int, limit: Int, subjectAreaId: String? = null, releaseId: String? = null, scopes: List<Scope> = listOf(Scope(null, null))): Page {
         require(offset >= 0 && limit in 1..1000) { "publication pagination requires offset>=0 and 1<=limit<=1000" }

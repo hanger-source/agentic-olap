@@ -48,19 +48,20 @@ class OlapEngine(private val semanticCompiler: OlapSemanticCompiler, private val
             catch (failure: RuntimeResourceLimitException) { throw failure }
             catch (failure: RuntimeException) { throw EngineExecutionException("MATERIALIZE_RESULT", "EXECUTABLE_OUTPUT_CONTRACT_FAILED",
                 "Result differs from compiled output contract: ${failure.message}", failure, executionEvidence(compiled, lowering, context), compiled,
-                sourceReadEvidence = sourceReadEvidence) }
+                sourceReadEvidence = sourceReadEvidence, sourceExecutionStarted = sourceExecutionStarted, stageNanos = context.stageTimes) }
             finally { context.recordStageTime("BUSINESS_PROJECTION", projectionStarted) }
             context.recordStageTime("ENGINE_TOTAL", started)
             return ExecutableExecutionResult(OlapResult(query.requestId, sql.sql, sql.aliasMapping, frame, context.auditReport, context.stageTimes), query, business, actualReadEvidence)
         } catch (failure: CancellationException) {
             if (sourceReadEvidence == null) throw failure
             throw EngineExecutionException("MATERIALIZE_RESULT", "EXECUTION_INTERRUPTED", "execution interrupted after the source returned a result", failure,
-                executionEvidence(compiled, lowering, context), compiled, sourceReadEvidence = sourceReadEvidence)
+                executionEvidence(compiled, lowering, context), compiled, sourceReadEvidence = sourceReadEvidence,
+                sourceExecutionStarted = sourceExecutionStarted, stageNanos = context.stageTimes)
         }
         catch (failure: EngineExecutionException) {
             context.recordStageTime("ENGINE_TOTAL", started)
             throw EngineExecutionException(failure.stage, failure.code, failure.message, failure.cause, failure.evidenceContext + mapOf("stageNanos" to context.stageTimes, "sourceExecutionStarted" to sourceExecutionStarted), failure.compiledQuery,
-                failure.sourceFailure, sourceReadEvidence ?: failure.sourceReadEvidence)
+                failure.sourceFailure, sourceReadEvidence ?: failure.sourceReadEvidence, sourceExecutionStarted, context.stageTimes)
         } catch (failure: Exception) {
             context.recordStageTime("ENGINE_TOTAL", started)
             val evidence = executionEvidence(compiled, lowering, context).toMutableMap()
@@ -84,7 +85,7 @@ class OlapEngine(private val semanticCompiler: OlapSemanticCompiler, private val
                 else -> { log.error("OlapEngine [Fatal]: executable 执行链崩溃", failure); Triple("EXECUTE_SQL", "EXECUTABLE_SQL_EXECUTION_FAILED", "Engine executable execution failed: ${failure.message}") }
             }
             throw EngineExecutionException(stage, code, message, failure, evidence, compiled, (failure as? SourceExecutionException)?.failure,
-                sourceReadEvidence ?: (failure as? SourceExecutionException)?.readEvidence)
+                sourceReadEvidence ?: (failure as? SourceExecutionException)?.readEvidence, sourceExecutionStarted, context.stageTimes)
         }
     }
     private fun executionEvidence(query: CompiledQuery?, lowering: ExecutableLoweringResult?, context: OlapQueryContext): Map<String, Any?> = buildMap {

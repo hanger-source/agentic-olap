@@ -73,18 +73,32 @@ tasks.register("publishProductToMavenLocal") {
     dependsOn(subprojects.filter { it.name != "integration-tests" && it.name != "examples" }
         .map { "${it.path}:publishLibraryPublicationToMavenLocal" })
 }
-tasks.register<Sync>("stageSdk") {
-    description = "按正式 Maven 坐标装配 SDK 仓库，供独立插件构建验收。"
-    into(layout.buildDirectory.dir("sdk/maven"))
-    sdkProjects.forEach { module ->
-        val directory = "${module.group.toString().replace('.', '/')}/${module.name}/${module.version}"
-        for (name in listOf("jar", "sourcesJar", "javadocJar")) {
-            from(module.tasks.named<Jar>(name).flatMap { it.archiveFile }) { into(directory) }
+val sdkDependencyProjects = providers.provider {
+    (sdkProjects + sdkProjects.flatMap { module ->
+        module.configurations.getByName("runtimeClasspath").incoming.resolutionResult.allComponents.mapNotNull {
+            val identity = it.id as? org.gradle.api.artifacts.component.ProjectComponentIdentifier
+            identity?.let { project(it.projectPath) }
         }
-        dependsOn("${module.path}:generatePomFileForLibraryPublication")
-        from(module.layout.buildDirectory.file("publications/library/pom-default.xml")) {
-            into(directory)
-            rename { "${module.name}-${module.version}.pom" }
+    }).distinctBy { it.path }.sortedBy { it.path }
+}
+tasks.register("stageSdk") {
+    description = "按正式 Maven 坐标装配 SDK 仓库，供独立插件构建验收。"
+    dependsOn(sdkDependencyProjects.map { modules -> modules.flatMap { module ->
+        listOf("${module.path}:jar", "${module.path}:sourcesJar", "${module.path}:generatePomFileForLibraryPublication")
+    } })
+    doLast {
+        sync {
+            into(layout.buildDirectory.dir("sdk/maven"))
+            sdkDependencyProjects.get().forEach { module ->
+                val directory = "${module.group.toString().replace('.', '/')}/${module.name}/${module.version}"
+                for (name in listOf("jar", "sourcesJar")) {
+                    from(module.tasks.named<Jar>(name).flatMap { it.archiveFile }) { into(directory) }
+                }
+                from(module.layout.buildDirectory.file("publications/library/pom-default.xml")) {
+                    into(directory)
+                    rename { "${module.name}-${module.version}.pom" }
+                }
+            }
         }
     }
 }
@@ -113,8 +127,8 @@ val buildProtocGenGo by tasks.registering(Exec::class) {
 }
 
 tasks.register<Sync>("generateGoProtocol") {
-    dependsOn(":runtime:generateProto")
-    from(project(":runtime").layout.buildDirectory.dir("generated/sources/proto/main/go"))
+    dependsOn(":olap-protocol:generateProto")
+    from(project(":olap-protocol").layout.buildDirectory.dir("generated/sources/proto/main/go"))
     into("service/internal/protocol")
 }
 
@@ -139,8 +153,13 @@ val writeRuntimeLicenses by tasks.registering {
             from(file("distribution-resources/META-INF/third-party"))
             into(root.resolve("additional-notices"))
         }
-        val artifacts = project(":runtime").configurations.getByName("runtimeClasspath")
-            .resolvedConfiguration.resolvedArtifacts.filter { it.id.componentIdentifier is ModuleComponentIdentifier }
+        val artifacts = listOf(
+            project(":runtime").configurations.getByName("runtimeClasspath"),
+            project(":runtime").configurations.getByName("scriptBoundaryRuntime"),
+            project(":script-runtime").configurations.getByName("runtimeClasspath"),
+            project(":dsl-api").configurations.getByName("runtimeClasspath"),
+        ).flatMap { it.resolvedConfiguration.resolvedArtifacts }
+            .filter { it.id.componentIdentifier is ModuleComponentIdentifier }.distinctBy { it.file.canonicalPath }
             .sortedBy { it.moduleVersion.id.toString() }
         val attributions = artifacts.map { artifact ->
             val coordinate = artifact.moduleVersion.id.toString()
@@ -193,11 +212,24 @@ val writeJvmManifest by tasks.registering {
         val classpath = (runtime.configurations.getByName("runtimeClasspath").files + runtimeJar)
             .sortedBy { it.name }.map(::identity)
         require(classpath.isNotEmpty()) { "runtime classpath is empty" }
+        val script = project(":script-runtime")
+        val scriptJar = script.tasks.named<Jar>("jar").get().archiveFile.get().asFile
+        val dsl = project(":dsl-api")
+        val dslJar = dsl.tasks.named<Jar>("jar").get().archiveFile.get().asFile
+        val boundary = runtime.configurations.getByName("scriptBoundaryRuntime")
+        fun scriptFiles(configuration: String) = (script.configurations.getByName(configuration).files +
+            boundary.files + scriptJar + runtimeJar).distinctBy { it.canonicalPath }.sortedBy { it.name }.map(::identity)
+        val scripting = mapOf("dslApiVersion" to "agentic-olap-kotlin-dsl/v1",
+            "runtime" to scriptFiles("runtimeClasspath"),
+            "dsl" to (dsl.configurations.getByName("runtimeClasspath").files + dslJar).sortedBy { it.name }.map(::identity))
         val drivers = listOf(":connector-h2", ":connector-duckdb").associate { path ->
             val module = project(path)
             module.name to module.configurations.getByName("driver").files.map(::identity)
         }
         val external = (runtime.configurations.getByName("runtimeClasspath").resolvedConfiguration.resolvedArtifacts +
+            boundary.resolvedConfiguration.resolvedArtifacts +
+            script.configurations.getByName("runtimeClasspath").resolvedConfiguration.resolvedArtifacts +
+            dsl.configurations.getByName("runtimeClasspath").resolvedConfiguration.resolvedArtifacts +
             listOf(":connector-h2", ":connector-duckdb").flatMap { project(it).configurations.getByName("driver").resolvedConfiguration.resolvedArtifacts })
             .filter { it.id.componentIdentifier is ModuleComponentIdentifier }.distinctBy { it.file.canonicalPath }
             .sortedBy { it.file.name }.map { artifact ->
@@ -208,9 +240,9 @@ val writeJvmManifest by tasks.registering {
                 mapOf("file" to identity(artifact.file), "coordinate" to "${coordinate.group}:${coordinate.name}:${coordinate.version}${artifact.classifier?.let { ":$it" } ?: ""}",
                     "url" to "https://repo.maven.apache.org/maven2/$path", "size" to artifact.file.length())
             }
-        val document = mapOf("formatVersion" to "agentic-olap-jvm-build/v3", "version" to productVersion,
+        val document = mapOf("formatVersion" to "agentic-olap-jvm-build/v4", "version" to productVersion,
             "mainClass" to "com.olap.prototype.runtime.ApplicationMainKt", "modules" to modules,
-            "runtimeClasspath" to classpath, "drivers" to drivers, "externalArtifacts" to external,
+            "runtimeClasspath" to classpath, "scripting" to scripting, "drivers" to drivers, "externalArtifacts" to external,
             "licenses" to layout.buildDirectory.dir("runtime-licenses").get().asFile.walkTopDown()
                 .filter { it.isFile }.sortedBy { it.path }.map(::identity).toList())
         manifest.get().asFile.apply { parentFile.mkdirs(); writeText(JsonOutput.prettyPrint(JsonOutput.toJson(document)) + "\n") }

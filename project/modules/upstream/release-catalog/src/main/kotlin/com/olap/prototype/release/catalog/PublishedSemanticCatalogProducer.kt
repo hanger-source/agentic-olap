@@ -19,7 +19,6 @@ import com.olap.prototype.query.contract.*
 import com.olap.prototype.query.contract.catalog.*
 import com.olap.prototype.query.contract.catalog.PublishedSemanticCatalog.*
 import com.olap.prototype.release.contract.*
-import com.olap.prototype.util.OlapJsonUtils
 
 /** 只从同一不可变发布构造公开语义，不读取草稿或暴露物理表达式。 */
 class PublishedSemanticCatalogProducer : ReleaseSemanticCatalogCompiler {
@@ -37,7 +36,7 @@ class PublishedSemanticCatalogProducer : ReleaseSemanticCatalogCompiler {
             val closure = published.validate()
             QueryCapabilityHash.requireValid(capability)
             val coordinate = Coordinate(release.scenarioId, release.scenarioVersion, release.releaseId, release.releaseVersion)
-            require(coordinate.request() == FrozenQueryCapabilityFiles.key(capability)) { "published semantic sources have different coordinates" }
+            require(coordinate.request() == PublishedQueryEntry.key(capability)) { "published semantic sources have different coordinates" }
             require(capability == published.queryCapability) { "compiled semantic source has a different frozen query capability" }
             val dimensions = capability.analysisDimensionCandidates.map { dimension ->
                 val scopes = dimension.eventMappings.map { DimensionScope(it.levelCode, it.eventId, it.eventVersion) }.toSet()
@@ -57,7 +56,7 @@ class PublishedSemanticCatalogProducer : ReleaseSemanticCatalogCompiler {
             val filters = capability.filterCandidates.map { Filter(it.filterRefId, release.scenarioVersion, it.filterTargetDisplayName,
                 AssetReference(it.filterTargetObjectId, it.filterTargetObjectVersion), it.operators, scalarTypes(it.filterValueTypes), it.requiredByDefault,
                 it.eventMappings.map { mapping -> FilterMapping(mapping.levelCode, mapping.eventId, mapping.eventVersion) }) }
-            return PublishedSemanticCatalog.create(Catalog(coordinate, release.scenarioDisplayName, SourceJoinMeaning.current(), capability.metricCandidates.map(::metric),
+            return com.olap.prototype.codec.PublicationProto.semanticCatalog(Catalog(coordinate, release.scenarioDisplayName, SourceJoinMeaning.current(), capability.metricCandidates.map(::metric),
                 capability.memberCandidates.map(::memberSource), capability.relationFilterCandidates.map(::relationFilter), dimensions, times, combinations, filters, semanticDependencies(closure)))
         }
         private fun semanticDependencies(closure: MetricSource.Closure): List<SemanticDependency> = closure.dependencies.map { dependency -> when (dependency) {
@@ -85,16 +84,14 @@ class PublishedSemanticCatalogProducer : ReleaseSemanticCatalogCompiler {
                 candidate.sources.map { SourceExplanation(it.callPath, sourceScope(it)) }, aggregation)
         }
         private fun dimensionDefinition(id: String, version: Long, scopes: Set<DimensionScope>): DimensionDefinition {
-            val snapshot = snapshots.read(snapshots.require("ANALYSIS_DIMENSION", id, version), com.fasterxml.jackson.databind.JsonNode::class.java)
-            require(snapshot.isObject && snapshot.size() == 2 && snapshot.has("description") && snapshot.has("valueAlignmentEvidence") &&
-                snapshot["valueAlignmentEvidence"].isArray && (snapshot["description"].isNull || snapshot["description"].isTextual)) { "exact frozen dimension description is required" }
-            val description = if (snapshot["description"].isNull) null else snapshot["description"].textValue()
+            val snapshot = snapshots.read(snapshots.require("ANALYSIS_DIMENSION", id, version), FrozenAnalysisDimensionMeaning::class.java)
+            val description = snapshot.description
             val units = linkedMapOf<String, LogicUnitMeaning>()
             val mappings = linkedMapOf<String, DefinitionMapping>()
             release.dimensionMappings.filter { it.analysisDimensionId == id && it.analysisDimensionVersion == version && DimensionScope(it.levelCode, it.eventId, it.eventVersion) in scopes }.forEach { rule ->
                 val binding = frozenDimensionBinding(rule.dimensionBindingId, rule.dimensionBindingVersion)
                 val owner = "dimension:${binding.id}@${binding.version}"
-                val expression = requireNotNull(definition(rule.expressionJson, units, owner, binding.accessPath.joinPathRefs, binding.roles))
+                val expression = requireNotNull(definition(rule.expression, units, owner, binding.accessPath.joinPathRefs, binding.roles))
                 val access = rolePath(owner, emptyList(), binding.accessPath, units, linkedSetOf())
                 val roles = roleMeanings(owner, binding.roles, listOf(binding.expression), units)
                 val mapping = DefinitionMapping(rule.levelCode, rule.eventId, rule.eventVersion, expression, access, roles, optionalCollections(eventCollections(rule.eventId, rule.eventVersion)))
@@ -118,7 +115,7 @@ class PublishedSemanticCatalogProducer : ReleaseSemanticCatalogCompiler {
                     require(join.joinPathId == reference.joinPathId && join.joinPathVersion == reference.joinPathVersion) { "frozen role step differs from exact join identity" }
                     val parent = position.toList()
                     position.add(reference)
-                    val temporal = TemporalJoinContract.parse(requireNotNull(join.temporalConfigJson), "role step temporal constraint")
+                    val temporal = join.temporal
                     val intervals = temporal?.intervals.orEmpty().mapIndexed { index, interval ->
                         val clock: SemanticJoin.Clock
                         val scope: SemanticJoin.ClockScope
@@ -174,7 +171,7 @@ class PublishedSemanticCatalogProducer : ReleaseSemanticCatalogCompiler {
             val eventScope = requireNotNull(executable.events["$eventId@$eventVersion"]) { "exact executable event is required" }
             val eventRoles = roleMeanings("event", eventScope.roles, listOfNotNull(eventScope.baseFilter), units)
             val event = snapshots.read(snapshots.require("EVENT", eventId, eventVersion), EventExecutionSnapshot::class.java)
-            val eventPredicate = definition(event.baseFilterJson, units, "event", emptyList(), eventScope.roles)
+            val eventPredicate = definition(event.baseFilter, units, "event", emptyList(), eventScope.roles)
             val fact = executable.requireMetric(reference).definition as MetricDefinition.FactMeasure
             fact.snapshotRule?.keys()?.forEach { semanticReference(it.id, it.version, units) }
             val owner = "metric:${reference.key()}"
@@ -262,8 +259,6 @@ class PublishedSemanticCatalogProducer : ReleaseSemanticCatalogCompiler {
             }
         }
         private fun optionalCollections(collections: List<SealedSourceCollectionMeaning>): CatalogOptional<List<SealedSourceCollectionMeaning>> = if (collections.isEmpty()) CatalogOptional.absent() else CatalogOptional.of(collections)
-        private fun definition(json: String?, units: MutableMap<String, LogicUnitMeaning>, owner: String, local: List<RelationAccessPath.JoinRef>, roles: Map<String, RelationAccessPath>): PublicExpression? =
-            if (json.isNullOrBlank()) null else definition(SemanticExpressionCodec.parse(json, "published frozen semantic definition"), units, owner, local, roles)
         private fun definition(expression: SemanticExpression?, units: MutableMap<String, LogicUnitMeaning>, owner: String, local: List<RelationAccessPath.JoinRef>, roles: Map<String, RelationAccessPath>): PublicExpression? {
             if (expression == null) return null
             SemanticExpressionInspector.references(expression).forEach { reference ->

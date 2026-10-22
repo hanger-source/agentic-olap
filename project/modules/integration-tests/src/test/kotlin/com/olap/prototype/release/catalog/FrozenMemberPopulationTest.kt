@@ -1,6 +1,6 @@
 package com.olap.prototype.release.catalog
 
-import com.fasterxml.jackson.databind.JsonNode
+import com.olap.prototype.codec.GovernanceProto
 import com.olap.prototype.contract.ProducerContractException
 import com.olap.prototype.member.*
 import com.olap.prototype.metric.MetricAggregation
@@ -66,9 +66,7 @@ class FrozenMemberPopulationTest {
                     val members = memberScope("destinations", listOf("id", "label"))
                     val saved = definitions.service.save(definitions.command("destination_members", members), "tester")
                     val restored = definitions.service.requireByIdAndVersion(saved.definitionId, saved.definitionVersion)
-                    val input = request(listOf(call(catalog, "unused", "amount")), timed = false)
-                    input.set<JsonNode>("computation", restored.intent.required("computation"))
-                    val rows = execute(fixture, catalog, input)
+                    val rows = execute(fixture, catalog, restored.intent.computation)
                     val expected = mutableSetOf("7", "8", "9")
                     if (direction in setOf("LEFT", "FULL")) expected += "NULL"
                     if (direction in setOf("RIGHT", "FULL")) expected += "99"
@@ -101,7 +99,7 @@ class FrozenMemberPopulationTest {
                 listOf(false, true).forEach { attribute ->
                     val computation = memberScope("members", if (attribute) listOf("id", "label") else listOf("id"))
                     val command = definitions.command(if (attribute) "attributes" else "identities", computation)
-                    val input = mapper.createObjectNode().put("requestId", "member_trial").also { it.set<JsonNode>("computation", mapper.valueToTree(computation)) }
+                    val input = computation
                     if (attribute && !unique && shape != MemberShape.RAW_BAG) {
                         val failure = assertThrows(ProducerContractException::class.java) { definitions.service.save(command, "tester") }
                         assertTrue(failure.message.orEmpty().contains("COMPILE_REL"), failure.message)
@@ -109,8 +107,7 @@ class FrozenMemberPopulationTest {
                         assertThrows(IllegalArgumentException::class.java) { execute(fixture, catalog, input) }
                     } else {
                         val saved = definitions.service.save(command, "tester")
-                        input.set<JsonNode>("computation", definitions.service.requireByIdAndVersion(saved.definitionId, saved.definitionVersion).intent.required("computation"))
-                        val rows = execute(fixture, catalog, input)
+                        val rows = execute(fixture, catalog, definitions.service.requireByIdAndVersion(saved.definitionId, saved.definitionVersion).intent.computation)
                         val actual = rows.map { (it.first() as Number).toInt() }.sorted()
                         val expected = when {
                             shape == MemberShape.RAW_BAG && attribute && !unique -> listOf(1, 1, 1, 2, 2, 2, 3, 4, 5, 5, 5)
@@ -141,7 +138,7 @@ class FrozenMemberPopulationTest {
 
     private fun appendMember(fixture: FrozenPublicationFixture, base: ReleaseCatalogView, member: PublishedMemberSource) = ReleaseCatalogView(
         base.scenarioId, base.scenarioVersion, base.scenarioDisplayName, base.releaseId, base.releaseVersion, base.releaseDisplayName,
-        base.objectVersionRefs + fixture.objectRef("MEMBER_SOURCE", member.source.id, member), base.metricAnalysisDimensionCapability,
+        base.objectVersionRefs + fixture.objectRef("MEMBER_SOURCE", member.source.id, GovernanceProto.toProto(member)), base.metricAnalysisDimensionCapability,
         base.dimensionMappings, base.timeAnchorRule, base.unavailableReason, base.diagnostics)
 
     private fun memberPublication(release: ReleaseCatalogView, sourceId: String): PublishedExecutableCatalog {

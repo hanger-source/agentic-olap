@@ -59,41 +59,49 @@ HTTP 来源同样使用两类参数和具名凭据引用，具体允许项由精
 
 ## 观察实际来源
 
-启动服务后：
+用 `describe-script-api` 读取 `list-data-sources/read-connector-capabilities/inspect-warehouse` 的正式 Kotlin 方法和类型，然后在脚本中调查所选绑定。例如：
 
-```sh
-agentic-olap call list-data-sources --payload '{}'
-agentic-olap call read-connector-capabilities --payload '{}'
-```
+~~~kotlin
+val sources = olap.sources.list(EmptyRequest)
+val selected = sources.items.single {
+    it.binding.dataSourceId == parameters.text("dataSourceId") &&
+        it.binding.sourceIdentityHash == parameters.text("sourceIdentityHash")
+}
+val observation = olap.sources.inspect(
+    SourceInspection.Discover(
+        binding = selected.binding,
+        catalog = null,
+        schemaPattern = null,
+        tablePattern = null,
+        tableTypes = emptyList(),
+        limit = 20
+    )
+)
+olap.output(observation)
+~~~
 
-来源列表每项返回 `dataSourceId/sourceIdentityHash/connectorRef/dialectId/accessCapabilities`。明确选定本次绑定后，把返回的实际摘要放入调查请求：
+来源项给出 `binding/connectorRef/dialectId/accessCapabilities`。调查支持范围先通过 `SourceInspection.Capabilities` 读取；其他调查变体都要求精确绑定。表列表截断、几行样本或当前唯一不证明完整总体、历史保证或业务口径。读取插件声明无需连接数据库：
 
-```sh
-agentic-olap call inspect-warehouse --payload '{"operation":"discover","payload":{"dataSourceId":"business","sourceIdentityHash":"替换为所选绑定的实际64位摘要","limit":20}}'
-```
+~~~kotlin
+olap.output(olap.sources.connectorCapabilities(ConnectorCapabilitiesRequest(aggregate = null)))
+~~~
 
-`read-connector-capabilities` 的 `connectors` 返回当前主体可访问来源所用的 `connectorRef`、`nativeScalarFunctions`、`compilationCapabilities`、`parameterSubmission` 和 `configurationParameters`；它描述运行中服务，与本地 `connectors` 报告的随包文件分别读取。这些声明不代替真实后端验证。若编译返回 `NATIVE_COMPILATION_CAPABILITY_MISSING`，按错误中的 `capability/operation` 检查精确插件；例如数值绑定要求的 `CORRELATED_DERIVED_PROJECTION` 与普通 EXISTS 条件相关是不同能力。来源支持调查时，按 `describe-operation` 和 `read-inspection-capability` 读取结构与必要样本；除读取能力合同外，调查请求均须带精确 `dataSourceId/sourceIdentityHash`。表列表截断、样本缺少记录或当前唯一不能被推断为完整总体、历史保证或业务口径。
+`connectors` 返回精确 `connectorRef`、原生标量函数、编译能力、参数提交策略和参数角色声明。声明不代替真实后端验证。若编译返回 `NATIVE_COMPILATION_CAPABILITY_MISSING`，按其 capability/operation 检查精确插件；例如数值绑定要求的相关派生投影与普通 EXISTS 条件相关是不同能力。
 
-组织 AVG 等数值聚合时，先用 `describe-operation` 读取 `read-connector-capabilities` 的完整输入合同，再提交 `aggregate={connectorRef,aggregation,inputType,grouped}`。`inputType` 是聚合输入表达式的原生类型，例如 `{"name":"BIGINT","precision":null,"scale":null,"nullable":true}`；DECIMAL 必须有完整 precision、scale，文本须有实际长度。`grouped=false` 表示全局聚合，`true` 表示普通非空分组键，空分组集合按全局查询。`aggregate.mapping` 的 `MAPPED` 给出原生 `resultType` 与 `aggregationRounding`，`UNAVAILABLE` 表示插件未为此输入兑现映射。该读取不连接来源，也不证明完整查询可执行。
+组织 AVG 等聚合前，用 `ConnectorCapabilitiesRequest.Aggregate(connectorRef, aggregation, inputType, grouped)` 读取该输入的正式映射。`aggregation` 是 `ResultAggregation.Kind`；`inputType` 是 `NativeValueType`，给出实际类型、容量和可空性，不能拿最终输出合同代替。DECIMAL 须明确 precision/scale。全局聚合用 `grouped=false`，普通非空分组键用 true，空分组集合按全局处理。`mapping` 区分插件已经兑现的结果类型与原生舍入，以及明确未实现的映射；此读取不证明整个查询可执行。
 
-AVG 仍须提供非空数量合同。`aggregationRounding` 明确接受原生 AVG 自身的舍入，必须匹配该输入的插件声明；`valueContract.result.rounding` 是额外的最终输出舍入，两者不能互换。原生浮点 AVG 不能据此声明 Exact；原 SQL 没写 ROUND 也不能推出原生舍入为 NONE。遇到映射未实现，由插件查明真实后端类型和舍入，不能猜 DECIMAL 容量、转 DOUBLE 或在客户端重算。
+AVG 仍须提供非空数量合同。事实度量的 `aggregationRounding`、完成关系中 `ResultAggregation.Average.rounding` 明确接受原生 AVG 自身的舍入，须匹配该输入的插件声明；`valueContract.result.rounding` 是额外的最终输出舍入，两者不能互换。原生浮点 AVG 不能据此声明 Exact；原 SQL 没写 ROUND 也不能推出原生舍入为 NONE。遇到映射未实现，由插件查明真实后端类型和舍入，不能猜 DECIMAL 容量、转 DOUBLE 或在客户端重算。
 
 ## 显式提供结构
 
-没有 catalog 权限或由配置、已有平台、数据目录提供结构时，先读取准确命令合同：
-
-```sh
-agentic-olap call describe-governance-command --payload '{"operation":"register-source-structure"}'
-```
-
-通过 `write-governance` 调用该命令，提供已授权的精确 `dataSourceId/sourceIdentityHash`、表与字段的 SQL 类型、约束声明、`authority/revision` 及本次主体的 `requestedBy`。返回的 snapshot、tables、columns 可直接用于现有物理定义、语义建设与发布，不要求先调用 `discover-source`。主键需明确声明不可空，不能从查询返回头或样本猜测。
+没有 catalog 权限或由配置、已有平台、数据目录提供结构时，用 `describe-script-api` 读取 `register-source-structure` 和 `SourceStructureRegistrationRequest` 的真实构造器，再通过 `olap.governance.registerSourceStructure` 提供已授权的精确 `dataSourceId/sourceIdentityHash`、表与字段的 SQL 类型、约束声明、`authority/revision` 及 `requestedBy=olap.caller.subject`。回执给出 `snapshotId`、状态及表、列计数；用 `olap.semantics.sourceDiscovery/discoveredTables/discoveredColumns` 按实际引用继续读取持久结构，供物理定义、语义建设与发布使用，不要求先调查数据库。主键需明确声明不可空，不能从查询返回头或样本猜测。
 
 字段应明确提供类型、顺序与可空性；`autoIncrement/generated` 未知时可以不提供，服务保留未知。`structureProvenance.kind=DECLARED` 表示明确提供的结构，外部目录与数据库观察分别标记来源。声明不等于已经核验的保证；查询实际依赖关系或约束检查时，插件必须兑现检查与计算的一致性。事务快照是实现方式之一；来源也可通过原子 SQL 或不可变数据版本兑现。插件可明确选择安全字面量 SQL 提交，无需假称参数绑定。缺少能力会以 `SOURCE_CAPABILITY_MISSING` 指出来源、操作和能力，只影响实际依赖它的操作。
 
-同一物理表身份的新版本可以显式采用同一稳定业务来源的另一绑定；已有版本和发布仍保留原绑定。旧发布的绑定必须继续部署，缺失时执行明确失败，不自动选用同 ID 的其他绑定。运行参数调整不改变绑定，重启后使用实际部署策略。服务使用存储格式 `15`，不自动改写旧格式持久根，恢复时使用匹配发行构件及精确插件；所选资产可通过 `read-deployment-availability` 分别核验读取和执行前提。
+同一物理表身份的新版本可以显式采用同一稳定业务来源的另一绑定；已有版本和发布仍保留原绑定。旧发布的绑定必须继续部署，缺失时执行明确失败，不自动选用同 ID 的其他绑定。运行参数调整不改变绑定，重启后使用实际部署策略。服务使用存储格式 `16`，不自动改写旧格式持久根，恢复时使用匹配发行构件及精确插件；所选资产可通过 `read-deployment-availability` 分别核验读取和执行前提。
 
 ## 使用已声明的原生函数
 
-需要后端原生标量能力时，先读取 `read-connector-capabilities` 的实际 `nativeScalarFunctions`，再从表达式合同取得 `NATIVE_CALL` 的准确形状。调用提交精确 `connectorRef`、函数 ID 和有序参数；`SCALAR` 输入完整表达式，`PHYSICAL_TABLE` 输入已采用的 `physicalTableId/physicalTableVersion`，不能传自由表名或 SQL。结果类型、算术保证和 `IMMUTABLE/STATEMENT/VOLATILE` 稳定性以该函数声明为准，不凭函数名或方言推测，也不把原生浮点结果升级为精确数量。
+需要后端原生标量能力时，先用 `olap.sources.connectorCapabilities` 读取实际 `nativeScalarFunctions`，再从 Kotlin 类型发现取得 `SemanticExpression.NativeCall` 及其参数变体。调用提交精确 `connectorRef`、函数 ID 和有序参数；Scalar 参数输入完整表达式，PhysicalTable 参数输入已采用的精确物理表身份和版本，不能传自由表名或 SQL。结果类型、算术保证和 `IMMUTABLE/STATEMENT/VOLATILE` 稳定性以该函数声明为准，不凭函数名或方言推测，也不把原生浮点结果升级为精确数量。
 
 有适用语义资产时直接复用；需要新增含义时，Agent 结合业务资料和来源调查，通过治理合同明确创建、组合、采用和发布定义。配置来源不要求研发指标代码。

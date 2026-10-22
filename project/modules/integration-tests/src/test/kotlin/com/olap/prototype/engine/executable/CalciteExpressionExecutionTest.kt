@@ -6,6 +6,8 @@ import com.olap.prototype.engine.calcite.*
 import com.olap.prototype.engine.catalog.ExecutablePhysicalExecutionBinding
 import com.olap.prototype.engine.catalog.ExecutableRelationPosition.Id
 import com.olap.prototype.expression.*
+import com.olap.prototype.codec.SemanticProto
+import com.olap.prototype.codec.ProtoBytes
 import com.olap.prototype.integration.TestConnectors
 import com.olap.prototype.metric.MetricValueContract
 import com.olap.prototype.query.ScalarValueType
@@ -30,6 +32,8 @@ import java.util.Collections
 import java.util.IdentityHashMap
 
 class CalciteExpressionExecutionTest {
+    private fun frozenExpression(expression: SemanticExpression): SemanticExpression = SemanticProto.fromProto(
+        ProtoBytes.decode(ProtoBytes.encode(SemanticProto.toProto(expression)), com.olap.prototype.wire.semantic.SemanticExpression.getDefaultInstance()))
     @TempDir lateinit var directory: Path
     private fun quantity(arithmetic: MetricValueContract.Arithmetic, result: MetricValueContract.Result) = MetricValueContract(
         MetricValueContract.Fixed(MetricValueContract.UnitIdentity("trial", "money", 1)), arithmetic, result, emptyMap(), MetricValueContract.Overflow.FAIL)
@@ -189,13 +193,13 @@ class CalciteExpressionExecutionTest {
                 (3,'2026-03-10 02:30:00.123457','2026-03-08 02:30:00.123456'),
                 (4,'2026-03-08 23:59:59','2026-03-09 00:00:00'),(5,'2026-03-08 02:30:00',NULL)""")).use { source ->
             val binding = source.adopt("elapsed", mapOf("started" to "started", "ended" to "ended"))
-            fun elapsed(unit: String) = SemanticExpression.Call(ScalarFunction.TIMESTAMPDIFF, listOf(SemanticExpression.Literal(unit), SemanticExpressionCodec.logicUnit("started", 1), SemanticExpressionCodec.logicUnit("ended", 1)))
+            fun elapsed(unit: String) = SemanticExpression.Call(ScalarFunction.TIMESTAMPDIFF, listOf(SemanticExpression.Literal(unit), SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, "started", 1), SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, "ended", 1)))
             val microseconds = elapsed("MICROSECOND"); val hours = elapsed("HOUR")
             assertEquals(ScalarValueType.NUMBER, SemanticExpressionValueType.resolve(hours, { ScalarValueType.LOCAL_TIMESTAMP },
                 { call -> TestConnectors.registry.require(call.connectorRef).compilation.requireNativeScalarFunction(call.function) }))
             val late = SemanticExpression.Operation(SemanticExpression.Operator.GT, listOf(microseconds, SemanticExpression.Literal(172800000000L)))
             val parameters = mutableListOf<JdbcParameter>(); val b = builder(binding); val compiler = localCompiler(b, binding, parameters)
-            b.project(listOf(b.field("position"), compiler.compile(SemanticExpressionCodec.parse(SemanticExpressionCodec.write(microseconds), "frozen elapsed time")), compiler.compile(hours), compiler.compile(late)),
+            b.project(listOf(b.field("position"), compiler.compile(frozenExpression(microseconds)), compiler.compile(hours), compiler.compile(late)),
                 listOf("position", "microseconds", "hours", "late"), true).sort(b.field("position"))
             val raw = b.build(); val optimized = CalciteQueryCompiler.optimize(raw, parameters)
             listOf(raw, optimized).forEach { plan ->
@@ -214,7 +218,7 @@ class CalciteExpressionExecutionTest {
         }
     }
     @Test fun calendarTruncationUsesCalciteValidationAndMondayWeeksOnRealWarehouse() {
-        val value = SemanticExpressionCodec.logicUnit("value", 1)
+        val value = SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, "value", 1)
         val week = SemanticExpression.Call(ScalarFunction.DATE_TRUNC, listOf(SemanticExpression.Literal("week"), value))
         val precise = SemanticExpression.Cast(value, SemanticExpression.ValueType.TIMESTAMP, 6, null, MetricValueContract.Rounding.NONE)
         val month = SemanticExpression.Call(ScalarFunction.DATE_TRUNC, listOf(SemanticExpression.Literal("MONTH"), precise))
@@ -243,8 +247,8 @@ class CalciteExpressionExecutionTest {
             "CREATE TABLE clocks(observed_at ${if (dialect == "h2") "TIMESTAMP(9)" else "TIMESTAMP_NS"})",
             "INSERT INTO clocks VALUES ('2026-03-08 02:30:00.123456789')")).use { source ->
             val amount = source.adopt("amounts", mapOf("value" to "amount"))
-            val decimal = SemanticExpressionCodec.parse(SemanticExpressionCodec.write(SemanticExpressionCodec.parse(
-                """{"kind":"CAST","targetType":"DECIMAL","precision":18,"scale":4,"rounding":"HALF_UP","expression":{"kind":"LOGIC_UNIT","logicUnitId":"value","logicUnitVersion":1}}""", "cast input")), "frozen cast")
+            val decimal = frozenExpression(SemanticExpression.Cast(SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, "value", 1),
+                SemanticExpression.ValueType.DECIMAL, 18, 4, com.olap.prototype.metric.MetricValueContract.Rounding.HALF_UP))
             assertEquals(ScalarValueType.NUMBER, SemanticExpressionValueType.resolve(decimal, { ScalarValueType.NUMBER },
                 { call -> TestConnectors.registry.require(call.connectorRef).compilation.requireNativeScalarFunction(call.function) }))
             val parameters = mutableListOf<JdbcParameter>(); val b = builder(amount); val compiler = localCompiler(b, amount, parameters)
@@ -268,7 +272,8 @@ class CalciteExpressionExecutionTest {
             val unknown = rows(source, CalciteQueryCompiler.optimize(nullBuilder.build(), parameters), parameters).single().single() as Number
             assertEquals(1L, unknown.toLong(), dialect)
             val clock = source.adopt("clocks", mapOf("value" to "observed_at"))
-            val timestamp = SemanticExpressionCodec.parse("""{"kind":"CAST","targetType":"TIMESTAMP","rounding":"NONE","expression":{"kind":"LOGIC_UNIT","logicUnitId":"value","logicUnitVersion":1}}""", "precision-preserving cast")
+            val timestamp = frozenExpression(SemanticExpression.Cast(SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, "value", 1),
+                SemanticExpression.ValueType.TIMESTAMP, null, null, com.olap.prototype.metric.MetricValueContract.Rounding.NONE))
             parameters.clear()
             val request = CandidateValueCompiler.compile(clock, timestamp, 0, 10, parameters, TestConnectors.registry)
             source.connection.prepareStatement(request.sql).use { statement -> statement.executeQuery().use { rs ->

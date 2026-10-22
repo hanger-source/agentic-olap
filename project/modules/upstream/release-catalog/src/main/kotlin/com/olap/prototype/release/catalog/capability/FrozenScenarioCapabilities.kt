@@ -8,7 +8,8 @@ import com.olap.prototype.release.catalog.ReleaseObjectIndex
 import com.olap.prototype.release.contract.ReleaseCatalogView
 import com.olap.prototype.release.contract.ReleaseDimensionMapping
 import com.olap.prototype.release.contract.ReleaseScenarioSnapshot
-import com.olap.prototype.util.OlapJsonUtils
+import com.olap.prototype.release.contract.FrozenAnalysisDimensionMeaning
+import com.olap.prototype.codec.JsonDocuments
 
 /** 同一精确场景快照的批准投影，不读取工作目录或治理数据库。 */
 internal class FrozenScenarioCapabilities(private val release: ReleaseCatalogView, private val selection: ReleaseScenarioSnapshot) {
@@ -31,18 +32,14 @@ internal class FrozenScenarioCapabilities(private val release: ReleaseCatalogVie
         val reference = mapping.valueAlignmentKey
         if (reference.isNullOrBlank()) return
         try {
-            val content = OlapJsonUtils.mapper().readTree(objects.require("ANALYSIS_DIMENSION", mapping.analysisDimensionId, mapping.analysisDimensionVersion).snapshotSummaryJson)
-            val evidence = content.required("valueAlignmentEvidence")
-            require(evidence.isArray) { "alignment evidence must be explicit" }
-            val matches = evidence.filter { reference == it.path("id").textValue() }
+            val content = objects.read("ANALYSIS_DIMENSION", mapping.analysisDimensionId, mapping.analysisDimensionVersion, FrozenAnalysisDimensionMeaning::class.java)
+            val matches = content.valueAlignmentEvidence.filter { reference == it.id }
             require(matches.size == 1) { "alignment evidence must identify one exact proof" }
             val proof = matches.single()
-            require(mapping.analysisDimensionId == proof.path("analysisDimensionId").textValue() && proof.path("analysisDimensionVersion").isIntegralNumber &&
-                mapping.analysisDimensionVersion == proof.path("analysisDimensionVersion").longValue() && mapping.levelCode == proof.path("levelCode").textValue() &&
-                mapping.valueAlignmentStatus == proof.path("alignmentType").textValue() && proof.path("diagnosticStatus").textValue() == "PROVEN" &&
-                proof.path("confirmedBy").isTextual && proof.path("confirmedBy").textValue().isNotBlank()) { "alignment differs from its exact confirmed evidence" }
-            val body = OlapJsonUtils.mapper().readTree(proof.required("evidenceJson").textValue())
-            require(body != null && body.isObject && !body.isEmpty) { "alignment proof requires nonempty evidence" }
+            require(mapping.analysisDimensionId == proof.analysisDimensionId && mapping.analysisDimensionVersion == proof.analysisDimensionVersion && mapping.levelCode == proof.levelCode &&
+                mapping.valueAlignmentStatus == proof.alignmentType && proof.diagnosticStatus == "PROVEN" &&
+                !proof.confirmedBy.isNullOrBlank()) { "alignment differs from its exact confirmed evidence" }
+            JsonDocuments.requireNonEmptyObject(proof.evidenceJson)
         } catch (failure: java.io.IOException) { throw ProducerContractException("frozen dimension alignment evidence is invalid", failure) }
         catch (failure: IllegalArgumentException) { throw ProducerContractException("frozen dimension alignment evidence is invalid", failure) }
     }
@@ -69,7 +66,7 @@ internal class FrozenScenarioCapabilities(private val release: ReleaseCatalogVie
             mappings.any { it.eventId == anchor.eventId && it.eventVersion == anchor.eventVersion && it.levelCode == anchor.levelCode } }
         if (grant.valueProviderId != null) objects.require("LOGIC_UNIT", requireNotNull(grant.valueProviderLogicUnitId), requireNotNull(grant.valueProviderLogicUnitVersion))
         ScenarioFilterReference(grant.id, grant.targetType, if (time) "TIME_DIMENSION" else "DIMENSION", grant.targetId, grant.targetVersion, dimension.displayName,
-            dimension.releaseObjectRefId, grant.operatorsJson, grant.valueProviderId, grant.valueProviderType, grant.valueProviderLogicUnitId, grant.valueProviderLogicUnitVersion,
+            dimension.releaseObjectRefId, grant.operators, grant.valueProviderId, grant.valueProviderType, grant.valueProviderLogicUnitId, grant.valueProviderLogicUnitVersion,
             mappings, grant.requiredByDefault, grant.sortOrder)
     }
     fun findScenarioPostProcessCapabilities(): List<PostProcessCapability> = selection.stages

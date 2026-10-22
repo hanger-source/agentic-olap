@@ -7,7 +7,7 @@ import com.olap.prototype.query.SourceJoinContract
 data class ReleaseJoinPathRef(val joinPathId: String, val joinPathVersion: Long) {
     init { ProducerContracts.requireText(joinPathId, "joinPathId"); ProducerContracts.requireVersion(joinPathVersion, "joinPathVersion") }
 }
-class ReleaseJoinPathSnapshot(val joinPathId: String, val joinPathVersion: Long, val topologyId: String, val topologyVersion: Long, val sourceLogicalTableId: String, val sourceLogicalTableVersion: Long, val targetLogicalTableId: String, val targetLogicalTableVersion: Long, val joinType: String, val cardinality: String, val temporalConfigJson: String?, val nullPolicy: String, keys: List<Key>) {
+class ReleaseJoinPathSnapshot(val joinPathId: String, val joinPathVersion: Long, val topologyId: String, val topologyVersion: Long, val sourceLogicalTableId: String, val sourceLogicalTableVersion: Long, val targetLogicalTableId: String, val targetLogicalTableVersion: Long, val joinType: String, val cardinality: String, val temporal: com.olap.prototype.query.TemporalJoinContract.Constraint?, val nullPolicy: String, keys: List<Key>) {
     val keys: List<Key> = ProducerContracts.requireList(keys, "keys")
     init {
         ProducerContracts.requireText(joinPathId, "joinPathId"); ProducerContracts.requireVersion(joinPathVersion, "joinPathVersion")
@@ -24,6 +24,6 @@ class ReleaseJoinPathSnapshot(val joinPathId: String, val joinPathVersion: Long,
             ProducerContracts.requireText(targetLogicUnitId, "targetLogicUnitId"); ProducerContracts.requireVersion(targetLogicUnitVersion, "targetLogicUnitVersion")
         }
     }
-    override fun equals(other: Any?): Boolean = other is ReleaseJoinPathSnapshot && joinPathId == other.joinPathId && joinPathVersion == other.joinPathVersion && topologyId == other.topologyId && topologyVersion == other.topologyVersion && sourceLogicalTableId == other.sourceLogicalTableId && sourceLogicalTableVersion == other.sourceLogicalTableVersion && targetLogicalTableId == other.targetLogicalTableId && targetLogicalTableVersion == other.targetLogicalTableVersion && joinType == other.joinType && cardinality == other.cardinality && temporalConfigJson == other.temporalConfigJson && nullPolicy == other.nullPolicy && keys == other.keys
-    override fun hashCode(): Int = listOf(joinPathId, joinPathVersion, topologyId, topologyVersion, sourceLogicalTableId, sourceLogicalTableVersion, targetLogicalTableId, targetLogicalTableVersion, joinType, cardinality, temporalConfigJson, nullPolicy, keys).hashCode()
+    override fun equals(other: Any?): Boolean = other is ReleaseJoinPathSnapshot && joinPathId == other.joinPathId && joinPathVersion == other.joinPathVersion && topologyId == other.topologyId && topologyVersion == other.topologyVersion && sourceLogicalTableId == other.sourceLogicalTableId && sourceLogicalTableVersion == other.sourceLogicalTableVersion && targetLogicalTableId == other.targetLogicalTableId && targetLogicalTableVersion == other.targetLogicalTableVersion && joinType == other.joinType && cardinality == other.cardinality && temporal == other.temporal && nullPolicy == other.nullPolicy && keys == other.keys
+    override fun hashCode(): Int = listOf(joinPathId, joinPathVersion, topologyId, topologyVersion, sourceLogicalTableId, sourceLogicalTableVersion, targetLogicalTableId, targetLogicalTableVersion, joinType, cardinality, temporal, nullPolicy, keys).hashCode()
 }

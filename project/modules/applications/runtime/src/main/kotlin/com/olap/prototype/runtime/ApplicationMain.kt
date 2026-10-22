@@ -19,7 +19,7 @@ fun main(args: Array<String>) {
     }
     val input = BufferedInputStream(System.`in`)
     val initial = ProtocolPeer.readFrame(input, 64 * 1024 * 1024) ?: error("supervisor bootstrap is required")
-    require(initial.bodyCase == Frame.BodyCase.BOOTSTRAP && initial.bootstrap.protocol == "agentic-olap-runtime/v1") {
+    require(initial.bodyCase == Frame.BodyCase.BOOTSTRAP && initial.bootstrap.protocol == "agentic-olap-runtime/v2") {
         "unsupported runtime protocol bootstrap"
     }
     val bootstrap = initial.bootstrap
@@ -29,7 +29,7 @@ fun main(args: Array<String>) {
         when (args[1]) {
             "metadata" -> {
                 val config = BoundedJson.decode(bootstrap.deploymentJson.toByteArray(), budgets.io)
-                ServerApplication.open(config, budgets.io, RemoteWorkers(peer)).use { application ->
+                ServerApplication.open(config, budgets.io, RemoteWorkers(peer, budgets.frameBytes, budgets.io.inputDepth)).use { application ->
                     peer.send(Frame.newBuilder().setResponse(Response.newBuilder().setRequestId("bootstrap")
                         .setSuccess(true).setReady(application.ready())).build())
                     try { peer.serve { request -> metadataResponse(application, request, budgets) } }
@@ -55,9 +55,34 @@ private fun metadataResponse(application: ServerApplication, wire: Request, budg
         DeadlineExecutionControl(wire.remainingMillis).use { control ->
             val request = ServerRequest(ServerAuthorization.Principal(wire.principal.subject, wire.principal.scopesList),
                 RemoteWorkers.Request(wire.requestId, control, System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(wire.remainingMillis)))
-            val payload = BoundedJson.decode(wire.payloadJson.toByteArray(), budgets.io)
-            require(wire.payloadJson.size() <= budgets.io.requestBytes) { "request exceeds deployed JSON byte budget" }
-            val result = application.dispatch(wire.operation, request, payload)
+            require(!wire.hasWorkerModel()) { "metadata process does not accept worker commands" }
+            require(listOf(wire.hasCapability(), wire.hasDelivery(), wire.hasResultAuthorization(), !wire.payloadJson.isEmpty).count { it } == 1) {
+                "request must select one explicit application contract"
+            }
+            val result = when {
+                wire.hasCapability() -> {
+                    require(wire.operation == "call-capability" && wire.capability.serializedSize <= budgets.io.requestBytes) {
+                        "invalid or oversized capability invocation"
+                    }
+                    application.invoke(request, wire.capability)
+                }
+                wire.hasDelivery() -> {
+                    require(wire.operation == "complete-result-delivery" && wire.delivery.serializedSize <= budgets.io.responseBytes) {
+                        "invalid or oversized result confirmation"
+                    }
+                    application.completeDelivery(request, wire.delivery)
+                }
+                wire.hasResultAuthorization() -> {
+                    require(wire.operation == "authorize-result" && wire.resultAuthorization.serializedSize <= budgets.io.requestBytes) {
+                        "invalid result authorization request"
+                    }
+                    application.authorizeResult(request, wire.resultAuthorization)
+                }
+                else -> {
+                    require(wire.payloadJson.size() <= budgets.io.requestBytes) { "request exceeds deployed JSON byte budget" }
+                    application.dispatch(wire.operation, request, BoundedJson.decode(wire.payloadJson.toByteArray(), budgets.io))
+                }
+            }
             if (result is Response) result else Response.newBuilder().setRequestId(wire.requestId).setSuccess(true)
                 .setResultJson(ByteString.copyFrom(BoundedJson.encode(result, budgets.io.responseBytes))).build()
         }

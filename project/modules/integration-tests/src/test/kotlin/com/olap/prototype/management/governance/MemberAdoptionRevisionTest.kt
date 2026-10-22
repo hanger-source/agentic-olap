@@ -49,7 +49,7 @@ class MemberAdoptionRevisionTest {
             val rows = f.execute(current, QueryComputation.Scope(newRoot, emptyMap(), emptyList())).result.resultFrame.rows
             assertEquals(listOf("3"), rows.map { it["order"] })
             assertEquals(70, (rows.single()["amount"] as Number).toInt())
-            val retained = f.execute(previous, QueryComputation.parse(oldQuery.intent.required("computation"))).result.resultFrame.rows
+            val retained = f.execute(previous, oldQuery.intent.computation).result.resultFrame.rows
             assertEquals(setOf("2", "3"), retained.map { it["order"] }.toSet())
             assertEquals(MemberDefinitionOrigin.Shared(MemberDefinitionRef(c.sharedRule.id, 1)), f.adoptions.memberSource(source.id, 1).origin)
             assertThrows(ProducerContractException::class.java) { run("revise-member-adoption", request) }
@@ -153,7 +153,7 @@ class MemberAdoptionRevisionTest {
     private fun commands(database: PlatformDatabase, f: GovernanceOrderFixture): (String, Any) -> Any {
         val operations = GovernanceOperations(GovernanceApplication(database, f.connectors), emptyMap(), f.onboarding)
         val inspection = JdbcSourceInspection(JdbcWarehouseInspector(f.connectors), f.connectors)
-        return { operation, request -> operations.dispatchAuthenticated(operation, f.mapper.valueToTree(request),
+        return { operation, request -> operations.dispatchAuthenticated(operation, request,
             RuntimeDeploymentLimits.CONTROL, "golden", inspection) {} }
     }
 }

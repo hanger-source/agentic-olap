@@ -1,7 +1,7 @@
 package com.olap.prototype.management.governance
 
-import com.fasterxml.jackson.databind.JsonNode
-import com.fasterxml.jackson.databind.node.ObjectNode
+import com.olap.prototype.codec.GovernanceProto
+import com.olap.prototype.codec.ProtoBytes
 import com.olap.prototype.connector.JdbcAccess
 import com.olap.prototype.contract.JdbcColumnType
 import com.olap.prototype.contract.ProducerContractException
@@ -22,6 +22,8 @@ import com.olap.prototype.release.contract.*
 import com.olap.prototype.storage.PlatformDatabase
 import com.olap.prototype.util.OlapJsonUtils
 import com.olap.prototype.warehouse.contract.*
+import com.olap.prototype.warehouse.inspection.*
+import com.olap.prototype.warehouse.onboarding.SourceStructureRegistrationRequest
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
@@ -32,7 +34,6 @@ import java.time.Instant
 class ReleaseArtifactRepositoryTest {
     private val connectors = TestConnectors.registry
     private val now = Instant.parse("2026-07-21T00:00:00Z")
-    private val mapper = OlapJsonUtils.mapper()
 
     @Test
     fun reloadsFrozenCatalogAndCapabilitiesAndRejectsTamperedPublication(@TempDir directory: Path) {
@@ -69,10 +70,10 @@ class ReleaseArtifactRepositoryTest {
             val executable = artifacts.loadExecutableCatalog(request)
             assertEquals("rel_trade", executable.coordinate.releaseId)
             assertEquals("trade_daily", executable.coordinate.scenarioId)
-            val different = mapper.valueToTree<ObjectNode>(loaded).put("releaseId", "other_release")
-            val differentJson = mapper.writeValueAsString(different)
+            val different = GovernanceProto.toProto(loaded).toBuilder().setReleaseId("other_release").build()
+            val differentProto = ProtoBytes.storage(different)
             assertThrows(ProducerContractException::class.java) {
-                artifacts.saveCatalog(mapper.readValue(differentJson, ReleaseCatalogView::class.java), executable, now)
+                artifacts.saveCatalog(GovernanceProto.fromProto(different), executable, now)
             }
 
             // 修改实际存储且同步伪造producer摘要；坐标核验必须独立发现，不只比较摘要。
@@ -81,11 +82,11 @@ class ReleaseArtifactRepositoryTest {
                     val savepoint = connection.setSavepoint()
                     try {
                         connection.prepareStatement("""
-                            UPDATE release_executable_catalog SET producer_catalog_json=?, producer_catalog_hash=?
+                            UPDATE release_executable_catalog SET producer_catalog_proto=?, producer_catalog_hash=?
                             WHERE release_id=? AND release_version=? AND scenario_id=? AND scenario_version=?
                         """.trimIndent()).use { statement ->
-                            statement.setString(1, differentJson)
-                            statement.setString(2, artifacts.contentHash(differentJson))
+                            statement.setString(1, differentProto)
+                            statement.setString(2, artifacts.contentHash(differentProto))
                             statement.setString(3, request.releaseId)
                             statement.setString(4, request.releaseVersion)
                             statement.setString(5, request.scenarioId)
@@ -93,7 +94,7 @@ class ReleaseArtifactRepositoryTest {
                             assertEquals(1, statement.executeUpdate())
                         }
                         connection.prepareStatement("""
-                            UPDATE release_executable_catalog SET executable_catalog_json='{}'
+                            UPDATE release_executable_catalog SET executable_catalog_proto='invalid-protobuf'
                             WHERE release_id=? AND release_version=? AND scenario_id=? AND scenario_version=?
                         """.trimIndent()).use { statement ->
                             statement.setString(1, request.releaseId)
@@ -116,34 +117,34 @@ class ReleaseArtifactRepositoryTest {
     /** 产物仓储试验只需要精确根记录；绕过治理应用以独立观察存储重启/完整性边界。 */
     private fun saveReleaseRoot(database: PlatformDatabase) {
         val businessLines = BusinessLineGovernanceRepository(database)
-        businessLines.saveBusinessLine(BusinessLineRecord("travel", "travel", "旅游", "旅游", "platform", "ACTIVE", 1, "tester", now, "tester", now))
-        businessLines.saveBusinessLineVersion(BusinessLineVersionRecord("travel:v1", "travel", 1, "ACTIVE", mapper.writeValueAsString(mapOf(
-            "businessLineId" to "travel", "code" to "travel", "displayName" to "旅游", "description" to "旅游", "owner" to "platform", "status" to "ACTIVE")),
+        val businessLine = BusinessLineRecord("travel", "travel", "旅游", "旅游", "platform", "ACTIVE", 1, "tester", now, "tester", now)
+        businessLines.saveBusinessLine(businessLine)
+        businessLines.saveBusinessLineVersion(BusinessLineVersionRecord("travel:v1", "travel", 1, "ACTIVE", ProtoBytes.storage(GovernanceProto.definition(GovernanceDefinition.BusinessLine(businessLine))),
             "{}", null, "tester", now, "tester", now, null, null, null, null))
         val subjects = SubjectAreaGovernanceRepository(database)
-        subjects.saveSubjectArea(SubjectAreaRecord("trade", "trade", "交易", "travel", 1, "交易", "data", "ACTIVE", 1, "tester", now, "tester", now))
-        subjects.saveSubjectAreaVersion(SubjectAreaVersionRecord("trade:v1", "trade", 1, "ACTIVE", mapper.writeValueAsString(mapOf(
-            "subjectAreaId" to "trade", "code" to "trade", "displayName" to "交易", "businessLineId" to "travel", "businessLineVersion" to 1,
-            "description" to "交易", "owner" to "data", "status" to "ACTIVE")), "{}", null, "tester", now, "tester", now, null, null, null, null))
+        val subject = SubjectAreaRecord("trade", "trade", "交易", "travel", 1, "交易", "data", "ACTIVE", 1, "tester", now, "tester", now)
+        subjects.saveSubjectArea(subject)
+        subjects.saveSubjectAreaVersion(SubjectAreaVersionRecord("trade:v1", "trade", 1, "ACTIVE", ProtoBytes.storage(GovernanceProto.definition(GovernanceDefinition.SubjectArea(subject))),
+            "{}", null, "tester", now, "tester", now, null, null, null, null))
         val scenarios = ScenarioGovernanceRepository(database)
-        scenarios.saveScenario(ScenarioRecord("trade_daily", "trade", 1, "daily", "交易日报", "交易日报", "analyst", "ACTIVE", 1, "tester", now, "tester", now))
-        scenarios.saveScenarioVersion(ScenarioVersionRecord("trade_daily:v1", "trade_daily", 1, "ACTIVE", mapper.writeValueAsString(mapOf(
-            "scenarioId" to "trade_daily", "subjectAreaId" to "trade", "subjectAreaVersion" to 1, "code" to "daily", "displayName" to "交易日报",
-            "description" to "交易日报", "owner" to "analyst", "status" to "ACTIVE")), "{}", null, "tester", now, "tester", now, null, null, null, null))
+        val scenario = ScenarioRecord("trade_daily", "trade", 1, "daily", "交易日报", "交易日报", "analyst", "ACTIVE", 1, "tester", now, "tester", now)
+        scenarios.saveScenario(scenario)
+        scenarios.saveScenarioVersion(ScenarioVersionRecord("trade_daily:v1", "trade_daily", 1, "ACTIVE", ProtoBytes.storage(GovernanceProto.definition(GovernanceDefinition.Scenario(scenario))),
+            "{}", null, "tester", now, "tester", now, null, null, null, null))
         CanonicalReleaseRepository(database).saveRelease(CanonicalReleaseRepository.SubjectAreaReleaseRecord("rel_trade:1", "rel_trade", "交易发布", "trade", "1", 1, "BUILT", "tester", now))
     }
 
     private fun saveFrozenObjects(database: PlatformDatabase, references: List<ReleaseObjectRef>) {
         database.connection().use { connection -> connection.prepareStatement("""
             INSERT INTO release_object_ref
-              (id,release_id,release_version,object_type,object_id,object_version,object_code,object_display_name,ref_role,snapshot_summary_json,created_at)
+              (id,release_id,release_version,object_type,object_id,object_version,object_code,object_display_name,ref_role,snapshot_proto,created_at)
             VALUES (?,?,?,?,?,?,?,?,?,?,?)
         """.trimIndent()).use { statement ->
             references.forEach { reference ->
                 statement.setString(1, reference.id); statement.setString(2, reference.releaseId); statement.setString(3, reference.releaseVersion)
                 statement.setString(4, reference.objectType); statement.setString(5, reference.objectId); statement.setLong(6, reference.objectVersion)
                 statement.setString(7, reference.objectCode); statement.setString(8, reference.objectDisplayName); statement.setString(9, reference.refRole)
-                statement.setString(10, reference.snapshotSummaryJson); statement.setObject(11, reference.createdAt); statement.addBatch()
+                statement.setString(10, reference.snapshotProto); statement.setObject(11, reference.createdAt); statement.addBatch()
             }
             statement.executeBatch()
         } }
@@ -169,21 +170,23 @@ class ReleaseArtifactRepositoryTest {
                 JdbcColumnType(columns.getInt("DATA_TYPE"), columns.getString("TYPE_NAME"), columns.getInt("COLUMN_SIZE"), columns.getInt("DECIMAL_DIGITS"),
                     columns.getInt("NULLABLE") == DatabaseMetaData.columnNullable)
             }
-            val evidence = PhysicalSourceConstraints("restart-source-description", PublicationContentHash.compute(mapper.valueToTree<JsonNode>(mapOf("type" to type, "constraints" to constraints))),
+            val structure = SourceStructureRegistrationRequest.Table(WarehouseTableSummary(WarehouseTableRef(coordinate.catalog, coordinate.schema, coordinate.table), "TABLE", null),
+                listOf(WarehouseColumnMetadata("id", type.jdbcType, type.typeName, 1, type.nullable, type.precision, type.scale, false, false, null, null)), constraints)
+            val evidence = PhysicalSourceConstraints("restart-source-description", ProtoBytes.digest(GovernanceProto.toProto(structure)),
                 spec.sourceIdentityHash(), spec.connectorRef, metadata.databaseProductName, metadata.databaseProductVersion, metadata.driverName, metadata.driverVersion,
                 constraints, mapOf("id" to "orders.id.physical@1"), emptyList(), StructureProvenance(StructureProvenance.Kind.DATABASE_CATALOG, "integration-test-catalog", "fixture-v1"))
             LogicUnitExecutionSnapshot(LogicUnitExecutionSnapshot.FORMAT_VERSION, "orders_binding", "1", "orders.id", 1, "NUMBER", null,
                 "orders", 1, "orders_physical", 1, "source", coordinate.catalog, coordinate.schema, "orders", "h2",
-                mapOf("orders.id@1" to mapper.valueToTree<JsonNode>(SemanticExpression.Reference(SemanticExpression.ReferenceKind.PHYSICAL_COLUMN, "orders.id.physical", 1))),
+                mapOf("orders.id@1" to SemanticExpression.Reference(SemanticExpression.ReferenceKind.PHYSICAL_COLUMN, "orders.id.physical", 1)),
                 mapOf("orders.id.physical@1" to "id"), mapOf("orders.id.physical@1" to type), emptyMap(), evidence)
         }
         val event = EventExecutionSnapshot("orders", 1, null, null, EventIdentity(listOf(EventIdentity.LogicUnitRef("orders.id", 1)), emptyMap()), emptyMap(), null)
         val topology = TopologyExecutionSnapshot("orders", 1, "orders", "订单记录", "orders", 1, emptyList())
         return ReleaseCatalogView("trade_daily", 1, "交易日报", "rel_trade", "1", "交易发布", listOf(
-            reference("LOGIC_UNIT", "orders.id", unit), reference("EVENT", "orders", event), reference("TOPOLOGY", "orders", topology),
-            reference("MEMBER_SOURCE", member.source.id, member)), emptyList(), emptyList(), emptyList(), emptyList(), emptyList())
+            reference("LOGIC_UNIT", "orders.id", GovernanceProto.toProto(unit)), reference("EVENT", "orders", GovernanceProto.toProto(event)), reference("TOPOLOGY", "orders", GovernanceProto.toProto(topology)),
+            reference("MEMBER_SOURCE", member.source.id, GovernanceProto.toProto(member))), emptyList(), emptyList(), emptyList(), emptyList(), emptyList())
     }
 
-    private fun reference(kind: String, id: String, content: Any) = ReleaseObjectRef("$kind:$id", "rel_trade", "1", kind, id, 1, id, id,
-        ReleaseObjectKind.require(kind).refRole, mapper.writeValueAsString(content), now)
+    private fun reference(kind: String, id: String, content: com.google.protobuf.Message) = ReleaseObjectRef("$kind:$id", "rel_trade", "1", kind, id, 1, id, id,
+        ReleaseObjectKind.require(kind).refRole, ProtoBytes.storage(content), now)
 }

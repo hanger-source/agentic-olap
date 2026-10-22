@@ -9,15 +9,13 @@ data class ScenarioMemberReference(val sourceId: String, val sourceVersion: Long
 
 class ScenarioFilterReference(val filterRefId: String, val filterTargetType: String, val queryFieldKind: String,
     val filterTargetObjectId: String, val filterTargetObjectVersion: Long, val filterTargetDisplayName: String,
-    val releaseObjectRefId: String, val operatorPolicyJson: String, val valueProviderId: String?, val valueProviderType: String?,
+    val releaseObjectRefId: String, operators: List<String>, val valueProviderId: String?, val valueProviderType: String?,
     val valueProviderLogicUnitId: String?, val valueProviderLogicUnitVersion: Long?, eventMappings: List<AnalysisDimensionEventMappingCandidate>,
     val requiredByDefault: Boolean, val sortOrder: Int) {
     val eventMappings: List<AnalysisDimensionEventMappingCandidate> = java.util.List.copyOf(eventMappings)
-    override fun equals(other: Any?): Boolean = other is ScenarioFilterReference && filterRefId == other.filterRefId && filterTargetType == other.filterTargetType && queryFieldKind == other.queryFieldKind && filterTargetObjectId == other.filterTargetObjectId && filterTargetObjectVersion == other.filterTargetObjectVersion && filterTargetDisplayName == other.filterTargetDisplayName && releaseObjectRefId == other.releaseObjectRefId && operatorPolicyJson == other.operatorPolicyJson && valueProviderId == other.valueProviderId && valueProviderType == other.valueProviderType && valueProviderLogicUnitId == other.valueProviderLogicUnitId && valueProviderLogicUnitVersion == other.valueProviderLogicUnitVersion && eventMappings == other.eventMappings && requiredByDefault == other.requiredByDefault && sortOrder == other.sortOrder
-    override fun hashCode(): Int = listOf(filterRefId, filterTargetType, queryFieldKind, filterTargetObjectId, filterTargetObjectVersion, filterTargetDisplayName, releaseObjectRefId, operatorPolicyJson, valueProviderId, valueProviderType, valueProviderLogicUnitId, valueProviderLogicUnitVersion, eventMappings, requiredByDefault, sortOrder).hashCode()
+    val operators: List<String> = java.util.List.copyOf(operators)
+    override fun equals(other: Any?): Boolean = other is ScenarioFilterReference && filterRefId == other.filterRefId && filterTargetType == other.filterTargetType && queryFieldKind == other.queryFieldKind && filterTargetObjectId == other.filterTargetObjectId && filterTargetObjectVersion == other.filterTargetObjectVersion && filterTargetDisplayName == other.filterTargetDisplayName && releaseObjectRefId == other.releaseObjectRefId && operators == other.operators && valueProviderId == other.valueProviderId && valueProviderType == other.valueProviderType && valueProviderLogicUnitId == other.valueProviderLogicUnitId && valueProviderLogicUnitVersion == other.valueProviderLogicUnitVersion && eventMappings == other.eventMappings && requiredByDefault == other.requiredByDefault && sortOrder == other.sortOrder
+    override fun hashCode(): Int = listOf(filterRefId, filterTargetType, queryFieldKind, filterTargetObjectId, filterTargetObjectVersion, filterTargetDisplayName, releaseObjectRefId, operators, valueProviderId, valueProviderType, valueProviderLogicUnitId, valueProviderLogicUnitVersion, eventMappings, requiredByDefault, sortOrder).hashCode()
 }
-data class ReleasedScenarioEntrypoint(val scenarioId: String, val scenarioVersion: Long, val scenarioDisplayName: String,
-    val subjectAreaId: String, val subjectAreaVersion: Long, val subjectAreaDisplayName: String,
-    val releaseId: String, val releaseVersion: String, val releaseDisplayName: String, val releasedAt: Instant)
 
 fun interface QueryExecutionCapabilityPolicy { fun supportsPostProcess(operationType: String): Boolean }

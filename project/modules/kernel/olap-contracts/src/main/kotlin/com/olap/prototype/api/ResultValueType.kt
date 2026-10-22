@@ -1,15 +1,7 @@
 package com.olap.prototype.api
 
-import com.fasterxml.jackson.annotation.JsonSubTypes
-import com.fasterxml.jackson.annotation.JsonTypeInfo
 
 /** 编译结果的递归技术类型，不通过 JDBC 类型字符串猜容器结构。 */
-@JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "kind")
-@JsonSubTypes(
-    JsonSubTypes.Type(value = ResultValueType.Scalar::class, name = "SCALAR"),
-    JsonSubTypes.Type(value = ResultValueType.Array::class, name = "ARRAY"),
-    JsonSubTypes.Type(value = ResultValueType.Row::class, name = "ROW"),
-)
 sealed interface ResultValueType {
     val nullable: Boolean
 

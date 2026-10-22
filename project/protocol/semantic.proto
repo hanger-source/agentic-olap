@@ -1,0 +1,245 @@
+syntax = "proto3";
+package agentic.olap.semantic.v1;
+option java_package = "com.olap.prototype.wire.semantic";
+option java_multiple_files = true;
+option go_package = "github.com/hanger-source/agentic-olap/service/internal/protocol/semantic;semantic";
+
+message Empty {}
+message StringList { repeated string values = 1; }
+message ConnectorRef { string id = 1; string version = 2; string sha256 = 3; }
+message MetricRef { string id = 1; string version = 2; }
+message MetricInstanceRef { string id = 1; }
+message MemberRef { string id = 1; int64 version = 2; }
+message EventRef { string event_id = 1; int64 event_version = 2; }
+message LogicUnitRef { string id = 1; int64 version = 2; }
+message DimensionRef { string id = 1; string version = 2; string level_code = 3; }
+message RelationAccessPath { repeated JoinRef join_path_refs = 1; }
+message JoinRef { string join_path_id = 1; int64 join_path_version = 2; }
+message JoinRefs { repeated JoinRef values = 1; }
+message EventIdentity { repeated LogicUnitRef record_key = 1; map<string, LogicUnitRefs> entity_roles = 2; }
+message LogicUnitRefs { repeated LogicUnitRef values = 1; }
+message TemporalWindow { string value_type = 1; string boundary = 2; optional string start = 3; optional string end = 4; }
+message TemporalClock { string value_type = 1; string value = 2; }
+message TemporalConstraint { repeated TemporalInterval intervals = 1; }
+message TemporalConstraintValue { oneof kind { TemporalConstraint value = 1; Empty non_temporal = 2; } }
+message TemporalInterval { TemporalSourceClock source_time = 1; string target_valid_from_logic_unit_id = 2; int64 target_valid_from_logic_unit_version = 3; string target_valid_to_logic_unit_id = 4; int64 target_valid_to_logic_unit_version = 5; bool valid_from_inclusive = 6; bool valid_to_inclusive = 7; bool open_ended_valid_to = 8; }
+message TemporalSourceClock { oneof kind { TemporalLogicClock logic_unit = 1; TemporalLogicClock backbone_logic_unit = 2; TemporalQueryClock query_clock = 3; } }
+message TemporalLogicClock { string logic_unit_id = 1; int64 logic_unit_version = 2; repeated JoinRef join_path_refs = 3; }
+message TemporalQueryClock { string value_type = 1; string description = 2; }
+
+// 精确字面量保留原声明类型；十进制不经过double，NULL有独立分支。
+message ScalarLiteral { oneof kind { Empty null_value = 1; string text = 2; bool boolean = 3; string decimal = 4; int64 integer64 = 5; int32 integer32 = 6; string date = 7; string local_timestamp = 8; string offset_timestamp = 9; string big_integer = 10; } }
+message SemanticExpression { oneof kind { ExpressionReference reference = 1; ScalarLiteral literal = 2; ExpressionCall call = 3; NativeCall native_call = 4; ExpressionOperation operation = 5; ExpressionCase case_when = 6; ExpressionExists exists = 7; ExpressionCast cast = 8; ExpressionRound round = 9; } }
+message ExpressionReference { string reference_kind = 1; string id = 2; int64 version = 3; optional string role = 4; }
+message ExpressionCall { string function = 1; repeated SemanticExpression arguments = 2; }
+message NativeCall { ConnectorRef connector_ref = 1; string function = 2; repeated NativeArgument arguments = 3; }
+message NativeArgument { oneof kind { SemanticExpression scalar = 1; NativeTableArgument physical_table = 2; } }
+message NativeTableArgument { string physical_table_id = 1; int64 physical_table_version = 2; }
+message ExpressionOperation { string operator = 1; repeated SemanticExpression operands = 2; }
+message ExpressionCase { repeated ExpressionBranch branches = 1; SemanticExpression otherwise = 2; }
+message ExpressionBranch { SemanticExpression when = 1; SemanticExpression then = 2; }
+message ExpressionExists { string instance_id = 1; RelationParent from = 2; RelationAccessPath access_path = 3; SemanticExpression predicate = 4; }
+message RelationParent { oneof kind { Empty local = 1; string role = 2; } }
+message ExpressionCast { SemanticExpression expression = 1; string target_type = 2; optional int32 precision = 3; optional int32 scale = 4; string rounding = 5; }
+message ExpressionRound { SemanticExpression expression = 1; int32 scale = 2; string rounding = 3; }
+
+message MetricValueContract { ValueUnit unit = 1; Arithmetic arithmetic = 2; NumericResult result = 3; map<string, UnitEquation> unit_equations = 4; string overflow = 5; }
+message UnitIdentity { string authority = 1; string id = 2; int64 version = 3; }
+message UnitAxis { string dimension_id = 1; int64 dimension_version = 2; string role = 3; string member_type = 4; repeated UnitMember members = 5; }
+message UnitMember { CalculationScalar member = 1; UnitIdentity unit = 2; }
+message ValueUnit { oneof kind { UnitIdentity fixed = 1; EventDimensionUnit event_dimension = 2; SlotDimensionUnit slot_dimension = 3; AnalysisDimensionUnit analysis_dimension = 4; } }
+message EventDimensionUnit { string binding_id = 1; int64 binding_version = 2; UnitAxis axis = 3; }
+message SlotDimensionUnit { string slot = 1; UnitAxis axis = 2; }
+message AnalysisDimensionUnit { DimensionRef dimension = 1; UnitAxis axis = 2; }
+message Arithmetic { oneof kind { Empty exact = 1; Empty native_floating = 2; Approximation approximate = 3; } }
+message Approximation { string minimum = 1; string maximum = 2; string absolute_tolerance = 3; string relative_tolerance = 4; }
+message NumericResult { oneof kind { DecimalResult decimal = 1; int32 integer_bits = 2; int32 binary_float_bits = 3; } }
+message DecimalResult { int32 precision = 1; int32 scale = 2; string rounding = 3; }
+message UnitEquation { oneof kind { PreserveUnit preserve_unit = 1; FixedBinaryUnit fixed_binary = 2; Empty same_unit_ratio = 3; ScaleUnit scale = 4; PreserveUnitScale preserve_unit_scale = 5; } }
+message PreserveUnit { string operator = 1; string operand = 2; }
+message FixedBinaryUnit { string operator = 1; UnitIdentity left = 2; UnitIdentity right = 3; UnitIdentity result = 4; }
+message ScaleUnit { string operator = 1; UnitIdentity from = 2; UnitIdentity to = 3; string factor = 4; }
+message PreserveUnitScale { string operator = 1; string factor = 2; }
+message MetricBusinessMeaning { string definition = 1; string unit = 2; string grain = 3; repeated string limitations = 4; }
+message MetricSnapshotRule { string reduction = 1; string entity_role = 2; repeated LogicUnitRef entity_keys = 3; LogicUnitRef time_key = 4; repeated LogicUnitRef tie_break_keys = 5; string null_policy = 6; MetricValueContract mean_value_contract = 7; string mean_rounding = 8; }
+
+message SetOutput { string name = 1; SetOutputShape shape = 2; }
+message SetOutputShape { oneof kind { DimensionRef dimension = 1; string dimension_slot = 2; MemberDimensionShape member_dimension = 3; PropertyShape property = 4; string scalar = 5; MetricValueContract quantity = 6; RowShape row = 7; SetOutputShape array = 8; } }
+message MemberDimensionShape { string slot = 1; string dimension_id = 2; int64 dimension_version = 3; string role = 4; }
+message PropertyShape { string role = 1; string value_type = 2; }
+message RowShape { repeated SetOutputShape fields = 1; }
+
+message CalculationBinding { oneof kind { string argument = 1; StringList grouping_slots = 2; CalculationScalar scalar = 3; TemporalWindow range = 4; TemporalClock clock = 5; DimensionRefs grouping = 6; DimensionCondition condition = 7; } }
+message CalculationScalar { string scalar_type = 1; string value = 2; }
+message CalculationArguments { map<string, CalculationBinding> values = 1; }
+message DimensionRefs { repeated DimensionRef values = 1; }
+message DimensionCondition { oneof kind { Empty unrestricted = 1; DimensionPredicate predicate = 2; DimensionExists exists = 3; DimensionConditions all = 4; DimensionConditions any = 5; DimensionCondition not = 6; } }
+message DimensionPredicate { string filter_ref_id = 1; DimensionRef dimension = 2; string operator = 3; repeated CalculationScalar values = 4; }
+message DimensionExists { string filter_ref_id = 1; string instance_id = 2; TemporalWindow range = 3; map<string, TemporalClock> clocks = 4; MemberCondition predicate = 5; }
+message DimensionConditions { repeated DimensionCondition values = 1; }
+message MemberCondition { oneof kind { Empty unrestricted = 1; MemberPredicate predicate = 2; MemberConditions all = 3; MemberConditions any = 4; MemberCondition not = 5; } }
+message MemberPredicate { string slot = 1; string operator = 2; repeated CalculationBinding values = 3; }
+message MemberConditions { repeated MemberCondition values = 1; }
+message CalculationBindings { map<string, DimensionBinding> dimensions = 1; map<string, MemberBinding> members = 2; map<string, DimensionBindings> grouping_candidates = 3; map<string, MetricInstanceRef> measurements = 4; map<string, RelationBinding> relations = 5; }
+message DimensionBinding { DimensionRef reference = 1; string role = 2; repeated string mapping_ids = 3; }
+message DimensionBindings { repeated DimensionBinding values = 1; }
+message MemberBinding { oneof kind { SourceCall source_call = 1; LocalBinding local = 2; Empty parameter = 3; } }
+message SourceCall { MemberRef source = 1; map<string, CalculationBinding> arguments = 2; map<string, string> output_slots = 3; map<string, MemberBinding> members = 4; map<string, RelationBinding> relations = 5; }
+message LocalBinding { string input_id = 1; map<string, string> output_slots = 2; }
+message RelationBinding { oneof kind { LocalBinding local = 1; Empty parameter = 2; } }
+message Calculation { repeated DimensionSlot dimension_slots = 1; repeated MemberSlot member_slots = 2; repeated MeasurementSlot measurement_slots = 3; repeated RelationSlot relation_slots = 4; map<string, CalculationParameter> parameters = 5; CalculationScope computation = 6; }
+message DimensionSlot { string name = 1; string dimension_id = 2; int64 dimension_version = 3; string role = 4; }
+message MeasurementSlot { string name = 1; map<string, CalculationParameter> parameters = 2; repeated DimensionSlot observation_slots = 3; repeated string grouping_arguments = 4; MetricValueContract value_contract = 5; }
+message MemberOutput { oneof kind { MemberDimensionOutput dimension = 1; MemberPropertyOutput property = 2; MemberContainerOutput container_property = 3; } }
+message MemberDimensionOutput { string dimension_slot = 1; MetricValueContract value_contract = 2; }
+message MemberPropertyOutput { string role = 1; string value_type = 2; MetricValueContract value_contract = 3; }
+message MemberContainerOutput { string role = 1; SetOutputShape shape = 2; }
+message MemberSlot { string name = 1; string entity = 2; string role = 3; string shape = 4; map<string, MemberOutput> outputs = 5; MemberRef fixed_source = 6; }
+message RelationSlot { string name = 1; repeated SetOutput outputs = 2; StringList keys = 3; }
+message CalculationParameter { string kind = 1; string value_type = 2; repeated DimensionSlot allowed_dimensions = 3; CalculationBinding default_value = 4; MetricValueContract value_contract = 5; }
+message CalculationScope { CalculationRoot root = 1; map<string, CalculationInput> inputs = 2; repeated Stage stages = 3; }
+message CalculationInput { string mode = 1; CalculationScope computation = 2; }
+message CalculationRoot { oneof kind { CalculationMeasures measures = 1; CalculationMembers members = 2; string relation = 3; string input = 4; SetCombination set = 5; ObjectMeasure object_measure = 6; AlignMeasurements align_measurements = 7; ObservationStatistics observation_statistics = 8; } }
+message CalculationMeasures { repeated CalculationCall calls = 1; repeated string group_slots = 2; repeated string grouping_arguments = 3; optional string time_slot = 4; CalculationBinding range = 5; map<string, CalculationBinding> clocks = 6; repeated string population_call_ids = 7; GroupingLevels grouping_levels = 8; }
+message CalculationCall { string call_id = 1; CallTarget target = 2; string output_alias = 3; map<string, string> dimension_slots = 4; map<string, string> member_slots = 5; map<string, string> measurement_slots = 6; map<string, string> relation_slots = 7; map<string, CalculationBinding> arguments = 8; CalculationBinding source_condition = 9; }
+message CallTarget { oneof kind { MetricRef fixed = 1; string measurement = 2; } }
+message CalculationMembers { string call_id = 1; string slot = 2; repeated MemberProjection outputs = 3; CalculationBinding range = 4; map<string, CalculationBinding> clocks = 5; MemberCondition condition = 6; }
+message MemberProjection { string output_alias = 1; string slot = 2; DimensionRef dimension = 3; }
+message SetProjection { string input_id = 1; repeated string symbols = 2; }
+message SetCombination { string operation = 1; bool all = 2; repeated SetProjection inputs = 3; repeated SetOutput output_slots = 4; }
+message ObjectMeasure { CalculationScope measurement = 1; CalculationScope objects = 2; repeated ObjectRole roles = 3; }
+message ObjectRole { repeated string object_keys = 1; ObjectTarget target = 2; }
+message ObjectTarget { oneof kind { string event_role = 1; RecordOutputs record_outputs = 2; } }
+message RecordOutputs { string member_slot = 1; repeated string keys = 2; }
+message AlignMeasurements { map<string, AlignedInput> inputs = 1; repeated string observation_keys = 2; AlignmentPopulation population = 3; }
+message AlignedInput { CalculationScope computation = 1; map<string, string> keys = 2; repeated AlignedValue values = 3; }
+message AlignedValue { string symbol = 1; string output_alias = 2; string no_match = 3; }
+message AlignmentPopulation { string kind = 1; repeated string input_ids = 2; }
+message ObservationUnit { oneof kind { Empty raw_rows = 1; StringList objects_by = 2; } }
+message ObservationStatistics { CalculationScope observations = 1; ObservationUnit unit = 2; repeated string outer_keys = 3; repeated ObservationStatistic statistics = 4; }
+message ObservationStatistic { oneof kind { ResultAggregate reduction = 1; WeightedMean weighted_mean = 2; } }
+message WeightedMean { string value = 1; string weight = 2; string output_alias = 3; string output_display_name = 4; MetricValueContract numerator_contract = 5; MetricValueContract weight_sum_contract = 6; MetricValueContract result_contract = 7; optional string multiply_equation = 8; optional string divide_equation = 9; string null_policy = 10; }
+message GroupingLevels { string output_alias = 1; repeated GroupingLevel levels = 2; }
+message GroupingLevel { string id = 1; repeated string group_by = 2; }
+message BoundGroupingLevels { string output_alias = 1; repeated BoundGroupingLevel levels = 2; }
+message BoundGroupingLevel { string id = 1; repeated string group_by = 2; int64 code = 3; }
+
+message QueryScope { QueryRoot root = 1; map<string, QueryInput> inputs = 2; repeated Stage stages = 3; }
+message QueryInput { string mode = 1; QueryScope computation = 2; }
+message QueryRoot { oneof kind { QueryMeasures measures = 1; QueryMembers members = 2; string input = 3; SetCombination set = 4; QueryCompute compute = 5; } }
+message QueryCompute { Calculation calculation = 1; CalculationBindings bindings = 2; map<string, CalculationBinding> arguments = 3; map<string, MemberBinding> members = 4; map<string, RelationBinding> relations = 5; }
+message QueryInvocation { string call_id = 1; MetricInstanceRef instance = 2; string output_alias = 3; map<string, CalculationBinding> arguments = 4; map<string, MemberBinding> members = 5; map<string, RelationBinding> relations = 6; DimensionCondition source_condition = 7; }
+message QueryMeasures { repeated QueryInvocation calls = 1; repeated DimensionRef grouping = 2; QueryTimeRange source_time_range = 3; map<string, TemporalClock> source_clocks = 4; DimensionCondition source_condition = 5; DimensionCondition output_condition = 6; repeated EventCondition source_event_conditions = 7; RowPopulation population = 8; QueryGroupingLevels grouping_levels = 9; }
+message QueryTimeRange { DimensionRef dimension = 1; TemporalWindow window = 2; }
+message EventCondition { string event_id = 1; string event_version = 2; DimensionCondition condition = 3; }
+message RowPopulation { string mode = 1; repeated string call_ids = 2; StringList input_ids = 3; }
+message QueryGroupingLevels { string output_alias = 1; repeated QueryGroupingLevel levels = 2; }
+message QueryGroupingLevel { string id = 1; repeated DimensionRef dimensions = 2; }
+message QueryMembers { string call_id = 1; MemberRef source = 2; map<string, CalculationBinding> arguments = 3; repeated MemberProjection outputs = 4; TemporalWindow range = 5; map<string, TemporalClock> clocks = 6; MemberCondition condition = 7; map<string, MemberBinding> members = 8; map<string, RelationBinding> relations = 9; }
+
+message ResultExpression { oneof kind { ResultCall call = 1; ResultArgument argument = 2; string symbol = 3; ScalarLiteral literal = 4; TypedLiteral typed_literal = 5; QuantityLiteral quantity_literal = 6; ResultOperation operation = 7; ResultExpressions row = 8; ResultCase case_when = 9; ResultCast cast = 10; ResultRound round = 11; ResultNumeric numeric = 12; CollectionSort collection_sort = 13; CollectionText collection_text = 14; RowField row_field = 15; WeightedContribution weighted_contribution = 16; UniformAllocation uniform_allocation = 17; } }
+message ResultCall { string function = 1; repeated ResultExpression arguments = 2; }
+message ResultArgument { string name = 1; string value_type = 2; }
+message TypedLiteral { string value_type = 1; ScalarLiteral value = 2; }
+message QuantityLiteral { string value = 1; MetricValueContract value_contract = 2; }
+message ResultOperation { string operator = 1; repeated ResultExpression operands = 2; }
+message ResultExpressions { repeated ResultExpression values = 1; }
+message ResultCase { repeated ResultBranch branches = 1; ResultExpression otherwise = 2; }
+message ResultBranch { ResultExpression when = 1; ResultExpression then = 2; }
+message ResultCast { ResultExpression expression = 1; string target_type = 2; optional int32 precision = 3; optional int32 scale = 4; string rounding = 5; }
+message ResultRound { ResultExpression expression = 1; int32 scale = 2; string rounding = 3; }
+message ResultNumeric { ResultExpression expression = 1; MetricValueContract value_contract = 2; optional string unit_equation = 3; }
+message CollectionSort { ResultExpression expression = 1; string direction = 2; string nulls = 3; }
+message CollectionText { ResultExpression expression = 1; string delimiter = 2; string nulls = 3; optional string null_text = 4; }
+message RowField { ResultExpression expression = 1; int32 index = 2; }
+message WeightedContribution { ResultExpression value = 1; ResultExpression weight = 2; ObservationUnit observation_unit = 3; string component = 4; MetricValueContract value_contract = 5; optional string unit_equation = 6; }
+message UniformAllocation { ResultExpression value = 1; repeated string source_keys = 2; repeated string member_keys = 3; MetricValueContract value_contract = 4; optional string unit_equation = 5; }
+message ResultAggregation { oneof kind { NumericAggregation sum = 1; AverageAggregation average = 2; NumericAggregation sample_deviation = 3; string minimum_null_policy = 4; string maximum_null_policy = 5; CountAggregation count = 6; bool collect_distinct = 7; } }
+message NumericAggregation { MetricValueContract value_contract = 1; string null_policy = 2; }
+message AverageAggregation { MetricValueContract value_contract = 1; string null_policy = 2; string rounding = 3; }
+message CountAggregation { bool distinct = 1; string null_policy = 2; }
+message OrderKey { string symbol = 1; string direction = 2; string nulls = 3; }
+message ResultAggregate { string input = 1; ResultAggregation aggregation = 2; string output_alias = 3; string output_display_name = 4; }
+message ResultGrouping { repeated string group_by = 1; repeated ResultAggregate aggregates = 2; BoundGroupingLevels grouping_levels = 3; }
+message WindowFrame { string mode = 1; WindowBound lower = 2; WindowBound upper = 3; }
+message WindowBound { string kind = 1; optional int32 offset = 2; optional string unit = 3; }
+message Stage { oneof kind { StageJoin join_input = 1; StageAncestors ancestor_closure = 2; StageExpand expand_collection = 3; StringList project = 4; ResultGrouping regroup = 5; ResultExpression post_filter = 6; StageSort sort = 7; StageTop top_n = 8; StageDerive derive = 9; StageRank rank = 10; StageOrderedRank ordered_rank = 11; StageCumulative cumulative = 12; StagePartition partition_aggregate = 13; StageWindow window_aggregate = 14; StageSelectVersions select_versions = 15; StageObserveWindow observe_window = 16; StageOffset offset_value = 17; } }
+message StageJoin { string input_id = 1; string occurrence_id = 2; string join_type = 3; ResultExpression condition = 4; }
+message StageAncestors { repeated string source_keys = 1; repeated string parent_keys = 2; repeated string descendant_aliases = 3; repeated string ancestor_aliases = 4; bool include_self = 5; }
+message StageExpand { string input = 1; string element_alias = 2; string ordinal_alias = 3; string mode = 4; }
+message StageSort { repeated OrderKey order_keys = 1; }
+message StageTop { repeated OrderKey order_keys = 1; int32 limit = 2; }
+message StageDerive { ResultExpression expression = 1; string output_alias = 2; string output_display_name = 3; }
+message StageRank { string order_by = 1; string direction = 2; repeated string partition_by = 3; string output_alias = 4; string output_display_name = 5; }
+message StageOrderedRank { string operation_type = 1; repeated string partition_by = 2; string output_alias = 3; string output_display_name = 4; repeated OrderKey order_keys = 5; }
+message StageCumulative { string input = 1; string order_by = 2; string direction = 3; repeated string partition_by = 4; string output_alias = 5; string output_display_name = 6; ResultAggregation aggregation = 7; }
+message StagePartition { string input = 1; repeated string partition_by = 2; string output_alias = 3; string output_display_name = 4; ResultAggregation aggregation = 5; }
+message StageWindow { string input = 1; repeated string partition_by = 2; string output_alias = 3; string output_display_name = 4; repeated OrderKey order_keys = 5; ResultAggregation aggregation = 6; WindowFrame window_frame = 7; }
+message SnapshotSelection { string time_symbol = 1; CalculationBinding as_of = 2; }
+message StageSelectVersions { repeated string partition_by = 1; repeated OrderKey order_keys = 2; string ties = 3; SnapshotSelection snapshot = 4; }
+message CalendarAxis { string input_id = 1; string date_symbol = 2; }
+message StageObserveWindow { repeated string input_keys = 1; repeated string partition_by = 2; string output_alias = 3; string output_display_name = 4; repeated OrderKey order_keys = 5; ResultAggregation aggregation = 6; WindowFrame window_frame = 7; string domain = 8; optional string time_symbol = 9; CalculationBinding observation_range = 10; CalculationBinding display_range = 11; CalendarAxis calendar = 12; }
+message StageOffset { string input = 1; repeated string partition_by = 2; string output_alias = 3; string output_display_name = 4; repeated OrderKey order_keys = 5; string function = 6; int32 distance = 7; }
+
+message MetricDefinition { oneof kind { FactMeasure fact_measure = 1; MetricCalculation calculation = 2; } }
+message FactMeasure { EventRef event = 1; SemanticExpression input = 2; string aggregation = 3; bool distinct = 4; SemanticExpression private_predicate = 5; map<string, RelationAccessPath> roles = 6; MetricSnapshotRule snapshot_rule = 7; MetricValueContract value_contract = 8; string aggregation_rounding = 9; }
+message MetricCalculation { Calculation calculation = 1; MetricValueContract value_contract = 2; string measure_output = 3; repeated string key_outputs = 4; }
+message MetricInstance { string display_name = 1; MetricRef definition = 2; CalculationBindings bindings = 3; map<string, CalculationBinding> fixed_arguments = 4; }
+message MemberSourceDefinition { oneof kind { MemberProjectionDefinition projection = 1; MemberComputedDefinition computed = 2; } }
+message MemberProjectionDefinition { EventRef event = 1; MemberResult result = 2; }
+message MemberComputedDefinition { Calculation calculation = 1; MemberResult result = 2; }
+message MemberResult { string entity = 1; string role = 2; string shape = 3; repeated string identity_slots = 4; map<string, MemberSourceOutput> outputs = 5; map<string, StringList> filter_operators = 6; optional string time_slot = 7; map<string, string> clock_slots = 8; optional string description = 9; }
+message MemberSourceOutput { oneof kind { SourceDimensionOutput dimension = 1; SourcePropertyOutput property = 2; SourceComputedDimensionOutput computed_dimension = 3; SourceComputedPropertyOutput computed_property = 4; SourceContainerOutput container_property = 5; SourceComputedContainerOutput computed_container_property = 6; } }
+message SourceDimensionOutput { string role = 1; string value_type = 2; string dimension_id = 3; int64 dimension_version = 4; string binding_id = 5; int64 binding_version = 6; MetricValueContract value_contract = 7; string display_name = 8; }
+message SourcePropertyOutput { string role = 1; string value_type = 2; string logic_unit_id = 3; int64 logic_unit_version = 4; RelationAccessPath access_path = 5; MetricValueContract value_contract = 6; string display_name = 7; }
+message SourceComputedDimensionOutput { string role = 1; string value_type = 2; string dimension_slot = 3; MetricValueContract value_contract = 4; string display_name = 5; string symbol = 6; }
+message SourceComputedPropertyOutput { string role = 1; string value_type = 2; MetricValueContract value_contract = 3; string display_name = 4; string symbol = 5; }
+message SourceContainerOutput { string role = 1; SetOutputShape shape = 2; string logic_unit_id = 3; int64 logic_unit_version = 4; RelationAccessPath access_path = 5; string display_name = 6; }
+message SourceComputedContainerOutput { string role = 1; SetOutputShape shape = 2; string display_name = 3; string symbol = 4; }
+message MemberSource { oneof kind { ProjectedMemberSource projection = 1; ComputedMemberSource computed = 2; } }
+message ProjectedMemberSource { string id = 1; int64 version = 2; MemberProjectionDefinition definition = 3; map<string, SemanticExpression> output_expressions = 4; }
+message ComputedMemberSource { string id = 1; int64 version = 2; MemberComputedDefinition definition = 3; CalculationBindings bindings = 4; map<string, CalculationBinding> fixed_arguments = 5; }
+
+message ScopeId { repeated string path = 1; }
+message SymbolId { ScopeId scope = 1; int32 position = 2; }
+message ValuePosition { SymbolId owner = 1; repeated int32 path = 2; }
+message CalculationOwner { oneof kind { MetricInstanceRef metric = 1; MemberRef member = 2; StringList query = 3; } }
+message Symbol { SymbolId id = 1; string name = 2; Origin origin = 3; repeated SymbolId dependencies = 4; QueryValue value = 5; }
+message Origin { oneof kind { MetricOrigin metric = 1; DimensionOrigin dimension = 2; MemberOrigin member = 3; OperationOrigin operation = 4; ScopeId input_presence = 5; GroupingOrigin grouping = 6; OmittedDimensionOrigin omitted_dimension = 7; SetOrigin set = 8; } }
+message MetricOrigin { ScopeId scope = 1; string call_id = 2; CalculationOwner owner = 3; MetricRef metric = 4; }
+message DimensionOrigin { ScopeId scope = 1; DimensionRef dimension = 2; }
+message MemberOrigin { ScopeId scope = 1; string source_id = 2; string source_version = 3; string slot = 4; MemberMeaning meaning = 5; }
+message MemberMeaning { oneof kind { MappedMemberDimensionMeaning mapped_dimension = 1; MemberDimensionMeaning dimension = 2; PropertyShape property = 3; MemberContainerOutput container = 4; } }
+message MappedMemberDimensionMeaning { DimensionRef dimension = 1; string role = 2; }
+message MemberDimensionMeaning { string dimension_id = 1; string dimension_version = 2; string role = 3; }
+message OperationOrigin { ScopeId scope = 1; int32 operation_index = 2; int32 output_index = 3; string operation_type = 4; }
+message GroupingOrigin { ScopeId scope = 1; int32 operation_index = 2; BoundGroupingLevels definition = 3; }
+message OmittedDimensionOrigin { ScopeId scope = 1; SymbolId source = 2; SymbolId grouping = 3; DimensionRef dimension = 4; string level_id = 5; int64 level_code = 6; }
+message SetOrigin { ScopeId scope = 1; string operation = 2; bool all = 3; int32 output_index = 4; SetOutputShape shape = 5; }
+message SelectedObservation { repeated ValuePosition time_axes = 1; CalculationScalar as_of = 2; }
+message QueryValue { oneof kind { PlainValue plain = 1; QueryQuantity measure = 2; QueryValues row = 3; QueryValue array = 4; } }
+message PlainValue { ValuePosition source = 1; repeated ValuePosition positions = 2; }
+message QueryValues { repeated QueryValue fields = 1; }
+message QueryQuantity { MetricValueContract declaration = 1; QuantityUnit unit = 2; QuantityProvenance provenance = 3; }
+message QuantityUnit { oneof kind { UnitIdentity fixed = 1; DimensionQuantityUnit dimension = 2; SelectedQuantityUnit selected_member = 3; } }
+message DimensionQuantityUnit { UnitAxis axis = 1; repeated QuantityKey keys = 2; }
+message QuantityKey { UnitReference reference = 1; ValuePosition position = 2; }
+message UnitReference { oneof kind { SemanticDimensionReference semantic_dimension = 1; DimensionRef analysis_dimension = 2; MemberSlotReference member_slot = 3; } }
+message SemanticDimensionReference { string dimension_id = 1; int64 dimension_version = 2; string role = 3; }
+message MemberSlotReference { string source_id = 1; int64 source_version = 2; string slot = 3; }
+message SelectedQuantityUnit { UnitReference reference = 1; UnitAxis axis = 2; CalculationScalar member = 3; UnitIdentity identity = 4; UnitSelection selection = 5; }
+message UnitSelection { ValuePosition source = 1; SelectionTarget target = 2; }
+message SelectionTarget { oneof kind { string dimension_filter = 1; MemberSlotReference member_filter = 2; ResultUnitFilter result_filter = 3; } }
+message ResultUnitFilter { ScopeId scope = 1; int32 operation_index = 2; SymbolId key = 3; CalculationScalar member = 4; }
+message QuantityProvenance { oneof kind { RawQuantity raw = 1; string constant = 2; FactQuantity fact = 3; SelectedSnapshotQuantity selected_snapshot = 4; ReducedQuantity reduction = 5; AllocatedQuantity uniform_allocation = 6; QuantityTerms linear = 7; ObservedQuantity observed = 8; WindowQuantity window = 9; OffsetQuantity offset = 10; QuantityProvenance copied = 11; WindowQuantity delta = 12; QuantityTerms alternatives = 13; } }
+message RawQuantity { ValuePosition source = 1; repeated ValuePosition observations = 2; }
+message QuantitySnapshot { string reduction = 1; repeated ValuePosition time_axes = 2; map<string, TemporalClock> bound_clocks = 3; }
+message FactQuantity { MetricRef definition = 1; string aggregation = 2; bool distinct = 3; ValuePosition source = 4; repeated ValuePosition observations = 5; QuantitySnapshot snapshot = 6; }
+message SelectedSnapshotQuantity { QuantityProvenance input = 1; repeated ValuePosition time_axes = 2; CalculationScalar as_of = 3; }
+message ReducedQuantity { string aggregation = 1; QuantityProvenance input = 2; repeated ValuePosition observations = 3; }
+message AllocatedQuantity { QuantityProvenance input = 1; repeated ValuePosition source_keys = 2; repeated ValuePosition member_keys = 3; }
+message QuantityTerms { repeated QuantityProvenance values = 1; }
+message ObservedQuantity { string nature = 1; repeated QuantityProvenance components = 2; repeated ValuePosition observations = 3; bool known_observation = 4; }
+message QuantityOrder { ValuePosition position = 1; string direction = 2; string nulls = 3; }
+message WindowQuantity { string aggregation = 1; QuantityProvenance input = 2; repeated ValuePosition observations = 3; repeated ValuePosition partition = 4; repeated QuantityOrder order = 5; WindowFrame frame = 6; bool cumulative = 7; bool total_order = 8; }
+message OffsetQuantity { QuantityProvenance input = 1; repeated ValuePosition partition = 2; repeated QuantityOrder order = 3; string function = 4; int32 distance = 5; bool total_order = 6; }

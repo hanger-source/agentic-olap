@@ -32,12 +32,4 @@ object ScopedInputContract {
     }
     fun metricSymbol(inputId: String, publishedAlias: String): String = "${requireId(inputId)}__$publishedAlias"
     fun presenceSymbol(inputId: String): String = "${requireId(inputId)}__present"
-    fun contract(): Map<String, Any> = scopeContract() + ("rootContracts" to QueryComputation.rootContracts())
-    fun scopeContract(): Map<String, Any> = mapOf("formatVersion" to "olap-scoped-input-contract/v13", "field" to "computation.inputs",
-        "scopeFields" to listOf("root", "inputs", "stages"), "inputFields" to listOf("mode", "computation"),
-        "rootKinds" to listOf("MEASURES", "MEMBERS", "INPUT", "SET", "COMPUTE"),
-        "modes" to mapOf("ROOT" to "EXPLICIT_COMPLETED_ROOT_REFERENCE", "KEY_ALIGNMENT" to "FINAL_PROVEN_SEMANTIC_KEY_SUBSET_LEFT_ALIGNMENT", "RELATION" to "COMPLETED_BAG_RELATION_REUSED_BY_EXPLICIT_OCCURRENCES"),
-        "population" to "EXPLICIT_COMPLETED_INSTANCES_OR_INTRINSIC_ROOT_ROWS_NO_LEAF_EXPANSION",
-        "symbols" to mapOf("aligned" to "<inputId>__<output>", "presence" to "<inputId>__present", "joined" to "<occurrenceId>__<output>"),
-        "limits" to listOf("DEPTH_16_INSTANCE_AND_OCCURRENCE_BUDGET_64", "LOCAL_ARGUMENTS_AND_CLOCKS", "NO_IMPLICIT_ZERO_OR_COMPLETENESS", "BROADCAST_IS_NOT_ADDITIVITY"))
 }

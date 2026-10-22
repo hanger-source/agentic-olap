@@ -54,29 +54,11 @@ object FilterLeafOperatorPolicy {
         require(value in canonical) { "$field unsupported operator: $value; supported operators: $canonical" }
         return requireNotNull(value)
     }
-    fun requireOperatorSet(policyJson: String, field: String): Set<String> {
-        val root = try { com.olap.prototype.util.OlapJsonUtils.mapper().readTree(policyJson) }
-        catch (failure: Exception) { throw IllegalArgumentException("$field must be valid JSON", failure) }
-        require(root != null && root.isObject) { "$field must be a JSON object" }
-        val operators = root["operators"]
-        require(operators != null && operators.isArray) { "$field.operators is required" }
-        val values = linkedSetOf<String>()
-        operators.forEach { item ->
-            require(item.isTextual && item.textValue().isNotBlank()) { "$field.operators must contain non-empty text values" }
-            val operator = requireCanonicalOperator(item.textValue(), "$field.operators")
-            require(values.add(operator)) { "$field.operators contains duplicate operator: $operator" }
-        }
-        require(values.isNotEmpty()) { "$field.operators must not be empty" }
-        return java.util.Collections.unmodifiableSet(values)
-    }
-    fun policyJson(operators: List<String>, field: String): String {
-        require(operators.isNotEmpty()) { "$field.operators must not be empty" }
-        val values = linkedSetOf<String>()
-        operators.forEach { operator ->
-            val value = requireCanonicalOperator(operator, "$field.operators")
-            require(values.add(value)) { "$field.operators contains duplicate operator: $value" }
-        }
-        return com.olap.prototype.util.OlapJsonUtils.mapper().createObjectNode().also { node -> node.putArray("operators").also { array -> values.forEach { array.add(it) } } }.toString()
+    fun requireOperatorSet(operators: List<String>, field: String): Set<String> {
+        require(operators.isNotEmpty()) { "$field must not be empty" }
+        val values = operators.map { requireCanonicalOperator(it, field) }
+        require(values.distinct().size == values.size) { "$field contains duplicate operators" }
+        return java.util.Collections.unmodifiableSet(LinkedHashSet(values))
     }
     fun normalizeExecutableOperator(operator: String): String = when (operator.trim().uppercase(java.util.Locale.ROOT)) {
         "=", "EQ" -> "EQ"; "NE" -> "NE"; "IS_NULL" -> "IS_NULL"; "IS_NOT_NULL" -> "IS_NOT_NULL"

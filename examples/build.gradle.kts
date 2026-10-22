@@ -1,7 +1,11 @@
 import groovy.json.JsonSlurper
 
 sourceSets.main { kotlin.srcDirs("orders", "procurement", "subscriptions", "kernel"); kotlin.include("**/*.kt") }
-dependencies { implementation(project(":runtime")) }
+dependencies {
+    implementation(project(":runtime"))
+    // 数据准备读取部署配置、输出来源连接配置；不编码语义定义或 Query。
+    implementation(project(":json-io"))
+}
 tasks.named<Jar>("sourcesJar") { include("**/*.kt", "META-INF/LICENSE") }
 
 for ((name, main) in mapOf("orders" to "Orders", "procurement" to "Procurement", "subscriptions" to "Subscriptions", "kernel" to "Kernel")) {

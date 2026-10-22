@@ -7,8 +7,10 @@
 package protocol
 
 import (
+	query "github.com/hanger-source/agentic-olap/service/internal/protocol/query"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	anypb "google.golang.org/protobuf/types/known/anypb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -79,6 +81,107 @@ func (WorkerKind) EnumDescriptor() ([]byte, []int) {
 	return file_runtime_proto_rawDescGZIP(), []int{0}
 }
 
+type DeliveryStatus int32
+
+const (
+	DeliveryStatus_DELIVERY_STATUS_UNSPECIFIED DeliveryStatus = 0
+	DeliveryStatus_DIRECT                      DeliveryStatus = 1
+	DeliveryStatus_SAVED                       DeliveryStatus = 2
+	DeliveryStatus_FAILED                      DeliveryStatus = 3
+)
+
+// Enum value maps for DeliveryStatus.
+var (
+	DeliveryStatus_name = map[int32]string{
+		0: "DELIVERY_STATUS_UNSPECIFIED",
+		1: "DIRECT",
+		2: "SAVED",
+		3: "FAILED",
+	}
+	DeliveryStatus_value = map[string]int32{
+		"DELIVERY_STATUS_UNSPECIFIED": 0,
+		"DIRECT":                      1,
+		"SAVED":                       2,
+		"FAILED":                      3,
+	}
+)
+
+func (x DeliveryStatus) Enum() *DeliveryStatus {
+	p := new(DeliveryStatus)
+	*p = x
+	return p
+}
+
+func (x DeliveryStatus) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (DeliveryStatus) Descriptor() protoreflect.EnumDescriptor {
+	return file_runtime_proto_enumTypes[1].Descriptor()
+}
+
+func (DeliveryStatus) Type() protoreflect.EnumType {
+	return &file_runtime_proto_enumTypes[1]
+}
+
+func (x DeliveryStatus) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use DeliveryStatus.Descriptor instead.
+func (DeliveryStatus) EnumDescriptor() ([]byte, []int) {
+	return file_runtime_proto_rawDescGZIP(), []int{1}
+}
+
+type ScriptOutput_Stream int32
+
+const (
+	ScriptOutput_STREAM_UNSPECIFIED ScriptOutput_Stream = 0
+	ScriptOutput_STDOUT             ScriptOutput_Stream = 1
+	ScriptOutput_STDERR             ScriptOutput_Stream = 2
+)
+
+// Enum value maps for ScriptOutput_Stream.
+var (
+	ScriptOutput_Stream_name = map[int32]string{
+		0: "STREAM_UNSPECIFIED",
+		1: "STDOUT",
+		2: "STDERR",
+	}
+	ScriptOutput_Stream_value = map[string]int32{
+		"STREAM_UNSPECIFIED": 0,
+		"STDOUT":             1,
+		"STDERR":             2,
+	}
+)
+
+func (x ScriptOutput_Stream) Enum() *ScriptOutput_Stream {
+	p := new(ScriptOutput_Stream)
+	*p = x
+	return p
+}
+
+func (x ScriptOutput_Stream) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ScriptOutput_Stream) Descriptor() protoreflect.EnumDescriptor {
+	return file_runtime_proto_enumTypes[2].Descriptor()
+}
+
+func (ScriptOutput_Stream) Type() protoreflect.EnumType {
+	return &file_runtime_proto_enumTypes[2]
+}
+
+func (x ScriptOutput_Stream) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ScriptOutput_Stream.Descriptor instead.
+func (ScriptOutput_Stream) EnumDescriptor() ([]byte, []int) {
+	return file_runtime_proto_rawDescGZIP(), []int{22, 0}
+}
+
 // Both directions use bounded, varint-length-delimited Frame messages on stdio.
 // Business DSLs and exact artifact bytes have one existing semantic codec owner.
 type Frame struct {
@@ -92,6 +195,12 @@ type Frame struct {
 	//	*Frame_WorkResponse
 	//	*Frame_Cancel
 	//	*Frame_Shutdown
+	//	*Frame_ScriptRequest
+	//	*Frame_ScriptResponse
+	//	*Frame_CapabilityRequest
+	//	*Frame_CapabilityResponse
+	//	*Frame_ScriptWorkerFault
+	//	*Frame_ScriptOutput
 	Body          isFrame_Body `protobuf_oneof:"body"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -197,6 +306,60 @@ func (x *Frame) GetShutdown() *Shutdown {
 	return nil
 }
 
+func (x *Frame) GetScriptRequest() *ScriptRequest {
+	if x != nil {
+		if x, ok := x.Body.(*Frame_ScriptRequest); ok {
+			return x.ScriptRequest
+		}
+	}
+	return nil
+}
+
+func (x *Frame) GetScriptResponse() *ScriptResponse {
+	if x != nil {
+		if x, ok := x.Body.(*Frame_ScriptResponse); ok {
+			return x.ScriptResponse
+		}
+	}
+	return nil
+}
+
+func (x *Frame) GetCapabilityRequest() *CapabilityRequest {
+	if x != nil {
+		if x, ok := x.Body.(*Frame_CapabilityRequest); ok {
+			return x.CapabilityRequest
+		}
+	}
+	return nil
+}
+
+func (x *Frame) GetCapabilityResponse() *CapabilityResponse {
+	if x != nil {
+		if x, ok := x.Body.(*Frame_CapabilityResponse); ok {
+			return x.CapabilityResponse
+		}
+	}
+	return nil
+}
+
+func (x *Frame) GetScriptWorkerFault() *ScriptWorkerFault {
+	if x != nil {
+		if x, ok := x.Body.(*Frame_ScriptWorkerFault); ok {
+			return x.ScriptWorkerFault
+		}
+	}
+	return nil
+}
+
+func (x *Frame) GetScriptOutput() *ScriptOutput {
+	if x != nil {
+		if x, ok := x.Body.(*Frame_ScriptOutput); ok {
+			return x.ScriptOutput
+		}
+	}
+	return nil
+}
+
 type isFrame_Body interface {
 	isFrame_Body()
 }
@@ -229,6 +392,30 @@ type Frame_Shutdown struct {
 	Shutdown *Shutdown `protobuf:"bytes,7,opt,name=shutdown,proto3,oneof"`
 }
 
+type Frame_ScriptRequest struct {
+	ScriptRequest *ScriptRequest `protobuf:"bytes,8,opt,name=script_request,json=scriptRequest,proto3,oneof"`
+}
+
+type Frame_ScriptResponse struct {
+	ScriptResponse *ScriptResponse `protobuf:"bytes,9,opt,name=script_response,json=scriptResponse,proto3,oneof"`
+}
+
+type Frame_CapabilityRequest struct {
+	CapabilityRequest *CapabilityRequest `protobuf:"bytes,10,opt,name=capability_request,json=capabilityRequest,proto3,oneof"`
+}
+
+type Frame_CapabilityResponse struct {
+	CapabilityResponse *CapabilityResponse `protobuf:"bytes,11,opt,name=capability_response,json=capabilityResponse,proto3,oneof"`
+}
+
+type Frame_ScriptWorkerFault struct {
+	ScriptWorkerFault *ScriptWorkerFault `protobuf:"bytes,13,opt,name=script_worker_fault,json=scriptWorkerFault,proto3,oneof"`
+}
+
+type Frame_ScriptOutput struct {
+	ScriptOutput *ScriptOutput `protobuf:"bytes,14,opt,name=script_output,json=scriptOutput,proto3,oneof"`
+}
+
 func (*Frame_Bootstrap) isFrame_Body() {}
 
 func (*Frame_Request) isFrame_Body() {}
@@ -243,14 +430,27 @@ func (*Frame_Cancel) isFrame_Body() {}
 
 func (*Frame_Shutdown) isFrame_Body() {}
 
+func (*Frame_ScriptRequest) isFrame_Body() {}
+
+func (*Frame_ScriptResponse) isFrame_Body() {}
+
+func (*Frame_CapabilityRequest) isFrame_Body() {}
+
+func (*Frame_CapabilityResponse) isFrame_Body() {}
+
+func (*Frame_ScriptWorkerFault) isFrame_Body() {}
+
+func (*Frame_ScriptOutput) isFrame_Body() {}
+
 type Bootstrap struct {
 	state                    protoimpl.MessageState `protogen:"open.v1"`
-	Protocol                 string                 `protobuf:"bytes,1,opt,name=protocol,proto3" json:"protocol,omitempty"`                                   // agentic-olap-runtime/v1, exact; no version fallback.
+	Protocol                 string                 `protobuf:"bytes,1,opt,name=protocol,proto3" json:"protocol,omitempty"`                                   // agentic-olap-runtime/v2，版本必须精确一致。
 	DeploymentJson           []byte                 `protobuf:"bytes,2,opt,name=deployment_json,json=deploymentJson,proto3" json:"deployment_json,omitempty"` // metadata mode only; no credential values.
 	LimitsJson               []byte                 `protobuf:"bytes,3,opt,name=limits_json,json=limitsJson,proto3" json:"limits_json,omitempty"`
 	ConnectorManifests       []string               `protobuf:"bytes,4,rep,name=connector_manifests,json=connectorManifests,proto3" json:"connector_manifests,omitempty"`
-	WorkerKind               WorkerKind             `protobuf:"varint,5,opt,name=worker_kind,json=workerKind,proto3,enum=agentic.olap.runtime.v1.WorkerKind" json:"worker_kind,omitempty"`
+	WorkerKind               WorkerKind             `protobuf:"varint,5,opt,name=worker_kind,json=workerKind,proto3,enum=agentic.olap.runtime.v2.WorkerKind" json:"worker_kind,omitempty"`
 	SourceConfigurationsJson []byte                 `protobuf:"bytes,6,opt,name=source_configurations_json,json=sourceConfigurationsJson,proto3" json:"source_configurations_json,omitempty"` // exact selected bindings only.
+	Scripting                *ScriptConfiguration   `protobuf:"bytes,7,opt,name=scripting,proto3" json:"scripting,omitempty"`
 	unknownFields            protoimpl.UnknownFields
 	sizeCache                protoimpl.SizeCache
 }
@@ -327,6 +527,13 @@ func (x *Bootstrap) GetSourceConfigurationsJson() []byte {
 	return nil
 }
 
+func (x *Bootstrap) GetScripting() *ScriptConfiguration {
+	if x != nil {
+		return x.Scripting
+	}
+	return nil
+}
+
 type Principal struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Subject       string                 `protobuf:"bytes,1,opt,name=subject,proto3" json:"subject,omitempty"`
@@ -380,14 +587,18 @@ func (x *Principal) GetScopes() []string {
 }
 
 type Request struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	RequestId       string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
-	RemainingMillis uint64                 `protobuf:"varint,2,opt,name=remaining_millis,json=remainingMillis,proto3" json:"remaining_millis,omitempty"`
-	Principal       *Principal             `protobuf:"bytes,3,opt,name=principal,proto3" json:"principal,omitempty"`
-	Operation       string                 `protobuf:"bytes,4,opt,name=operation,proto3" json:"operation,omitempty"`
-	PayloadJson     []byte                 `protobuf:"bytes,5,opt,name=payload_json,json=payloadJson,proto3" json:"payload_json,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	RequestId           string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	RemainingMillis     uint64                 `protobuf:"varint,2,opt,name=remaining_millis,json=remainingMillis,proto3" json:"remaining_millis,omitempty"`
+	Principal           *Principal             `protobuf:"bytes,3,opt,name=principal,proto3" json:"principal,omitempty"`
+	Operation           string                 `protobuf:"bytes,4,opt,name=operation,proto3" json:"operation,omitempty"`
+	PayloadJson         []byte                 `protobuf:"bytes,5,opt,name=payload_json,json=payloadJson,proto3" json:"payload_json,omitempty"`
+	Capability          *CapabilityInvocation  `protobuf:"bytes,6,opt,name=capability,proto3" json:"capability,omitempty"`
+	Delivery            *DeliveryConfirmation  `protobuf:"bytes,7,opt,name=delivery,proto3" json:"delivery,omitempty"`
+	WorkerModel         *anypb.Any             `protobuf:"bytes,8,opt,name=worker_model,json=workerModel,proto3" json:"worker_model,omitempty"`
+	ResultAuthorization *ResultAuthorization   `protobuf:"bytes,9,opt,name=result_authorization,json=resultAuthorization,proto3" json:"result_authorization,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *Request) Reset() {
@@ -455,21 +666,103 @@ func (x *Request) GetPayloadJson() []byte {
 	return nil
 }
 
+func (x *Request) GetCapability() *CapabilityInvocation {
+	if x != nil {
+		return x.Capability
+	}
+	return nil
+}
+
+func (x *Request) GetDelivery() *DeliveryConfirmation {
+	if x != nil {
+		return x.Delivery
+	}
+	return nil
+}
+
+func (x *Request) GetWorkerModel() *anypb.Any {
+	if x != nil {
+		return x.WorkerModel
+	}
+	return nil
+}
+
+func (x *Request) GetResultAuthorization() *ResultAuthorization {
+	if x != nil {
+		return x.ResultAuthorization
+	}
+	return nil
+}
+
+type ResultAuthorization struct {
+	state         protoimpl.MessageState      `protogen:"open.v1"`
+	OperationId   string                      `protobuf:"bytes,1,opt,name=operation_id,json=operationId,proto3" json:"operation_id,omitempty"`
+	Reference     *query.QueryResultReference `protobuf:"bytes,2,opt,name=reference,proto3" json:"reference,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ResultAuthorization) Reset() {
+	*x = ResultAuthorization{}
+	mi := &file_runtime_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResultAuthorization) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResultAuthorization) ProtoMessage() {}
+
+func (x *ResultAuthorization) ProtoReflect() protoreflect.Message {
+	mi := &file_runtime_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResultAuthorization.ProtoReflect.Descriptor instead.
+func (*ResultAuthorization) Descriptor() ([]byte, []int) {
+	return file_runtime_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *ResultAuthorization) GetOperationId() string {
+	if x != nil {
+		return x.OperationId
+	}
+	return ""
+}
+
+func (x *ResultAuthorization) GetReference() *query.QueryResultReference {
+	if x != nil {
+		return x.Reference
+	}
+	return nil
+}
+
 type Response struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
-	Success       bool                   `protobuf:"varint,2,opt,name=success,proto3" json:"success,omitempty"`
-	ResultJson    []byte                 `protobuf:"bytes,3,opt,name=result_json,json=resultJson,proto3" json:"result_json,omitempty"`
-	ErrorJson     []byte                 `protobuf:"bytes,4,opt,name=error_json,json=errorJson,proto3" json:"error_json,omitempty"`
-	Artifact      *ResultArtifact        `protobuf:"bytes,5,opt,name=artifact,proto3" json:"artifact,omitempty"`
-	Ready         *RuntimeReady          `protobuf:"bytes,6,opt,name=ready,proto3" json:"ready,omitempty"`
+	state         protoimpl.MessageState    `protogen:"open.v1"`
+	RequestId     string                    `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	Success       bool                      `protobuf:"varint,2,opt,name=success,proto3" json:"success,omitempty"`
+	ResultJson    []byte                    `protobuf:"bytes,3,opt,name=result_json,json=resultJson,proto3" json:"result_json,omitempty"`
+	ErrorJson     []byte                    `protobuf:"bytes,4,opt,name=error_json,json=errorJson,proto3" json:"error_json,omitempty"`
+	Artifact      *ResultArtifact           `protobuf:"bytes,5,opt,name=artifact,proto3" json:"artifact,omitempty"`
+	Ready         *RuntimeReady             `protobuf:"bytes,6,opt,name=ready,proto3" json:"ready,omitempty"`
+	Model         *anypb.Any                `protobuf:"bytes,7,opt,name=model,proto3" json:"model,omitempty"`
+	WorkerFailure *query.WorkerFailureFacts `protobuf:"bytes,8,opt,name=worker_failure,json=workerFailure,proto3" json:"worker_failure,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Response) Reset() {
 	*x = Response{}
-	mi := &file_runtime_proto_msgTypes[4]
+	mi := &file_runtime_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -481,7 +774,7 @@ func (x *Response) String() string {
 func (*Response) ProtoMessage() {}
 
 func (x *Response) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[4]
+	mi := &file_runtime_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -494,7 +787,7 @@ func (x *Response) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Response.ProtoReflect.Descriptor instead.
 func (*Response) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{4}
+	return file_runtime_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *Response) GetRequestId() string {
@@ -539,6 +832,20 @@ func (x *Response) GetReady() *RuntimeReady {
 	return nil
 }
 
+func (x *Response) GetModel() *anypb.Any {
+	if x != nil {
+		return x.Model
+	}
+	return nil
+}
+
+func (x *Response) GetWorkerFailure() *query.WorkerFailureFacts {
+	if x != nil {
+		return x.WorkerFailure
+	}
+	return nil
+}
+
 type Operation struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
@@ -551,7 +858,7 @@ type Operation struct {
 
 func (x *Operation) Reset() {
 	*x = Operation{}
-	mi := &file_runtime_proto_msgTypes[5]
+	mi := &file_runtime_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -563,7 +870,7 @@ func (x *Operation) String() string {
 func (*Operation) ProtoMessage() {}
 
 func (x *Operation) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[5]
+	mi := &file_runtime_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -576,7 +883,7 @@ func (x *Operation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Operation.ProtoReflect.Descriptor instead.
 func (*Operation) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{5}
+	return file_runtime_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *Operation) GetName() string {
@@ -617,7 +924,7 @@ type RegisteredSource struct {
 
 func (x *RegisteredSource) Reset() {
 	*x = RegisteredSource{}
-	mi := &file_runtime_proto_msgTypes[6]
+	mi := &file_runtime_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -629,7 +936,7 @@ func (x *RegisteredSource) String() string {
 func (*RegisteredSource) ProtoMessage() {}
 
 func (x *RegisteredSource) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[6]
+	mi := &file_runtime_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -642,7 +949,7 @@ func (x *RegisteredSource) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegisteredSource.ProtoReflect.Descriptor instead.
 func (*RegisteredSource) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{6}
+	return file_runtime_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *RegisteredSource) GetBinding() *SourceBinding {
@@ -673,7 +980,7 @@ type RuntimeReady struct {
 
 func (x *RuntimeReady) Reset() {
 	*x = RuntimeReady{}
-	mi := &file_runtime_proto_msgTypes[7]
+	mi := &file_runtime_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -685,7 +992,7 @@ func (x *RuntimeReady) String() string {
 func (*RuntimeReady) ProtoMessage() {}
 
 func (x *RuntimeReady) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[7]
+	mi := &file_runtime_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -698,7 +1005,7 @@ func (x *RuntimeReady) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RuntimeReady.ProtoReflect.Descriptor instead.
 func (*RuntimeReady) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{7}
+	return file_runtime_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *RuntimeReady) GetOperations() []*Operation {
@@ -744,7 +1051,7 @@ type ResultArtifact struct {
 
 func (x *ResultArtifact) Reset() {
 	*x = ResultArtifact{}
-	mi := &file_runtime_proto_msgTypes[8]
+	mi := &file_runtime_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -756,7 +1063,7 @@ func (x *ResultArtifact) String() string {
 func (*ResultArtifact) ProtoMessage() {}
 
 func (x *ResultArtifact) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[8]
+	mi := &file_runtime_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -769,7 +1076,7 @@ func (x *ResultArtifact) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResultArtifact.ProtoReflect.Descriptor instead.
 func (*ResultArtifact) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{8}
+	return file_runtime_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ResultArtifact) GetRunId() string {
@@ -817,7 +1124,7 @@ type SourceBinding struct {
 
 func (x *SourceBinding) Reset() {
 	*x = SourceBinding{}
-	mi := &file_runtime_proto_msgTypes[9]
+	mi := &file_runtime_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -829,7 +1136,7 @@ func (x *SourceBinding) String() string {
 func (*SourceBinding) ProtoMessage() {}
 
 func (x *SourceBinding) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[9]
+	mi := &file_runtime_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -842,7 +1149,7 @@ func (x *SourceBinding) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SourceBinding.ProtoReflect.Descriptor instead.
 func (*SourceBinding) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{9}
+	return file_runtime_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *SourceBinding) GetDataSourceId() string {
@@ -861,7 +1168,7 @@ func (x *SourceBinding) GetSourceIdentityHash() string {
 
 type AcquireWorker struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Kind          WorkerKind             `protobuf:"varint,1,opt,name=kind,proto3,enum=agentic.olap.runtime.v1.WorkerKind" json:"kind,omitempty"`
+	Kind          WorkerKind             `protobuf:"varint,1,opt,name=kind,proto3,enum=agentic.olap.runtime.v2.WorkerKind" json:"kind,omitempty"`
 	Bindings      []*SourceBinding       `protobuf:"bytes,2,rep,name=bindings,proto3" json:"bindings,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -869,7 +1176,7 @@ type AcquireWorker struct {
 
 func (x *AcquireWorker) Reset() {
 	*x = AcquireWorker{}
-	mi := &file_runtime_proto_msgTypes[10]
+	mi := &file_runtime_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -881,7 +1188,7 @@ func (x *AcquireWorker) String() string {
 func (*AcquireWorker) ProtoMessage() {}
 
 func (x *AcquireWorker) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[10]
+	mi := &file_runtime_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -894,7 +1201,7 @@ func (x *AcquireWorker) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AcquireWorker.ProtoReflect.Descriptor instead.
 func (*AcquireWorker) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{10}
+	return file_runtime_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *AcquireWorker) GetKind() WorkerKind {
@@ -914,14 +1221,14 @@ func (x *AcquireWorker) GetBindings() []*SourceBinding {
 type ExchangeWorker struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	LeaseId       string                 `protobuf:"bytes,1,opt,name=lease_id,json=leaseId,proto3" json:"lease_id,omitempty"`
-	CommandJson   []byte                 `protobuf:"bytes,2,opt,name=command_json,json=commandJson,proto3" json:"command_json,omitempty"`
+	CommandModel  *anypb.Any             `protobuf:"bytes,3,opt,name=command_model,json=commandModel,proto3" json:"command_model,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ExchangeWorker) Reset() {
 	*x = ExchangeWorker{}
-	mi := &file_runtime_proto_msgTypes[11]
+	mi := &file_runtime_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -933,7 +1240,7 @@ func (x *ExchangeWorker) String() string {
 func (*ExchangeWorker) ProtoMessage() {}
 
 func (x *ExchangeWorker) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[11]
+	mi := &file_runtime_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -946,7 +1253,7 @@ func (x *ExchangeWorker) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExchangeWorker.ProtoReflect.Descriptor instead.
 func (*ExchangeWorker) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{11}
+	return file_runtime_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ExchangeWorker) GetLeaseId() string {
@@ -956,9 +1263,9 @@ func (x *ExchangeWorker) GetLeaseId() string {
 	return ""
 }
 
-func (x *ExchangeWorker) GetCommandJson() []byte {
+func (x *ExchangeWorker) GetCommandModel() *anypb.Any {
 	if x != nil {
-		return x.CommandJson
+		return x.CommandModel
 	}
 	return nil
 }
@@ -972,7 +1279,7 @@ type ReleaseWorker struct {
 
 func (x *ReleaseWorker) Reset() {
 	*x = ReleaseWorker{}
-	mi := &file_runtime_proto_msgTypes[12]
+	mi := &file_runtime_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -984,7 +1291,7 @@ func (x *ReleaseWorker) String() string {
 func (*ReleaseWorker) ProtoMessage() {}
 
 func (x *ReleaseWorker) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[12]
+	mi := &file_runtime_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -997,7 +1304,7 @@ func (x *ReleaseWorker) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReleaseWorker.ProtoReflect.Descriptor instead.
 func (*ReleaseWorker) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{12}
+	return file_runtime_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ReleaseWorker) GetLeaseId() string {
@@ -1026,7 +1333,7 @@ type WorkRequest struct {
 
 func (x *WorkRequest) Reset() {
 	*x = WorkRequest{}
-	mi := &file_runtime_proto_msgTypes[13]
+	mi := &file_runtime_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1038,7 +1345,7 @@ func (x *WorkRequest) String() string {
 func (*WorkRequest) ProtoMessage() {}
 
 func (x *WorkRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[13]
+	mi := &file_runtime_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1051,7 +1358,7 @@ func (x *WorkRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkRequest.ProtoReflect.Descriptor instead.
 func (*WorkRequest) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{13}
+	return file_runtime_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *WorkRequest) GetRequestId() string {
@@ -1132,22 +1439,23 @@ func (*WorkRequest_Exchange) isWorkRequest_Action() {}
 func (*WorkRequest_Release) isWorkRequest_Action() {}
 
 type WorkResponse struct {
-	state      protoimpl.MessageState `protogen:"open.v1"`
-	RequestId  string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
-	WorkId     string                 `protobuf:"bytes,2,opt,name=work_id,json=workId,proto3" json:"work_id,omitempty"`
-	LeaseId    string                 `protobuf:"bytes,3,opt,name=lease_id,json=leaseId,proto3" json:"lease_id,omitempty"`
-	Success    bool                   `protobuf:"varint,4,opt,name=success,proto3" json:"success,omitempty"`
-	ResultJson []byte                 `protobuf:"bytes,5,opt,name=result_json,json=resultJson,proto3" json:"result_json,omitempty"`
-	ErrorJson  []byte                 `protobuf:"bytes,6,opt,name=error_json,json=errorJson,proto3" json:"error_json,omitempty"`
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	RequestId string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	WorkId    string                 `protobuf:"bytes,2,opt,name=work_id,json=workId,proto3" json:"work_id,omitempty"`
+	LeaseId   string                 `protobuf:"bytes,3,opt,name=lease_id,json=leaseId,proto3" json:"lease_id,omitempty"`
+	Success   bool                   `protobuf:"varint,4,opt,name=success,proto3" json:"success,omitempty"`
+	ErrorJson []byte                 `protobuf:"bytes,6,opt,name=error_json,json=errorJson,proto3" json:"error_json,omitempty"`
 	// Transport/cancellation failures invalidate a lease; domain failures do not.
-	LeaseInvalidated bool `protobuf:"varint,7,opt,name=lease_invalidated,json=leaseInvalidated,proto3" json:"lease_invalidated,omitempty"`
+	LeaseInvalidated bool                      `protobuf:"varint,7,opt,name=lease_invalidated,json=leaseInvalidated,proto3" json:"lease_invalidated,omitempty"`
+	Model            *anypb.Any                `protobuf:"bytes,8,opt,name=model,proto3" json:"model,omitempty"`
+	WorkerFailure    *query.WorkerFailureFacts `protobuf:"bytes,9,opt,name=worker_failure,json=workerFailure,proto3" json:"worker_failure,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
 
 func (x *WorkResponse) Reset() {
 	*x = WorkResponse{}
-	mi := &file_runtime_proto_msgTypes[14]
+	mi := &file_runtime_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1159,7 +1467,7 @@ func (x *WorkResponse) String() string {
 func (*WorkResponse) ProtoMessage() {}
 
 func (x *WorkResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[14]
+	mi := &file_runtime_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1172,7 +1480,7 @@ func (x *WorkResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkResponse.ProtoReflect.Descriptor instead.
 func (*WorkResponse) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{14}
+	return file_runtime_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *WorkResponse) GetRequestId() string {
@@ -1203,13 +1511,6 @@ func (x *WorkResponse) GetSuccess() bool {
 	return false
 }
 
-func (x *WorkResponse) GetResultJson() []byte {
-	if x != nil {
-		return x.ResultJson
-	}
-	return nil
-}
-
 func (x *WorkResponse) GetErrorJson() []byte {
 	if x != nil {
 		return x.ErrorJson
@@ -1224,6 +1525,20 @@ func (x *WorkResponse) GetLeaseInvalidated() bool {
 	return false
 }
 
+func (x *WorkResponse) GetModel() *anypb.Any {
+	if x != nil {
+		return x.Model
+	}
+	return nil
+}
+
+func (x *WorkResponse) GetWorkerFailure() *query.WorkerFailureFacts {
+	if x != nil {
+		return x.WorkerFailure
+	}
+	return nil
+}
+
 type Cancel struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
@@ -1233,7 +1548,7 @@ type Cancel struct {
 
 func (x *Cancel) Reset() {
 	*x = Cancel{}
-	mi := &file_runtime_proto_msgTypes[15]
+	mi := &file_runtime_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1245,7 +1560,7 @@ func (x *Cancel) String() string {
 func (*Cancel) ProtoMessage() {}
 
 func (x *Cancel) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[15]
+	mi := &file_runtime_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1258,7 +1573,7 @@ func (x *Cancel) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Cancel.ProtoReflect.Descriptor instead.
 func (*Cancel) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{15}
+	return file_runtime_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *Cancel) GetRequestId() string {
@@ -1276,7 +1591,7 @@ type Shutdown struct {
 
 func (x *Shutdown) Reset() {
 	*x = Shutdown{}
-	mi := &file_runtime_proto_msgTypes[16]
+	mi := &file_runtime_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1288,7 +1603,7 @@ func (x *Shutdown) String() string {
 func (*Shutdown) ProtoMessage() {}
 
 func (x *Shutdown) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[16]
+	mi := &file_runtime_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1301,42 +1616,1150 @@ func (x *Shutdown) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Shutdown.ProtoReflect.Descriptor instead.
 func (*Shutdown) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{16}
+	return file_runtime_proto_rawDescGZIP(), []int{17}
+}
+
+type CapabilityInvocation struct {
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	OperationId string                 `protobuf:"bytes,1,opt,name=operation_id,json=operationId,proto3" json:"operation_id,omitempty"`
+	// 仅接受该操作正式声明的具体消息，不接受 Struct 或任意类型名。
+	Input         *anypb.Any `protobuf:"bytes,2,opt,name=input,proto3" json:"input,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CapabilityInvocation) Reset() {
+	*x = CapabilityInvocation{}
+	mi := &file_runtime_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CapabilityInvocation) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CapabilityInvocation) ProtoMessage() {}
+
+func (x *CapabilityInvocation) ProtoReflect() protoreflect.Message {
+	mi := &file_runtime_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CapabilityInvocation.ProtoReflect.Descriptor instead.
+func (*CapabilityInvocation) Descriptor() ([]byte, []int) {
+	return file_runtime_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *CapabilityInvocation) GetOperationId() string {
+	if x != nil {
+		return x.OperationId
+	}
+	return ""
+}
+
+func (x *CapabilityInvocation) GetInput() *anypb.Any {
+	if x != nil {
+		return x.Input
+	}
+	return nil
+}
+
+type ScriptConfiguration struct {
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	DslApiVersion        string                 `protobuf:"bytes,1,opt,name=dsl_api_version,json=dslApiVersion,proto3" json:"dsl_api_version,omitempty"`
+	CompilationClasspath []string               `protobuf:"bytes,2,rep,name=compilation_classpath,json=compilationClasspath,proto3" json:"compilation_classpath,omitempty"`
+	MaximumSourceBytes   uint64                 `protobuf:"varint,3,opt,name=maximum_source_bytes,json=maximumSourceBytes,proto3" json:"maximum_source_bytes,omitempty"`
+	MaximumOutputBytes   uint64                 `protobuf:"varint,4,opt,name=maximum_output_bytes,json=maximumOutputBytes,proto3" json:"maximum_output_bytes,omitempty"`
+	MaximumFrameBytes    uint64                 `protobuf:"varint,5,opt,name=maximum_frame_bytes,json=maximumFrameBytes,proto3" json:"maximum_frame_bytes,omitempty"`
+	MaximumInputDepth    uint32                 `protobuf:"varint,6,opt,name=maximum_input_depth,json=maximumInputDepth,proto3" json:"maximum_input_depth,omitempty"`
+	MaximumInputNodes    uint64                 `protobuf:"varint,7,opt,name=maximum_input_nodes,json=maximumInputNodes,proto3" json:"maximum_input_nodes,omitempty"`
+	MaximumRequestBytes  uint64                 `protobuf:"varint,8,opt,name=maximum_request_bytes,json=maximumRequestBytes,proto3" json:"maximum_request_bytes,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
+}
+
+func (x *ScriptConfiguration) Reset() {
+	*x = ScriptConfiguration{}
+	mi := &file_runtime_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ScriptConfiguration) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ScriptConfiguration) ProtoMessage() {}
+
+func (x *ScriptConfiguration) ProtoReflect() protoreflect.Message {
+	mi := &file_runtime_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ScriptConfiguration.ProtoReflect.Descriptor instead.
+func (*ScriptConfiguration) Descriptor() ([]byte, []int) {
+	return file_runtime_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *ScriptConfiguration) GetDslApiVersion() string {
+	if x != nil {
+		return x.DslApiVersion
+	}
+	return ""
+}
+
+func (x *ScriptConfiguration) GetCompilationClasspath() []string {
+	if x != nil {
+		return x.CompilationClasspath
+	}
+	return nil
+}
+
+func (x *ScriptConfiguration) GetMaximumSourceBytes() uint64 {
+	if x != nil {
+		return x.MaximumSourceBytes
+	}
+	return 0
+}
+
+func (x *ScriptConfiguration) GetMaximumOutputBytes() uint64 {
+	if x != nil {
+		return x.MaximumOutputBytes
+	}
+	return 0
+}
+
+func (x *ScriptConfiguration) GetMaximumFrameBytes() uint64 {
+	if x != nil {
+		return x.MaximumFrameBytes
+	}
+	return 0
+}
+
+func (x *ScriptConfiguration) GetMaximumInputDepth() uint32 {
+	if x != nil {
+		return x.MaximumInputDepth
+	}
+	return 0
+}
+
+func (x *ScriptConfiguration) GetMaximumInputNodes() uint64 {
+	if x != nil {
+		return x.MaximumInputNodes
+	}
+	return 0
+}
+
+func (x *ScriptConfiguration) GetMaximumRequestBytes() uint64 {
+	if x != nil {
+		return x.MaximumRequestBytes
+	}
+	return 0
+}
+
+type ScriptSource struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Source        string                 `protobuf:"bytes,1,opt,name=source,proto3" json:"source,omitempty"`
+	SourceName    string                 `protobuf:"bytes,2,opt,name=source_name,json=sourceName,proto3" json:"source_name,omitempty"`
+	DslApiVersion string                 `protobuf:"bytes,3,opt,name=dsl_api_version,json=dslApiVersion,proto3" json:"dsl_api_version,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ScriptSource) Reset() {
+	*x = ScriptSource{}
+	mi := &file_runtime_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ScriptSource) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ScriptSource) ProtoMessage() {}
+
+func (x *ScriptSource) ProtoReflect() protoreflect.Message {
+	mi := &file_runtime_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ScriptSource.ProtoReflect.Descriptor instead.
+func (*ScriptSource) Descriptor() ([]byte, []int) {
+	return file_runtime_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *ScriptSource) GetSource() string {
+	if x != nil {
+		return x.Source
+	}
+	return ""
+}
+
+func (x *ScriptSource) GetSourceName() string {
+	if x != nil {
+		return x.SourceName
+	}
+	return ""
+}
+
+func (x *ScriptSource) GetDslApiVersion() string {
+	if x != nil {
+		return x.DslApiVersion
+	}
+	return ""
+}
+
+type ScriptRequest struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	RequestId          string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	RemainingMillis    uint64                 `protobuf:"varint,2,opt,name=remaining_millis,json=remainingMillis,proto3" json:"remaining_millis,omitempty"`
+	Source             *ScriptSource          `protobuf:"bytes,3,opt,name=source,proto3" json:"source,omitempty"`
+	ParametersJson     []byte                 `protobuf:"bytes,4,opt,name=parameters_json,json=parametersJson,proto3" json:"parameters_json,omitempty"`
+	CallerSubject      string                 `protobuf:"bytes,5,opt,name=caller_subject,json=callerSubject,proto3" json:"caller_subject,omitempty"`
+	ExecutionDirectory string                 `protobuf:"bytes,6,opt,name=execution_directory,json=executionDirectory,proto3" json:"execution_directory,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *ScriptRequest) Reset() {
+	*x = ScriptRequest{}
+	mi := &file_runtime_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ScriptRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ScriptRequest) ProtoMessage() {}
+
+func (x *ScriptRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_runtime_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ScriptRequest.ProtoReflect.Descriptor instead.
+func (*ScriptRequest) Descriptor() ([]byte, []int) {
+	return file_runtime_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *ScriptRequest) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *ScriptRequest) GetRemainingMillis() uint64 {
+	if x != nil {
+		return x.RemainingMillis
+	}
+	return 0
+}
+
+func (x *ScriptRequest) GetSource() *ScriptSource {
+	if x != nil {
+		return x.Source
+	}
+	return nil
+}
+
+func (x *ScriptRequest) GetParametersJson() []byte {
+	if x != nil {
+		return x.ParametersJson
+	}
+	return nil
+}
+
+func (x *ScriptRequest) GetCallerSubject() string {
+	if x != nil {
+		return x.CallerSubject
+	}
+	return ""
+}
+
+func (x *ScriptRequest) GetExecutionDirectory() string {
+	if x != nil {
+		return x.ExecutionDirectory
+	}
+	return ""
+}
+
+// 普通脚本输出与完成回执在同一有序通道中交付；原生 JVM stderr 另受进程级限额。
+type ScriptOutput struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	Stream        ScriptOutput_Stream    `protobuf:"varint,2,opt,name=stream,proto3,enum=agentic.olap.runtime.v2.ScriptOutput_Stream" json:"stream,omitempty"`
+	Content       []byte                 `protobuf:"bytes,3,opt,name=content,proto3" json:"content,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ScriptOutput) Reset() {
+	*x = ScriptOutput{}
+	mi := &file_runtime_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ScriptOutput) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ScriptOutput) ProtoMessage() {}
+
+func (x *ScriptOutput) ProtoReflect() protoreflect.Message {
+	mi := &file_runtime_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ScriptOutput.ProtoReflect.Descriptor instead.
+func (*ScriptOutput) Descriptor() ([]byte, []int) {
+	return file_runtime_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *ScriptOutput) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *ScriptOutput) GetStream() ScriptOutput_Stream {
+	if x != nil {
+		return x.Stream
+	}
+	return ScriptOutput_STREAM_UNSPECIFIED
+}
+
+func (x *ScriptOutput) GetContent() []byte {
+	if x != nil {
+		return x.Content
+	}
+	return nil
+}
+
+type SourceLocation struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SourceName    string                 `protobuf:"bytes,1,opt,name=source_name,json=sourceName,proto3" json:"source_name,omitempty"`
+	StartLine     uint32                 `protobuf:"varint,2,opt,name=start_line,json=startLine,proto3" json:"start_line,omitempty"`
+	StartColumn   uint32                 `protobuf:"varint,3,opt,name=start_column,json=startColumn,proto3" json:"start_column,omitempty"`
+	EndLine       uint32                 `protobuf:"varint,4,opt,name=end_line,json=endLine,proto3" json:"end_line,omitempty"`
+	EndColumn     uint32                 `protobuf:"varint,5,opt,name=end_column,json=endColumn,proto3" json:"end_column,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SourceLocation) Reset() {
+	*x = SourceLocation{}
+	mi := &file_runtime_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SourceLocation) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SourceLocation) ProtoMessage() {}
+
+func (x *SourceLocation) ProtoReflect() protoreflect.Message {
+	mi := &file_runtime_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SourceLocation.ProtoReflect.Descriptor instead.
+func (*SourceLocation) Descriptor() ([]byte, []int) {
+	return file_runtime_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *SourceLocation) GetSourceName() string {
+	if x != nil {
+		return x.SourceName
+	}
+	return ""
+}
+
+func (x *SourceLocation) GetStartLine() uint32 {
+	if x != nil {
+		return x.StartLine
+	}
+	return 0
+}
+
+func (x *SourceLocation) GetStartColumn() uint32 {
+	if x != nil {
+		return x.StartColumn
+	}
+	return 0
+}
+
+func (x *SourceLocation) GetEndLine() uint32 {
+	if x != nil {
+		return x.EndLine
+	}
+	return 0
+}
+
+func (x *SourceLocation) GetEndColumn() uint32 {
+	if x != nil {
+		return x.EndColumn
+	}
+	return 0
+}
+
+type ScriptDiagnostic struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	Code              string                 `protobuf:"bytes,1,opt,name=code,proto3" json:"code,omitempty"`
+	Stage             string                 `protobuf:"bytes,2,opt,name=stage,proto3" json:"stage,omitempty"`
+	Severity          string                 `protobuf:"bytes,3,opt,name=severity,proto3" json:"severity,omitempty"`
+	Message           string                 `protobuf:"bytes,4,opt,name=message,proto3" json:"message,omitempty"`
+	Location          *SourceLocation        `protobuf:"bytes,5,opt,name=location,proto3" json:"location,omitempty"`
+	CapabilityFailure *CapabilityFailure     `protobuf:"bytes,6,opt,name=capability_failure,json=capabilityFailure,proto3" json:"capability_failure,omitempty"`
+	FieldPath         []string               `protobuf:"bytes,7,rep,name=field_path,json=fieldPath,proto3" json:"field_path,omitempty"`
+	Expected          string                 `protobuf:"bytes,8,opt,name=expected,proto3" json:"expected,omitempty"`
+	Actual            string                 `protobuf:"bytes,9,opt,name=actual,proto3" json:"actual,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *ScriptDiagnostic) Reset() {
+	*x = ScriptDiagnostic{}
+	mi := &file_runtime_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ScriptDiagnostic) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ScriptDiagnostic) ProtoMessage() {}
+
+func (x *ScriptDiagnostic) ProtoReflect() protoreflect.Message {
+	mi := &file_runtime_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ScriptDiagnostic.ProtoReflect.Descriptor instead.
+func (*ScriptDiagnostic) Descriptor() ([]byte, []int) {
+	return file_runtime_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *ScriptDiagnostic) GetCode() string {
+	if x != nil {
+		return x.Code
+	}
+	return ""
+}
+
+func (x *ScriptDiagnostic) GetStage() string {
+	if x != nil {
+		return x.Stage
+	}
+	return ""
+}
+
+func (x *ScriptDiagnostic) GetSeverity() string {
+	if x != nil {
+		return x.Severity
+	}
+	return ""
+}
+
+func (x *ScriptDiagnostic) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+func (x *ScriptDiagnostic) GetLocation() *SourceLocation {
+	if x != nil {
+		return x.Location
+	}
+	return nil
+}
+
+func (x *ScriptDiagnostic) GetCapabilityFailure() *CapabilityFailure {
+	if x != nil {
+		return x.CapabilityFailure
+	}
+	return nil
+}
+
+func (x *ScriptDiagnostic) GetFieldPath() []string {
+	if x != nil {
+		return x.FieldPath
+	}
+	return nil
+}
+
+func (x *ScriptDiagnostic) GetExpected() string {
+	if x != nil {
+		return x.Expected
+	}
+	return ""
+}
+
+func (x *ScriptDiagnostic) GetActual() string {
+	if x != nil {
+		return x.Actual
+	}
+	return ""
+}
+
+type ScriptResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	Success       bool                   `protobuf:"varint,2,opt,name=success,proto3" json:"success,omitempty"`
+	Result        *anypb.Any             `protobuf:"bytes,3,opt,name=result,proto3" json:"result,omitempty"`
+	Diagnostics   []*ScriptDiagnostic    `protobuf:"bytes,4,rep,name=diagnostics,proto3" json:"diagnostics,omitempty"`
+	TimingNanos   map[string]uint64      `protobuf:"bytes,5,rep,name=timing_nanos,json=timingNanos,proto3" json:"timing_nanos,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
+	RecycleWorker bool                   `protobuf:"varint,6,opt,name=recycle_worker,json=recycleWorker,proto3" json:"recycle_worker,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ScriptResponse) Reset() {
+	*x = ScriptResponse{}
+	mi := &file_runtime_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ScriptResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ScriptResponse) ProtoMessage() {}
+
+func (x *ScriptResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_runtime_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ScriptResponse.ProtoReflect.Descriptor instead.
+func (*ScriptResponse) Descriptor() ([]byte, []int) {
+	return file_runtime_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *ScriptResponse) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *ScriptResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *ScriptResponse) GetResult() *anypb.Any {
+	if x != nil {
+		return x.Result
+	}
+	return nil
+}
+
+func (x *ScriptResponse) GetDiagnostics() []*ScriptDiagnostic {
+	if x != nil {
+		return x.Diagnostics
+	}
+	return nil
+}
+
+func (x *ScriptResponse) GetTimingNanos() map[string]uint64 {
+	if x != nil {
+		return x.TimingNanos
+	}
+	return nil
+}
+
+func (x *ScriptResponse) GetRecycleWorker() bool {
+	if x != nil {
+		return x.RecycleWorker
+	}
+	return false
+}
+
+type ScriptWorkerFault struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	Code          string                 `protobuf:"bytes,2,opt,name=code,proto3" json:"code,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ScriptWorkerFault) Reset() {
+	*x = ScriptWorkerFault{}
+	mi := &file_runtime_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ScriptWorkerFault) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ScriptWorkerFault) ProtoMessage() {}
+
+func (x *ScriptWorkerFault) ProtoReflect() protoreflect.Message {
+	mi := &file_runtime_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ScriptWorkerFault.ProtoReflect.Descriptor instead.
+func (*ScriptWorkerFault) Descriptor() ([]byte, []int) {
+	return file_runtime_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *ScriptWorkerFault) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *ScriptWorkerFault) GetCode() string {
+	if x != nil {
+		return x.Code
+	}
+	return ""
+}
+
+// 仅脚本求值角色可发起；父主体、权限与期限由 Go 持有，不接受脚本填写。
+type CapabilityRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	CallId        string                 `protobuf:"bytes,2,opt,name=call_id,json=callId,proto3" json:"call_id,omitempty"`
+	Invocation    *CapabilityInvocation  `protobuf:"bytes,3,opt,name=invocation,proto3" json:"invocation,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CapabilityRequest) Reset() {
+	*x = CapabilityRequest{}
+	mi := &file_runtime_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CapabilityRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CapabilityRequest) ProtoMessage() {}
+
+func (x *CapabilityRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_runtime_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CapabilityRequest.ProtoReflect.Descriptor instead.
+func (*CapabilityRequest) Descriptor() ([]byte, []int) {
+	return file_runtime_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *CapabilityRequest) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *CapabilityRequest) GetCallId() string {
+	if x != nil {
+		return x.CallId
+	}
+	return ""
+}
+
+func (x *CapabilityRequest) GetInvocation() *CapabilityInvocation {
+	if x != nil {
+		return x.Invocation
+	}
+	return nil
+}
+
+type CapabilityFailure struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Stage         string                 `protobuf:"bytes,1,opt,name=stage,proto3" json:"stage,omitempty"`
+	Code          string                 `protobuf:"bytes,2,opt,name=code,proto3" json:"code,omitempty"`
+	Message       string                 `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
+	DetailsJson   []byte                 `protobuf:"bytes,4,opt,name=details_json,json=detailsJson,proto3" json:"details_json,omitempty"`
+	OperationId   string                 `protobuf:"bytes,5,opt,name=operation_id,json=operationId,proto3" json:"operation_id,omitempty"`
+	CallId        string                 `protobuf:"bytes,6,opt,name=call_id,json=callId,proto3" json:"call_id,omitempty"`
+	FieldPath     []string               `protobuf:"bytes,7,rep,name=field_path,json=fieldPath,proto3" json:"field_path,omitempty"`
+	DiagnosticId  string                 `protobuf:"bytes,8,opt,name=diagnostic_id,json=diagnosticId,proto3" json:"diagnostic_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CapabilityFailure) Reset() {
+	*x = CapabilityFailure{}
+	mi := &file_runtime_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CapabilityFailure) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CapabilityFailure) ProtoMessage() {}
+
+func (x *CapabilityFailure) ProtoReflect() protoreflect.Message {
+	mi := &file_runtime_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CapabilityFailure.ProtoReflect.Descriptor instead.
+func (*CapabilityFailure) Descriptor() ([]byte, []int) {
+	return file_runtime_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *CapabilityFailure) GetStage() string {
+	if x != nil {
+		return x.Stage
+	}
+	return ""
+}
+
+func (x *CapabilityFailure) GetCode() string {
+	if x != nil {
+		return x.Code
+	}
+	return ""
+}
+
+func (x *CapabilityFailure) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+func (x *CapabilityFailure) GetDetailsJson() []byte {
+	if x != nil {
+		return x.DetailsJson
+	}
+	return nil
+}
+
+func (x *CapabilityFailure) GetOperationId() string {
+	if x != nil {
+		return x.OperationId
+	}
+	return ""
+}
+
+func (x *CapabilityFailure) GetCallId() string {
+	if x != nil {
+		return x.CallId
+	}
+	return ""
+}
+
+func (x *CapabilityFailure) GetFieldPath() []string {
+	if x != nil {
+		return x.FieldPath
+	}
+	return nil
+}
+
+func (x *CapabilityFailure) GetDiagnosticId() string {
+	if x != nil {
+		return x.DiagnosticId
+	}
+	return ""
+}
+
+type CapabilityResponse struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	RequestId          string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	CallId             string                 `protobuf:"bytes,2,opt,name=call_id,json=callId,proto3" json:"call_id,omitempty"`
+	OperationRequestId string                 `protobuf:"bytes,3,opt,name=operation_request_id,json=operationRequestId,proto3" json:"operation_request_id,omitempty"`
+	Success            bool                   `protobuf:"varint,4,opt,name=success,proto3" json:"success,omitempty"`
+	Result             *anypb.Any             `protobuf:"bytes,5,opt,name=result,proto3" json:"result,omitempty"`
+	Failure            *CapabilityFailure     `protobuf:"bytes,6,opt,name=failure,proto3" json:"failure,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *CapabilityResponse) Reset() {
+	*x = CapabilityResponse{}
+	mi := &file_runtime_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CapabilityResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CapabilityResponse) ProtoMessage() {}
+
+func (x *CapabilityResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_runtime_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CapabilityResponse.ProtoReflect.Descriptor instead.
+func (*CapabilityResponse) Descriptor() ([]byte, []int) {
+	return file_runtime_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *CapabilityResponse) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *CapabilityResponse) GetCallId() string {
+	if x != nil {
+		return x.CallId
+	}
+	return ""
+}
+
+func (x *CapabilityResponse) GetOperationRequestId() string {
+	if x != nil {
+		return x.OperationRequestId
+	}
+	return ""
+}
+
+func (x *CapabilityResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *CapabilityResponse) GetResult() *anypb.Any {
+	if x != nil {
+		return x.Result
+	}
+	return nil
+}
+
+func (x *CapabilityResponse) GetFailure() *CapabilityFailure {
+	if x != nil {
+		return x.Failure
+	}
+	return nil
+}
+
+type WorkerObservation struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Kind          string                 `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`
+	Outcome       string                 `protobuf:"bytes,2,opt,name=outcome,proto3" json:"outcome,omitempty"`
+	QueueNanos    uint64                 `protobuf:"varint,3,opt,name=queue_nanos,json=queueNanos,proto3" json:"queue_nanos,omitempty"`
+	StartupNanos  uint64                 `protobuf:"varint,4,opt,name=startup_nanos,json=startupNanos,proto3" json:"startup_nanos,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WorkerObservation) Reset() {
+	*x = WorkerObservation{}
+	mi := &file_runtime_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WorkerObservation) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WorkerObservation) ProtoMessage() {}
+
+func (x *WorkerObservation) ProtoReflect() protoreflect.Message {
+	mi := &file_runtime_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WorkerObservation.ProtoReflect.Descriptor instead.
+func (*WorkerObservation) Descriptor() ([]byte, []int) {
+	return file_runtime_proto_rawDescGZIP(), []int{30}
+}
+
+func (x *WorkerObservation) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *WorkerObservation) GetOutcome() string {
+	if x != nil {
+		return x.Outcome
+	}
+	return ""
+}
+
+func (x *WorkerObservation) GetQueueNanos() uint64 {
+	if x != nil {
+		return x.QueueNanos
+	}
+	return 0
+}
+
+func (x *WorkerObservation) GetStartupNanos() uint64 {
+	if x != nil {
+		return x.StartupNanos
+	}
+	return 0
+}
+
+type DeliveryConfirmation struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	RunId            string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	Sha256           string                 `protobuf:"bytes,2,opt,name=sha256,proto3" json:"sha256,omitempty"`
+	Status           DeliveryStatus         `protobuf:"varint,3,opt,name=status,proto3,enum=agentic.olap.runtime.v2.DeliveryStatus" json:"status,omitempty"`
+	Bytes            uint64                 `protobuf:"varint,4,opt,name=bytes,proto3" json:"bytes,omitempty"`
+	Rows             uint64                 `protobuf:"varint,5,opt,name=rows,proto3" json:"rows,omitempty"`
+	TimingNanos      map[string]uint64      `protobuf:"bytes,6,rep,name=timing_nanos,json=timingNanos,proto3" json:"timing_nanos,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
+	Workers          []*WorkerObservation   `protobuf:"bytes,7,rep,name=workers,proto3" json:"workers,omitempty"`
+	ExecutionReceipt *anypb.Any             `protobuf:"bytes,8,opt,name=execution_receipt,json=executionReceipt,proto3" json:"execution_receipt,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *DeliveryConfirmation) Reset() {
+	*x = DeliveryConfirmation{}
+	mi := &file_runtime_proto_msgTypes[31]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeliveryConfirmation) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeliveryConfirmation) ProtoMessage() {}
+
+func (x *DeliveryConfirmation) ProtoReflect() protoreflect.Message {
+	mi := &file_runtime_proto_msgTypes[31]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeliveryConfirmation.ProtoReflect.Descriptor instead.
+func (*DeliveryConfirmation) Descriptor() ([]byte, []int) {
+	return file_runtime_proto_rawDescGZIP(), []int{31}
+}
+
+func (x *DeliveryConfirmation) GetRunId() string {
+	if x != nil {
+		return x.RunId
+	}
+	return ""
+}
+
+func (x *DeliveryConfirmation) GetSha256() string {
+	if x != nil {
+		return x.Sha256
+	}
+	return ""
+}
+
+func (x *DeliveryConfirmation) GetStatus() DeliveryStatus {
+	if x != nil {
+		return x.Status
+	}
+	return DeliveryStatus_DELIVERY_STATUS_UNSPECIFIED
+}
+
+func (x *DeliveryConfirmation) GetBytes() uint64 {
+	if x != nil {
+		return x.Bytes
+	}
+	return 0
+}
+
+func (x *DeliveryConfirmation) GetRows() uint64 {
+	if x != nil {
+		return x.Rows
+	}
+	return 0
+}
+
+func (x *DeliveryConfirmation) GetTimingNanos() map[string]uint64 {
+	if x != nil {
+		return x.TimingNanos
+	}
+	return nil
+}
+
+func (x *DeliveryConfirmation) GetWorkers() []*WorkerObservation {
+	if x != nil {
+		return x.Workers
+	}
+	return nil
+}
+
+func (x *DeliveryConfirmation) GetExecutionReceipt() *anypb.Any {
+	if x != nil {
+		return x.ExecutionReceipt
+	}
+	return nil
 }
 
 var File_runtime_proto protoreflect.FileDescriptor
 
 const file_runtime_proto_rawDesc = "" +
 	"\n" +
-	"\rruntime.proto\x12\x17agentic.olap.runtime.v1\"\xe7\x03\n" +
+	"\rruntime.proto\x12\x17agentic.olap.runtime.v2\x1a\x19google/protobuf/any.proto\x1a\vquery.proto\"\xf5\a\n" +
 	"\x05Frame\x12B\n" +
-	"\tbootstrap\x18\x01 \x01(\v2\".agentic.olap.runtime.v1.BootstrapH\x00R\tbootstrap\x12<\n" +
-	"\arequest\x18\x02 \x01(\v2 .agentic.olap.runtime.v1.RequestH\x00R\arequest\x12?\n" +
-	"\bresponse\x18\x03 \x01(\v2!.agentic.olap.runtime.v1.ResponseH\x00R\bresponse\x12I\n" +
-	"\fwork_request\x18\x04 \x01(\v2$.agentic.olap.runtime.v1.WorkRequestH\x00R\vworkRequest\x12L\n" +
-	"\rwork_response\x18\x05 \x01(\v2%.agentic.olap.runtime.v1.WorkResponseH\x00R\fworkResponse\x129\n" +
-	"\x06cancel\x18\x06 \x01(\v2\x1f.agentic.olap.runtime.v1.CancelH\x00R\x06cancel\x12?\n" +
-	"\bshutdown\x18\a \x01(\v2!.agentic.olap.runtime.v1.ShutdownH\x00R\bshutdownB\x06\n" +
-	"\x04body\"\xa6\x02\n" +
+	"\tbootstrap\x18\x01 \x01(\v2\".agentic.olap.runtime.v2.BootstrapH\x00R\tbootstrap\x12<\n" +
+	"\arequest\x18\x02 \x01(\v2 .agentic.olap.runtime.v2.RequestH\x00R\arequest\x12?\n" +
+	"\bresponse\x18\x03 \x01(\v2!.agentic.olap.runtime.v2.ResponseH\x00R\bresponse\x12I\n" +
+	"\fwork_request\x18\x04 \x01(\v2$.agentic.olap.runtime.v2.WorkRequestH\x00R\vworkRequest\x12L\n" +
+	"\rwork_response\x18\x05 \x01(\v2%.agentic.olap.runtime.v2.WorkResponseH\x00R\fworkResponse\x129\n" +
+	"\x06cancel\x18\x06 \x01(\v2\x1f.agentic.olap.runtime.v2.CancelH\x00R\x06cancel\x12?\n" +
+	"\bshutdown\x18\a \x01(\v2!.agentic.olap.runtime.v2.ShutdownH\x00R\bshutdown\x12O\n" +
+	"\x0escript_request\x18\b \x01(\v2&.agentic.olap.runtime.v2.ScriptRequestH\x00R\rscriptRequest\x12R\n" +
+	"\x0fscript_response\x18\t \x01(\v2'.agentic.olap.runtime.v2.ScriptResponseH\x00R\x0escriptResponse\x12[\n" +
+	"\x12capability_request\x18\n" +
+	" \x01(\v2*.agentic.olap.runtime.v2.CapabilityRequestH\x00R\x11capabilityRequest\x12^\n" +
+	"\x13capability_response\x18\v \x01(\v2+.agentic.olap.runtime.v2.CapabilityResponseH\x00R\x12capabilityResponse\x12\\\n" +
+	"\x13script_worker_fault\x18\r \x01(\v2*.agentic.olap.runtime.v2.ScriptWorkerFaultH\x00R\x11scriptWorkerFault\x12L\n" +
+	"\rscript_output\x18\x0e \x01(\v2%.agentic.olap.runtime.v2.ScriptOutputH\x00R\fscriptOutputB\x06\n" +
+	"\x04body\"\xf2\x02\n" +
 	"\tBootstrap\x12\x1a\n" +
 	"\bprotocol\x18\x01 \x01(\tR\bprotocol\x12'\n" +
 	"\x0fdeployment_json\x18\x02 \x01(\fR\x0edeploymentJson\x12\x1f\n" +
 	"\vlimits_json\x18\x03 \x01(\fR\n" +
 	"limitsJson\x12/\n" +
 	"\x13connector_manifests\x18\x04 \x03(\tR\x12connectorManifests\x12D\n" +
-	"\vworker_kind\x18\x05 \x01(\x0e2#.agentic.olap.runtime.v1.WorkerKindR\n" +
+	"\vworker_kind\x18\x05 \x01(\x0e2#.agentic.olap.runtime.v2.WorkerKindR\n" +
 	"workerKind\x12<\n" +
-	"\x1asource_configurations_json\x18\x06 \x01(\fR\x18sourceConfigurationsJson\"=\n" +
+	"\x1asource_configurations_json\x18\x06 \x01(\fR\x18sourceConfigurationsJson\x12J\n" +
+	"\tscripting\x18\a \x01(\v2,.agentic.olap.runtime.v2.ScriptConfigurationR\tscripting\"=\n" +
 	"\tPrincipal\x12\x18\n" +
 	"\asubject\x18\x01 \x01(\tR\asubject\x12\x16\n" +
-	"\x06scopes\x18\x02 \x03(\tR\x06scopes\"\xd6\x01\n" +
+	"\x06scopes\x18\x02 \x03(\tR\x06scopes\"\x8a\x04\n" +
 	"\aRequest\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12)\n" +
 	"\x10remaining_millis\x18\x02 \x01(\x04R\x0fremainingMillis\x12@\n" +
-	"\tprincipal\x18\x03 \x01(\v2\".agentic.olap.runtime.v1.PrincipalR\tprincipal\x12\x1c\n" +
+	"\tprincipal\x18\x03 \x01(\v2\".agentic.olap.runtime.v2.PrincipalR\tprincipal\x12\x1c\n" +
 	"\toperation\x18\x04 \x01(\tR\toperation\x12!\n" +
-	"\fpayload_json\x18\x05 \x01(\fR\vpayloadJson\"\x85\x02\n" +
+	"\fpayload_json\x18\x05 \x01(\fR\vpayloadJson\x12M\n" +
+	"\n" +
+	"capability\x18\x06 \x01(\v2-.agentic.olap.runtime.v2.CapabilityInvocationR\n" +
+	"capability\x12I\n" +
+	"\bdelivery\x18\a \x01(\v2-.agentic.olap.runtime.v2.DeliveryConfirmationR\bdelivery\x127\n" +
+	"\fworker_model\x18\b \x01(\v2\x14.google.protobuf.AnyR\vworkerModel\x12_\n" +
+	"\x14result_authorization\x18\t \x01(\v2,.agentic.olap.runtime.v2.ResultAuthorizationR\x13resultAuthorization\"\x83\x01\n" +
+	"\x13ResultAuthorization\x12!\n" +
+	"\foperation_id\x18\x01 \x01(\tR\voperationId\x12I\n" +
+	"\treference\x18\x02 \x01(\v2+.agentic.olap.query.v1.QueryResultReferenceR\treference\"\x83\x03\n" +
 	"\bResponse\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x18\n" +
@@ -1345,23 +2768,25 @@ const file_runtime_proto_rawDesc = "" +
 	"resultJson\x12\x1d\n" +
 	"\n" +
 	"error_json\x18\x04 \x01(\fR\terrorJson\x12C\n" +
-	"\bartifact\x18\x05 \x01(\v2'.agentic.olap.runtime.v1.ResultArtifactR\bartifact\x12;\n" +
-	"\x05ready\x18\x06 \x01(\v2%.agentic.olap.runtime.v1.RuntimeReadyR\x05ready\"\x81\x01\n" +
+	"\bartifact\x18\x05 \x01(\v2'.agentic.olap.runtime.v2.ResultArtifactR\bartifact\x12;\n" +
+	"\x05ready\x18\x06 \x01(\v2%.agentic.olap.runtime.v2.RuntimeReadyR\x05ready\x12*\n" +
+	"\x05model\x18\a \x01(\v2\x14.google.protobuf.AnyR\x05model\x12P\n" +
+	"\x0eworker_failure\x18\b \x01(\v2).agentic.olap.query.v1.WorkerFailureFactsR\rworkerFailure\"\x81\x01\n" +
 	"\tOperation\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1b\n" +
 	"\tread_only\x18\x02 \x01(\bR\breadOnly\x12 \n" +
 	"\vdescription\x18\x03 \x01(\tR\vdescription\x12!\n" +
 	"\fpayload_json\x18\x04 \x01(\fR\vpayloadJson\"\x85\x01\n" +
 	"\x10RegisteredSource\x12@\n" +
-	"\abinding\x18\x01 \x01(\v2&.agentic.olap.runtime.v1.SourceBindingR\abinding\x12/\n" +
+	"\abinding\x18\x01 \x01(\v2&.agentic.olap.runtime.v2.SourceBindingR\abinding\x12/\n" +
 	"\x13configuration_index\x18\x02 \x01(\rR\x12configurationIndex\"\xe9\x01\n" +
 	"\fRuntimeReady\x12B\n" +
 	"\n" +
-	"operations\x18\x01 \x03(\v2\".agentic.olap.runtime.v1.OperationR\n" +
+	"operations\x18\x01 \x03(\v2\".agentic.olap.runtime.v2.OperationR\n" +
 	"operations\x12+\n" +
 	"\x11result_operations\x18\x02 \x03(\tR\x10resultOperations\x12#\n" +
 	"\rconnector_api\x18\x03 \x01(\tR\fconnectorApi\x12C\n" +
-	"\asources\x18\x04 \x03(\v2).agentic.olap.runtime.v1.RegisteredSourceR\asources\"\x81\x01\n" +
+	"\asources\x18\x04 \x03(\v2).agentic.olap.runtime.v2.RegisteredSourceR\asources\"\x81\x01\n" +
 	"\x0eResultArtifact\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x16\n" +
 	"\x06sha256\x18\x02 \x01(\tR\x06sha256\x12\x18\n" +
@@ -1372,11 +2797,11 @@ const file_runtime_proto_rawDesc = "" +
 	"\x0edata_source_id\x18\x01 \x01(\tR\fdataSourceId\x120\n" +
 	"\x14source_identity_hash\x18\x02 \x01(\tR\x12sourceIdentityHash\"\x8c\x01\n" +
 	"\rAcquireWorker\x127\n" +
-	"\x04kind\x18\x01 \x01(\x0e2#.agentic.olap.runtime.v1.WorkerKindR\x04kind\x12B\n" +
-	"\bbindings\x18\x02 \x03(\v2&.agentic.olap.runtime.v1.SourceBindingR\bbindings\"N\n" +
+	"\x04kind\x18\x01 \x01(\x0e2#.agentic.olap.runtime.v2.WorkerKindR\x04kind\x12B\n" +
+	"\bbindings\x18\x02 \x03(\v2&.agentic.olap.runtime.v2.SourceBindingR\bbindings\"l\n" +
 	"\x0eExchangeWorker\x12\x19\n" +
-	"\blease_id\x18\x01 \x01(\tR\aleaseId\x12!\n" +
-	"\fcommand_json\x18\x02 \x01(\fR\vcommandJson\"*\n" +
+	"\blease_id\x18\x01 \x01(\tR\aleaseId\x129\n" +
+	"\rcommand_model\x18\x03 \x01(\v2\x14.google.protobuf.AnyR\fcommandModelJ\x04\b\x02\x10\x03\"*\n" +
 	"\rReleaseWorker\x12\x19\n" +
 	"\blease_id\x18\x01 \x01(\tR\aleaseId\"\xc9\x02\n" +
 	"\vWorkRequest\x12\x1d\n" +
@@ -1384,26 +2809,140 @@ const file_runtime_proto_rawDesc = "" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x17\n" +
 	"\awork_id\x18\x02 \x01(\tR\x06workId\x12)\n" +
 	"\x10remaining_millis\x18\x03 \x01(\x04R\x0fremainingMillis\x12B\n" +
-	"\aacquire\x18\x04 \x01(\v2&.agentic.olap.runtime.v1.AcquireWorkerH\x00R\aacquire\x12E\n" +
-	"\bexchange\x18\x05 \x01(\v2'.agentic.olap.runtime.v1.ExchangeWorkerH\x00R\bexchange\x12B\n" +
-	"\arelease\x18\x06 \x01(\v2&.agentic.olap.runtime.v1.ReleaseWorkerH\x00R\areleaseB\b\n" +
-	"\x06action\"\xe8\x01\n" +
+	"\aacquire\x18\x04 \x01(\v2&.agentic.olap.runtime.v2.AcquireWorkerH\x00R\aacquire\x12E\n" +
+	"\bexchange\x18\x05 \x01(\v2'.agentic.olap.runtime.v2.ExchangeWorkerH\x00R\bexchange\x12B\n" +
+	"\arelease\x18\x06 \x01(\v2&.agentic.olap.runtime.v2.ReleaseWorkerH\x00R\areleaseB\b\n" +
+	"\x06action\"\xcb\x02\n" +
 	"\fWorkResponse\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x17\n" +
 	"\awork_id\x18\x02 \x01(\tR\x06workId\x12\x19\n" +
 	"\blease_id\x18\x03 \x01(\tR\aleaseId\x12\x18\n" +
-	"\asuccess\x18\x04 \x01(\bR\asuccess\x12\x1f\n" +
-	"\vresult_json\x18\x05 \x01(\fR\n" +
-	"resultJson\x12\x1d\n" +
+	"\asuccess\x18\x04 \x01(\bR\asuccess\x12\x1d\n" +
 	"\n" +
 	"error_json\x18\x06 \x01(\fR\terrorJson\x12+\n" +
-	"\x11lease_invalidated\x18\a \x01(\bR\x10leaseInvalidated\"'\n" +
+	"\x11lease_invalidated\x18\a \x01(\bR\x10leaseInvalidated\x12*\n" +
+	"\x05model\x18\b \x01(\v2\x14.google.protobuf.AnyR\x05model\x12P\n" +
+	"\x0eworker_failure\x18\t \x01(\v2).agentic.olap.query.v1.WorkerFailureFactsR\rworkerFailureJ\x04\b\x05\x10\x06\"'\n" +
 	"\x06Cancel\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\"\n" +
 	"\n" +
-	"\bShutdown*}\n" +
+	"\bShutdown\"e\n" +
+	"\x14CapabilityInvocation\x12!\n" +
+	"\foperation_id\x18\x01 \x01(\tR\voperationId\x12*\n" +
+	"\x05input\x18\x02 \x01(\v2\x14.google.protobuf.AnyR\x05input\"\x9a\x03\n" +
+	"\x13ScriptConfiguration\x12&\n" +
+	"\x0fdsl_api_version\x18\x01 \x01(\tR\rdslApiVersion\x123\n" +
+	"\x15compilation_classpath\x18\x02 \x03(\tR\x14compilationClasspath\x120\n" +
+	"\x14maximum_source_bytes\x18\x03 \x01(\x04R\x12maximumSourceBytes\x120\n" +
+	"\x14maximum_output_bytes\x18\x04 \x01(\x04R\x12maximumOutputBytes\x12.\n" +
+	"\x13maximum_frame_bytes\x18\x05 \x01(\x04R\x11maximumFrameBytes\x12.\n" +
+	"\x13maximum_input_depth\x18\x06 \x01(\rR\x11maximumInputDepth\x12.\n" +
+	"\x13maximum_input_nodes\x18\a \x01(\x04R\x11maximumInputNodes\x122\n" +
+	"\x15maximum_request_bytes\x18\b \x01(\x04R\x13maximumRequestBytes\"o\n" +
+	"\fScriptSource\x12\x16\n" +
+	"\x06source\x18\x01 \x01(\tR\x06source\x12\x1f\n" +
+	"\vsource_name\x18\x02 \x01(\tR\n" +
+	"sourceName\x12&\n" +
+	"\x0fdsl_api_version\x18\x03 \x01(\tR\rdslApiVersion\"\x99\x02\n" +
+	"\rScriptRequest\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\x12)\n" +
+	"\x10remaining_millis\x18\x02 \x01(\x04R\x0fremainingMillis\x12=\n" +
+	"\x06source\x18\x03 \x01(\v2%.agentic.olap.runtime.v2.ScriptSourceR\x06source\x12'\n" +
+	"\x0fparameters_json\x18\x04 \x01(\fR\x0eparametersJson\x12%\n" +
+	"\x0ecaller_subject\x18\x05 \x01(\tR\rcallerSubject\x12/\n" +
+	"\x13execution_directory\x18\x06 \x01(\tR\x12executionDirectory\"\xc7\x01\n" +
+	"\fScriptOutput\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\x12D\n" +
+	"\x06stream\x18\x02 \x01(\x0e2,.agentic.olap.runtime.v2.ScriptOutput.StreamR\x06stream\x12\x18\n" +
+	"\acontent\x18\x03 \x01(\fR\acontent\"8\n" +
+	"\x06Stream\x12\x16\n" +
+	"\x12STREAM_UNSPECIFIED\x10\x00\x12\n" +
+	"\n" +
+	"\x06STDOUT\x10\x01\x12\n" +
+	"\n" +
+	"\x06STDERR\x10\x02\"\xad\x01\n" +
+	"\x0eSourceLocation\x12\x1f\n" +
+	"\vsource_name\x18\x01 \x01(\tR\n" +
+	"sourceName\x12\x1d\n" +
+	"\n" +
+	"start_line\x18\x02 \x01(\rR\tstartLine\x12!\n" +
+	"\fstart_column\x18\x03 \x01(\rR\vstartColumn\x12\x19\n" +
+	"\bend_line\x18\x04 \x01(\rR\aendLine\x12\x1d\n" +
+	"\n" +
+	"end_column\x18\x05 \x01(\rR\tendColumn\"\xe5\x02\n" +
+	"\x10ScriptDiagnostic\x12\x12\n" +
+	"\x04code\x18\x01 \x01(\tR\x04code\x12\x14\n" +
+	"\x05stage\x18\x02 \x01(\tR\x05stage\x12\x1a\n" +
+	"\bseverity\x18\x03 \x01(\tR\bseverity\x12\x18\n" +
+	"\amessage\x18\x04 \x01(\tR\amessage\x12C\n" +
+	"\blocation\x18\x05 \x01(\v2'.agentic.olap.runtime.v2.SourceLocationR\blocation\x12Y\n" +
+	"\x12capability_failure\x18\x06 \x01(\v2*.agentic.olap.runtime.v2.CapabilityFailureR\x11capabilityFailure\x12\x1d\n" +
+	"\n" +
+	"field_path\x18\a \x03(\tR\tfieldPath\x12\x1a\n" +
+	"\bexpected\x18\b \x01(\tR\bexpected\x12\x16\n" +
+	"\x06actual\x18\t \x01(\tR\x06actual\"\x88\x03\n" +
+	"\x0eScriptResponse\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\x12\x18\n" +
+	"\asuccess\x18\x02 \x01(\bR\asuccess\x12,\n" +
+	"\x06result\x18\x03 \x01(\v2\x14.google.protobuf.AnyR\x06result\x12K\n" +
+	"\vdiagnostics\x18\x04 \x03(\v2).agentic.olap.runtime.v2.ScriptDiagnosticR\vdiagnostics\x12[\n" +
+	"\ftiming_nanos\x18\x05 \x03(\v28.agentic.olap.runtime.v2.ScriptResponse.TimingNanosEntryR\vtimingNanos\x12%\n" +
+	"\x0erecycle_worker\x18\x06 \x01(\bR\rrecycleWorker\x1a>\n" +
+	"\x10TimingNanosEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\x04R\x05value:\x028\x01\"F\n" +
+	"\x11ScriptWorkerFault\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\x12\x12\n" +
+	"\x04code\x18\x02 \x01(\tR\x04code\"\x9a\x01\n" +
+	"\x11CapabilityRequest\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\x12\x17\n" +
+	"\acall_id\x18\x02 \x01(\tR\x06callId\x12M\n" +
+	"\n" +
+	"invocation\x18\x03 \x01(\v2-.agentic.olap.runtime.v2.CapabilityInvocationR\n" +
+	"invocation\"\xfa\x01\n" +
+	"\x11CapabilityFailure\x12\x14\n" +
+	"\x05stage\x18\x01 \x01(\tR\x05stage\x12\x12\n" +
+	"\x04code\x18\x02 \x01(\tR\x04code\x12\x18\n" +
+	"\amessage\x18\x03 \x01(\tR\amessage\x12!\n" +
+	"\fdetails_json\x18\x04 \x01(\fR\vdetailsJson\x12!\n" +
+	"\foperation_id\x18\x05 \x01(\tR\voperationId\x12\x17\n" +
+	"\acall_id\x18\x06 \x01(\tR\x06callId\x12\x1d\n" +
+	"\n" +
+	"field_path\x18\a \x03(\tR\tfieldPath\x12#\n" +
+	"\rdiagnostic_id\x18\b \x01(\tR\fdiagnosticId\"\x8c\x02\n" +
+	"\x12CapabilityResponse\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\x12\x17\n" +
+	"\acall_id\x18\x02 \x01(\tR\x06callId\x120\n" +
+	"\x14operation_request_id\x18\x03 \x01(\tR\x12operationRequestId\x12\x18\n" +
+	"\asuccess\x18\x04 \x01(\bR\asuccess\x12,\n" +
+	"\x06result\x18\x05 \x01(\v2\x14.google.protobuf.AnyR\x06result\x12D\n" +
+	"\afailure\x18\x06 \x01(\v2*.agentic.olap.runtime.v2.CapabilityFailureR\afailure\"\x87\x01\n" +
+	"\x11WorkerObservation\x12\x12\n" +
+	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x18\n" +
+	"\aoutcome\x18\x02 \x01(\tR\aoutcome\x12\x1f\n" +
+	"\vqueue_nanos\x18\x03 \x01(\x04R\n" +
+	"queueNanos\x12#\n" +
+	"\rstartup_nanos\x18\x04 \x01(\x04R\fstartupNanos\"\xdc\x03\n" +
+	"\x14DeliveryConfirmation\x12\x15\n" +
+	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x16\n" +
+	"\x06sha256\x18\x02 \x01(\tR\x06sha256\x12?\n" +
+	"\x06status\x18\x03 \x01(\x0e2'.agentic.olap.runtime.v2.DeliveryStatusR\x06status\x12\x14\n" +
+	"\x05bytes\x18\x04 \x01(\x04R\x05bytes\x12\x12\n" +
+	"\x04rows\x18\x05 \x01(\x04R\x04rows\x12a\n" +
+	"\ftiming_nanos\x18\x06 \x03(\v2>.agentic.olap.runtime.v2.DeliveryConfirmation.TimingNanosEntryR\vtimingNanos\x12D\n" +
+	"\aworkers\x18\a \x03(\v2*.agentic.olap.runtime.v2.WorkerObservationR\aworkers\x12A\n" +
+	"\x11execution_receipt\x18\b \x01(\v2\x14.google.protobuf.AnyR\x10executionReceipt\x1a>\n" +
+	"\x10TimingNanosEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\x04R\x05value:\x028\x01*}\n" +
 	"\n" +
 	"WorkerKind\x12\x1b\n" +
 	"\x17WORKER_KIND_UNSPECIFIED\x10\x00\x12\t\n" +
@@ -1413,7 +2952,14 @@ const file_runtime_proto_rawDesc = "" +
 	"\n" +
 	"INSPECTION\x10\x03\x12\x15\n" +
 	"\x11SOURCE_INSPECTION\x10\x04\x12\x14\n" +
-	"\x10CANDIDATE_VALUES\x10\x05Bi\n" +
+	"\x10CANDIDATE_VALUES\x10\x05*T\n" +
+	"\x0eDeliveryStatus\x12\x1f\n" +
+	"\x1bDELIVERY_STATUS_UNSPECIFIED\x10\x00\x12\n" +
+	"\n" +
+	"\x06DIRECT\x10\x01\x12\t\n" +
+	"\x05SAVED\x10\x02\x12\n" +
+	"\n" +
+	"\x06FAILED\x10\x03Bi\n" +
 	"\x1bcom.olap.prototype.protocolP\x01ZHgithub.com/hanger-source/agentic-olap/service/internal/protocol;protocolb\x06proto3"
 
 var (
@@ -1428,53 +2974,107 @@ func file_runtime_proto_rawDescGZIP() []byte {
 	return file_runtime_proto_rawDescData
 }
 
-var file_runtime_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_runtime_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
+var file_runtime_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
+var file_runtime_proto_msgTypes = make([]protoimpl.MessageInfo, 34)
 var file_runtime_proto_goTypes = []any{
-	(WorkerKind)(0),          // 0: agentic.olap.runtime.v1.WorkerKind
-	(*Frame)(nil),            // 1: agentic.olap.runtime.v1.Frame
-	(*Bootstrap)(nil),        // 2: agentic.olap.runtime.v1.Bootstrap
-	(*Principal)(nil),        // 3: agentic.olap.runtime.v1.Principal
-	(*Request)(nil),          // 4: agentic.olap.runtime.v1.Request
-	(*Response)(nil),         // 5: agentic.olap.runtime.v1.Response
-	(*Operation)(nil),        // 6: agentic.olap.runtime.v1.Operation
-	(*RegisteredSource)(nil), // 7: agentic.olap.runtime.v1.RegisteredSource
-	(*RuntimeReady)(nil),     // 8: agentic.olap.runtime.v1.RuntimeReady
-	(*ResultArtifact)(nil),   // 9: agentic.olap.runtime.v1.ResultArtifact
-	(*SourceBinding)(nil),    // 10: agentic.olap.runtime.v1.SourceBinding
-	(*AcquireWorker)(nil),    // 11: agentic.olap.runtime.v1.AcquireWorker
-	(*ExchangeWorker)(nil),   // 12: agentic.olap.runtime.v1.ExchangeWorker
-	(*ReleaseWorker)(nil),    // 13: agentic.olap.runtime.v1.ReleaseWorker
-	(*WorkRequest)(nil),      // 14: agentic.olap.runtime.v1.WorkRequest
-	(*WorkResponse)(nil),     // 15: agentic.olap.runtime.v1.WorkResponse
-	(*Cancel)(nil),           // 16: agentic.olap.runtime.v1.Cancel
-	(*Shutdown)(nil),         // 17: agentic.olap.runtime.v1.Shutdown
+	(WorkerKind)(0),                    // 0: agentic.olap.runtime.v2.WorkerKind
+	(DeliveryStatus)(0),                // 1: agentic.olap.runtime.v2.DeliveryStatus
+	(ScriptOutput_Stream)(0),           // 2: agentic.olap.runtime.v2.ScriptOutput.Stream
+	(*Frame)(nil),                      // 3: agentic.olap.runtime.v2.Frame
+	(*Bootstrap)(nil),                  // 4: agentic.olap.runtime.v2.Bootstrap
+	(*Principal)(nil),                  // 5: agentic.olap.runtime.v2.Principal
+	(*Request)(nil),                    // 6: agentic.olap.runtime.v2.Request
+	(*ResultAuthorization)(nil),        // 7: agentic.olap.runtime.v2.ResultAuthorization
+	(*Response)(nil),                   // 8: agentic.olap.runtime.v2.Response
+	(*Operation)(nil),                  // 9: agentic.olap.runtime.v2.Operation
+	(*RegisteredSource)(nil),           // 10: agentic.olap.runtime.v2.RegisteredSource
+	(*RuntimeReady)(nil),               // 11: agentic.olap.runtime.v2.RuntimeReady
+	(*ResultArtifact)(nil),             // 12: agentic.olap.runtime.v2.ResultArtifact
+	(*SourceBinding)(nil),              // 13: agentic.olap.runtime.v2.SourceBinding
+	(*AcquireWorker)(nil),              // 14: agentic.olap.runtime.v2.AcquireWorker
+	(*ExchangeWorker)(nil),             // 15: agentic.olap.runtime.v2.ExchangeWorker
+	(*ReleaseWorker)(nil),              // 16: agentic.olap.runtime.v2.ReleaseWorker
+	(*WorkRequest)(nil),                // 17: agentic.olap.runtime.v2.WorkRequest
+	(*WorkResponse)(nil),               // 18: agentic.olap.runtime.v2.WorkResponse
+	(*Cancel)(nil),                     // 19: agentic.olap.runtime.v2.Cancel
+	(*Shutdown)(nil),                   // 20: agentic.olap.runtime.v2.Shutdown
+	(*CapabilityInvocation)(nil),       // 21: agentic.olap.runtime.v2.CapabilityInvocation
+	(*ScriptConfiguration)(nil),        // 22: agentic.olap.runtime.v2.ScriptConfiguration
+	(*ScriptSource)(nil),               // 23: agentic.olap.runtime.v2.ScriptSource
+	(*ScriptRequest)(nil),              // 24: agentic.olap.runtime.v2.ScriptRequest
+	(*ScriptOutput)(nil),               // 25: agentic.olap.runtime.v2.ScriptOutput
+	(*SourceLocation)(nil),             // 26: agentic.olap.runtime.v2.SourceLocation
+	(*ScriptDiagnostic)(nil),           // 27: agentic.olap.runtime.v2.ScriptDiagnostic
+	(*ScriptResponse)(nil),             // 28: agentic.olap.runtime.v2.ScriptResponse
+	(*ScriptWorkerFault)(nil),          // 29: agentic.olap.runtime.v2.ScriptWorkerFault
+	(*CapabilityRequest)(nil),          // 30: agentic.olap.runtime.v2.CapabilityRequest
+	(*CapabilityFailure)(nil),          // 31: agentic.olap.runtime.v2.CapabilityFailure
+	(*CapabilityResponse)(nil),         // 32: agentic.olap.runtime.v2.CapabilityResponse
+	(*WorkerObservation)(nil),          // 33: agentic.olap.runtime.v2.WorkerObservation
+	(*DeliveryConfirmation)(nil),       // 34: agentic.olap.runtime.v2.DeliveryConfirmation
+	nil,                                // 35: agentic.olap.runtime.v2.ScriptResponse.TimingNanosEntry
+	nil,                                // 36: agentic.olap.runtime.v2.DeliveryConfirmation.TimingNanosEntry
+	(*anypb.Any)(nil),                  // 37: google.protobuf.Any
+	(*query.QueryResultReference)(nil), // 38: agentic.olap.query.v1.QueryResultReference
+	(*query.WorkerFailureFacts)(nil),   // 39: agentic.olap.query.v1.WorkerFailureFacts
 }
 var file_runtime_proto_depIdxs = []int32{
-	2,  // 0: agentic.olap.runtime.v1.Frame.bootstrap:type_name -> agentic.olap.runtime.v1.Bootstrap
-	4,  // 1: agentic.olap.runtime.v1.Frame.request:type_name -> agentic.olap.runtime.v1.Request
-	5,  // 2: agentic.olap.runtime.v1.Frame.response:type_name -> agentic.olap.runtime.v1.Response
-	14, // 3: agentic.olap.runtime.v1.Frame.work_request:type_name -> agentic.olap.runtime.v1.WorkRequest
-	15, // 4: agentic.olap.runtime.v1.Frame.work_response:type_name -> agentic.olap.runtime.v1.WorkResponse
-	16, // 5: agentic.olap.runtime.v1.Frame.cancel:type_name -> agentic.olap.runtime.v1.Cancel
-	17, // 6: agentic.olap.runtime.v1.Frame.shutdown:type_name -> agentic.olap.runtime.v1.Shutdown
-	0,  // 7: agentic.olap.runtime.v1.Bootstrap.worker_kind:type_name -> agentic.olap.runtime.v1.WorkerKind
-	3,  // 8: agentic.olap.runtime.v1.Request.principal:type_name -> agentic.olap.runtime.v1.Principal
-	9,  // 9: agentic.olap.runtime.v1.Response.artifact:type_name -> agentic.olap.runtime.v1.ResultArtifact
-	8,  // 10: agentic.olap.runtime.v1.Response.ready:type_name -> agentic.olap.runtime.v1.RuntimeReady
-	10, // 11: agentic.olap.runtime.v1.RegisteredSource.binding:type_name -> agentic.olap.runtime.v1.SourceBinding
-	6,  // 12: agentic.olap.runtime.v1.RuntimeReady.operations:type_name -> agentic.olap.runtime.v1.Operation
-	7,  // 13: agentic.olap.runtime.v1.RuntimeReady.sources:type_name -> agentic.olap.runtime.v1.RegisteredSource
-	0,  // 14: agentic.olap.runtime.v1.AcquireWorker.kind:type_name -> agentic.olap.runtime.v1.WorkerKind
-	10, // 15: agentic.olap.runtime.v1.AcquireWorker.bindings:type_name -> agentic.olap.runtime.v1.SourceBinding
-	11, // 16: agentic.olap.runtime.v1.WorkRequest.acquire:type_name -> agentic.olap.runtime.v1.AcquireWorker
-	12, // 17: agentic.olap.runtime.v1.WorkRequest.exchange:type_name -> agentic.olap.runtime.v1.ExchangeWorker
-	13, // 18: agentic.olap.runtime.v1.WorkRequest.release:type_name -> agentic.olap.runtime.v1.ReleaseWorker
-	19, // [19:19] is the sub-list for method output_type
-	19, // [19:19] is the sub-list for method input_type
-	19, // [19:19] is the sub-list for extension type_name
-	19, // [19:19] is the sub-list for extension extendee
-	0,  // [0:19] is the sub-list for field type_name
+	4,  // 0: agentic.olap.runtime.v2.Frame.bootstrap:type_name -> agentic.olap.runtime.v2.Bootstrap
+	6,  // 1: agentic.olap.runtime.v2.Frame.request:type_name -> agentic.olap.runtime.v2.Request
+	8,  // 2: agentic.olap.runtime.v2.Frame.response:type_name -> agentic.olap.runtime.v2.Response
+	17, // 3: agentic.olap.runtime.v2.Frame.work_request:type_name -> agentic.olap.runtime.v2.WorkRequest
+	18, // 4: agentic.olap.runtime.v2.Frame.work_response:type_name -> agentic.olap.runtime.v2.WorkResponse
+	19, // 5: agentic.olap.runtime.v2.Frame.cancel:type_name -> agentic.olap.runtime.v2.Cancel
+	20, // 6: agentic.olap.runtime.v2.Frame.shutdown:type_name -> agentic.olap.runtime.v2.Shutdown
+	24, // 7: agentic.olap.runtime.v2.Frame.script_request:type_name -> agentic.olap.runtime.v2.ScriptRequest
+	28, // 8: agentic.olap.runtime.v2.Frame.script_response:type_name -> agentic.olap.runtime.v2.ScriptResponse
+	30, // 9: agentic.olap.runtime.v2.Frame.capability_request:type_name -> agentic.olap.runtime.v2.CapabilityRequest
+	32, // 10: agentic.olap.runtime.v2.Frame.capability_response:type_name -> agentic.olap.runtime.v2.CapabilityResponse
+	29, // 11: agentic.olap.runtime.v2.Frame.script_worker_fault:type_name -> agentic.olap.runtime.v2.ScriptWorkerFault
+	25, // 12: agentic.olap.runtime.v2.Frame.script_output:type_name -> agentic.olap.runtime.v2.ScriptOutput
+	0,  // 13: agentic.olap.runtime.v2.Bootstrap.worker_kind:type_name -> agentic.olap.runtime.v2.WorkerKind
+	22, // 14: agentic.olap.runtime.v2.Bootstrap.scripting:type_name -> agentic.olap.runtime.v2.ScriptConfiguration
+	5,  // 15: agentic.olap.runtime.v2.Request.principal:type_name -> agentic.olap.runtime.v2.Principal
+	21, // 16: agentic.olap.runtime.v2.Request.capability:type_name -> agentic.olap.runtime.v2.CapabilityInvocation
+	34, // 17: agentic.olap.runtime.v2.Request.delivery:type_name -> agentic.olap.runtime.v2.DeliveryConfirmation
+	37, // 18: agentic.olap.runtime.v2.Request.worker_model:type_name -> google.protobuf.Any
+	7,  // 19: agentic.olap.runtime.v2.Request.result_authorization:type_name -> agentic.olap.runtime.v2.ResultAuthorization
+	38, // 20: agentic.olap.runtime.v2.ResultAuthorization.reference:type_name -> agentic.olap.query.v1.QueryResultReference
+	12, // 21: agentic.olap.runtime.v2.Response.artifact:type_name -> agentic.olap.runtime.v2.ResultArtifact
+	11, // 22: agentic.olap.runtime.v2.Response.ready:type_name -> agentic.olap.runtime.v2.RuntimeReady
+	37, // 23: agentic.olap.runtime.v2.Response.model:type_name -> google.protobuf.Any
+	39, // 24: agentic.olap.runtime.v2.Response.worker_failure:type_name -> agentic.olap.query.v1.WorkerFailureFacts
+	13, // 25: agentic.olap.runtime.v2.RegisteredSource.binding:type_name -> agentic.olap.runtime.v2.SourceBinding
+	9,  // 26: agentic.olap.runtime.v2.RuntimeReady.operations:type_name -> agentic.olap.runtime.v2.Operation
+	10, // 27: agentic.olap.runtime.v2.RuntimeReady.sources:type_name -> agentic.olap.runtime.v2.RegisteredSource
+	0,  // 28: agentic.olap.runtime.v2.AcquireWorker.kind:type_name -> agentic.olap.runtime.v2.WorkerKind
+	13, // 29: agentic.olap.runtime.v2.AcquireWorker.bindings:type_name -> agentic.olap.runtime.v2.SourceBinding
+	37, // 30: agentic.olap.runtime.v2.ExchangeWorker.command_model:type_name -> google.protobuf.Any
+	14, // 31: agentic.olap.runtime.v2.WorkRequest.acquire:type_name -> agentic.olap.runtime.v2.AcquireWorker
+	15, // 32: agentic.olap.runtime.v2.WorkRequest.exchange:type_name -> agentic.olap.runtime.v2.ExchangeWorker
+	16, // 33: agentic.olap.runtime.v2.WorkRequest.release:type_name -> agentic.olap.runtime.v2.ReleaseWorker
+	37, // 34: agentic.olap.runtime.v2.WorkResponse.model:type_name -> google.protobuf.Any
+	39, // 35: agentic.olap.runtime.v2.WorkResponse.worker_failure:type_name -> agentic.olap.query.v1.WorkerFailureFacts
+	37, // 36: agentic.olap.runtime.v2.CapabilityInvocation.input:type_name -> google.protobuf.Any
+	23, // 37: agentic.olap.runtime.v2.ScriptRequest.source:type_name -> agentic.olap.runtime.v2.ScriptSource
+	2,  // 38: agentic.olap.runtime.v2.ScriptOutput.stream:type_name -> agentic.olap.runtime.v2.ScriptOutput.Stream
+	26, // 39: agentic.olap.runtime.v2.ScriptDiagnostic.location:type_name -> agentic.olap.runtime.v2.SourceLocation
+	31, // 40: agentic.olap.runtime.v2.ScriptDiagnostic.capability_failure:type_name -> agentic.olap.runtime.v2.CapabilityFailure
+	37, // 41: agentic.olap.runtime.v2.ScriptResponse.result:type_name -> google.protobuf.Any
+	27, // 42: agentic.olap.runtime.v2.ScriptResponse.diagnostics:type_name -> agentic.olap.runtime.v2.ScriptDiagnostic
+	35, // 43: agentic.olap.runtime.v2.ScriptResponse.timing_nanos:type_name -> agentic.olap.runtime.v2.ScriptResponse.TimingNanosEntry
+	21, // 44: agentic.olap.runtime.v2.CapabilityRequest.invocation:type_name -> agentic.olap.runtime.v2.CapabilityInvocation
+	37, // 45: agentic.olap.runtime.v2.CapabilityResponse.result:type_name -> google.protobuf.Any
+	31, // 46: agentic.olap.runtime.v2.CapabilityResponse.failure:type_name -> agentic.olap.runtime.v2.CapabilityFailure
+	1,  // 47: agentic.olap.runtime.v2.DeliveryConfirmation.status:type_name -> agentic.olap.runtime.v2.DeliveryStatus
+	36, // 48: agentic.olap.runtime.v2.DeliveryConfirmation.timing_nanos:type_name -> agentic.olap.runtime.v2.DeliveryConfirmation.TimingNanosEntry
+	33, // 49: agentic.olap.runtime.v2.DeliveryConfirmation.workers:type_name -> agentic.olap.runtime.v2.WorkerObservation
+	37, // 50: agentic.olap.runtime.v2.DeliveryConfirmation.execution_receipt:type_name -> google.protobuf.Any
+	51, // [51:51] is the sub-list for method output_type
+	51, // [51:51] is the sub-list for method input_type
+	51, // [51:51] is the sub-list for extension type_name
+	51, // [51:51] is the sub-list for extension extendee
+	0,  // [0:51] is the sub-list for field type_name
 }
 
 func init() { file_runtime_proto_init() }
@@ -1490,8 +3090,14 @@ func file_runtime_proto_init() {
 		(*Frame_WorkResponse)(nil),
 		(*Frame_Cancel)(nil),
 		(*Frame_Shutdown)(nil),
+		(*Frame_ScriptRequest)(nil),
+		(*Frame_ScriptResponse)(nil),
+		(*Frame_CapabilityRequest)(nil),
+		(*Frame_CapabilityResponse)(nil),
+		(*Frame_ScriptWorkerFault)(nil),
+		(*Frame_ScriptOutput)(nil),
 	}
-	file_runtime_proto_msgTypes[13].OneofWrappers = []any{
+	file_runtime_proto_msgTypes[14].OneofWrappers = []any{
 		(*WorkRequest_Acquire)(nil),
 		(*WorkRequest_Exchange)(nil),
 		(*WorkRequest_Release)(nil),
@@ -1501,8 +3107,8 @@ func file_runtime_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_runtime_proto_rawDesc), len(file_runtime_proto_rawDesc)),
-			NumEnums:      1,
-			NumMessages:   17,
+			NumEnums:      3,
+			NumMessages:   34,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

@@ -13,7 +13,6 @@ import com.olap.prototype.engine.catalog.ExecutablePhysicalExecutionBinding
 import com.olap.prototype.engine.catalog.ExecutableRelationPosition.Id
 import com.olap.prototype.expression.CalciteSqlRendering
 import com.olap.prototype.expression.SemanticExpression
-import com.olap.prototype.expression.SemanticExpressionCodec
 import com.olap.prototype.expression.SemanticNumericRex
 import com.olap.prototype.integration.TestConnectors
 import com.olap.prototype.metric.MetricValueContract
@@ -317,7 +316,7 @@ class CalciteSqlConversionExecutionTest {
                 source.connection.createStatement().use { it.execute("ALTER TABLE observations ADD observed_at TIMESTAMP(6)"); it.execute("UPDATE observations SET observed_at=CASE id WHEN 1 THEN TIMESTAMP '2026-03-01 23:59:59.999999' WHEN 4 THEN NULL ELSE TIMESTAMP '2026-03-02 00:00:00' END") }
                 val binding = source.adopt("observations", mapOf("observed" to "observed_at")); val b = builder(source, binding)
                 val parameters = mutableListOf<JdbcParameter>(); val compiler = compiler(b, binding, parameters)
-                val week = SemanticExpression.Call(ScalarFunction.DATE_TRUNC, listOf(SemanticExpression.Literal("week"), SemanticExpressionCodec.logicUnit("observed", 1)))
+                val week = SemanticExpression.Call(ScalarFunction.DATE_TRUNC, listOf(SemanticExpression.Literal("week"), SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, "observed", 1)))
                 b.project(listOf(b.field("id"), compiler.compile(week)), listOf("id", "week"), true).sort(b.field("id"))
                 val result = rows(source, CalciteQueryCompiler.optimize(b.build(), parameters), parameters)
                 assertEquals(LocalDateTime.parse("2026-02-23T00:00:00"), result[0][1]); assertEquals(LocalDateTime.parse("2026-03-02T00:00:00"), result[1][1]); assertNull(result[3][1])
@@ -344,7 +343,7 @@ class CalciteSqlConversionExecutionTest {
             val parameters = mutableListOf<JdbcParameter>(); val compiler = compiler(b, binding, parameters)
             val units = listOf("MONTH", "QUARTER", "YEAR", "WEEK", "DAY", "HOUR", "SECOND"); val offsets = listOf(-1, 1, 1, -1, -1, 2, -2)
             val expressions = mutableListOf<RexNode>(b.field("id"))
-            units.forEachIndexed { index, unit -> expressions += compiler.compile(SemanticExpression.Call(ScalarFunction.TIMESTAMPADD, listOf(SemanticExpression.Literal(unit), SemanticExpression.Literal(offsets[index]), SemanticExpressionCodec.logicUnit("observed", 1)))) }
+            units.forEachIndexed { index, unit -> expressions += compiler.compile(SemanticExpression.Call(ScalarFunction.TIMESTAMPADD, listOf(SemanticExpression.Literal(unit), SemanticExpression.Literal(offsets[index]), SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, "observed", 1)))) }
             b.project(expressions, listOf("id") + units, true).sort(b.field("id"))
             val result = rows(source, CalciteQueryCompiler.optimize(b.build(), parameters), parameters)
             assertEquals(4, result.size)

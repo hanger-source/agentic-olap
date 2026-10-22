@@ -1,8 +1,5 @@
 package com.olap.prototype.governance.contract
 
-import com.fasterxml.jackson.annotation.JsonIgnore
-import com.fasterxml.jackson.annotation.JsonSubTypes
-import com.fasterxml.jackson.annotation.JsonTypeInfo
 import com.olap.prototype.calculation.Calculation
 import com.olap.prototype.calculation.CalculationBindings
 import com.olap.prototype.contract.ProducerContracts
@@ -11,8 +8,8 @@ import com.olap.prototype.member.MemberRef
 import com.olap.prototype.member.MemberSourceDefinition
 import java.time.Instant
 
-@JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "kind")
-@JsonSubTypes(JsonSubTypes.Type(value = MemberDefinitionOrigin.Local::class, name = "LOCAL"), JsonSubTypes.Type(value = MemberDefinitionOrigin.Shared::class, name = "SHARED"))
+
+
 sealed interface MemberDefinitionOrigin {
     class Local : MemberDefinitionOrigin {
         override fun equals(other: Any?): Boolean = other is Local
@@ -25,7 +22,7 @@ data class MemberDefinitionRef(val id: String, val version: Long) {
 }
 data class MemberDefinitionCreateRequest(val code: String, val displayName: String, val definition: MemberSourceDefinition, val description: String?, val owner: String, val createdBy: String)
 data class MemberDefinitionRecord(val id: String, val code: String, val displayName: String, val definition: MemberSourceDefinition, val description: String?, val owner: String, val status: String, val currentVersion: Long, val createdBy: String, val createdAt: Instant) {
-    @get:JsonIgnore val reference: MemberDefinitionRef get() = MemberDefinitionRef(id, currentVersion)
+     val reference: MemberDefinitionRef get() = MemberDefinitionRef(id, currentVersion)
 }
 class MemberDefinitionAdoptRequest(val subjectAreaId: String, val subjectAreaVersion: Long, val code: String, val displayName: String, val definition: MemberDefinitionRef, val bindings: CalculationBindings, fixedArguments: Map<String, Calculation.Value>, val actor: String) {
     val fixedArguments: Map<String, Calculation.Value> = java.util.Map.copyOf(fixedArguments)

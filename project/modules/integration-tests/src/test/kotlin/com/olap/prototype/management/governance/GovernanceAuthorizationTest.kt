@@ -1,7 +1,5 @@
 package com.olap.prototype.management.governance
 
-import com.fasterxml.jackson.databind.JsonNode
-import com.fasterxml.jackson.databind.node.ObjectNode
 import com.olap.prototype.contract.ProducerContractException
 import com.olap.prototype.governance.application.GovernanceApplication
 import com.olap.prototype.governance.application.GovernanceOperations
@@ -12,7 +10,6 @@ import com.olap.prototype.management.warehouse.SourceRegistrationService
 import com.olap.prototype.management.warehouse.WarehouseRegistryRepository
 import com.olap.prototype.management.warehouse.WarehouseRegistryService
 import com.olap.prototype.storage.PlatformDatabase
-import com.olap.prototype.util.OlapJsonUtils
 import com.olap.prototype.warehouse.WarehouseExecutionControl
 import com.olap.prototype.warehouse.WarehouseSourceInspection
 import com.olap.prototype.warehouse.contract.*
@@ -28,7 +25,6 @@ import java.util.concurrent.atomic.AtomicInteger
 class GovernanceAuthorizationTest {
     private val connectors = TestConnectors.registry
     private val control = RuntimeDeploymentLimits.CONTROL
-    private val mapper = OlapJsonUtils.mapper()
 
     @Test
     fun typedSourceAuthorizationRejectsBeforeStructureWritesOrSourceInspection(@TempDir directory: Path) {
@@ -49,15 +45,15 @@ class GovernanceAuthorizationTest {
             val discovery = WarehouseDiscoveryCommand(source.dataSourceId, source.sourceIdentityHash(), null, "main", "orders", emptyList(), 10, emptyMap(), emptyMap(), "alice")
             val denySource: (String) -> Unit = { if (it == source.dataSourceId) throw SecurityException("来源未授权") }
             assertThrows(SecurityException::class.java) {
-                operations.dispatchAuthenticated("register-source-structure", mapper.valueToTree(structure), control, "alice", inspection, denySource)
+                operations.dispatchAuthenticated("register-source-structure", structure, control, "alice", inspection, denySource)
             }
             assertThrows(SecurityException::class.java) {
-                operations.dispatchAuthenticated("discover-source", mapper.valueToTree(discovery), control, "alice", inspection, denySource)
+                operations.dispatchAuthenticated("discover-source", discovery, control, "alice", inspection, denySource)
             }
             assertEquals(0, inspectionCalls.get())
             listOf("warehouse_discovery_snapshot", "warehouse_discovered_table", "warehouse_discovered_column").forEach { assertEquals(0L, countAll(database, it)) }
             // 同一有效请求准入后确实写入，拒绝不能由坏输入或缺绑定冒充。
-            operations.dispatchAuthenticated("register-source-structure", mapper.valueToTree(structure), control, "alice", inspection) { }
+            operations.dispatchAuthenticated("register-source-structure", structure, control, "alice", inspection) { }
             listOf("warehouse_discovery_snapshot", "warehouse_discovered_table", "warehouse_discovered_column").forEach { assertEquals(1L, countAll(database, it)) }
             assertEquals(0, inspectionCalls.get())
         }
@@ -72,7 +68,7 @@ class GovernanceAuthorizationTest {
             val operations = GovernanceOperations(GovernanceApplication(database, connectors), emptyMap(), onboarding)
             val inspection = DeniedInspection { }
             fun dispatch(name: String, value: Any, subject: String = "alice"): Any = operations.dispatchAuthenticated(name,
-                if (value is JsonNode) value else mapper.valueToTree(value), control, subject, inspection) { }
+                value, control, subject, inspection) { }
             val create = BusinessLineCreateRequest("commerce", "商业", "经营团队", "明确口径", "alice")
             assertThrows(SecurityException::class.java) { dispatch("create-business-line", create, "bob") }
             val lines = BusinessLineGovernanceService(database)
@@ -92,20 +88,16 @@ class GovernanceAuthorizationTest {
             assertEquals("ACTIVE", lines.businessLineSnapshot("commerce", 1).status)
             dispatch("create-subject-area", SubjectAreaCreateRequest("commerce", 1, "trade", "交易", "经营团队", "交易分析", "alice"))
             dispatch("create-analysis-dimension", AnalysisDimensionCreateRequest("commerce.trade", 1, "city", "城市", "城市分析", "city", "城市", "alice"))
-            val alignment = mapper.valueToTree<ObjectNode>(AnalysisDimensionValueAlignmentCreateRequest("commerce.trade.city", 1, "city", "MANUALLY_CONFIRMED",
-                "{\"authority\":\"城市编码负责人\",\"scope\":\"统一城市编码\"}", "bob"))
+            val alignment = AnalysisDimensionValueAlignmentCreateRequest("commerce.trade.city", 1, "city", "MANUALLY_CONFIRMED",
+                "{\"authority\":\"城市编码负责人\",\"scope\":\"统一城市编码\"}", "bob")
             val dimensions = AnalysisDimensionGovernanceRepository(database)
             assertThrows(SecurityException::class.java) { dispatch("create-analysis-dimension-value-alignment", alignment) }
             assertTrue(dimensions.listAnalysisDimensionValueAlignments("commerce.trade.city", 1).isEmpty())
-            alignment.put("confirmedBy", "alice")
-            dispatch("create-analysis-dimension-value-alignment", alignment)
+            dispatch("create-analysis-dimension-value-alignment", alignment.copy(confirmedBy = "alice"))
             val saved = dimensions.listAnalysisDimensionValueAlignments("commerce.trade.city", 1)
             assertEquals(1, saved.size)
             assertEquals("alice", saved.first().confirmedBy)
-            val read = mapper.createObjectNode().put("limit", 50).put("unexpected", true)
-            assertThrows(ProducerContractException::class.java) { operations.read("list-business-lines", read, control) }
-            read.remove("unexpected")
-            val page = operations.read("list-business-lines", read, control) as GovernanceOperations.Page
+            val page = operations.read("list-business-lines", GovernanceReadRequests.PageInput(0, 50), control) as GovernanceReadRequests.Page<*>
             assertEquals(1, page.items.size)
         }
     }

@@ -139,17 +139,12 @@ class DefinitionImpactService(private val database: PlatformDatabase) {
             return DefinitionImpact(target, paths.map { (ref, path) -> Dependent(ref, path) })
         }
     }
-    class Dependencies(val target: Reference, items: List<Reference>, val nextOffset: Int?) {
-        val items: List<Reference> = java.util.List.copyOf(items)
-        override fun equals(other: Any?): Boolean = other is Dependencies && target == other.target && items == other.items && nextOffset == other.nextOffset
-        override fun hashCode(): Int = listOf(target, items, nextOffset).hashCode()
-    }
-    fun direct(request: DefinitionImpactRequest, offset: Int, limit: Int): Dependencies {
+    fun direct(request: DefinitionImpactRequest, offset: Int, limit: Int): DefinitionDependencies {
         require(offset >= 0 && limit in 1..1000) { "invalid dependency page" }
         return database.inReadSnapshot {
             val target = reference(request.assetType, request.id, request.version)
             val items = ImpactGraph().also { it.requireTarget(target); it.connectDefinitions(); it.connectContexts() }.dependencies(target)
-            Dependencies(target, items.drop(offset).take(limit), if (offset.toLong() + limit < items.size) Math.addExact(offset, limit) else null)
+            DefinitionDependencies(target, items.drop(offset).take(limit), if (offset.toLong() + limit < items.size) Math.addExact(offset, limit) else null)
         }
     }
     internal fun directReferences(request: DefinitionImpactRequest): List<Reference> = database.inReadSnapshot {
@@ -165,7 +160,7 @@ class DefinitionImpactService(private val database: PlatformDatabase) {
     }
     private fun logicUnitReferences(target: Reference, graph: MutableMap<Reference, LinkedHashSet<Step>>, instances: (MetricInstanceRef) -> Reference) {
         val unit = snapshots.logicUnit(target.id, version(target))
-        if (unit.sourceKind == "EXPRESSION") visitor(graph, target, Relation.DEFINITION_REFERENCE, instances).expression(SemanticExpressionCodec.parse(requireText(unit.expressionJson, "exact LogicUnit expression"), "exact LogicUnit expression"))
+        if (unit.sourceKind == "EXPRESSION") visitor(graph, target, Relation.DEFINITION_REFERENCE, instances).expression(requireNotNull(unit.expression) { "exact LogicUnit expression is required" })
         else refs.listLogicUnitSourceRefs(target.id, version(target)).forEach { edge(graph, reference("PHYSICAL_COLUMN", it.physicalColumnId, it.physicalColumnVersion), target, Relation.DEFINITION_REFERENCE) }
     }
     private fun eventReferences(target: Reference, graph: MutableMap<Reference, LinkedHashSet<Step>>, instances: (MetricInstanceRef) -> Reference) {
@@ -173,13 +168,13 @@ class DefinitionImpactService(private val database: PlatformDatabase) {
         edge(graph, reference("TOPOLOGY", event.topologyId, event.topologyVersion), target, Relation.DEFINITION_REFERENCE)
         refs.listEventLogicUnitRefs(target.id, version(target)).forEach { edge(graph, reference("LOGIC_UNIT", it.logicUnitId, it.logicUnitVersion), target, Relation.DEFINITION_REFERENCE) }
         event.eventTimeLogicUnitId?.let { edge(graph, reference("LOGIC_UNIT", it, requireNotNull(event.eventTimeLogicUnitVersion)), target, Relation.DEFINITION_REFERENCE) }
-        structural.listEventSliceFilters(target.id, version(target)).forEach { visitor(graph, target, Relation.DEFINITION_REFERENCE, instances).expression(SemanticExpressionCodec.parse(it.filterJson, "exact event filter")) }
+        structural.listEventSliceFilters(target.id, version(target)).forEach { visitor(graph, target, Relation.DEFINITION_REFERENCE, instances).expression(it.predicate) }
     }
     private fun bindingReferences(target: Reference, graph: MutableMap<Reference, LinkedHashSet<Step>>, instances: (MetricInstanceRef) -> Reference) {
         val binding = snapshots.dimensionEventBinding(target.id, version(target))
         edge(graph, reference("LOGIC_UNIT", requireNotNull(binding.logicUnitId), requireNotNull(binding.logicUnitVersion)), target, Relation.DEFINITION_REFERENCE)
         edge(graph, reference("EVENT", binding.eventId, binding.eventVersion), target, Relation.DEFINITION_REFERENCE)
-        visitor(graph, target, Relation.DEFINITION_REFERENCE, instances).expression(SemanticExpressionCodec.parse(requireText(binding.expressionJson, "exact dimension binding expression"), "exact dimension binding"))
+        visitor(graph, target, Relation.DEFINITION_REFERENCE, instances).expression(requireNotNull(binding.expression) { "exact dimension binding expression is required" })
     }
     private fun visitor(graph: MutableMap<Reference, LinkedHashSet<Step>>, target: Reference, relation: Relation, instances: (MetricInstanceRef) -> Reference): DefinitionReferences = DefinitionReferences(instances) { edge(graph, it, target, relation) }
     private fun foreignEdges(sql: String, dependency: String, consumer: String, graph: MutableMap<Reference, LinkedHashSet<Step>>, relation: Relation = Relation.DEFINITION_REFERENCE) {

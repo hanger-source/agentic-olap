@@ -5,7 +5,6 @@ import com.olap.prototype.contract.ProducerContractException
 import com.olap.prototype.engine.executable.ExecutableSemanticBinder
 import com.olap.prototype.engine.EngineExecutionException
 import com.olap.prototype.expression.SemanticExpression
-import com.olap.prototype.expression.SemanticExpressionCodec
 import com.olap.prototype.governance.contract.*
 import com.olap.prototype.metric.*
 import com.olap.prototype.query.*
@@ -26,18 +25,48 @@ class PublishedFactAndBudgetTest {
             val f = GovernanceOrderFixture(database, directory, listOf("INSERT INTO main.orders(order_id,pay_amount,destination,pay_time) VALUES ('1',10,'杭州','2026-07-21'),('2',10,'杭州','2026-07-21'),('3',10,'上海','2026-07-21'),('4',20,'上海','2026-07-21'),('5',30,'杭州','2026-08-01')"))
             f.seed()
             val meaning = MetricBusinessMeaning("不同支付金额的数量", "种", "成功支付事实", listOf("相同金额跨目的地仍只计一次，不可加总分组计数"))
-            fun distinct(code: String, merge: String) = MetricCreateRequest(GovernanceOrderFixture.EVENT, 1, code, "不同支付金额数", "trade",
-                SemanticExpressionCodec.write(GovernanceOrderFixture.ref("order_fact.pay_amount")), "COUNT", true, "BASE", merge, null, emptyMap(), "", meaning,
-                null, GovernanceOrderFixture.records(), MetricValueContract.Rounding.NONE, "golden")
-            assertThrows(ProducerContractException::class.java) { f.metrics.createMetric(distinct("invalid_count", "ADDITIVE")) }
-            val count = f.metrics.createMetric(distinct("distinct_amount_count", "DISTINCT_NON_ADDITIVE")).metric
+            fun distinct(code: String) = MetricCreateRequest(
+                code = code,
+                displayName = "不同支付金额数",
+                owner = "trade",
+                definition = MetricDefinition.FactMeasure(
+                    event = com.olap.prototype.event.EventRef(GovernanceOrderFixture.EVENT, 1),
+                    input = GovernanceOrderFixture.ref("order_fact.pay_amount"),
+                    aggregation = MetricAggregation.COUNT,
+                    distinct = true,
+                    privatePredicate = null,
+                    roles = emptyMap(),
+                    snapshotRule = null,
+                    valueContract = GovernanceOrderFixture.records(),
+                    aggregationRounding = MetricValueContract.Rounding.NONE
+                ),
+                description = "",
+                businessMeaning = meaning,
+                createdBy = "golden"
+            )
+            val count = f.metrics.createMetric(distinct("distinct_amount_count")).metric
             val amount = GovernanceOrderFixture.ref("order_fact.pay_amount")
             val squared = MetricValueContract(MetricValueContract.Fixed(MetricValueContract.UnitIdentity("test", "CNY_SQUARED", 1)), MetricValueContract.Exact(),
                 MetricValueContract.Decimal(38, 4, MetricValueContract.Rounding.NONE), emptyMap(), MetricValueContract.Overflow.FAIL)
-            val square = f.metrics.createMetric(MetricCreateRequest(GovernanceOrderFixture.EVENT, 1, "amount_square_sum", "逐事实平方和", "trade",
-                SemanticExpressionCodec.write(SemanticExpression.Operation(SemanticExpression.Operator.MULTIPLY, listOf(amount, amount))), "SUM", false, "BASE", "ADDITIVE",
-                null, emptyMap(), "逐事实计算而非聚合后计算", MetricBusinessMeaning("逐事实支付金额平方的和", "元平方", "支付事实", listOf("不等于支付金额总和的平方")), null,
-                squared, MetricValueContract.Rounding.NONE, "golden")).metric
+            val square = f.metrics.createMetric(MetricCreateRequest(
+                code = "amount_square_sum",
+                displayName = "逐事实平方和",
+                owner = "trade",
+                definition = MetricDefinition.FactMeasure(
+                    event = com.olap.prototype.event.EventRef(GovernanceOrderFixture.EVENT, 1),
+                    input = SemanticExpression.Operation(SemanticExpression.Operator.MULTIPLY, listOf(amount, amount)),
+                    aggregation = MetricAggregation.SUM,
+                    distinct = false,
+                    privatePredicate = null,
+                    roles = emptyMap(),
+                    snapshotRule = null,
+                    valueContract = squared,
+                    aggregationRounding = MetricValueContract.Rounding.NONE
+                ),
+                description = "逐事实计算而非聚合后计算",
+                businessMeaning = MetricBusinessMeaning("逐事实支付金额平方的和", "元平方", "支付事实", listOf("不等于支付金额总和的平方")),
+                createdBy = "golden"
+            )).metric
             f.activateSubjectGraph(false)
             listOf(count, square).forEachIndexed { index, metric -> f.activate("METRIC", metric.id); f.adopt(metric.id); f.grantMetric(metric.id, order = index + 2) }
             f.activate("SUBJECT_AREA", GovernanceOrderFixture.SUBJECT); f.build("distinct_release")
@@ -60,9 +89,25 @@ class PublishedFactAndBudgetTest {
         PlatformDatabase.inMemory().use { database ->
             val f = GovernanceOrderFixture(database, directory, listOf("INSERT INTO main.orders(order_id,pay_amount,destination,pay_time) VALUES ('1',120.50,'杭州','2026-07-21'),('2',999,'杭州','2026-08-01')"))
             f.seed()
-            val tax = f.metrics.createMetric(MetricCreateRequest(GovernanceOrderFixture.EVENT, 1, "tax_amount", "税额", "trade", SemanticExpressionCodec.write(GovernanceOrderFixture.ref("order_fact.pay_amount")),
-                "SUM", false, "BASE", "ADDITIVE", null, emptyMap(), "税额", MetricBusinessMeaning("支付成功订单的税额", "元", "支付成功订单", listOf("税额独立于支付本金")), null,
-                GovernanceOrderFixture.money(), MetricValueContract.Rounding.NONE, "golden")).metric
+            val tax = f.metrics.createMetric(MetricCreateRequest(
+                code = "tax_amount",
+                displayName = "税额",
+                owner = "trade",
+                definition = MetricDefinition.FactMeasure(
+                    event = com.olap.prototype.event.EventRef(GovernanceOrderFixture.EVENT, 1),
+                    input = GovernanceOrderFixture.ref("order_fact.pay_amount"),
+                    aggregation = MetricAggregation.SUM,
+                    distinct = false,
+                    privatePredicate = null,
+                    roles = emptyMap(),
+                    snapshotRule = null,
+                    valueContract = GovernanceOrderFixture.money(),
+                    aggregationRounding = MetricValueContract.Rounding.NONE
+                ),
+                description = "税额",
+                businessMeaning = MetricBusinessMeaning("支付成功订单的税额", "元", "支付成功订单", listOf("税额独立于支付本金")),
+                createdBy = "golden"
+            )).metric
             val gross = f.metrics.createMetricCalculation(MetricCalculationCreateRequest("gross_amount", "交易毛额", "trade",
                 GovernanceOrderFixture.combinedAmount(f.paymentId, tax.id, ResultExpression.ResultOperator.ADD), "支付金额与税额之和",
                 MetricBusinessMeaning("支付本金加税额", "元", "支付成功订单", listOf("组成金额必须使用同一币种和范围")), "golden")).metric

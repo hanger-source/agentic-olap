@@ -44,7 +44,7 @@ class QueryCapabilityProducer(private val executionCapabilities: QueryExecutionC
     }
     private fun filterCandidate(reference: ScenarioFilterReference, valueTypes: PublishedValueTypes, mappings: List<ReleaseDimensionMapping>, executionTypes: QueryExecutionTypes): FilterCandidate {
         if (reference.filterTargetType != "ANALYSIS_DIMENSION") throw ProducerContractException("unsupported filter target: ${reference.filterTargetType}")
-        val operators = FilterLeafOperatorPolicy.requireOperatorSet(reference.operatorPolicyJson, "query_capability.filterCandidates.operators@${reference.filterRefId}").toList()
+        val operators = FilterLeafOperatorPolicy.requireOperatorSet(reference.operators, "query_capability.filterCandidates.operators@${reference.filterRefId}").toList()
         val cardinalities = operators.map { when (it) { "IS_NULL", "IS_NOT_NULL" -> "NONE"; "IN" -> "MULTI"; "BETWEEN" -> "RANGE"; else -> "SINGLE" } }.toSet()
         val cardinality = cardinalities.singleOrNull() ?: "OPERATOR_DEPENDENT"
         val types = valueTypes.dimensions(mappings.filter { it.analysisDimensionId == reference.filterTargetObjectId && it.analysisDimensionVersion == reference.filterTargetObjectVersion }, executionTypes)
@@ -64,7 +64,7 @@ class QueryCapabilityProducer(private val executionCapabilities: QueryExecutionC
         // 只声明是否存在可用上下文，实际调用仍由精确来源核验。
         val available = required == null || assets.physicalExecutionBindings.values.map { it.connectorRef }.distinct().any { connectors.require(it).compilation.supports(required) }
         if (implemented && available) return capability
-        return PostProcessCapability(capability.ruleId, capability.ruleType, capability.ruleDisplayName, capability.ruleConfigJson, capability.sortOrder,
+        return PostProcessCapability(capability.ruleId, capability.ruleType, capability.ruleDisplayName, capability.authorization, capability.sortOrder,
             if (implemented) "CONNECTOR_POST_OPERATION_NOT_EXECUTABLE" else "ENGINE_POST_OPERATION_NOT_EXECUTABLE",
             if (implemented) "当前发布没有支持该运算的原生执行上下文: ${capability.ruleType}" else "当前 Engine 发布能力未实现该后处理类型: ${capability.ruleType}",
             if (implemented) "CONNECTOR_CAPABILITY" else "ENGINE_CAPABILITY", capability.targetRef ?: "scenarioPipelineRule:${capability.ruleId}",

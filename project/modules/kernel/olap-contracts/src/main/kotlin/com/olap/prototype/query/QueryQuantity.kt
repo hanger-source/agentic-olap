@@ -1,8 +1,5 @@
 package com.olap.prototype.query
 
-import com.fasterxml.jackson.annotation.JsonProperty
-import com.fasterxml.jackson.annotation.JsonSubTypes
-import com.fasterxml.jackson.annotation.JsonTypeInfo
 import com.olap.prototype.calculation.Calculation
 import com.olap.prototype.calculation.MemberInvocationBinding
 import com.olap.prototype.calculation.MetricDefinition
@@ -17,11 +14,9 @@ import java.util.Collections
 import java.util.TreeMap
 
 /** 绑定完成的值含义；声明归指标/阶段，单位键归实际符号。 */
-data class QueryQuantity(val declaration: MetricValueContract, val unit: Unit, @param:JsonProperty(required = true) val provenance: Provenance) {
-    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "kind")
-    @JsonSubTypes(JsonSubTypes.Type(value = Raw::class, name = "RAW"), JsonSubTypes.Type(value = Constant::class, name = "CONSTANT"), JsonSubTypes.Type(value = Fact::class, name = "FACT"), JsonSubTypes.Type(value = Reduction::class, name = "REDUCTION"), JsonSubTypes.Type(value = Linear::class, name = "LINEAR"), JsonSubTypes.Type(value = Observed::class, name = "OBSERVED"), JsonSubTypes.Type(value = Window::class, name = "WINDOW"), JsonSubTypes.Type(value = Offset::class, name = "OFFSET"), JsonSubTypes.Type(value = Copied::class, name = "COPIED"), JsonSubTypes.Type(value = Delta::class, name = "DELTA"), JsonSubTypes.Type(value = SelectedSnapshot::class, name = "SELECTED_SNAPSHOT"), JsonSubTypes.Type(value = UniformAllocation::class, name = "UNIFORM_ALLOCATION"), JsonSubTypes.Type(value = Alternatives::class, name = "ALTERNATIVES"))
+data class QueryQuantity(val declaration: MetricValueContract, val unit: Unit, val provenance: Provenance) {
     sealed interface Provenance
-    class Raw(@param:JsonProperty(required = true) val source: ValuePosition?, observations: List<ValuePosition>) : Provenance {
+    class Raw(val source: ValuePosition?, observations: List<ValuePosition>) : Provenance {
         val observations: List<ValuePosition> = positions(observations)
         override fun equals(other: Any?): Boolean = other is Raw && source == other.source && observations == other.observations
         override fun hashCode(): Int = listOf(source, observations).hashCode()
@@ -37,13 +32,13 @@ data class QueryQuantity(val declaration: MetricValueContract, val unit: Unit, @
         override fun equals(other: Any?): Boolean = other is Snapshot && reduction == other.reduction && timeAxes == other.timeAxes && boundClocks == other.boundClocks
         override fun hashCode(): Int = listOf(reduction, timeAxes, boundClocks).hashCode()
     }
-    class Fact(val definition: MetricRef, val aggregation: MetricAggregation, @param:JsonProperty(required = true) val distinct: Boolean,
-        val source: ValuePosition, observations: List<ValuePosition>, @param:JsonProperty(required = true) val snapshot: Snapshot?) : Provenance {
+    class Fact(val definition: MetricRef, val aggregation: MetricAggregation, val distinct: Boolean,
+        val source: ValuePosition, observations: List<ValuePosition>, val snapshot: Snapshot?) : Provenance {
         val observations: List<ValuePosition> = positions(observations)
         override fun equals(other: Any?): Boolean = other is Fact && definition == other.definition && aggregation == other.aggregation && distinct == other.distinct && source == other.source && observations == other.observations && snapshot == other.snapshot
         override fun hashCode(): Int = listOf(definition, aggregation, distinct, source, observations, snapshot).hashCode()
     }
-    class SelectedSnapshot(val input: Provenance, timeAxes: List<ValuePosition>, @param:JsonProperty(required = true) val asOf: Calculation.Scalar?) : Provenance {
+    class SelectedSnapshot(val input: Provenance, timeAxes: List<ValuePosition>, val asOf: Calculation.Scalar?) : Provenance {
         val timeAxes: List<ValuePosition> = positions(timeAxes)
         init {
             require(this.timeAxes.isNotEmpty()) { "selected snapshot requires its actual time axis" }
@@ -70,7 +65,7 @@ data class QueryQuantity(val declaration: MetricValueContract, val unit: Unit, @
         override fun hashCode(): Int = terms.hashCode()
     }
     enum class Nature { RATIO, PRODUCT, WEIGHTED_VALUE, WEIGHTED_WEIGHT, ABSOLUTE, RANK }
-    class Observed(val nature: Nature, components: List<Provenance>, observations: List<ValuePosition>, @param:JsonProperty(required = true) val knownObservation: Boolean) : Provenance {
+    class Observed(val nature: Nature, components: List<Provenance>, observations: List<ValuePosition>, val knownObservation: Boolean) : Provenance {
         val components: List<Provenance> = contributions(components, false)
         val observations: List<ValuePosition> = positions(observations)
         override fun equals(other: Any?): Boolean = other is Observed && nature == other.nature && components == other.components && observations == other.observations && knownObservation == other.knownObservation
@@ -80,8 +75,8 @@ data class QueryQuantity(val declaration: MetricValueContract, val unit: Unit, @
         init { require(direction in setOf("ASC", "DESC") && nulls in setOf("FIRST", "LAST")) { "quantity window order must be explicit" } }
     }
     class Window(val aggregation: ResultAggregation.Kind, val input: Provenance, observations: List<ValuePosition>, partition: List<ValuePosition>, order: List<Order>,
-        @param:JsonProperty(required = true) val frame: WindowFrameContract.Frame?, @param:JsonProperty(required = true) val cumulative: Boolean,
-        @param:JsonProperty(required = true) val totalOrder: Boolean) : Provenance {
+        val frame: WindowFrameContract.Frame?, val cumulative: Boolean,
+        val totalOrder: Boolean) : Provenance {
         val observations: List<ValuePosition> = positions(observations)
         val partition: List<ValuePosition> = positions(partition)
         val order: List<Order> = java.util.List.copyOf(order)
@@ -89,7 +84,7 @@ data class QueryQuantity(val declaration: MetricValueContract, val unit: Unit, @
         override fun equals(other: Any?): Boolean = other is Window && aggregation == other.aggregation && input == other.input && observations == other.observations && partition == other.partition && order == other.order && frame == other.frame && cumulative == other.cumulative && totalOrder == other.totalOrder
         override fun hashCode(): Int = listOf(aggregation, input, observations, partition, order, frame, cumulative, totalOrder).hashCode()
     }
-    class Offset(val input: Provenance, partition: List<ValuePosition>, order: List<Order>, val function: String, val distance: Int, @param:JsonProperty(required = true) val totalOrder: Boolean) : Provenance {
+    class Offset(val input: Provenance, partition: List<ValuePosition>, order: List<Order>, val function: String, val distance: Int, val totalOrder: Boolean) : Provenance {
         val partition: List<ValuePosition> = positions(partition)
         val order: List<Order> = java.util.List.copyOf(order)
         init { require(function in setOf("LAG", "LEAD") && distance >= 1 && this.order.isNotEmpty()) { "quantity offset needs an explicit ordered neighbour" } }
@@ -132,12 +127,8 @@ data class QueryQuantity(val declaration: MetricValueContract, val unit: Unit, @
         override fun bind(source: ValuePosition, symbols: Map<String, QueryStageAnalysis.SymbolId>): Provenance = provenance
     }
 
-    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "kind")
-    @JsonSubTypes(JsonSubTypes.Type(value = Fixed::class, name = "FIXED"), JsonSubTypes.Type(value = Dimension::class, name = "DIMENSION"), JsonSubTypes.Type(value = SelectedMember::class, name = "SELECTED_MEMBER"))
     sealed interface Unit
     data class Fixed(val identity: MetricValueContract.UnitIdentity) : Unit
-    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "kind")
-    @JsonSubTypes(JsonSubTypes.Type(value = AnalysisDimensionRef::class, name = "ANALYSIS_DIMENSION"), JsonSubTypes.Type(value = MemberSlotRef::class, name = "MEMBER_SLOT"), JsonSubTypes.Type(value = SemanticDimensionRef::class, name = "SEMANTIC_DIMENSION"))
     sealed interface UnitReference
     data class SemanticDimensionRef(val dimensionId: String, val dimensionVersion: Long, val role: String) : UnitReference {
         init { MetricDefinition.text(dimensionId, "unit semantic dimension"); MetricDefinition.version(dimensionVersion); MetricDefinition.text(role, "unit dimension role") }
@@ -153,8 +144,6 @@ data class QueryQuantity(val declaration: MetricValueContract, val unit: Unit, @
         override fun equals(other: Any?): Boolean = other is Dimension && axis == other.axis && keys == other.keys
         override fun hashCode(): Int = listOf(axis, keys).hashCode()
     }
-    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "kind")
-    @JsonSubTypes(JsonSubTypes.Type(value = DimensionFilter::class, name = "DIMENSION_FILTER"), JsonSubTypes.Type(value = MemberFilter::class, name = "MEMBER_FILTER"), JsonSubTypes.Type(value = ResultFilter::class, name = "RESULT_FILTER"))
     sealed interface SelectionTarget
     data class DimensionFilter(val filterRefId: String) : SelectionTarget { init { MetricDefinition.text(filterRefId, "unit dimension filter") } }
     data class MemberFilter(val source: MemberSlotRef) : SelectionTarget

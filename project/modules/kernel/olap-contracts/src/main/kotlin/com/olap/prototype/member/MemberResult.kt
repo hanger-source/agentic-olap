@@ -1,6 +1,5 @@
 package com.olap.prototype.member
 
-import com.fasterxml.jackson.annotation.JsonInclude
 import com.olap.prototype.calculation.MetricDefinition
 import com.olap.prototype.metric.MetricValueContract
 import com.olap.prototype.query.ScalarValueType
@@ -9,7 +8,7 @@ import com.olap.prototype.query.ScopedInputContract
 /** 记录或对象的身份、形态和字段含义；不推断来源唯一性。 */
 class MemberResult(val entity: String, val role: String, val shape: MemberShape, identitySlots: List<String>,
     outputs: Map<String, MemberSourceDefinition.Output>, filterOperators: Map<String, List<MemberCondition.Operator>>,
-    val timeSlot: String?, clockSlots: Map<String, String>, @get:JsonInclude(JsonInclude.Include.NON_NULL) val description: String?) {
+    val timeSlot: String?, clockSlots: Map<String, String>, val description: String?) {
     val identitySlots: List<String> = java.util.List.copyOf(identitySlots)
     val outputs: Map<String, MemberSourceDefinition.Output> = java.util.Map.copyOf(outputs)
     val filterOperators: Map<String, List<MemberCondition.Operator>> = MemberCondition.operators(filterOperators)

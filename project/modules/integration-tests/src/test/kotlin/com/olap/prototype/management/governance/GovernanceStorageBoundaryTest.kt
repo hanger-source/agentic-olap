@@ -59,10 +59,10 @@ class GovernanceStorageBoundaryTest {
             storedConnection(location).use { connection -> connection.createStatement().use { sql ->
                 if (damage == "multiple-active-versions") {
                     sql.execute("DROP INDEX ux_business_line_version_active")
-                    sql.execute("INSERT INTO business_line_version (id,business_line_id,version,version_status,content_json,created_by,created_at) VALUES ('commerce:v2','commerce',2,'ACTIVE','{}','tester',CURRENT_TIMESTAMP)")
+                    sql.execute("INSERT INTO business_line_version (id,business_line_id,version,version_status,content_proto,created_by,created_at) VALUES ('commerce:v2','commerce',2,'ACTIVE','{}','tester',CURRENT_TIMESTAMP)")
                 } else {
                     sql.execute("ALTER TABLE business_line_version DROP CONSTRAINT fk_business_line_version_identity")
-                    sql.execute("INSERT INTO business_line_version (id,business_line_id,version,version_status,content_json,created_by,created_at) VALUES ('missing:v1','missing',1,'DRAFT','{}','tester',CURRENT_TIMESTAMP)")
+                    sql.execute("INSERT INTO business_line_version (id,business_line_id,version,version_status,content_proto,created_by,created_at) VALUES ('missing:v1','missing',1,'DRAFT','{}','tester',CURRENT_TIMESTAMP)")
                 }
             } }
             assertThrows(IllegalStateException::class.java, { PlatformDatabase.openSingleInstance(location).use { } }, damage)

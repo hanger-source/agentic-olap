@@ -1,10 +1,10 @@
 package com.olap.prototype.management.governance
 
+import com.olap.prototype.metric.MetricAggregation
 import com.olap.prototype.calculation.*
 import com.olap.prototype.contract.ProducerContractException
 import com.olap.prototype.engine.EngineExecutionException
 import com.olap.prototype.event.EventIdentity
-import com.olap.prototype.expression.SemanticExpressionCodec
 import com.olap.prototype.governance.contract.*
 import com.olap.prototype.member.MemberCondition
 import com.olap.prototype.metric.MetricBusinessMeaning
@@ -26,10 +26,25 @@ class PublishedCalculationArgumentsTest {
         PlatformDatabase.openSingleInstance(metadata).use { database ->
             val f = GovernanceOrderFixture(database, directory, orders)
             f.seed()
-            val count = f.metrics.createMetric(MetricCreateRequest(GovernanceOrderFixture.EVENT, 1, "order_count", "支付订单数", "trade",
-                SemanticExpressionCodec.write(GovernanceOrderFixture.ref("order_fact.pay_amount")), "COUNT", false, "BASE", "ADDITIVE", null,
-                emptyMap(), "有支付金额的订单数", MetricBusinessMeaning("有支付金额的成功订单数量", "单", "支付订单", emptyList()), null,
-                GovernanceOrderFixture.records(), MetricValueContract.Rounding.NONE, "golden")).metric
+            val count = f.metrics.createMetric(MetricCreateRequest(
+                code = "order_count",
+                displayName = "支付订单数",
+                owner = "trade",
+                definition = MetricDefinition.FactMeasure(
+                    event = com.olap.prototype.event.EventRef(GovernanceOrderFixture.EVENT, 1),
+                    input = GovernanceOrderFixture.ref("order_fact.pay_amount"),
+                    aggregation = MetricAggregation.COUNT,
+                    distinct = false,
+                    privatePredicate = null,
+                    roles = emptyMap(),
+                    snapshotRule = null,
+                    valueContract = GovernanceOrderFixture.records(),
+                    aggregationRounding = MetricValueContract.Rounding.NONE
+                ),
+                description = "有支付金额的订单数",
+                businessMeaning = MetricBusinessMeaning("有支付金额的成功订单数量", "单", "支付订单", emptyList()),
+                createdBy = "golden"
+            )).metric
             val average = createCalculation(f, "completed_order_mean", relationMean())
             f.activate("METRIC", count.id)
             f.adopt(count.id)
@@ -150,9 +165,24 @@ class PublishedCalculationArgumentsTest {
         }
 
     private fun privateFact(f: GovernanceOrderFixture, eventVersion: Long, code: String) = f.metrics.createMetric(MetricCreateRequest(
-        GovernanceOrderFixture.EVENT, eventVersion, code, code, "trade", SemanticExpressionCodec.write(GovernanceOrderFixture.ref("order_fact.pay_amount")),
-        "SUM", false, "BASE", "ADDITIVE", null, emptyMap(), "不公开采用的计算依赖", GovernanceOrderFixture.amountMeaning(), null,
-        GovernanceOrderFixture.money(), MetricValueContract.Rounding.NONE, "golden")).metric.also { f.activate("METRIC", it.id) }
+        code = code,
+        displayName = code,
+        owner = "trade",
+        definition = MetricDefinition.FactMeasure(
+            event = com.olap.prototype.event.EventRef(GovernanceOrderFixture.EVENT, eventVersion),
+            input = GovernanceOrderFixture.ref("order_fact.pay_amount"),
+            aggregation = MetricAggregation.SUM,
+            distinct = false,
+            privatePredicate = null,
+            roles = emptyMap(),
+            snapshotRule = null,
+            valueContract = GovernanceOrderFixture.money(),
+            aggregationRounding = MetricValueContract.Rounding.NONE
+        ),
+        description = "不公开采用的计算依赖",
+        businessMeaning = GovernanceOrderFixture.amountMeaning(),
+        createdBy = "golden"
+    )).metric.also { f.activate("METRIC", it.id) }
 
     private fun instance(f: GovernanceOrderFixture, code: String) = f.adoptions.metricAdoption(MetricAdoption.identity(GovernanceOrderFixture.SUBJECT, code), 1).instance
     private fun invocation(id: String, instance: MetricInstanceRef, alias: String, arguments: Map<String, Calculation.Value> = emptyMap()) =

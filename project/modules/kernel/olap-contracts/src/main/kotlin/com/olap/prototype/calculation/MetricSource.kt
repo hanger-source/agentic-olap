@@ -1,7 +1,5 @@
 package com.olap.prototype.calculation
 
-import com.fasterxml.jackson.annotation.JsonSubTypes
-import com.fasterxml.jackson.annotation.JsonTypeInfo
 import com.olap.prototype.event.EventRef
 import com.olap.prototype.member.*
 import com.olap.prototype.query.ScopedInputContract
@@ -12,8 +10,6 @@ import java.util.TreeMap
 class MetricSource(callPath: List<String>, val origin: Origin, val event: EventRef) {
     val callPath: List<String> = java.util.List.copyOf(callPath)
     init { this.callPath.forEach { MetricDefinition.text(it, "source position") } }
-    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "kind")
-    @JsonSubTypes(JsonSubTypes.Type(value = Fact::class, name = "FACT"), JsonSubTypes.Type(value = Member::class, name = "MEMBER"))
     sealed interface Origin
     data class Fact(val metric: MetricRef) : Origin
     class Member(val sourceId: String, val sourceVersion: Long, val role: String, slots: List<String>) : Origin {

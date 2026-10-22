@@ -2,6 +2,7 @@ package com.olap.prototype.warehouse.onboarding
 
 import com.olap.prototype.contract.JdbcColumnType
 import com.olap.prototype.contract.ProducerContractException
+import com.olap.prototype.contract.ProducerContracts.requireText as required
 import com.olap.prototype.governance.contract.PhysicalAssetRegistrar
 import com.olap.prototype.governance.contract.PhysicalTableCreateRequest
 import com.olap.prototype.management.warehouse.WarehouseDiscoveredColumnRecord

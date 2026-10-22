@@ -62,9 +62,9 @@ class AnalysisDimensionGovernanceRepository(private val database: PlatformDataba
     }
     fun saveAnalysisDimensionVersion(record: AnalysisDimensionVersionRecord) {
         GovernanceContract.requireVersionObject("analysis_dimension_version", "analysis_dimension_id", record.id, record.analysisDimensionId, record.version, record.versionStatus, record.createdBy, record.createdAt)
-        requireText(record.contentJson, "analysis_dimension_version.content_json")
+        requireText(record.contentProto, "analysis_dimension_version.content_proto")
         read("Failed to save exact analysis_dimension_version") { insert(database, "analysis_dimension_version", linkedMapOf("id" to record.id, "analysis_dimension_id" to record.analysisDimensionId, "version" to record.version,
-            "version_status" to record.versionStatus, "content_json" to record.contentJson, "diagnostic_json" to record.diagnosticJson, "source_version" to record.sourceVersion,
+            "version_status" to record.versionStatus, "content_proto" to record.contentProto, "diagnostic_json" to record.diagnosticJson, "source_version" to record.sourceVersion,
             "created_by" to record.createdBy, "created_at" to record.createdAt, "activated_by" to record.activatedBy, "activated_at" to record.activatedAt,
             "deprecated_by" to record.deprecatedBy, "deprecated_at" to record.deprecatedAt, "archived_by" to record.archivedBy, "archived_at" to record.archivedAt)) }
     }
@@ -85,7 +85,7 @@ class AnalysisDimensionGovernanceRepository(private val database: PlatformDataba
         read("Failed to save analysis_dimension_value_provider: ${record.id}") { insert(database, "analysis_dimension_value_provider", linkedMapOf("id" to record.id, "analysis_dimension_id" to record.analysisDimensionId,
             "analysis_dimension_version" to record.analysisDimensionVersion, "level_code" to record.levelCode, "provider_type" to record.providerType, "source_table_id" to record.sourceTableId,
             "source_table_version" to record.sourceTableVersion, "source_logic_unit_id" to record.sourceLogicUnitId, "source_logic_unit_version" to record.sourceLogicUnitVersion,
-            "mapping_json" to record.mappingJson, "refresh_policy" to record.refreshPolicy, "status" to record.status, "created_by" to record.createdBy, "created_at" to record.createdAt)) }
+            "refresh_policy" to record.refreshPolicy, "status" to record.status, "created_by" to record.createdBy, "created_at" to record.createdAt)) }
     }
     fun findAnalysisDimensionValueProvider(id: String): AnalysisDimensionValueProviderRecord? {
         requireText(id, "analysis_dimension_value_provider.id")
@@ -135,7 +135,7 @@ class AnalysisDimensionGovernanceRepository(private val database: PlatformDataba
         return read("Failed to read value alignments for $id@$version") { query(database, "SELECT * FROM analysis_dimension_value_alignment WHERE analysis_dimension_id=? AND analysis_dimension_version=? ORDER BY id", listOf(id, version), ::alignment) }
     }
     private fun level(rs: ResultSet) = AnalysisDimensionLevelRecord(rs.getString("id"), rs.getString("analysis_dimension_id"), requireNotNull(nullableLong(rs, "analysis_dimension_version")), rs.getString("level_code"), rs.getString("display_name"), rs.getString("parent_level_code"), rs.getInt("sort_order"), rs.getString("status"))
-    private fun provider(rs: ResultSet) = AnalysisDimensionValueProviderRecord(rs.getString("id"), rs.getString("analysis_dimension_id"), requireNotNull(nullableLong(rs, "analysis_dimension_version")), rs.getString("level_code"), rs.getString("provider_type"), rs.getString("source_table_id"), nullableLong(rs, "source_table_version"), rs.getString("source_logic_unit_id"), nullableLong(rs, "source_logic_unit_version"), rs.getString("mapping_json"), rs.getString("refresh_policy"), rs.getString("status"), rs.getString("created_by"), requireNotNull(instant(rs, "created_at")))
+    private fun provider(rs: ResultSet) = AnalysisDimensionValueProviderRecord(rs.getString("id"), rs.getString("analysis_dimension_id"), requireNotNull(nullableLong(rs, "analysis_dimension_version")), rs.getString("level_code"), rs.getString("provider_type"), rs.getString("source_table_id"), nullableLong(rs, "source_table_version"), rs.getString("source_logic_unit_id"), nullableLong(rs, "source_logic_unit_version"), rs.getString("refresh_policy"), rs.getString("status"), rs.getString("created_by"), requireNotNull(instant(rs, "created_at")))
     private fun mapping(rs: ResultSet) = AnalysisDimensionEventMappingRecord(rs.getString("id"), rs.getString("analysis_dimension_id"), requireNotNull(nullableLong(rs, "analysis_dimension_version")), rs.getString("level_code"), rs.getString("event_id"), requireNotNull(nullableLong(rs, "event_version")), rs.getString("dimension_id"), requireNotNull(nullableLong(rs, "dimension_version")), rs.getString("binding_id"), requireNotNull(nullableLong(rs, "binding_version")), rs.getString("alignment_status"), rs.getString("alignment_id"), requireNotNull(instant(rs, "created_at")))
     private fun alignment(rs: ResultSet) = AnalysisDimensionValueAlignmentRecord(rs.getString("id"), rs.getString("analysis_dimension_id"), requireNotNull(nullableLong(rs, "analysis_dimension_version")), rs.getString("level_code"), rs.getString("alignment_type"), rs.getString("evidence_json"), rs.getString("confirmed_by"), instant(rs, "confirmed_at"), rs.getString("diagnostic_status"), requireNotNull(instant(rs, "created_at")))
     private fun owner(id: String, version: Long, table: String) { requireText(id, "$table.analysis_dimension_id"); requireVersion(version, "$table.analysis_dimension_version") }

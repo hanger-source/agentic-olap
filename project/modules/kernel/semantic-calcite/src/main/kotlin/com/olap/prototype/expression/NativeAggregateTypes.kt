@@ -20,17 +20,7 @@ import org.slf4j.LoggerFactory
 object NativeAggregateTypes {
     private val log = LoggerFactory.getLogger(NativeAggregateTypes::class.java)
 
-    sealed interface Mapping { val status: String }
-    data class Mapped(val resultType: NativeValueType, val aggregationRounding: MetricValueContract.Rounding) : Mapping {
-        override val status: String = "MAPPED"
-    }
-    data object Unavailable : Mapping {
-        override val status: String = "UNAVAILABLE"
-        val code: String = "NATIVE_AGGREGATE_MAPPING_UNAVAILABLE"
-        val message: String = "connector does not map this aggregate for the declared input type"
-    }
-
-    fun describe(support: CompilationSupport, aggregation: ResultAggregation.Kind, input: NativeValueType, grouped: Boolean): Mapping {
+    fun describe(support: CompilationSupport, aggregation: ResultAggregation.Kind, input: NativeValueType, grouped: Boolean): NativeAggregateMapping {
         val factory = JavaTypeFactoryImpl(SemanticCalciteTypeSystem(support))
         val type = try {
             SemanticNativeTypes.resolve(factory, input).also {
@@ -52,7 +42,7 @@ object NativeAggregateTypes {
             if (aggregation == ResultAggregation.Kind.AVG) averageType(factory, type)
             val result = infer(factory, RelationalAggregates.aggregateFunction(aggregation, support), type, grouped)
             requireDetermined(result)
-            Mapped(SemanticNativeTypes.describe(result),
+            NativeAggregateMapping.Mapped(SemanticNativeTypes.describe(result),
                 if (aggregation == ResultAggregation.Kind.AVG) averageRounding(result, support) else MetricValueContract.Rounding.NONE)
         } catch (failure: IllegalArgumentException) {
             unavailable(aggregation, type, failure)
@@ -93,8 +83,8 @@ object NativeAggregateTypes {
         if (type.isStruct) type.fieldList.forEach { requireDetermined(it.type) }
     }
 
-    private fun unavailable(aggregation: ResultAggregation.Kind, input: RelDataType, failure: Exception): Mapping {
+    private fun unavailable(aggregation: ResultAggregation.Kind, input: RelDataType, failure: Exception): NativeAggregateMapping {
         log.debug("原生聚合映射未提供：aggregate={}, inputType={}", aggregation, input.fullTypeString, failure)
-        return Unavailable
+        return NativeAggregateMapping.Unavailable("NATIVE_AGGREGATE_MAPPING_UNAVAILABLE", "connector does not map this aggregate for the declared input type")
     }
 }

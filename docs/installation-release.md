@@ -11,9 +11,9 @@ agentic-olap start
 
 需要 Node.js 20 或更高，支持 macOS arm64。npm 包携带 Go 程序、JRE、精确下载清单、SDK 文档、插件声明和许可。命令直接指向 Go 程序，没有平台子包或 JS 启动壳。
 
-安装脚本调用随包 Go 程序，从 JitPack 取得同标签 Kotlin 运行构件和内置连接器，从 Maven Central 取得第三方 JVM 库与 H2、DuckDB 驱动。产品及依赖 JAR 均不打进 npm 归档。下载按锁定 URL、大小和 SHA-256 校验，备齐 classpath 和插件组；相同内容可复用缓存。下载或校验失败使安装失败，不接受缺失依赖的安装结果。
+安装脚本调用随包 Go 程序，从 JitPack 取得同标签 Kotlin 运行构件和内置连接器，从 Maven Central 取得第三方 JVM 库与 H2、DuckDB 驱动。产品及依赖 JAR 均不打进 npm 归档。下载按锁定 URL、大小和 SHA-256 校验，备齐服务、脚本编译运行的 classpath 和插件组；相同内容可复用缓存。下载或校验失败使安装失败，不接受缺失依赖的安装结果。
 
-安装完成即可启动。启动只核验和使用本地文件，不下载或解析依赖。无需安装 JDK、Gradle、Go，也不需执行第二条安装命令。缓存、代理、配置和升级操作见[产品安装说明](../project/cli/README.md)。升级不会自动重启服务、改写业务配置或转换持久资产格式。
+安装完成即可启动。启动只核验和使用本地文件，不下载或解析依赖。无需安装 JDK、Gradle、Kotlin 编译器或 Go，也不需执行第二条安装命令。缓存、代理、配置和升级操作见[产品安装说明](../project/cli/README.md)。升级不会自动重启服务、改写业务配置或转换持久资产格式。
 
 ## 独立连接器 SDK
 
@@ -27,7 +27,7 @@ repositories {
     }
 }
 dependencies {
-    compileOnly("com.github.hanger-source.agentic-olap:connector-api:v0.11.3")
+    compileOnly("com.github.hanger-source.agentic-olap:connector-api:v0.12.0")
 }
 ```
 
@@ -35,7 +35,7 @@ dependencies {
 
 ## 维护者构建与发布
 
-`project/cli/package.json` 拥有产品版本、命令入口及平台限制。自有 JVM 构件的 group 为 `com.github.hanger-source.agentic-olap`，版本为 `v` 加产品版本；npm 版本不带 `v`。连接器 API、存储格式、Query 格式和语义资产版本分别管理。
+`project/cli/package.json` 拥有产品版本、命令入口及平台限制。自有 JVM 构件的 group 为 `com.github.hanger-source.agentic-olap`，版本为 `v` 加产品版本；npm 版本不带 `v`。连接器 API、DSL API、存储格式、Query 格式和语义资产版本分别管理。正式作者使用 Kotlin 类型，内部 Protobuf schema 与显式转换器承载通信与持久字节，不要求业务脚本维护协议消息。
 
 1. 完成代码、文档和相称验证后提交，推送精确发行标签 `vX.Y.Z`。源码、skill 和构建均采用该标签。
 2. 手动运行 **构建 JitPack JVM 构件**，指定标签。JitPack 使用 JDK 21 执行 `publishProductToMavenLocal`，发布服务运行模块、内置连接器、SDK 及其模块依赖，不编译 Go 或打包 npm。测试和示例模块不发布。隔离连接器 JAR 使用 `plugin` classifier。

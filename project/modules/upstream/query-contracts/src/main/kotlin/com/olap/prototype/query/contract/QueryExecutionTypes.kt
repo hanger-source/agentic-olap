@@ -1,8 +1,5 @@
 package com.olap.prototype.query.contract
 
-import com.fasterxml.jackson.annotation.JsonProperty
-import com.fasterxml.jackson.annotation.JsonSubTypes
-import com.fasterxml.jackson.annotation.JsonTypeInfo
 import com.olap.prototype.contract.NativeValueType
 import com.olap.prototype.contract.ProducerContracts
 import com.olap.prototype.query.ScopedInputContract
@@ -16,11 +13,11 @@ class QueryExecutionTypes(val formatVersion: String, metricInstances: Map<String
     val members: Map<String, Member> = Collections.unmodifiableMap(TreeMap(members))
     val dimensions: List<Dimension> = java.util.List.copyOf(dimensions)
     init { require(formatVersion == FORMAT_VERSION) { "unknown query execution types format" } }
-    data class Context(val executionGroup: String, val dialect: String, @param:JsonProperty(required = true) val constraintSnapshotAvailable: Boolean) {
+    data class Context(val executionGroup: String, val dialect: String,  val constraintSnapshotAvailable: Boolean) {
         init { ProducerContracts.requireText(executionGroup, "published execution group"); ProducerContracts.requireText(dialect, "published execution dialect") }
     }
-    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "kind")
-    @JsonSubTypes(JsonSubTypes.Type(value = FixedContext::class, name = "FIXED"), JsonSubTypes.Type(value = Inputs::class, name = "INPUTS"))
+
+
     sealed interface ContextBinding
     data class FixedContext(val context: Context) : ContextBinding
     class Inputs(memberParameters: Set<String>, relationParameters: Set<String>) : ContextBinding {
@@ -34,8 +31,8 @@ class QueryExecutionTypes(val formatVersion: String, metricInstances: Map<String
         override fun equals(other: Any?): Boolean = other is Inputs && memberParameters == other.memberParameters && relationParameters == other.relationParameters
         override fun hashCode(): Int = listOf(memberParameters, relationParameters).hashCode()
     }
-    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "kind")
-    @JsonSubTypes(JsonSubTypes.Type(value = ProjectionMember::class, name = "PROJECTION"), JsonSubTypes.Type(value = ComputedMember::class, name = "COMPUTED"))
+
+
     sealed interface Member
     class ProjectionMember(val context: Context, outputs: Map<String, NativeValueType>) : Member {
         val outputs: Map<String, NativeValueType> = Collections.unmodifiableMap(TreeMap(outputs))

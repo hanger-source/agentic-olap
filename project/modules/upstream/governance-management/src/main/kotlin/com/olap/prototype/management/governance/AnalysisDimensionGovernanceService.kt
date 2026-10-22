@@ -39,7 +39,7 @@ class AnalysisDimensionGovernanceService(private val database: PlatformDatabase,
         val actor = text(request.createdBy, "analysis_dimension.created_by")
         val now = Instant.now()
         val record = AnalysisDimensionRecord(id, subject, subjectVersion, code, text(request.displayName, "analysis_dimension.display_name"), request.description, "DRAFT", draft.version, actor, now, actor, now)
-        val version = AnalysisDimensionVersionRecord("$id:v${draft.version}", id, draft.version, "DRAFT", json(AnalysisDimensionSnapshots.analysisDimensionVersionContent(record)), "{}", draft.sourceVersion, actor, now, null, null, null, null, null, null)
+        val version = AnalysisDimensionVersionRecord("$id:v${draft.version}", id, draft.version, "DRAFT", encodeDefinition(AnalysisDimensionSnapshots.analysisDimensionVersionContent(record)), "{}", draft.sourceVersion, actor, now, null, null, null, null, null, null)
         val levelCode = domainCode(request.levelCode, "analysis_dimension_level.level_code")
         val level = AnalysisDimensionLevelRecord("$id:v${draft.version}:level:$levelCode", id, draft.version, levelCode, text(request.levelDisplayName, "analysis_dimension_level.display_name"), null, 1, "DRAFT")
         val ref = SubjectAreaAnalysisDimensionRefRecord("$subject:v$subjectVersion:analysis-dimension:$id:v${draft.version}", subject, subjectVersion, id, draft.version, "DRAFT", actor, now)
@@ -109,7 +109,7 @@ class AnalysisDimensionGovernanceService(private val database: PlatformDatabase,
         if (repository.listAnalysisDimensionEventMappings(id, version).none { it.levelCode == level && it.bindingId == bindingId && it.bindingVersion == bindingVersion })
             throw ProducerContractException("analysis_dimension_value_provider requires an existing event mapping for binding: $bindingId@$bindingVersion")
         val provider = AnalysisDimensionValueProviderRecord("$id:v$version:level:$level:value-provider:$bindingId:v$bindingVersion", id, version, level, "LOGIC_UNIT_DISTINCT", null, null,
-            binding.logicUnitId, binding.logicUnitVersion, "{}", text(request.refreshPolicy, "analysis_dimension_value_provider.refresh_policy"), "DRAFT", text(request.createdBy, "analysis_dimension_value_provider.created_by"), Instant.now())
+            binding.logicUnitId, binding.logicUnitVersion, text(request.refreshPolicy, "analysis_dimension_value_provider.refresh_policy"), "DRAFT", text(request.createdBy, "analysis_dimension_value_provider.created_by"), Instant.now())
         saveAnalysisDimensionValueProvider(provider)
         AnalysisDimensionValueProviderCreateResult(provider)
     }
@@ -204,5 +204,5 @@ class AnalysisDimensionGovernanceService(private val database: PlatformDatabase,
     private fun positive(value: Long?, field: String): Long = value?.takeIf { it > 0 } ?: throw ProducerContractException("$field is required and must be a positive version")
     private fun domainCode(value: String, field: String): String = text(value, field).also { if (!it.matches(Regex("[a-z][a-z0-9_-]*(\\.[a-z][a-z0-9_-]*)*"))) throw ProducerContractException("$field must use lower-case letters, numbers, underscore, dash, or dot") }
     private fun matching(actual: Any?, expected: Any?, actualField: String, expectedField: String) { if (actual == null || actual != expected) throw ProducerContractException("$actualField must match $expectedField") }
-    private fun json(value: Any): String = try { OlapJsonUtils.mapper().writeValueAsString(value) } catch (failure: Exception) { throw ProducerContractException("canonical governance content_json invalid", failure) }
+    private fun encodeDefinition(value: GovernanceDefinition): String = com.olap.prototype.codec.ProtoBytes.storage(com.olap.prototype.codec.GovernanceProto.definition(value))
 }

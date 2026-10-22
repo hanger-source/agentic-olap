@@ -1,7 +1,5 @@
 package com.olap.prototype.calculation
 
-import com.fasterxml.jackson.annotation.JsonSubTypes
-import com.fasterxml.jackson.annotation.JsonTypeInfo
 import com.olap.prototype.member.MemberRef
 import com.olap.prototype.member.MemberSource
 import com.olap.prototype.query.ScopedInputContract
@@ -36,8 +34,6 @@ class CalculationBindings(dimensions: Map<String, Dimension>, members: Map<Strin
         override fun hashCode(): Int = listOf(reference, role, mappingIds).hashCode()
     }
 
-    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "kind")
-    @JsonSubTypes(JsonSubTypes.Type(value = SourceCall::class, name = "SOURCE_CALL"), JsonSubTypes.Type(value = LocalRef::class, name = "LOCAL"), JsonSubTypes.Type(value = InputParameter::class, name = "PARAMETER"))
     sealed interface Member
     class SourceCall(val source: MemberRef, arguments: Map<String, Calculation.Binding>, outputSlots: Map<String, String>, members: Map<String, Member>, relations: Map<String, Relation>) : Member {
         val arguments: Map<String, Calculation.Binding> = java.util.Map.copyOf(arguments)
@@ -56,8 +52,6 @@ class CalculationBindings(dimensions: Map<String, Dimension>, members: Map<Strin
     }
     class InputParameter : Member { override fun equals(other: Any?): Boolean = other is InputParameter; override fun hashCode(): Int = 0 }
 
-    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "kind")
-    @JsonSubTypes(JsonSubTypes.Type(value = LocalRelation::class, name = "LOCAL"), JsonSubTypes.Type(value = RelationParameter::class, name = "PARAMETER"))
     sealed interface Relation
     class LocalRelation(val inputId: String, outputSlots: Map<String, String>) : Relation {
         val outputSlots: Map<String, String> = java.util.Map.copyOf(outputSlots)

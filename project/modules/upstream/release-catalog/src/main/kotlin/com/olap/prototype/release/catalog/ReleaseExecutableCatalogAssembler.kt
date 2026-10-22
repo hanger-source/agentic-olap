@@ -147,7 +147,7 @@ class ReleaseExecutableCatalogAssembler(private val connectors: ConnectorRegistr
                     val snapshot = read(reference, EventExecutionSnapshot::class.java, "invalid frozen event snapshot")
                     snapshot.eventTimeLogicUnitId?.let { requireLogicUnit(it, requireNotNull(snapshot.eventTimeLogicUnitVersion), "event_snapshot.event_time_logic_unit") }
                     events[key] = ExecutableEvent(reference.objectId, reference.objectVersion.toString(), snapshot.topologyId, snapshot.topologyVersion.toString(),
-                        reference.objectDisplayName, snapshot.identity, snapshot.roles, optionalExpression(snapshot.baseFilterJson, "event_snapshot.baseFilterJson"),
+                        reference.objectDisplayName, snapshot.identity, snapshot.roles, snapshot.baseFilter,
                         snapshot.eventTimeLogicUnitId, snapshot.eventTimeLogicUnitVersion?.toString())
                 }
                 "TOPOLOGY" -> addTopology(reference)
@@ -158,7 +158,7 @@ class ReleaseExecutableCatalogAssembler(private val connectors: ConnectorRegistr
             }
         }
         private fun addLogicUnit(reference: ReleaseObjectRef) {
-            val snapshot = read(reference, LogicUnitExecutionSnapshot::class.java, "release_object_ref.LOGIC_UNIT snapshot_summary_json invalid")
+            val snapshot = read(reference, LogicUnitExecutionSnapshot::class.java, "release_object_ref.LOGIC_UNIT snapshot_proto invalid")
             requireLogicUnitSnapshot(snapshot)
             if (reference.objectId != snapshot.logicUnitId || reference.objectVersion != snapshot.logicUnitVersion) throw ProducerContractException("release_object_ref.LOGIC_UNIT snapshot identity mismatch: ${reference.objectId}@${reference.objectVersion}")
             mergePhysicalBinding(snapshot)
@@ -224,8 +224,7 @@ class ReleaseExecutableCatalogAssembler(private val connectors: ConnectorRegistr
                 requireLogicUnit(key.targetLogicUnitId, key.targetLogicUnitVersion, "join_path.target_logic_unit")
                 ExecutableJoinKey(key.order, key.sourceLogicUnitId, key.sourceLogicUnitVersion.toString(), key.targetLogicUnitId, key.targetLogicUnitVersion.toString())
             }
-            val temporal = try { TemporalJoinContract.parse(requireNotNull(snapshot.temporalConfigJson), "join_path.temporal_config_json") }
-            catch (failure: IllegalArgumentException) { throw ProducerContractException(requireNotNull(failure.message), failure) }
+            val temporal = snapshot.temporal
             joinPaths[versionKey(reference.objectId, reference.objectVersion)] = ExecutableJoinPath(reference.objectId, reference.objectVersion.toString(), snapshot.topologyId,
                 snapshot.topologyVersion.toString(), snapshot.sourceLogicalTableId, snapshot.sourceLogicalTableVersion.toString(), snapshot.targetLogicalTableId,
                 snapshot.targetLogicalTableVersion.toString(), snapshot.joinType, snapshot.cardinality, temporal, snapshot.nullPolicy, keys)
@@ -257,7 +256,7 @@ class ReleaseExecutableCatalogAssembler(private val connectors: ConnectorRegistr
             requireLogicUnit(mapping.logicUnitId, mapping.logicUnitVersion, "release_dimension_mapping.logic_unit")
             val binding = requireNotNull(dimensionBindings[versionKey(mapping.dimensionBindingId, mapping.dimensionBindingVersion)]) { "frozen dimension expression binding is missing" }
             val expected = binding.accessPath.joinPathRefs.map { ReleaseJoinPathRef(it.joinPathId, it.joinPathVersion) }
-            if (expected != mapping.joinPathRefs || binding.expression != SemanticExpressionCodec.parse(mapping.expressionJson, "dimension mapping expression") ||
+            if (expected != mapping.joinPathRefs || binding.expression != mapping.expression ||
                 binding.eventId != mapping.eventId || binding.eventVersion != mapping.eventVersion.toString() || binding.dimensionId != mapping.dimensionId || binding.dimensionVersion != mapping.dimensionVersion.toString())
                 throw ProducerContractException("dimension mapping differs from its exact frozen expression owner")
         }
@@ -295,7 +294,7 @@ class ReleaseExecutableCatalogAssembler(private val connectors: ConnectorRegistr
             ProducerContracts.requireText(unit.physicalExecutionBindingVersion, "$field.physicalExecutionBindingVersion")
             return unit
         }
-        private fun parseLogicUnits(snapshot: LogicUnitExecutionSnapshot): Map<String, SemanticExpression> = snapshot.logicUnitBindings.mapValues { (reference, value) -> SemanticExpressionCodec.parse(value, "logic_unit_snapshot.logicUnitBindings[$reference]") }
+        private fun parseLogicUnits(snapshot: LogicUnitExecutionSnapshot): Map<String, SemanticExpression> = snapshot.logicUnitBindings
         private fun <T> merge(target: MutableMap<String, T>, source: Map<String, T>, kind: String, owner: String) {
             source.forEach { (key, value) ->
                 val previous = target.putIfAbsent(key, value)
@@ -306,6 +305,5 @@ class ReleaseExecutableCatalogAssembler(private val connectors: ConnectorRegistr
         catch (failure: ProducerContractException) { throw failure }
         catch (failure: Exception) { throw ProducerContractException("$message: ${reference.objectId}@${reference.objectVersion}", failure) }
         private fun versionKey(id: String, version: Any): String = ProducerContracts.requireText(id, "versionKey.id") + "@" + ProducerContracts.requireText(version.toString(), "versionKey.version")
-        private fun optionalExpression(json: String?, field: String): SemanticExpression? = if (json.isNullOrBlank()) null else SemanticExpressionCodec.parse(json, field)
     }
 }

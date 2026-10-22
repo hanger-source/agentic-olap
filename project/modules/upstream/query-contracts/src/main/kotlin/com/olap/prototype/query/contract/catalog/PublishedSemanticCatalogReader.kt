@@ -1,142 +1,74 @@
 package com.olap.prototype.query.contract.catalog
 
-import com.fasterxml.jackson.databind.JsonNode
-import com.fasterxml.jackson.databind.node.ObjectNode
 import com.olap.prototype.contract.ProducerContractException
-import com.olap.prototype.query.contract.QueryIntentHash
-import com.olap.prototype.util.OlapJsonUtils
+import com.olap.prototype.query.contract.catalog.PublishedSemanticCatalog.*
+import com.olap.prototype.query.contract.catalog.SemanticCatalogReads.Asset
+import com.olap.prototype.query.contract.catalog.SemanticCatalogReads.AssetReference
+import com.olap.prototype.query.contract.catalog.SemanticCatalogReads.AssetRequest
+import com.olap.prototype.query.contract.catalog.SemanticCatalogReads.AssetResult
+import com.olap.prototype.query.contract.catalog.SemanticCatalogReads.CatalogReference
+import com.olap.prototype.query.contract.catalog.SemanticCatalogReads.CatalogRequest
+import com.olap.prototype.query.contract.catalog.SemanticCatalogReads.DefinitionReference
+import com.olap.prototype.query.contract.catalog.SemanticCatalogReads.DefinitionRequest
+import com.olap.prototype.query.contract.catalog.SemanticCatalogReads.DefinitionResult
+import com.olap.prototype.query.contract.catalog.SemanticCatalogReads.Kind
+import com.olap.prototype.query.contract.catalog.SemanticCatalogReads.Scenario
+import com.olap.prototype.query.contract.catalog.SemanticCatalogReads.SearchItem
+import com.olap.prototype.query.contract.catalog.SemanticCatalogReads.SearchPage
+import com.olap.prototype.query.contract.catalog.SemanticCatalogReads.SearchRequest
 import java.util.Locale
 
-/** 读取同一已授权、已核验发布的公开投影；不重新解释计算，也不读取治理草稿。 */
-class PublishedSemanticCatalogReader(artifact: PublishedSemanticCatalog) {
-    private val mapper = OlapJsonUtils.mapper()
-    private val document = mapper.valueToTree<ObjectNode>(artifact)
-    private val catalog = document.required("catalog")
-    private val reference = mapper.createObjectNode().apply {
-        set<JsonNode>("coordinate", catalog.required("coordinate"))
-        set<JsonNode>("sha256", document.required("sha256"))
+/** 在已经授权和核验的发布上直接读取类型化投影，不重新解释计算或读取草稿。 */
+class PublishedSemanticCatalogReader(private val artifact: PublishedSemanticCatalog) {
+    private val catalog = artifact.catalog
+    val reference = CatalogReference(catalog.coordinate, artifact.sha256)
+
+    fun read(request: CatalogRequest): PublishedSemanticCatalog {
+        requireReference(request.reference)
+        return artifact
+    }
+    fun search(request: SearchRequest): SearchPage {
+        require(request.publication == catalog.coordinate.request()) { "semantic search publication differs from the authorized catalog" }
+        val needle = request.query.lowercase(Locale.ROOT)
+        val matches = assets().filter { (request.kind == null || it.reference.kind == request.kind) &&
+            (needle.isEmpty() || needle in it.searchable.lowercase(Locale.ROOT)) }.toList()
+        val start = minOf(request.offset, matches.size)
+        val end = minOf(start.toLong() + request.limit, matches.size.toLong()).toInt()
+        return SearchPage(matches.subList(start, end).map { SearchItem(it.reference, it.displayName, preview(it.summary)) },
+            matches.size, request.offset, end.takeIf { it < matches.size })
+    }
+    fun asset(request: AssetRequest): AssetResult {
+        requireReference(request.reference.catalog)
+        val selected = assets().firstOrNull { it.reference == request.reference }
+            ?: throw ProducerContractException("exact semantic asset is unavailable in the authorized publication")
+        return AssetResult(selected.reference, selected.value)
+    }
+    fun definition(request: DefinitionRequest): DefinitionResult {
+        requireReference(request.catalog)
+        val selected = catalog.semanticDependencies.firstOrNull { dependency -> when (val wanted = request.reference) {
+            is DefinitionReference.Calculation -> dependency is CalculationDependency && dependency.reference == wanted.reference
+            is DefinitionReference.Fact -> dependency is FactDependency && dependency.reference == wanted.reference
+            is DefinitionReference.Instance -> dependency is InstanceDependency && dependency.reference == wanted.reference
+            is DefinitionReference.Member -> dependency is MemberDependency && dependency.reference == wanted.reference
+        } } ?: throw ProducerContractException("exact definition is absent from the public semantic closure")
+        return DefinitionResult(reference, selected)
     }
 
-    fun read(operation: String, payload: JsonNode): JsonNode = when (operation) {
-        "search-semantics" -> search(payload)
-        "read-semantic-catalog" -> { requireReference(payload.required("catalogRef")); document.deepCopy() }
-        "read-semantic-asset" -> readAsset(payload.required("assetReference"))
-        "read-semantic-definition" -> readDefinition(payload)
-        else -> throw ProducerContractException("unsupported semantic read operation: $operation")
+    private data class Entry(val reference: AssetReference, val value: Asset, val displayName: String, val summary: String, val searchable: String)
+    private fun entry(kind: Kind, id: String, version: Long, value: Asset, displayName: String, summary: String = displayName, terms: List<String> = emptyList()): Entry =
+        Entry(AssetReference(reference, kind, id, version), value, displayName, summary, (listOf(id, displayName, summary) + terms).joinToString(" "))
+    private fun assets(): Sequence<Entry> = sequence {
+        yield(entry(Kind.SCENARIO, catalog.coordinate.scenarioId, catalog.coordinate.scenarioVersion,
+            Asset.ScenarioAsset(Scenario(catalog.coordinate.scenarioId, catalog.coordinate.scenarioVersion, catalog.displayName, catalog.sourceJoinContract,
+                catalog.metrics.size, catalog.memberSources.size, catalog.relationFilters.size, catalog.dimensions.size, catalog.timeDimensions.size, catalog.filters.size)), catalog.displayName))
+        catalog.metrics.forEach { yield(entry(Kind.METRIC, it.adoptionId, it.adoptionVersion, Asset.MetricAsset(it), it.displayName, it.businessMeaning.definition,
+            listOf(it.code, it.businessMeaning.unit, it.businessMeaning.grain) + it.businessMeaning.limitations)) }
+        catalog.memberSources.forEach { yield(entry(Kind.MEMBER, it.sourceId, it.sourceVersion, Asset.MemberAsset(it), it.displayName, terms = listOf(it.entity, it.role) + it.outputs.keys)) }
+        catalog.relationFilters.forEach { yield(entry(Kind.RELATION_FILTER, it.id, it.version, Asset.RelationFilterAsset(it), it.displayName)) }
+        catalog.dimensions.forEach { yield(entry(Kind.DIMENSION, it.id, it.version, Asset.DimensionAsset(it), it.displayName)) }
+        catalog.timeDimensions.forEach { yield(entry(Kind.TIME_DIMENSION, it.id, it.version, Asset.TimeDimensionAsset(it), it.displayName)) }
+        catalog.filters.forEach { yield(entry(Kind.FILTER, it.id, it.version, Asset.FilterAsset(it), it.displayName)) }
     }
-
-    private data class Asset(val kind: String, val id: JsonNode, val version: JsonNode, val value: JsonNode)
-
-    private fun assets(): Sequence<Asset> = sequence {
-        val coordinate = catalog.required("coordinate")
-        val scenario = mapper.createObjectNode().apply {
-            set<JsonNode>("id", coordinate.required("scenarioId"))
-            set<JsonNode>("version", coordinate.required("scenarioVersion"))
-            set<JsonNode>("displayName", catalog.required("displayName"))
-            set<JsonNode>("sourceJoinContract", catalog.required("sourceJoinContract"))
-            putObject("assetCounts").apply { for (kind in KINDS) put(kind, catalog.required(kind).size()) }
-        }
-        yield(Asset("scenario", scenario.required("id"), scenario.required("version"), scenario))
-        for (kind in KINDS) {
-            for (original in catalog.required(kind)) {
-                val id = when (kind) { "metrics" -> "adoptionId"; "memberSources" -> "sourceId"; else -> "id" }
-                val version = when (kind) { "metrics" -> "adoptionVersion"; "memberSources" -> "sourceVersion"; else -> "version" }
-                val value = original.deepCopy<ObjectNode>()
-                if (kind == "memberSources") {
-                    value.set<JsonNode>("id", original.required(id))
-                    value.set<JsonNode>("version", original.required(version))
-                }
-                yield(Asset(kind, original.required(id), original.required(version), value))
-            }
-        }
-    }
-
-    private fun search(payload: JsonNode): JsonNode {
-        val query = payload.get("query")?.also { require(it.isTextual) { "semantic query must be text" } }?.textValue() ?: ""
-        val offset = pageNumber(payload, "offset", 0, 0, Int.MAX_VALUE)
-        val limit = pageNumber(payload, "limit", 20, 1, 200)
-        val kind = payload.get("kind")?.also { require(it.isTextual) { "semantic kind must be text" } }?.textValue()
-        require(kind == null || kind in KINDS || kind == "scenario") { "unsupported semantic asset kind" }
-        val needle = query.lowercase(Locale.ROOT)
-        val matches = assets().filter { asset ->
-            (kind == null || asset.kind == kind) &&
-                (needle.isEmpty() || strings(asset.value).joinToString(" ").lowercase(Locale.ROOT).contains(needle))
-        }.toList()
-        val end = minOf(offset.toLong() + limit, matches.size.toLong()).toInt()
-        return mapper.createObjectNode().apply {
-            val items = putArray("items")
-            if (offset < matches.size) for (asset in matches.subList(offset, end)) {
-                val summary = if (asset.kind == "metrics") asset.value.required("businessMeaning").required("definition").textValue()
-                    else asset.value.required("displayName").textValue()
-                items.addObject().apply {
-                    set<JsonNode>("assetReference", assetReference(asset))
-                    set<JsonNode>("displayName", asset.value.required("displayName"))
-                    put("businessSummary", summary.substring(0, summary.offsetByCodePoints(0, minOf(240, summary.codePointCount(0, summary.length)))))
-                }
-            }
-            put("total", matches.size)
-            put("offset", offset)
-            if (end < matches.size && offset < matches.size) put("nextOffset", end) else putNull("nextOffset")
-        }
-    }
-
-    private fun readAsset(selected: JsonNode): JsonNode {
-        exact(selected, setOf("catalogRef", "kind", "id", "version"))
-        requireReference(selected.required("catalogRef"))
-        require(selected.required("kind").isTextual && selected.required("id").isTextual &&
-            selected.required("version").isIntegralNumber && selected.required("version").longValue() > 0) { "exact semantic asset identity required" }
-        val asset = assets().firstOrNull { it.kind == selected.required("kind").textValue() &&
-            it.id == selected.required("id") && selected.required("version").canConvertToLong() && it.version.longValue() == selected.required("version").longValue() }
-            ?: throw ProducerContractException("exact semantic asset is unavailable in the handed publication")
-        return mapper.createObjectNode().apply {
-            set<JsonNode>("assetReference", selected.deepCopy())
-            set<JsonNode>("asset", asset.value.deepCopy())
-        }
-    }
-
-    private fun readDefinition(payload: JsonNode): JsonNode {
-        requireReference(payload.required("catalogRef"))
-        val kind = payload.required("kind")
-        require(kind.isTextual && kind.textValue() in setOf("CALCULATION", "FACT", "INSTANCE", "MEMBER")) { "unsupported semantic definition kind" }
-        val selected = payload.required("reference")
-        require(selected.isObject) { "definition reference must be a typed object" }
-        val definition = catalog.required("semanticDependencies").firstOrNull {
-            it.required("kind") == kind && QueryIntentHash.compute(it.required("reference")) == QueryIntentHash.compute(selected)
-        } ?: throw ProducerContractException("exact definition is absent from the public semantic closure")
-        return mapper.createObjectNode().apply {
-            set<JsonNode>("catalogRef", reference.deepCopy())
-            set<JsonNode>("definition", definition.deepCopy())
-        }
-    }
-
-    private fun assetReference(asset: Asset): ObjectNode = mapper.createObjectNode().apply {
-        set<JsonNode>("catalogRef", reference.deepCopy())
-        put("kind", asset.kind)
-        set<JsonNode>("id", asset.id)
-        set<JsonNode>("version", asset.version)
-    }
-
-    private fun requireReference(selected: JsonNode) {
-        exact(selected, setOf("coordinate", "sha256"))
-        require(QueryIntentHash.compute(selected) == QueryIntentHash.compute(reference)) { "exact semantic catalog version and hash are unavailable" }
-    }
-
-    private fun exact(value: JsonNode, fields: Set<String>) {
-        require(value.isObject && value.fieldNames().asSequence().toSet() == fields) { "semantic reference fields differ from the contract" }
-    }
-
-    private fun pageNumber(payload: JsonNode, name: String, default: Int, minimum: Int, maximum: Int): Int {
-        val node = payload.get(name) ?: return default
-        require(node.isIntegralNumber && node.canConvertToInt() && node.intValue() in minimum..maximum) { "$name is outside allowed range" }
-        return node.intValue()
-    }
-
-    private fun strings(value: JsonNode): Sequence<String> = sequence {
-        if (value.isTextual) yield(value.textValue())
-        else if (value.isContainerNode) for (child in value) yieldAll(strings(child))
-    }
-
-    companion object {
-        private val KINDS = listOf("metrics", "memberSources", "relationFilters", "dimensions", "timeDimensions", "filters")
-    }
+    private fun requireReference(selected: CatalogReference) { require(selected == reference) { "exact semantic catalog version and hash are unavailable" } }
+    private fun preview(value: String): String = value.substring(0, value.offsetByCodePoints(0, minOf(240, value.codePointCount(0, value.length))))
 }
