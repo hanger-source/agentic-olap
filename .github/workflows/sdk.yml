@@ -48,7 +48,9 @@ jobs:
           const commit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
           let previous;
           for (;;) {
-            const stateResponse = await fetch(`https://jitpack.io/api/builds/com.github.hanger-source/agentic-olap/${tag}`, { signal: AbortSignal.timeout(60000) });
+            const stateResponse = await fetch(`https://jitpack.io/api/builds/com.github.hanger-source/agentic-olap/${tag}?observedAt=${Date.now()}`, {
+              headers: { 'Cache-Control': 'no-cache' }, signal: AbortSignal.timeout(60000),
+            });
             if (!stateResponse.ok) throw new Error(`JitPack 构建状态读取失败：HTTP ${stateResponse.status}`);
             const state = await stateResponse.json();
             if (state.status === 'ok') {
