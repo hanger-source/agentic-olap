@@ -1,5 +1,15 @@
 # Agentic OLAP · 版本与变更
 
+## 0.12.0
+
+Agent 通过 MCP 的 `describe-script-api` 发现正式 Kotlin 类型与能力，通过 `execute-script` 提交完整 kts。脚本在进程内构造和组合语义对象，调用调查、治理、发布、查询和结果能力时使用具体 Protobuf 消息；反射模型编码、JSON 作者输入和编译包中转退出主链。完整查询可以直接执行，保存查询仍是显式复用行为。
+
+Go 管理数量有上限的常驻脚本 JVM。同一隔离归属下保留编译环境，每次执行重新建立脚本实例、客户端、回调和临时资源；正常完成及普通作者错误后继续复用，强制中止、进程故障或隔离归属变化时重建。macOS 操作系统沙箱覆盖 worker 生命周期，限制文件、网络和外部程序访问。共享 JVM 不承诺每次执行后恢复全部进程全局状态。
+
+调查、候选值、发布、查询、运行证据和结果交接使用正式类型及显式编码；计划解释从实际关系节点产生。来源调查失败保留具体能力与保证信息，保存查询回执包含精确引用，结果保存和回读继续由 Go 核验实际字节与授权。祖先闭包的递归 SQL 按真实临时关系列对齐，保留优化与原有计算含义。
+
+产品仍由一个 macOS arm64 npm 包交付，npm 安装阶段从精确 JitPack 标签及 Maven Central 备齐 JVM 构件，启动不下载依赖。连接器 API 为 `agentic-olap-connector/v11-kotlin-native-collection-relations-calcite-1.42`，脚本 DSL 为 `agentic-olap-kotlin-dsl/v1`，Query intent 为 `v7`，存储格式为 `16`。旧格式持久根明确拒绝，不自动改写；使用匹配发行读取原根。
+
 ## 0.11.3
 
 产品收敛为一个 macOS arm64 npm 包，命令直接运行 Go 二进制。npm 携带 Go、JRE、精确安装清单及资源；自有 Kotlin 运行构件、内置连接器和 SDK 从同标签 JitPack 取得，第三方依赖来自 Maven Central。所有产品和依赖 JAR 在 npm 安装阶段下载并校验，启动只读本地。
@@ -121,10 +131,10 @@ Java 模块按内核、上游与应用装配归位。内核目录、计算绑定
 | 身份 | 权威位置与含义 |
 | --- | --- |
 | 源码版本 | Git commit；未提交构建另有实际输入哈希，不能仅以 HEAD 代指 |
-| npm 产品与 skill 版本 | `project/cli/package.json` 及同版本平台包、GitHub skill metadata；公开发行按精确版本消费 |
+| npm 产品与 skill 版本 | `project/cli/package.json` 与同标签 GitHub skill metadata；公开发行按精确版本消费 |
 | JVM 构件版本 | `project/build.gradle.kts` 的 project version；Gradle 模块共同构建，`SNAPSHOT` 表示开发构件 |
 | 内部进程协议 | `project/protocol/runtime.proto`；生成通信代码，领域模型与规则由 Kotlin 拥有 |
 | 序列化合同与存储格式 | 各生产者的格式声明；含义变化由合同 owner 明确决定，工程重整不虚构格式升级 |
 | 运行中的业务身份 | 语义资产、发布、保存查询与结果的精确版本及哈希；源码版本不替代它们 |
 
-构建从实际模块、依赖与源码元数据取得版本和输入，记录构件字节身份。同一发行版本不得用不同内容覆盖已分发构件；对外发行同步更新产品包、精确平台包引用及 skill metadata，并保留实际源码与分发证据。
+构建从实际模块、依赖与源码元数据取得版本和输入，记录构件字节身份。同一发行版本不得用不同内容覆盖已分发构件；对外发行同步更新产品包与 skill metadata，并保留实际源码与分发证据。
