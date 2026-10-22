@@ -266,7 +266,7 @@ try {
   const adoptions = metrics.map(({ code, metric }) => govern("create-subject-area-metric-ref", {
     subjectAreaId: subject.id, subjectAreaVersion: 1, code, displayName: code, businessMeaning: meanings[code],
     metricId: metric.id, metricVersion: 1,
-    bindings: { dimensions: {}, members: {}, measurements: {}, groupingCandidates: {} }, fixedArguments: {}, selectedBy: "local",
+    bindings: { dimensions: {}, members: {}, measurements: {}, groupingCandidates: {}, relations: {} }, fixedArguments: {}, selectedBy: "local",
   }));
   const scenario = govern("create-scenario", {
     subjectAreaId: subject.id, subjectAreaVersion: 1, code: "orders", displayName: "订单经营分析",
@@ -285,9 +285,9 @@ try {
   const calls = ["sales_amount", "order_count"].map((code) => {
     const candidates = publication.capability.metricCandidates.filter((candidate) => candidate.code === code);
     assert.equal(candidates.length, 1);
-    return { callId: code, instance: candidates[0].instance, outputAlias: code, members: {}, arguments: {} };
+    return { callId: code, instance: candidates[0].instance, outputAlias: code, members: {}, relations: {}, arguments: {}, sourceCondition: { kind: "TRUE" } };
   });
-  const intent = { formatVersion: "olap-query-intent/v5", ...coordinate, computation: {
+  const intent = { formatVersion: "olap-query-intent/v6", ...coordinate, computation: {
     root: { kind: "MEASURES", calls, grouping: [], groupingLevels: null, sourceTimeRange: null, sourceClocks: {},
       sourceCondition: { kind: "TRUE" }, outputCondition: { kind: "TRUE" }, sourceEventConditions: [],
       population: { mode: "CALLS", callIds: calls.map((invocation) => invocation.callId) } }, inputs: {}, stages: [],

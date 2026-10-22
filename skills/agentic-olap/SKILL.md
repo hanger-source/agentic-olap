@@ -4,7 +4,7 @@ description: 使用 Agentic OLAP 服务调查业务数据、建设和复用可�
 license: Apache-2.0
 metadata:
   author: hanger
-  version: "0.7.0"
+  version: "0.8.0"
   repository: https://github.com/hanger-source/agentic-olap-skill
 ---
 
@@ -14,7 +14,7 @@ metadata:
 
 ## 安装与运行
 
-连接器 API 为 `agentic-olap-connector/v9-kotlin-source-sql-calcite-1.42`，存储格式为 `14`。Go 服务程序、JVM 运行时与 Kotlin 服务构件随平台包安装，需要 Node.js 20 或更高；支持 macOS arm64、Linux x64（glibc 2.35 或更高）。完整配置见[服务使用与部署](references/server.md)。安装后启动：
+连接器 API 为 `agentic-olap-connector/v9-kotlin-source-sql-calcite-1.42`，存储格式为 `15`。Go 服务程序、JVM 运行时与 Kotlin 服务构件随平台包安装，需要 Node.js 20 或更高；支持 macOS arm64、Linux x64（glibc 2.35 或更高）。完整配置见[服务使用与部署](references/server.md)。安装后启动：
 
 ```sh
 npm install --global @hanger-source/agentic-olap
@@ -70,6 +70,8 @@ CLI 的 `--payload` 是业务参数对象；直接用 MCP SDK 时，arguments �
 `list-publications` 发现获准的精确发布；受限授权需要明确查询范围。`search-semantics` 分页找业务摘要，`read-semantic-asset` 读取口径与形参，`read-semantic-definition` 按精确引用读取一层定义并可继续展开。
 
 读取 `read-query-language-contract` 与 `read-semantic-expression-contract` 后组织完整查询。intent 的格式与字段取 `intentContract`，不把外层合同版本当作查询版本，不添加合同以外字段。公开实例、成员、维度、参数、时间、单位及权限均来自所选精确发布。
+
+按输入本身的含义选择形参：成员输入保对象与属性角色，测量槽采用可调用实例，`relationParameters` 接收调用者 ROOT 输入中的已完成关系。关系通过 `relations` 的 LOCAL 映射传入，按真实列、数量合同与完整观察键检查，不能把普通测量伪装为成员属性。需要本次来源条件时，使用定义明确声明的 CONDITION 参数，由计算体传给指定事实；不猜测外层条件会被继承。长期资格和人口规则沉淀为成员或计算定义，不把本次发布的过滤授权引用固定进采用。
 
 `execute-query` 显式选择完整 `intent` 或精确 `queryReference`。`validate-query` 可单独使用；`save-query/update-query` 用于明确复用。业务计算交给引擎，不把客户端算出的结果冒充服务结果。
 
