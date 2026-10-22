@@ -1,0 +1,24 @@
+[versions]
+kotlin = "2.2.21"
+protobuf-plugin = "0.9.5"
+shadow = "8.3.9"
+
+[libraries]
+logback-classic = { module = "ch.qos.logback:logback-classic", version = "1.6.4" }
+jackson-databind = { module = "com.fasterxml.jackson.core:jackson-databind", version = "2.18.6" }
+jackson-datatype-jsr310 = { module = "com.fasterxml.jackson.datatype:jackson-datatype-jsr310", version = "2.18.6" }
+jackson-module-kotlin = { module = "com.fasterxml.jackson.module:jackson-module-kotlin", version = "2.18.6" }
+protobuf-java = { module = "com.google.protobuf:protobuf-java", version = "4.33.2" }
+h2 = { module = "com.h2database:h2", version = "2.2.224" }
+mysql-connector-j = { module = "com.mysql:mysql-connector-j", version = "9.6.0" }
+starrocks-connector-j = { module = "com.starrocks:starrocks-connector-j", version = "1.1.1" }
+calcite-core = { module = "org.apache.calcite:calcite-core", version = "1.42.0" }
+duckdb-jdbc = { module = "org.duckdb:duckdb_jdbc", version = "1.5.6.0" }
+junit-jupiter = { module = "org.junit.jupiter:junit-jupiter", version = "5.10.0" }
+postgresql = { module = "org.postgresql:postgresql", version = "42.7.13" }
+slf4j-api = { module = "org.slf4j:slf4j-api", version = "2.0.18" }
+
+[plugins]
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+protobuf = { id = "com.google.protobuf", version.ref = "protobuf-plugin" }
+shadow = { id = "com.gradleup.shadow", version.ref = "shadow" }

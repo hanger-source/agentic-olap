@@ -5,7 +5,7 @@ license: Apache-2.0
 metadata:
   author: hanger
   version: "0.11.0"
-  repository: https://github.com/hanger-source/agentic-olap-skill
+  repository: https://github.com/hanger-source/agentic-olap
 ---
 
 # Agentic OLAP

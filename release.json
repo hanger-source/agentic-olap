@@ -1,7 +1,0 @@
-{
-  "package": "@hanger-source/agentic-olap",
-  "runtimes": {
-    "@hanger-source/agentic-olap-runtime-darwin-arm64": "0.11.0"
-  },
-  "version": "0.11.0"
-}

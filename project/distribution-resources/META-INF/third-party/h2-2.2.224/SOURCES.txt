@@ -1,0 +1,12 @@
+本目录保存对应依赖的上游原始许可声明与原文，不修改或替换上游许可。
+
+Maven 坐标：com.h2database:h2:2.2.224
+官方版本标签：version-2.2.224
+对应源码：https://github.com/h2database/h2database/tree/19b770ec010a621989a980bf166a10ac10072a61
+
+双重许可的选择与条件以原始声明为准；同时提供两套文本不改变上游条款。
+以下文件按下载原字节保存；SHA-256 用于说明本次收录的实际文本。
+
+文件：LICENSE.txt
+来源：https://github.com/h2database/h2database/blob/19b770ec010a621989a980bf166a10ac10072a61/LICENSE.txt
+SHA-256：827b84bb8f84dbd60d1a8955cefab142d65cc17d267e32996db400138a1e0fcf

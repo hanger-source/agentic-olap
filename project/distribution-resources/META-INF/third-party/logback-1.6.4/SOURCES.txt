@@ -1,0 +1,25 @@
+本目录保存对应依赖的上游原始许可声明与原文，不修改或替换上游许可。
+
+Maven 坐标：ch.qos.logback:logback-core:1.6.4
+Maven 坐标：ch.qos.logback:logback-classic:1.6.4
+官方版本标签：v_1.6.4
+对应源码：https://github.com/qos-ch/logback/tree/07d291ca0d280bc5da934ec9ff5f1da634fd7937
+
+双重许可的选择与条件以原始声明为准；同时提供两套文本不改变上游条款。
+以下文件按下载原字节保存；SHA-256 用于说明本次收录的实际文本。
+
+Logback 1.6.4 发布 POM 原始引用：https://spdx.org/licenses/LGPL-2.1-only.html
+GNU LGPL 2.1 原始入口：https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt
+本目录 LGPL 全文取自上述许可的 SPDX 官方固定 v3.27.0 文本；实际下载来源如下。
+
+文件：LICENSE.txt
+来源：https://github.com/qos-ch/logback/blob/07d291ca0d280bc5da934ec9ff5f1da634fd7937/LICENSE.txt
+SHA-256：f1eedf4f2cb9e901d6ae549a06d0c20dcde0136d37e38b50adaf51d4673f66d2
+
+文件：EPL-2.0.txt
+来源：https://www.eclipse.org/org/documents/epl-2.0/EPL-2.0.txt
+SHA-256：0becf16567beb77fa252b7664631dd177c8f9a1889e48995b45379c7130e5303
+
+文件：LGPL-2.1.txt
+来源：https://github.com/spdx/license-list-data/blob/v3.27.0/text/LGPL-2.1-only.txt
+SHA-256：5749785c8bdefafcb5d798270ed0a967036fe2ca63dcedade1627565dfef81d2

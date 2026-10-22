@@ -1,0 +1,157 @@
+# 来源访问扩展
+
+完整 MCP 服务通过来源插件访问数据。使用方提供与其网络、鉴权和查询协议相符的插件，服务负责语义管理、发布、规划、SQL 生成、执行要求检查及结果合同校验。HTTP 查询服务是来源访问实现，不需要数据库端口、JDBC URL、数据库凭据或 catalog 权限。业务公式、资格规则和指标组合仍通过语义定义和 Query 表达。
+
+本文描述源码中的来源访问合同：连接器 API 为 `agentic-olap-connector/v11-kotlin-native-collection-relations-calcite-1.42`，元数据存储格式为 `15`。服务、SDK 与插件须来自同一发行或同轮源码构建，安装发行物时以该发行声明及实际服务合同为准。旧存储格式明确拒绝，服务不会自动改写已有持久根。
+
+## 配置来源
+
+在服务配置中指定已安装插件的 manifest，以及真实来源绑定。以下 HTTP 参数和凭据槽名称由具体插件定义，核心不规定 HTTP 接口协议：
+
+```json
+{
+  "connectors": ["/absolute/plugins/http-sql/connector.json"],
+  "dataSources": [{
+    "dataSourceId": "business",
+    "connectorRef": {"id": "http-sql", "version": "1.0.0", "sha256": "完整插件组摘要"},
+    "dialectId": "postgresql",
+    "identityParameters": {"endpoint": "https://query.example.com/sql", "database": "analytics"},
+    "runtimeParameters": {"timeoutMillis": 60000},
+    "credentialEnvironmentVariables": {"authorization": "BUSINESS_QUERY_AUTH"}
+  }]
+}
+```
+
+启动服务前注入引用的环境变量。凭据值不进入配置、发布或查询请求；执行工作进程只取得本次授权来源声明的凭据环境。`identityParameters` 与 `runtimeParameters` 只能包含 JSON 值，敏感值通过凭据槽引用。插件通过参数角色声明分别列出允许的身份参数与运行参数；核心拒绝错放、未知或同时属于两类的参数，不按 timeout、endpoint 等名称猜测角色。
+
+`dataSourceId` 是稳定业务来源身份；`SourceBindingRef={dataSourceId,sourceIdentityHash}` 标识一份不可变访问绑定。摘要由来源 ID、精确插件引用、方言、规范化身份参数和凭据槽名共同形成，不包括运行参数、凭据值与保存凭据的环境变量名。运行参数只能改变预算、等待或诊断行为，不能改变数据选择、类型、文本比较或计算口径；超限须明确失败，不能截断为成功。改变插件、端点或其他身份参数产生不同摘要。同一来源 ID 可以部署多个不同绑定；同一绑定不能同时配置两套运行策略。
+
+Agent 从 `list-data-sources` 取得获授权的 `dataSourceId/sourceIdentityHash/connectorRef/dialectId/accessCapabilities`，按本次业务用途明确选择绑定，不按列表顺序、唯一性猜测或“最新”选择。调查与结构登记均提交返回的精确 `sourceIdentityHash`。该摘要不是数据库内容快照或结构版本。
+
+JDBC 实现的 `identityParameters` 为 `jdbcUrl`、可选 `username` 和 `driverClassName`，`runtimeParameters` 为 `{}`，凭据槽为可选 `password`。这些字段只由 JDBC 插件解释。HTTP 插件不填写虚假的 JDBC 字段。
+
+## 提供结构
+
+结构获取与 SQL 执行分开。两种结构供应方式都进入相同的物理定义、语义建设和发布流程：
+
+- 使用方显式提供结构：通过 MCP `describe-governance-command` 读取 `register-source-structure` 的准确输入，再通过 `write-governance` 调用该命令。输入包括已授权 `dataSourceId/sourceIdentityHash`、catalog/schema 范围、`authority`、`revision`、表、字段、SQL 类型及约束声明，以及认证主体对应的 `requestedBy`。不需要先调用 `discover-source`。
+- 插件提供结构：实现 `SourceAccess.discover`，从数据库 catalog、使用方配置或外部目录取得结构。`discover-source` 同样提交精确 `dataSourceId/sourceIdentityHash`，仅对声明支持调查的来源调用该实现。通过 `inspect-warehouse` 调查时，除读取调查能力合同外，内部 payload 也须携带这两个字段。
+
+`register-source-structure` 返回保存后的 snapshot、tables 和 columns。随后按 `create-physical-table` 的合同选择该 `discoveredTableId`，完整治理字段，再建立逻辑、指标及其他可组合定义，采用并发布。`list-source-discoveries`、`read-source-discovery` 和列读取返回已保存的结构，读取它们不触发数据库探测。
+
+同一物理表身份的新版本可以显式采用同一稳定业务来源的另一访问绑定，但必须通过该绑定的结构证据建立，不覆盖旧版本。发布冻结所采用的精确绑定；新部署可以同时保留旧、新绑定。执行旧发布时，旧绑定必须仍在本次部署中；缺失返回 `SOURCE_BINDING_NOT_DEPLOYED`，不自动改用同 ID 的另一绑定。切换当前业务使用的访问绑定，需要明确修订采用及其依赖并发布，再由调用者选择该精确发布。
+
+每份结构携带 `structureProvenance={kind,authority,revision}`：`DECLARED` 表示使用方显式提供，`EXTERNAL_CATALOG` 表示外部目录，`DATABASE_CATALOG` 表示实际数据库观察。出处随物理版本与发布冻结。显式结构不伪造数据库产品、驱动或只读连接观察。`schemaHash` 标识结构内容，来源出处和版本另行明确保存。
+
+内置 JDBC 实现的 `revision` 标识精确访问绑定；本次结构观察由保存的 snapshot ID 和表的 `schemaHash` 标识，不把绑定摘要称为数据库原生结构版本或数据快照。
+
+约束声明不等于约束已核验。规划或执行实际依赖键、关系检查、封存集合等保证时，来源必须兑现对应要求。结构供应者负责及时登记变化并修订、发布受影响定义；显式结构不会被服务偷偷替换成一次数据库调查结果。
+
+字段必须明确提供类型、顺序与可空性。`autoIncrement/generated` 可以缺省并保存为未知；它们不决定读取查询的保证。主键列必须明确声明为不可空，约束引用必须属于已声明字段。查询返回头可以提供类型信息，但不能替代基础表的键与非空声明；服务不会从样本中推导这些保证。
+
+## 实现插件
+
+`OlapConnector.compilation` 提供实际 SQL 后端的方言、类型、参数和原生运算映射；`access(verifiedIdentity)` 返回 `SourceAccess`。两者共同属于同一个精确插件组。HTTP 是传输方式，不是 SQL 方言，不能仅凭使用 HTTP 就选择 PostgreSQL 或其他映射。
+
+只读属性 `CompilationSupport.parameterSubmission` 明确选择 `BIND_PARAMETERS` 或 `TYPED_LITERALS`。前者提交 SQL 与有序类型参数，要求访问实现支持参数绑定；后者在 Calcite SQL AST 中将参数节点转成类型化字面量，保留精确 CAST，再由实际方言生成完整 SQL，提交参数列表为空。重复参数按节点身份处理，不扫描或替换 SQL 文本中的问号。字符串、精确数值、布尔及时间值由已校验的参数编码产生；需要后端专属字面量映射时实现 `parameterLiteral`。不支持的映射明确拒绝，不在绑定失败后自动切换方式。
+
+因此，只接收完整 SQL 文本的 HTTP 服务可以使用 `TYPED_LITERALS`，不必宣称具有 `PARAMETER_BINDING`。主查询、关系检查和候选值查询经过同一编译出口；业务方无需自行插值。该选择属于精确插件的编译合同，不改变业务公式。
+
+内置 H2 插件也明确选择 `TYPED_LITERALS`：H2 2.2.224 在参数位于共享 CTE、且多个派生表消费该 CTE 的已复现形状中，会返回错误的空结果；同条件的类型化字面量返回正确人口。该映射在编译时确定，不在执行失败后切换。H2 访问协议本身仍支持参数绑定，其他连接器继续按各自声明提交参数。
+
+`SourceAccess` 的职责如下：
+
+| 合同 | 插件责任 |
+| --- | --- |
+| `validateConfiguration` | 校验自身参数与凭据槽；不把数据库探测作为通用前置 |
+| `capabilities` | 按实际配置声明独立能力 |
+| `supportsConstraintVerification` | 声明实现能为哪些冻结证据提供约束核验，供规划采用键；不连接来源。本次配置能力及实际保证仍在执行时核验 |
+| `execute` | 执行核心给出的 `SourceSqlRequest`，兑现 SQL、参数、关系检查、来源保证和本次资源要求 |
+| `discover` / `snapshot` / `describe` | 可选结构供应或调查；没有实现时准确拒绝对应操作 |
+| `preview` / `profile` / `profileRelationship` | 可选样本、列和关系调查；分别按能力检查 |
+| `verifySealedDataset` | 只有支持封存来源核验时实现 |
+
+执行请求包含 SQL、无损类型参数、结果别名和输出类型，以及实际依赖的来源证据、约束和关系检查。插件不能丢弃附带检查后只执行主 SQL。存在关系检查或采用约束时，`CONSISTENT_READ` 要求检查与本次计算针对一致的数据状态成立；事务快照、同一原子 SQL 内检查或精确绑定的不可变数据版本，都可以兑现该要求。一次 HTTP 请求、一个 SQL 批次或“先检查再查询”本身不能证明一致性。插件负责落实其实际机制，并且即使主查询没有结果，也不能省略必须执行的保证检查。插件不认识或无法兑现的要求应明确拒绝，不改写业务语义。
+
+`execute` 使用 `stageNanos: (String, Long) -> Unit` 回传阶段名称及耗时纳秒；插件直接调用该 Kotlin 函数。取消通过 `WarehouseExecutionControl` 传递，阶段计时不改变资源归属或异常处理责任。
+
+候选值读取同样提交完整 `SourceSqlRequest` 给 `execute`，保留精确来源、参数、输出类型和实际采用的保证。候选值入口另行核对单列标量结果、类型和分页边界，不要求插件实现另一套候选执行通路。连接器的 `CompilationSupport.nativeAggregate` 提供实际来源的原生聚合运算符与结果类型推导；核心继续决定业务公式及数量保证，不能以某一数据库的返回类型代替所有来源的事实。
+
+精确 AVG 的原生结果由连接器 `typeSystem.deriveAvgAggType`、`nativeAggregate` 和 `decimalAverageRounding` 如实声明，核心再处理最终业务结果的 DECIMAL 容量和舍入。作者指定最终精度不能补救原生聚合已丢失的信息。原生类型推导明确拒绝时返回 `NATIVE_AGGREGATE_MAPPING_UNAVAILABLE` 和实际输入类型；插件实现者应先研究真实后端映射，不能用浮点、客户端舍入或未经证明的 SUM/COUNT 改写替代。
+
+作者通过 `describe-operation` 选择 `read-connector-capabilities` 读取输入合同，再向该操作提交类型化聚合查询。例如，对已经获准的精确连接器查询 BIGINT 的全局 AVG：
+
+```json
+{
+  "aggregate": {
+    "connectorRef": {"id": "<获准连接器ID>", "version": "<精确版本>", "sha256": "<精确摘要>"},
+    "aggregation": "AVG",
+    "inputType": {"name": "BIGINT", "precision": null, "scale": null, "nullable": true},
+    "grouped": false
+  }
+}
+```
+
+`aggregation` 使用正式聚合枚举；`inputType` 是传入聚合的表达式原生类型，包含实际可空性和完整容量，不是最终业务结果合同。DECIMAL 必须指定 precision、scale，有长度的文本必须指定 precision；类型或容量不能被后端类型工厂静默改写。`grouped=false` 表示没有分组键的全局聚合，`true` 表示存在普通分组键；分组集合中的空分组按全局方式查询。该上下文用于原生结果可空性推导。
+
+响应的 `aggregate.mapping` 为 `MAPPED` 时给出 `resultType` 和 `aggregationRounding`；AVG 使用实际类型系统、原生聚合函数及舍入声明，二者容量不一致时明确拒绝。浮点 AVG 的 aggregationRounding 为 NONE，非 AVG 也为 NONE。`UNAVAILABLE` 携带 `NATIVE_AGGREGATE_MAPPING_UNAVAILABLE`，表示插件没有为该类型兑现映射；不会返回推测的容量或舍入。精确连接器必须用于本主体获准的来源，不能借此读取任意已安装插件。
+
+读取不连接数据源、不执行 SQL，披露的是精确插件的编译声明，不验证后端实际版本、连接状态或完整 Query。`MAPPED` 不代替单位、算术保证、NULL、溢出和最终结果容量检查。数值 AVG 的 `valueContract` 仍为必填；作者明确填写的 `aggregationRounding` 必须匹配原生策略，`valueContract.result.rounding` 仅负责额外的最终输出舍入。原 SQL 没有 ROUND，不能据此把原生策略填为 NONE；插件也不能用未经核实的统一舍入值宣称支持。
+
+`expandCollection` 接收当前输入行的类型化数组表达式，返回原生展开关系、完整元素和序号三部分 SQL AST。核心拥有逐行人口、INNER／OUTER 及输出投影，不强制相关派生表形状；插件可以直接映射表函数或下标生成。序号从 1 开始，实际 NULL 元素仍有位置，OUTER 缺行则元素与序号均为 NULL。完整接口与原生映射范式见[连接器 API](../project/modules/kernel/connector-api/README.md)。一种原生常量展开成功，不代表同一后端已支持真实输入行或聚合结果的相关展开。
+
+`textIdentityEquals(builder,left,right)` 接收两个保留真实类型的操作数，为文本身份 EQ、NE、IN 提供完整的 BOOLEAN 比较表达式，遵循 SQL 三值逻辑，不能隐式忽略大小写、尾空格或做 Unicode 归一。原生文本等号是否等价取决于实际类型、编码与 collation；样本相等和估算成本下降都不足以证明普遍等价。插件直接映射完整比较，不必将文本冒充二进制，也不必在 SQL 字符串中寻找操作数。数据库、列或比较策略中影响该保证的条件属于身份与来源保证，不能放入运行参数。这个合同不重新定义所有 CHAR、GROUP BY 或 ORDER BY 行为。
+
+连接器若能保证受支持操作数的原生相等与精确身份相等一致，可以在核验实际类型后返回 `builder.equals(left,right)`。该保证需要覆盖列、参数与表达式的比较行为，包括 NULL、大小写、尾空格和 Unicode；不能仅根据数据库默认 collation 推定。类型或条件超出保证范围时明确拒绝。CHAR 等可能改变空格含义的类型必须单独处理，不能通过类型标签或有损 CAST 冒充等价。
+
+原生候选等号与精确残余同时出现，并不保证后端能够执行原生 HashJoin 或运行时过滤。核心不自动删除残余、移到 WHERE，或插入额外人口裁剪。来源原生运算由插件兑现；关系规划的新增规则需要独立证明 LEFT 未匹配人口、bag 重复度、NULL 和求值作用域均保持，并由实际计划确认收益。不能将某个后端的规划限制变成所有使用者必须配置的业务规则。
+
+实际约束或关系检查失败时，插件通过通用 `SourceGuaranteeException` 返回机器可识别的失败码；该合同属于 `warehouse-contracts`，无需依赖 JDBC 实现。核心保留保证失败码。能力不足使用 `SourceCapabilityException`，避免把不能核验与核验发现数据不满足条件混为一谈。
+
+## 调用原生标量函数
+
+通过 `read-connector-capabilities` 的空 payload 读取当前主体可访问来源所用的精确连接器；响应的 `connectors` 每项包含 `connectorRef`、`nativeScalarFunctions`、`compilationCapabilities`、`parameterSubmission` 和 `configurationParameters`。这些是精确插件的声明，不连接来源或证明完整查询可用。函数声明给出 `id`、有序 `parameters`、`resultType`、`arithmetic` 和 `stability`，不按 SQL 方言或产品名称猜函数。
+
+`compilationCapabilities` 只列出插件明确支持的编译能力。`CORRELATED_DERIVED_PROJECTION` 表示派生关系投影可以引用外层查询值，普通 EXISTS 的条件相关不需要这项能力。若数值求值绑定实际需要这种投影而插件未声明，编译在提交 SQL 前返回 `NATIVE_COMPILATION_CAPABILITY_MISSING`，并指出 `capability=CORRELATED_DERIVED_PROJECTION`、`operation=NUMERIC_EVALUATION_BINDING`。不退回重复内联、移除人口守卫或提前计算未选中分支。
+
+`NATIVE_CALL` 表达式提交精确 `connectorRef`、`function` 和有序 `arguments`。`SCALAR` 参数为 `{kind:"SCALAR",expression:完整标量表达式}`；`PHYSICAL_TABLE` 参数为 `{kind:"PHYSICAL_TABLE",physicalTableId,physicalTableVersion}`。物理表参数引用已采用的精确版本，必须与调用所在来源的绑定、插件及方言一致，作为真实来源依赖冻结和核验。Query 内联调用只能引用本次精确发布允许的表闭包；它不是表名文本，也不接受任意 SQL。实际参数形状从表达式合同读取。技术调查 `profile-relationship` 不提供已采用表解析，不支持 `NATIVE_CALL`。
+
+调用保留在本次来源 SQL 中执行。来源要求通过 `uses` 明确区分 `ROWS`（读取数据行）与 `NATIVE_TABLE`（原生函数的表参数）；两者都核对精确来源身份与授权，行约束及有限集合核验按实际 `ROWS` 用途要求。仅作函数参数的表也进入依赖闭包，无需伪造字段引用。
+
+原生函数交出标量，不能以该入口返回表、数组或记录。数值结果必须声明算术保证：`EXACT_DECIMAL` 为精确算术，`NATIVE_APPROXIMATION` 明确结果域及绝对、相对容差，`NATIVE_FLOATING` 沿用原生浮点算术且不声明这些界限。`NATIVE_FLOATING` 仍接受容量、有限值及溢出核验；它不能通过 CAST、输出为 DECIMAL 或定义组合取得精确性或误差界限。结果的技术表示与算术保证分别核验，不能相互替代。
+
+`IMMUTABLE/STATEMENT/VOLATILE` 按函数实际依赖声明稳定性；精确物理版本不冻结表内数据，不能据此宣称读取该表的结果恒定。函数调用不能因显示名相同而被当作常量或共享。插件只映射已校验参数到 SQL AST，业务定义与 Query 继续拥有业务公式、对象总体和计算阶段；函数声明不扩大来源、表或公开输出权限。
+
+## 交付结果
+
+插件返回 `SourceExecutionResult(frame,readBasis,request)`，其中 `frame` 是 `ResultFrame`。列必须与核心给定别名、顺序和类型一致；技术类型可以来自来源响应，也可以来自使用方明确的类型合同。`JdbcColumnType` 在这里是 SQL 标准类型码、原生类型名、精度、标度和可空性的值对象，不要求 `ResultSetMetaData`、`Connection` 或任何 JDBC 驱动。
+
+请求中的 `ResultValueType.Scalar` 用可空的 `Integer precision/scale` 表达 SQL 类型容量；未指定时为 `null`，不使用负数哨兵，也不能擅自补成零。DECIMAL 必须给出正精度及 `0..precision` 内的小数位。插件按同轮 SDK 编译并明确处理这些可空字段，装载器按精确连接器 API 标识检查接口。
+
+HTTP 服务的分页、截断或未完成状态由插件识别；必须按明确的一致性合同取完或准确失败，不能把一页或已截断的数据当作完整结果返回。
+
+精确数值使用 `BigDecimal`、`BigInteger` 或有界整数，不经过 JSON 浮点转换。日期、时间和带偏移时间使用对应 Java 时间类型。集合和记录使用通用 `SqlResultValues.ArrayValue`、`RowValue`；保留 NULL 集合、空集合、NULL 元素、重复元素和记录字段顺序。不能把集合编码成字符串或把 NULL 当零。
+
+插件在读取过程中遵守共享结果预算及取消控制；宿主对返回结果再次检查预算，并按编译合同递归核验形态、精度、容量、NULL 和数量含义。收到响应不等于结果已通过语义合同校验。
+
+## 执行事实、读基础与重放
+
+`SourceExecutionResult.request` 给出来源请求身份、接受状态、响应状态和已知执行结局；未知必须显式为 UNKNOWN。HTTP 状态可以通过受控的 `protocol/status` 交出，不能附加端点、headers、SQL 或请求正文。失败通过 `SourceExecutionException` 携带 `SourceFailureEvidence`，保留安全错误码、实际失败的 `stage`、SQLState/原生码、请求与取消事实。插件在准备、连接、保证核验、提交、读取和结果处理边界记录阶段，包装层保留它；原始异常仍留作服务私有诊断。
+
+客户端停止等待、取消动作调用成功和来源确认取消是不同事实。`WarehouseExecutionControl.cancellationEvidence()` 交出实际取消证据；void cancel、终止工作进程或网络中断均不能证明来源已取消。插件只有收到来源确认时才能声明 Confirmed，并同时给出 CANCELLED 执行结局。
+
+`readBasis` 为 `Unknown(reason)` 或 `Versioned(authority,version,partitions,pinning)`，描述本次实际读取的数据基础。结构 snapshot、schemaHash、访问绑定及定义版本均不替代它。动态函数仍在同一 SQL 内求值；插件不能事前另查一个分区值，再宣称它就是该 SQL 实际采用的值。不能取得完整读基础时如实返回 Unknown。
+
+保存结果可以按精确引用回读，不要求来源再次执行。按保存查询重新执行会建立新运行，默认读取当时数据。只有来源能强制使用指定版本时才声明 `PINNED_READ`，并接受 `SourceSqlRequest.expectedReadBasis`；核心核验返回读基础与请求完全一致，不自动换成最新。`execute-query.readBasis` 使用已知的 VERSIONED 基础；不支持 pin、版本已不可用或实际基础不符时准确拒绝。可 pin 不等于历史版本永久保留，也不意味着任意动态“最新”查询已可重放。
+
+一次完整计算要求同一精确 `SourceBindingRef`、方言和连接器。跨绑定的输入在编译时返回 `SOURCE_BINDING_CONFLICT` 及具体作用域和来源引用。保存结果是读取交付物，当前没有把结果引用重新导入为 Query 输入的入口；需要物化时由外部系统维护真实来源，并通过正常结构与语义登记采用。产品不隐式联邦查询或客户端重算。
+
+## 能力缺失
+
+来源分别声明参数绑定、取消、一致读取、事务快照、结构调查、数据预览、列画像、关系画像、约束核验和封存核验。`list-data-sources` 返回获准来源实际声明的 `accessCapabilities`。
+
+没有结构调查能力不影响显式结构登记。没有参数绑定能力不影响明确选择字面量提交的查询。需要约束或关系检查时要求 `CONSISTENT_READ`，不强制要求 `TRANSACTION_SNAPSHOT`；后者仅声明来源具有事务快照这一具体能力，内置 JDBC 实现使用它兑现一致读取。没有一致读取能力的来源仍可执行不依赖这项保证的查询。没有数据库端取消能力也不会使整个来源不可用，但服务请求结束不表示远端 SQL 已被取消，不能宣称具备这个保证。
+
+缺失能力以 `SOURCE_CAPABILITY_MISSING` 返回具体 `dataSourceId`、`operation`、`capability`；查询执行失败还保留在该次使用记录中。使用方据此补充协议实现或调整本次实际需求，无需复制服务主类或核心流程。
+
+插件组打包与类加载合同见 [连接器 API](../project/modules/kernel/connector-api/README.md)。

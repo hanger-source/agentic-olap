@@ -1,0 +1,157 @@
+package com.olap.prototype.engine.executable
+
+import com.olap.prototype.connector.ConnectorRegistry
+import com.olap.prototype.contract.JdbcParameter
+import com.olap.prototype.contract.JdbcRelationCheck
+import com.olap.prototype.engine.EngineExecutionException
+import com.olap.prototype.engine.calcite.CalciteQueryCompiler
+import com.olap.prototype.engine.calcite.CandidateValueCompiler
+import com.olap.prototype.engine.catalog.ExecutablePhysicalExecutionBinding
+import com.olap.prototype.engine.context.OlapQueryContext
+import com.olap.prototype.engine.compiler.CompilationScale
+import com.olap.prototype.expression.*
+import com.olap.prototype.query.*
+import com.olap.prototype.query.QueryStageAnalysis.Analysis
+import com.olap.prototype.query.QueryStageAnalysis.ScopeId
+import org.apache.calcite.plan.RelOptUtil
+import org.apache.calcite.rel.RelNode
+import org.apache.calcite.rel.type.RelDataType
+import org.apache.calcite.rex.RexNode
+import org.apache.calcite.tools.RelBuilder
+
+/** 已分析Scope→原生关系→优化→SQL；各阶段交出完整事实。 */
+class CalciteRelCompiler private constructor(val connectors: ConnectorRegistry, private val candidatePage: CandidatePage?) {
+    constructor(connectors: ConnectorRegistry) : this(connectors, null)
+    private data class CandidatePage(val offset: Int, val limit: Int) { init { require(offset >= 0 && limit > 0) { "candidate page bounds are invalid" } } }
+    data class Compilation(val lowering: ExecutableLoweringResult, val raw: RelNode, val optimized: RelNode,
+        val sqlRelation: RelNode, val scale: CompilationScale)
+    companion object {
+        private val log = org.slf4j.LoggerFactory.getLogger(CalciteRelCompiler::class.java)
+        fun memberCandidateValues(connectors: ConnectorRegistry, offset: Int, limit: Int): CalciteRelCompiler = CalciteRelCompiler(connectors, CandidatePage(offset, limit))
+    }
+
+    fun compile(graph: ExecutableInputGraph, analyses: Map<ScopeId, Analysis>, resolvedSources: ResolvedInputSources, context: OlapQueryContext): Compilation {
+        val frozen = timed(context, "COMPILE_SCHEMA") { frozenInputs(graph, resolvedSources) }
+        val builder = frozen.nativeInputs.builder
+        val relations = Relations(graph, builder, analyses, resolvedSources)
+        val raw = timed(context, "COMPILE_BUILD_REL") { relations.compile(graph.root, ScopeId.root()).relation }
+        val parameters = relations.parameters
+        val optimized = timed(context, "COMPILE_OPTIMIZE_REL") {
+            phase("OPTIMIZE_REL", "EXECUTABLE_REL_OPTIMIZATION_FAILED", "Native relational optimization failed") {
+                val optimized = CalciteQueryCompiler.optimize(raw, parameters)
+                candidatePage?.let { CalciteQueryCompiler.optimize(CandidateValueCompiler.page(optimized, it.offset, it.limit), parameters) } ?: optimized
+            }
+        }
+        if (log.isDebugEnabled) log.debug("原生关系优化：raw={} optimized={}", RelOptUtil.toString(raw), RelOptUtil.toString(optimized))
+        val support = connectors.require(frozen.source.connectorRef).compilation
+        val (rendered, nativeChecks) = timed(context, "COMPILE_RENDER_SQL") {
+            phase("RENDER_SQL", "EXECUTABLE_SQL_RENDERING_FAILED", "Native SQL conversion failed") {
+                val sql = CalciteSqlRendering.compile(optimized, support, parameters)
+                val checks = relations.relationChecks.map { check ->
+                    val checked = CalciteQueryCompiler.optimize(check.violations, parameters)
+                    val statement = CalciteSqlRendering.render(checked, support, parameters)
+                    JdbcRelationCheck(check.code, statement.sql, CalciteSqlRendering.orderedParameters(statement, parameters))
+                }
+                sql to checks
+            }
+        }
+        val sql = rendered.sql
+        val aliases = optimized.rowType.fieldNames.associateWith { it }
+        val display = relations.outputs.getValue(ScopeId.root()).displayNames.filterKeys(aliases::containsKey)
+        context.addAuditLog("Calcite: frozen scans -> Rex/Rel -> HepPlanner -> RelToSqlConverter; inputScopes=${graph.inputs.size}, root=${graph.root.root.javaClass.simpleName}, dataSource=${frozen.source.dataSourceId}")
+        val output = ExecutableOutputContract.compiled(analyses, optimized.rowType, relations.inputTypes())
+        return Compilation(ExecutableLoweringResult(sql.sql, frozen.source.dataSourceId, frozen.source.connectorRef, support, frozen.source.dialect,
+            CalciteSqlRendering.orderedParameters(sql, parameters), aliases, display, frozen.nativeInputs.sourceRequirements(), nativeChecks, output), raw, optimized,
+            rendered.relation, CompilationScale.capture(raw, optimized, rendered))
+    }
+
+    private data class FrozenInputs(val source: ExecutablePhysicalExecutionBinding, val nativeInputs: CalciteQueryCompiler.Inputs)
+    private fun frozenInputs(graph: ExecutableInputGraph, resolved: ResolvedInputSources): FrozenInputs {
+        val selected = ExecutableSourceDependencies.collect(graph, resolved)
+        val source = selected.bindings.values.firstOrNull() ?: throw IllegalArgumentException("calculation has no frozen executable source")
+        return FrozenInputs(source, CalciteQueryCompiler.inputs(selected.bindings.values, selected.dependencies.columns, selected.dependencies.tables, connectors))
+    }
+    private data class ScopeOutput(val input: ExecutableInputScope, val relation: RelNode, val displayNames: Map<String, String>, val inputType: RelDataType)
+    private data class ImportedInputs(val alignedRoot: RelNode, val relations: Map<String, RelNode>)
+
+    /** 一次lowering共享参数/检查，scope结果只按实际输入和分析作用域复用。 */
+    private inner class Relations(private val graph: ExecutableInputGraph, private val builder: RelBuilder,
+        private val analyses: Map<ScopeId, Analysis>, resolved: ResolvedInputSources) {
+        val parameters = mutableListOf<JdbcParameter>()
+        val relationChecks = mutableListOf<RelationalCheck>()
+        private val facts = FactRelationCompiler(SourceRelationCompiler(resolved))
+        private val roots = InputRootCompiler(builder, analyses, parameters, relationChecks, facts,
+            facts.sharedFacts(builder, graph.inputs, parameters)) { scope, display -> relation(requireNotNull(graph.scope(scope)), scope, display) }
+        val outputs = linkedMapOf<ScopeId, ScopeOutput>()
+        fun inputTypes(): Map<ScopeId, RelDataType> = outputs.mapValues { it.value.inputType }
+        private fun relation(input: ExecutableInputScope, scope: ScopeId, display: MutableMap<String, String>): RelNode = compile(input, scope).let { display.putAll(it.displayNames); it.relation }
+        fun compile(input: ExecutableInputScope, scope: ScopeId): ScopeOutput {
+            outputs[scope]?.let { check(it.input === input) { "one analyzed scope has different completed input identities" }; return it }
+            val display = linkedMapOf<String, String>()
+            val root = roots.compile(input, scope, display)
+            val imported = importInputs(input, scope, root, display)
+            builder.push(imported.alignedRoot)
+            (input.root as? ExecutableInputRoot.Measures)?.let(roots::filterOutputs)
+            val inputType = builder.peek().rowType
+            CompletedRelationCompiler.compile(builder, analyses.getValue(scope), display, parameters, imported.relations, relationChecks)
+            return ScopeOutput(input, builder.build(), display.toMap(), inputType).also { outputs[scope] = it }
+        }
+        private fun importInputs(input: ExecutableInputScope, scope: ScopeId, root: RelNode, display: MutableMap<String, String>): ImportedInputs {
+            val rootDimensions = linkedMapOf<String, ScopedInputContract.DimensionRef>()
+            analyses.getValue(scope).inputs.forEach { column -> QueryStageAnalysis.dimension(column.origin)?.let { rootDimensions[column.name] = it } }
+            val primaryGrain = rootDimensions.values.toList()
+            val measures = input.root as? ExecutableInputRoot.Measures
+            if (measures != null) RowPopulationContract.requireInputs(measures.population, input.additionalInputs.filterValues { it.inputMode == "KEY_ALIGNMENT" }.keys)
+            val completed = linkedMapOf<String, RelNode>()
+            val relations = linkedMapOf<String, RelNode>()
+            val grains = linkedMapOf<String, Map<String, ScopedInputContract.DimensionRef>>()
+            val occupied = root.rowType.fieldNames.toCollection(linkedSetOf())
+            val calendars = analyses.getValue(scope).stages.map { it.operation }.filterIsInstance<PostOperationContract.ObserveWindow>().mapNotNull { it.calendar?.inputId }.toSet()
+            input.additionalInputs.forEach { (id, child) ->
+                ScopedInputContract.requireId(id)
+                val mode = ScopedInputContract.requireMode(requireNotNull(child.inputMode))
+                when {
+                    mode == "ROOT" && id !in calendars -> Unit
+                    mode == "RELATION" || id in calendars -> relations[id] = compile(child, scope.child(id)).relation
+                    else -> {
+                        val grain = alignmentGrain(input, scope, id, primaryGrain)
+                        completed[id] = alignedInput(child, scope.child(id), id, grain, occupied, display); grains[id] = grain
+                    }
+                }
+            }
+            return ImportedInputs(CompletedRelations.alignInputs(builder, root, rootDimensions, completed, grains, measures?.population), relations.toMap())
+        }
+        private fun alignmentGrain(input: ExecutableInputScope, scope: ScopeId, id: String, primary: List<ScopedInputContract.DimensionRef>): Map<String, ScopedInputContract.DimensionRef> {
+            val child = input.additionalInputs.getValue(id)
+            val grain = analyses.getValue(scope.child(id)).alignmentGrain()
+            ScopedInputContract.requireGrainSubset(primary, grain.values.toList())
+            (input.root as? ExecutableInputRoot.Measures)?.let { ScopedInputContract.requirePopulationGrain(it.population, id, primary, grain.values.toList()) }
+            facts.requireValueAlignment(input.metrics + child.metrics, grain.values.toSet())
+            return grain
+        }
+        private fun alignedInput(input: ExecutableInputScope, scope: ScopeId, id: String, grain: Map<String, ScopedInputContract.DimensionRef>,
+            occupied: MutableSet<String>, display: MutableMap<String, String>): RelNode {
+            val localDisplay = linkedMapOf<String, String>()
+            builder.push(relation(input, scope, localDisplay))
+            val values = builder.fields().toMutableList<RexNode>()
+            val names = builder.peek().rowType.fieldNames.toMutableList()
+            names.indices.forEach { index ->
+                val name = names[index]
+                if (name !in grain) {
+                    val alias = ScopedInputContract.metricSymbol(id, name)
+                    require(occupied.add(alias)) { "conflicting scoped symbol: $alias" }
+                    display[alias] = "$id: ${localDisplay[name]}"; names[index] = alias
+                }
+            }
+            val presence = ScopedInputContract.presenceSymbol(id)
+            require(presence !in names && occupied.add(presence)) { "conflicting input presence symbol: $presence" }
+            values.add(builder.literal(true)); names.add(presence)
+            builder.project(values, names, true); display[presence] = "$id: input group present"
+            return builder.build()
+        }
+    }
+    private inline fun <T> timed(context: OlapQueryContext, stage: String, body: () -> T): T { val started = System.nanoTime(); return try { body() } finally { context.recordStageTime(stage, started) } }
+    private inline fun <T> phase(stage: String, code: String, meaning: String, body: () -> T): T = try { body() }
+    catch (failure: java.util.concurrent.CancellationException) { throw failure }
+    catch (failure: RuntimeException) { throw EngineExecutionException(stage, code, "$meaning: ${failure.message}", failure) }
+}

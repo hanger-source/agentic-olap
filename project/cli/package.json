@@ -1,0 +1,20 @@
+{
+  "name": "@hanger-source/agentic-olap",
+  "version": "0.11.0",
+  "description": "Installable Agentic OLAP service and command-line client with bundled runtimes",
+  "type": "module",
+  "license": "Apache-2.0",
+  "author": "hanger",
+  "bin": { "agentic-olap": "bin/agentic-olap.mjs" },
+  "files": ["bin", "sdk", "connectors", "resources.json", "jvm-dependencies.json", "README.md", "LICENSE"],
+  "scripts": { "postinstall": "node bin/agentic-olap.mjs install-jvm-dependencies" },
+  "engines": { "node": ">=20" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hanger-source/agentic-olap.git"
+  },
+  "publishConfig": { "access": "public", "registry": "https://registry.npmjs.org/" },
+  "optionalDependencies": {
+    "@hanger-source/agentic-olap-runtime-darwin-arm64": "0.11.0"
+  }
+}

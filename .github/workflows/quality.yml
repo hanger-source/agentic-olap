@@ -1,0 +1,43 @@
+name: 工程质量
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      example:
+        description: 全部检查，或仅运行指定的正式业务用法
+        type: choice
+        default: all
+        options: [all, orders, procurement, subscriptions]
+
+permissions:
+  contents: read
+
+jobs:
+  deterministic:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: project/service/go.mod
+          cache-dependency-path: |
+            project/service/go.sum
+            tools/go.sum
+      - run: go -C tools run ./cmd/olap-dev bootstrap
+      - run: go -C tools run ./cmd/olap-dev build
+      - run: go -C tools run ./cmd/olap-dev server-distribution --artifacts .tmp/quality-distribution
+      - if: github.event_name != 'workflow_dispatch' || inputs.example == 'all'
+        run: go -C tools run ./cmd/olap-dev test --distribution .tmp/quality-distribution
+      - if: github.event_name == 'workflow_dispatch' && (inputs.example == 'all' || inputs.example == 'orders')
+        run: go -C tools run ./cmd/olap-dev example --example orders --distribution .tmp/quality-distribution --artifacts .tmp/orders
+      - if: github.event_name == 'workflow_dispatch' && (inputs.example == 'all' || inputs.example == 'procurement')
+        run: go -C tools run ./cmd/olap-dev example --example procurement --distribution .tmp/quality-distribution --artifacts .tmp/procurement
+      - if: github.event_name == 'workflow_dispatch' && (inputs.example == 'all' || inputs.example == 'subscriptions')
+        run: go -C tools run ./cmd/olap-dev example --example subscriptions --distribution .tmp/quality-distribution --artifacts .tmp/subscriptions

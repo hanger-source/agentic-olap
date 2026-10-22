@@ -1,0 +1,141 @@
+syntax = "proto3";
+
+package agentic.olap.runtime.v1;
+
+option java_package = "com.olap.prototype.protocol";
+option java_multiple_files = true;
+option go_package = "github.com/hanger-source/agentic-olap/service/internal/protocol;protocol";
+
+// Both directions use bounded, varint-length-delimited Frame messages on stdio.
+// Business DSLs and exact artifact bytes have one existing semantic codec owner.
+message Frame {
+  oneof body {
+    Bootstrap bootstrap = 1;
+    Request request = 2;
+    Response response = 3;
+    WorkRequest work_request = 4;
+    WorkResponse work_response = 5;
+    Cancel cancel = 6;
+    Shutdown shutdown = 7;
+  }
+}
+
+enum WorkerKind {
+  WORKER_KIND_UNSPECIFIED = 0;
+  QUERY = 1;
+  ENGINE = 2;
+  INSPECTION = 3;
+  SOURCE_INSPECTION = 4;
+  CANDIDATE_VALUES = 5;
+}
+
+message Bootstrap {
+  string protocol = 1; // agentic-olap-runtime/v1, exact; no version fallback.
+  bytes deployment_json = 2; // metadata mode only; no credential values.
+  bytes limits_json = 3;
+  repeated string connector_manifests = 4;
+  WorkerKind worker_kind = 5;
+  bytes source_configurations_json = 6; // exact selected bindings only.
+}
+
+message Principal {
+  string subject = 1;
+  repeated string scopes = 2;
+}
+
+message Request {
+  string request_id = 1;
+  uint64 remaining_millis = 2;
+  Principal principal = 3;
+  string operation = 4;
+  bytes payload_json = 5;
+}
+
+message Response {
+  string request_id = 1;
+  bool success = 2;
+  bytes result_json = 3;
+  bytes error_json = 4;
+  ResultArtifact artifact = 5;
+  RuntimeReady ready = 6;
+}
+
+message Operation {
+  string name = 1;
+  bool read_only = 2;
+  string description = 3;
+  bytes payload_json = 4;
+}
+
+message RegisteredSource {
+  SourceBinding binding = 1;
+  uint32 configuration_index = 2;
+}
+
+message RuntimeReady {
+  repeated Operation operations = 1;
+  repeated string result_operations = 2;
+  string connector_api = 3;
+  // Kotlin computes binding identity; Go retains original deployment bytes.
+  // This avoids a second source-identity hashing implementation in Go.
+  repeated RegisteredSource sources = 4;
+}
+
+// Kotlin validates the business quantity/type contract and prepares exact bytes.
+// Go alone owns durable saving and reports the observed file outcome to metadata.
+message ResultArtifact {
+  string run_id = 1;
+  string sha256 = 2;
+  bytes content = 3;
+  uint64 rows = 4;
+  bool save = 5;
+}
+
+message SourceBinding {
+  string data_source_id = 1;
+  string source_identity_hash = 2;
+}
+
+message AcquireWorker {
+  WorkerKind kind = 1;
+  repeated SourceBinding bindings = 2;
+}
+
+message ExchangeWorker {
+  string lease_id = 1;
+  bytes command_json = 2;
+}
+
+message ReleaseWorker {
+  string lease_id = 1;
+}
+
+// A metadata request may ask its supervisor for bounded worker execution.
+// The JVM never owns process handles, queues, credentials, or a worker pool.
+message WorkRequest {
+  string request_id = 1;
+  string work_id = 2;
+  uint64 remaining_millis = 3;
+  oneof action {
+    AcquireWorker acquire = 4;
+    ExchangeWorker exchange = 5;
+    ReleaseWorker release = 6;
+  }
+}
+
+message WorkResponse {
+  string request_id = 1;
+  string work_id = 2;
+  string lease_id = 3;
+  bool success = 4;
+  bytes result_json = 5;
+  bytes error_json = 6;
+  // Transport/cancellation failures invalidate a lease; domain failures do not.
+  bool lease_invalidated = 7;
+}
+
+message Cancel {
+  string request_id = 1;
+}
+
+message Shutdown {}

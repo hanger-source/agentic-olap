@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 已审核 draft release 的 tag，例如 v0.6.0
+        description: 已审核 draft release 的 tag，例如 v0.11.0
         required: true
         type: string
       submitted:
@@ -25,7 +25,7 @@ env:
 
 jobs:
   publish:
-    if: github.repository == 'hanger-source/agentic-olap-skill'
+    if: github.repository == 'hanger-source/agentic-olap'
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     permissions:
@@ -35,7 +35,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ inputs.tag }}
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
@@ -48,7 +48,7 @@ jobs:
       - name: 使用 OIDC 并行发布 npm 包
         env:
           SUBMITTED_PACKAGES: ${{ github.event.inputs.submitted || '' }}
-        run: node scripts/publish.mjs --tag "$RELEASE_TAG" --artifacts "$RUNNER_TEMP/release-assets" --submitted "$SUBMITTED_PACKAGES"
+        run: node project/cli/release/publish.mjs --tag "$RELEASE_TAG" --artifacts "$RUNNER_TEMP/release-assets" --submitted "$SUBMITTED_PACKAGES"
 
       - name: 公开 GitHub release
         env:
