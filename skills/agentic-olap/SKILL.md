@@ -4,7 +4,7 @@ description: 使用 Agentic OLAP 服务调查业务数据、建设和复用可�
 license: Apache-2.0
 metadata:
   author: hanger
-  version: "0.8.0"
+  version: "0.8.1"
   repository: https://github.com/hanger-source/agentic-olap-skill
 ---
 
@@ -29,13 +29,15 @@ agentic-olap tools
 agentic-olap call list-data-sources --payload '{}'
 ```
 
-`info` 返回真实 `url/configPath/tokenPath/dataRoot`。需要独立持久根时，启动和调用都传同一 `--home /absolute/path`。调用现有远程服务时，使用 `--url https://actual-service/mcp --token-env OLAP_TOKEN`；令牌由实际服务方提供，不向用户索要密码或把令牌写入仓库。
+`info` 返回真实 `url/configPath/tokenPath/dataRoot`、本地安装版本与目录，并读取实际服务版本、获准插件和来源。升级后版本不同需用原配置重启；来源可见不等于业务查询成功。需要独立持久根时，启动和调用都传同一 `--home /absolute/path`。调用现有远程服务时，使用 `--url https://actual-service/mcp --token-env OLAP_TOKEN`；`tools` 中的 `serverInfo.version` 来自远程实际服务。令牌由实际服务方提供，不向用户索要密码或把令牌写入仓库。
 
 你也可以使用宿主已配置的 MCP 客户端直接连接同一服务。`agentic-olap token` 是显式读取本地令牌的命令，只用于向自己的客户端注入认证。服务不启动模型或管理会话。
 
 ## 接入真实来源
 
 空库没有业务指标。连接器是独立扩展；使用方提供与该后端匹配的插件组。按 `info` 返回的配置路径登记插件 manifest 和业务源，设置来源的精确连接器引用、插件参数及必要的凭据环境变量，重启服务加载配置。不要修改产品源码来添加业务指标，也不要将本机插件路径作为业务工具参数。
+
+H2、DuckDB 插件及扩展开发 SDK 已随 npm 安装。用 `agentic-olap connectors` 读取配置需要的精确 manifest 路径与引用；`agentic-olap sdk` 给出 SDK 版本、API 与文档，`sdk --path` 返回供 Gradle 使用的 Maven 仓库路径。这些命令只读取已安装文件，没有二次安装步骤。不要再让使用者查询 GitHub 资产、手工下载或解压；其他后端仍由独立插件提供。
 
 实际配置、现成插件取得与来源读取见[连接说明](references/connections.md)，接入业务库时再读。需要提供远程服务时，使用随本 skill 交付的[完整配置模板](references/server.example.json)与[认证授权说明](references/server.md#外部认证的远程服务)。
 

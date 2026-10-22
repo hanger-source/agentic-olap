@@ -6,7 +6,19 @@
 
 一个插件组包含 `connector.json`、连接器实现 JAR 和实现所需的依赖。JDBC 实现附带实际驱动，HTTP 实现拥有自己的访问协议和结果映射。整个目录一起保存；manifest 中的文件名与字节摘要不能手写或修改。单独数据库驱动不能替代完整连接器。
 
-插件组和连接器 SDK 须与实际服务来自同一发行或同轮构建。按服务实际版本从 [GitHub Releases](https://github.com/hanger-source/agentic-olap-skill/releases) 取得对应版本的 `agentic-olap-connectors-<version>.tgz`（H2、DuckDB 插件组）和 `agentic-olap-connector-sdk-<version>.tgz`（扩展开发 SDK）。解压插件归档后使用其中实际的组目录，不根据连接器 ID 推断目录名。HTTP 或其他后端由使用方提供匹配其 SQL 后端及实际协议的插件；SQL 协议兼容不证明类型、数值、时间或一致性映射已经成立。SDK 中的 `API.md`、`SOURCE-ACCESS.md`、`LOADER.md` 面向插件实现者；业务 Agent 通过正式 MCP 使用已配置的来源。
+H2、DuckDB 插件组与连接器 SDK 随 npm 产品一起安装。直接使用产品命令，不需要查询 Git 标签、下载归档或手工校验和解压：
+
+```sh
+agentic-olap connectors
+agentic-olap sdk
+agentic-olap sdk --path
+```
+
+`connectors` 返回 npm 已安装插件的实际 `manifestPath`、`connectorRef` 和 API。把返回值用于服务配置，不按连接器 ID 猜目录。文件已随 npm 就位，命令只读取路径与身份，不下载、解压或二次安装，不修改配置、不创建数据源，也不连接业务数据库。
+
+`sdk` 返回本地安装版本、API、文档与 Maven 仓库路径，`sdk --path` 只输出仓库路径，供插件工程的 Gradle 仓库配置直接消费。`API.md`、`SOURCE-ACCESS.md`、`LOADER.md` 面向插件实现者。使用远程服务时核对 SDK、插件与该服务的实际 API；命令报告本地安装版本，不会把运行中的服务自动升级。
+
+HTTP 或其他后端由使用方提供匹配其 SQL 后端及实际协议的插件；SQL 协议兼容不证明类型、数值、时间或一致性映射已经成立。业务 Agent 通过正式 MCP 使用已配置的来源。
 
 连接器 API 为 `agentic-olap-connector/v9-kotlin-source-sql-calcite-1.42`。`connectorRef` 是 manifest 中实际的 `{id,version,sha256}`，数据源逐项引用该完整对象。服务核验 API 和摘要，驱动只由 JDBC 实现核验。
 
@@ -58,7 +70,7 @@ agentic-olap call read-connector-capabilities --payload '{}'
 agentic-olap call inspect-warehouse --payload '{"operation":"discover","payload":{"dataSourceId":"business","sourceIdentityHash":"替换为所选绑定的实际64位摘要","limit":20}}'
 ```
 
-`read-connector-capabilities` 的 `connectors` 返回当前主体可访问来源所用的 `{connectorRef,nativeScalarFunctions}`。来源支持调查时，按 `describe-operation` 和 `read-inspection-capability` 读取结构与必要样本；除读取能力合同外，调查请求均须带精确 `dataSourceId/sourceIdentityHash`。表列表截断、样本缺少记录或当前唯一不能被推断为完整总体、历史保证或业务口径。
+`read-connector-capabilities` 的 `connectors` 返回当前主体可访问来源所用的 `{connectorRef,nativeScalarFunctions}`；它描述运行中服务，与本地 `connectors` 报告的随包文件分别读取。来源支持调查时，按 `describe-operation` 和 `read-inspection-capability` 读取结构与必要样本；除读取能力合同外，调查请求均须带精确 `dataSourceId/sourceIdentityHash`。表列表截断、样本缺少记录或当前唯一不能被推断为完整总体、历史保证或业务口径。
 
 ## 显式提供结构
 

@@ -75,7 +75,7 @@ jobs:
         with:
           node-version: '24'
       - run: npm install --global npm@11.17.0 --registry=https://registry.npmjs.org
-      - name: 下载同 tag 连接器与候选包身份
+      - name: 下载同 tag 已审核发行资产以核对 npm 字节
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/release-assets" --pattern '*.tgz' --pattern SHA256SUMS

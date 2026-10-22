@@ -5,7 +5,7 @@ import { once } from "node:events";
 import { appendFileSync } from "node:fs";
 import { mkdir, readFile, readdir, writeFile, open } from "node:fs/promises";
 import { createServer } from "node:net";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 const [tarballArg, outputArg, mode = "tarball"] = process.argv.slice(2);
 assert(tarballArg && outputArg, "需要 npm tarball 目录与尚不存在的消费目录");
@@ -32,28 +32,6 @@ const nativeRoot = join(root, "node_modules/@hanger-source", `agentic-olap-runti
 assert.equal(JSON.parse(await readFile(join(root, "node_modules/@hanger-source/agentic-olap/package.json"), "utf8")).version, version);
 const nativeMetadata = JSON.parse(await readFile(join(nativeRoot, "package.json"), "utf8"));
 assert.equal(nativeMetadata.version, version);
-const connectors = files.filter((file) => /^agentic-olap-connectors-\d.*\.tgz$/.test(file));
-assert.equal(connectors.length, 1, "需要同次发行的独立连接器组");
-const pluginRoot = join(root, "plugins");
-await mkdir(pluginRoot);
-const unpacked = spawnSync("tar", ["-xzf", join(tarballs, connectors[0]), "-C", pluginRoot], { encoding: "utf8" });
-assert.equal(unpacked.status, 0, unpacked.stderr);
-const groups = await Promise.all((await readdir(pluginRoot, { withFileTypes: true }))
-  .filter((entry) => entry.isDirectory())
-  .map(async (entry) => {
-    const directory = join(pluginRoot, entry.name);
-    const manifestPath = join(directory, "connector.json");
-    return { directory, manifestPath, manifest: JSON.parse(await readFile(manifestPath, "utf8")) };
-  }));
-const h2Groups = groups.filter((group) => group.manifest.connectorRef.id === "h2");
-assert.equal(h2Groups.length, 1, "本试验须使用归档中唯一的H2插件组");
-const { directory: h2Directory, manifestPath, manifest } = h2Groups[0];
-const drivers = manifest.jars.filter((jar) => /^h2-.*\.jar$/.test(jar.file));
-assert.equal(drivers.length, 1, "H2插件manifest须声明唯一的H2驱动JAR");
-const jdbcUrl = `jdbc:h2:${join(root, "business")}`;
-await writeFile(join(root, "source.sql"), "CREATE TABLE SALES_ORDERS (ORDER_ID BIGINT PRIMARY KEY, AMOUNT DECIMAL(18,2));\nINSERT INTO SALES_ORDERS VALUES (1,100.00),(2,50.00),(3,25.00);\n");
-const prepared = spawnSync(join(nativeRoot, "jre/bin/java"), ["-cp", join(h2Directory, drivers[0].file), "org.h2.tools.RunScript", "-url", jdbcUrl, "-user", "sa", "-script", join(root, "source.sql")], { encoding: "utf8" });
-assert.equal(prepared.status, 0, prepared.stderr);
 const home = join(root, "persistent home");
 const environment = { PATH: join(root, "no-system-tools"), HOME: root, TMPDIR: join(root, "tmp"), LANG: "en_US.UTF-8" };
 const command = (args) => spawnSync(process.execPath, [cli, ...args], { cwd: root, env: environment, encoding: "utf8", timeout: 60000 });
@@ -62,6 +40,22 @@ const json = (args) => {
   assert.equal(result.status, 0, result.stderr + result.stdout);
   return JSON.parse(result.stdout);
 };
+const sdk = json(["sdk"]);
+assert.equal(sdk.version, version);
+assert.equal(command(["sdk", "--path"]).stdout.trim(), sdk.mavenRepository);
+const installedPlugins = json(["connectors"]);
+const groups = await Promise.all(installedPlugins.connectors.map(async ({ manifestPath }) => ({
+  directory: dirname(manifestPath), manifestPath, manifest: JSON.parse(await readFile(manifestPath, "utf8")),
+})));
+const h2Groups = groups.filter((group) => group.manifest.connectorRef.id === "h2");
+assert.equal(h2Groups.length, 1, "本试验须使用 npm 安装的唯一 H2 插件组");
+const { directory: h2Directory, manifestPath, manifest } = h2Groups[0];
+const drivers = manifest.jars.filter((jar) => /^h2-.*\.jar$/.test(jar.file));
+assert.equal(drivers.length, 1, "H2插件manifest须声明唯一的H2驱动JAR");
+const jdbcUrl = `jdbc:h2:${join(root, "business")}`;
+await writeFile(join(root, "source.sql"), "CREATE TABLE SALES_ORDERS (ORDER_ID BIGINT PRIMARY KEY, AMOUNT DECIMAL(18,2));\nINSERT INTO SALES_ORDERS VALUES (1,100.00),(2,50.00),(3,25.00);\n");
+const prepared = spawnSync(join(nativeRoot, "jre/bin/java"), ["-cp", join(h2Directory, drivers[0].file), "org.h2.tools.RunScript", "-url", jdbcUrl, "-user", "sa", "-script", join(root, "source.sql")], { encoding: "utf8" });
+assert.equal(prepared.status, 0, prepared.stderr);
 const call = (operation, payload) => {
   const result = json(["call", operation, "--payload", JSON.stringify(payload), "--home", home]);
   assert.equal(result.isError ?? false, false);

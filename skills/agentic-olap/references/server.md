@@ -6,7 +6,7 @@
 
 连接器 API 为 `agentic-olap-connector/v9-kotlin-source-sql-calcite-1.42`，存储格式为 `15`。服务、连接器和 SDK 使用同轮交付构件。
 
-需要 Node.js 20 或更高版本。安装自动选择匹配的平台运行包，其中包含 Go 服务程序、JVM 运行时与 Kotlin 服务构件；使用者无需安装编译工具或自行编译源码。支持 macOS arm64、Linux x64（glibc 2.35 或更高）：
+需要 Node.js 20 或更高版本。安装自动选择匹配的平台运行包，其中包含 Go 服务程序、JVM 运行时与 Kotlin 服务构件；同版本的 SDK、H2 与 DuckDB 插件组随 npm 主包交付。使用者无需安装编译工具或自行编译产品源码。支持 macOS arm64、Linux x64（glibc 2.35 或更高）：
 
 ~~~sh
 npm install --global @hanger-source/agentic-olap
@@ -36,11 +36,15 @@ agentic-olap call describe-governance-command --payload '{"operation":"create-bu
 | 部署配置 | `server.json`，可直接编辑 JSON，重启后生效 |
 | 本地令牌 | `access-token`，首次生成至少256位随机值，文件权限0600 |
 | 持久数据 | `data/`，持有元数据、保存结果及使用记录 |
-| 连接信息 | `info` 输出 `url/configPath/dataRoot/tokenPath/authMode`，不打印令牌值 |
+| 连接信息 | `info` 输出 `url/configPath/dataRoot/tokenPath/authMode`、安装目录与版本，并从 MCP 读取服务版本、获准连接器和来源；不打印令牌值 |
 | 显式取得令牌 | `agentic-olap token`，供自己的 MCP 客户端注入 Authorization Bearer |
 | 尚未初始化 | `info`、`token`、默认本地 `tools/call` 明确失败，先执行 `start` |
 
 `start --home /absolute/path --port 8010` 使用指定持久根与端口；后续 `info/tools/call/token` 使用同一 `--home`。显式 `--port` 会保存到本地配置，重新启动保留原令牌与资产。用终端中断结束前台服务，再以同一目录启动；服务关闭会回收所属请求、通道和工作进程。
+
+升级先停止该前台进程，执行 `npm install --global @hanger-source/agentic-olap@目标版本`，再以原 `--home` 或 `--config` 启动。所有随包文件由 npm 替换，没有第二个产品安装步骤。安装完成不会重启已运行的进程，也不会改写配置或转换持久根格式。升级前核对目标发行的存储格式与连接器 API；精确插件引用变化时，明确配置插件并修订受影响资产，不自动改变旧发布引用。
+
+本地重启后用 `info` 核对安装版本与实际服务版本；不可达或版本不同会返回具体原因及非零退出，报告仍保留配置和安装位置。远程客户端用 `tools` 返回的 `serverInfo.version` 核对。连接器和来源来自已有的授权读取；未获准项明确显示，来源列表不证明真实查询成功，`sourceQuery=NOT_CHECKED` 表示没有执行来源 SQL。所选发布、保存查询与结果的可用前提可通过 `read-deployment-availability` 核对；实际业务确认使用明确选择的查询，不自动重跑全部业务用法。
 
 本地认证明确使用 `auth.mode="local-token"`，其字段为 `tokenFile/subject/scopes/grants`。只允许监听127.0.0.1或::1，令牌必须来自0600普通文件。默认主体为 `local`，scope为 `olap.local`；生成的 grant 操作列表来自同发行模板，`dataSources/subjectAreas/releases` 显式为 `["*"]`，`allGovernanceAssets=true`。这些权限仅授予该本地令牌主体，仍经过相同的操作、来源、治理和发布授权。
 
@@ -48,7 +52,7 @@ agentic-olap call describe-governance-command --payload '{"operation":"create-bu
 
 ## 取得连接器并绑定数据源
 
-业务连接器独立提供。连接器发行方交付 manifest、插件 JAR 和具体实现需要的依赖；JDBC 实现包含实际驱动，HTTP 实现拥有自己的协议、鉴权和结果映射；基础运行包不包含使用者的业务源插件。按[插件取得说明](connections.md#取得插件组)取得与服务匹配的插件组，保持 manifest 中的实际版本与字节摘要，不能只放一个数据库驱动或猜测哈希。
+连接器发行方交付 manifest、插件 JAR 和具体实现需要的依赖；JDBC 实现包含实际驱动，HTTP 实现拥有自己的协议、鉴权和结果映射。H2、DuckDB 插件已随 npm 安装，通过 `agentic-olap connectors` 读取可直接用于配置的精确 manifest 路径和引用；扩展开发 SDK 通过 `agentic-olap sdk` 读取本地路径。其他业务源插件由使用方独立提供。具体用法见[插件取得说明](connections.md#取得插件组)，保持 manifest 中的实际版本与字节摘要，不能只放一个数据库驱动或猜测哈希。
 
 插件组取得、显式结构登记和原生函数的用法见[连接说明](connections.md)。
 

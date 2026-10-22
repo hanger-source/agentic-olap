@@ -85,7 +85,7 @@ async function archiveFiles(file) {
       require(type === '0' || type === '5', '归档含非普通文件或目录');
       require(type !== '5' || size === 0, '归档目录包含文件数据');
       const digest = createHash('sha256');
-      const collect = name === 'package/package.json' || name === 'package/build.json';
+      const collect = name === 'package/package.json' || name === 'package/build.json' || name === 'package/resources.json';
       require(!collect || size <= 4 * 1024 * 1024, `JSON 文件超过 4 MiB：${name}`);
       const pieces = [];
       for (let remaining = size; remaining > 0;) {
@@ -108,7 +108,14 @@ async function checkPackage(file, name, version, runtimes) {
   require(pkg?.name === name && pkg.version === version, 'npm 归档实际名称或版本不符');
   require(pkg.repository?.url === `git+https://github.com/${repository}.git`, '包 repository.url 与公开发布仓库不同');
   require(equal(pkg.publishConfig, { access: 'public', registry }) || equal(pkg.publishConfig, { access: 'public', registry: `${registry}/` }), '包 publishConfig 不符');
-  if (name === main) { require(equal(pkg.optionalDependencies, runtimes), '主包必须引用两个精确版本平台包'); return null; }
+  if (name === main) {
+    require(equal(pkg.optionalDependencies, runtimes), '主包必须引用两个精确版本平台包');
+    const resources = members.get('package/resources.json')?.json;
+    require(resources?.version === version && resources.sdk === 'sdk' && resources.connectorApiVersion?.startsWith('agentic-olap-connector/'), '主包必须交付同版本 SDK 与连接器 API 身份');
+    require(Array.isArray(resources.connectors) && resources.connectors.length > 0 && resources.connectors.every(file => members.has(`package/${file}`)), '主包缺少实际插件 manifest');
+    require(['API.md', 'SOURCE-ACCESS.md', 'LOADER.md'].every(file => members.has(`package/sdk/${file}`)) && [...members.keys()].some(file => file.startsWith('package/sdk/maven/') && file.endsWith('.pom')), '主包缺少可直接消费的 SDK 文档或 Maven 仓库');
+    return null;
+  }
   const target = name.slice(`${main}-runtime-`.length);
   require(targets.includes(target), '未知平台包');
   const [system, cpu] = target.split('-');
@@ -128,7 +135,7 @@ async function checkArchives(directory, metadata, tag) {
   const runtimes = Object.fromEntries(targets.map(target => [`${main}-runtime-${target}`, release.version]));
   require(equal(release.runtimes, runtimes), 'release 平台包集合或版本不同');
   const packages = [...Object.keys(runtimes), main].map(name => ({ name, version: release.version, file: path.join(directory, `${name.replace(/^@/, '').replace('/', '-')}-${release.version}.tgz`) }));
-  const expected = new Set([...packages.map(item => path.basename(item.file)), `agentic-olap-connectors-${release.version}.tgz`, `agentic-olap-connector-sdk-${release.version}.tgz`]);
+  const expected = new Set(packages.map(item => path.basename(item.file)));
   const sums = new Map();
   for (const line of (await readFile(path.join(directory, 'SHA256SUMS'), 'utf8')).trimEnd().split('\n')) {
     const match = /^([0-9a-f]{64})  ([A-Za-z0-9_.-]+[.]tgz)$/.exec(line);
@@ -136,7 +143,7 @@ async function checkArchives(directory, metadata, tag) {
     sums.set(match[2], match[1]);
   }
   const actual = (await readdir(directory)).filter(name => name.endsWith('.tgz'));
-  require(sums.size === expected.size && actual.length === expected.size && actual.every(name => expected.has(name)) && [...sums.keys()].every(name => expected.has(name)), 'release 必须包含五个精确归档');
+  require(sums.size === expected.size && actual.length === expected.size && actual.every(name => expected.has(name)) && [...sums.keys()].every(name => expected.has(name)), 'release 必须包含主包及两个平台包的三个精确 npm 归档');
   for (const [name, expectedHash] of sums) {
     const file = path.join(directory, name);
     const stat = await lstat(file);
