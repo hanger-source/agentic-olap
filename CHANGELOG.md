@@ -1,6 +1,6 @@
 # Agentic OLAP · 版本与变更
 
-## 0.11.2
+## 0.11.3
 
 产品收敛为一个 macOS arm64 npm 包，命令直接运行 Go 二进制。npm 携带 Go、JRE、精确安装清单及资源；自有 Kotlin 运行构件、内置连接器和 SDK 从同标签 JitPack 取得，第三方依赖来自 Maven Central。所有产品和依赖 JAR 在 npm 安装阶段下载并校验，启动只读本地。
 

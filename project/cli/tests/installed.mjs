@@ -26,10 +26,10 @@ const selection = mode === "registry"
 const installed = spawnSync("npm", ["install", "--no-audit", "--no-fund", "--registry=https://registry.npmjs.org", ...selection], { cwd: root, encoding: "utf8", env: { ...process.env, AGENTIC_OLAP_CACHE: process.env.AGENTIC_OLAP_CACHE ?? join(root, "dependency-cache") } });
 assert.equal(installed.status, 0, installed.stderr);
 const cli = join(root, "node_modules/.bin/agentic-olap");
-const nativeRoot = join(root, "node_modules/@hanger-source/agentic-olap");
+const packageRoot = join(root, "node_modules/@hanger-source/agentic-olap");
 assert.equal(JSON.parse(await readFile(join(root, "node_modules/@hanger-source/agentic-olap/package.json"), "utf8")).version, version);
-const nativeMetadata = JSON.parse(await readFile(join(nativeRoot, "package.json"), "utf8"));
-assert.equal(nativeMetadata.version, version);
+const packageMetadata = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8"));
+assert.equal(packageMetadata.version, version);
 const home = join(root, "persistent home");
 const environment = { PATH: join(root, "no-system-tools"), HOME: root, TMPDIR: join(root, "tmp"), LANG: "en_US.UTF-8", HTTP_PROXY: "http://127.0.0.1:9", HTTPS_PROXY: "http://127.0.0.1:9", NO_PROXY: "127.0.0.1,localhost" };
 const command = (args) => spawnSync(cli, args, { cwd: root, env: environment, encoding: "utf8", timeout: 60000 });
@@ -52,7 +52,7 @@ const drivers = manifest.jars.filter((jar) => /^h2-.*\.jar$/.test(jar.file));
 assert.equal(drivers.length, 1, "H2插件manifest须声明唯一的H2驱动JAR");
 const jdbcUrl = `jdbc:h2:${join(root, "business")}`;
 await writeFile(join(root, "source.sql"), "CREATE TABLE SALES_ORDERS (ORDER_ID BIGINT PRIMARY KEY, AMOUNT DECIMAL(18,2));\nINSERT INTO SALES_ORDERS VALUES (1,100.00),(2,50.00),(3,25.00);\n");
-const prepared = spawnSync(join(nativeRoot, "jre/bin/java"), ["-cp", join(h2Directory, drivers[0].file), "org.h2.tools.RunScript", "-url", jdbcUrl, "-user", "sa", "-script", join(root, "source.sql")], { encoding: "utf8" });
+const prepared = spawnSync(join(packageRoot, "jre/bin/java"), ["-cp", join(h2Directory, drivers[0].file), "org.h2.tools.RunScript", "-url", jdbcUrl, "-user", "sa", "-script", join(root, "source.sql")], { encoding: "utf8" });
 assert.equal(prepared.status, 0, prepared.stderr);
 const call = (operation, payload) => {
   const result = json(["call", operation, "--payload", JSON.stringify(payload), "--home", home]);
@@ -377,7 +377,7 @@ try {
   assert.notEqual(repeated.runId, execution.runId);
   verifySalesResult(repeated.resultReference);
   await stop();
-  const report = { version: command(["--version"]).stdout.trim(), target, mode, nativePackage: mode === "registry" ? `${nativeMetadata.name}@${nativeMetadata.version}` : native[0], tools: tools.tools.length, assetCreated: Boolean(asset), persistentRead: true, actualSourceRead: true, declaredStructure: true, structurePersistentRead: true, analysisPersistentRead: true, contextRevision: nextCoordinate, sourceIdentityHash, publication: coordinate, queryReference: savedQuery.queryReference, runIds: [execution.runId, continued.runId, repeated.runId], expected: { sales_amount: "175.00", order_count: "3" }, systemToolsPath: environment.PATH };
+  const report = { version: command(["--version"]).stdout.trim(), target, mode, package: `${packageMetadata.name}@${packageMetadata.version}`, tools: tools.tools.length, assetCreated: Boolean(asset), persistentRead: true, actualSourceRead: true, declaredStructure: true, structurePersistentRead: true, analysisPersistentRead: true, contextRevision: nextCoordinate, sourceIdentityHash, publication: coordinate, queryReference: savedQuery.queryReference, runIds: [execution.runId, continued.runId, repeated.runId], expected: { sales_amount: "175.00", order_count: "3" }, systemToolsPath: environment.PATH };
   await writeFile(join(root, "report.json"), JSON.stringify(report, null, 2) + "\n");
   console.log(JSON.stringify(report));
 } catch (failure) {

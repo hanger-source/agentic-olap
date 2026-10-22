@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 已推送到源码仓库的精确发行标签，例如 v0.11.2
+        description: 已推送到源码仓库的精确发行标签，例如 v0.11.3
         required: true
         type: string
 
