@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -275,13 +276,15 @@ func writeJVMDownloads(main, version string, build JVMBuild, available map[strin
 			return err
 		}
 	}
-	var resources struct {
-		Connectors []string `json:"connectors"`
-	}
+	var resources map[string]json.RawMessage
 	if err := ReadJSON(filepath.Join(main, "resources.json"), &resources); err != nil {
 		return err
 	}
-	for _, path := range resources.Connectors {
+	var connectors []string
+	if err := json.Unmarshal(resources["connectors"], &connectors); err != nil {
+		return err
+	}
+	for _, path := range connectors {
 		var manifest ConnectorManifest
 		if err := ReadJSON(filepath.Join(main, path), &manifest); err != nil {
 			return err

@@ -25,6 +25,8 @@ agentic-olap connectors
 
 JVM 下载缓存默认位于系统用户缓存目录的 `agentic-olap/jvm/sha256`；设置 `AGENTIC_OLAP_CACHE=/absolute/cache` 时使用 `/absolute/cache/jvm/sha256`。缓存按内容摘要保存；安装目录仍持有完整运行文件，启动不依赖缓存目录或 Maven 网络。下载使用系统证书及 `HTTP_PROXY/HTTPS_PROXY/NO_PROXY`。
 
+仓库返回 HTTP 429 时，安装器按 `Retry-After` 有限重试同一精确构件；未提供该字段时使用递增间隔。整个安装下载预算为 30 分钟。其他 HTTP 错误、长度或摘要不符均使安装失败，不切换来源、版本或校验要求。
+
 `connectors` 返回 npm 已安装的 H2、DuckDB 插件组的 `manifestPath`、`connectorRef` 和 API，可直接用于服务配置。上述命令只读取本地文件，不下载、复制或安装任何内容，也不创建数据源。具体后端的业务来源及凭据仍由使用者配置。
 
 默认服务只监听本机，首次启动创建 `~/.agentic-olap/server.json`、独立访问令牌和持久数据目录。服务前台运行；退出终端进程将关闭其所属服务和工作进程，重新启动继续读取原资产。

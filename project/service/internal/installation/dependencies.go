@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -32,6 +33,8 @@ type jvmDependencies struct {
 
 // InstallDependencies 仅由 npm postinstall 调用；启动、SDK 读取和查询均不调用它。
 func InstallDependencies(ctx context.Context, version string) error {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Minute)
+	defer cancel()
 	product, err := Read(version)
 	if err != nil {
 		return err
@@ -201,11 +204,7 @@ func installJVMDependency(ctx context.Context, artifact jvmDependency, root stri
 	cached := filepath.Join(cache, artifact.SHA256+".jar")
 	if err := verifyDependency(cached, artifact); errors.Is(err, os.ErrNotExist) {
 		fmt.Fprintf(log, "下载 JVM 依赖 %s\n", artifact.Coordinate)
-		request, err := http.NewRequestWithContext(ctx, http.MethodGet, artifact.URL, nil)
-		if err != nil {
-			return err
-		}
-		response, err := client.Do(request)
+		response, err := requestDependency(ctx, client, artifact, log)
 		if err != nil {
 			return err
 		}
@@ -234,6 +233,45 @@ func installJVMDependency(ctx context.Context, artifact jvmDependency, root stri
 		}
 	}
 	return nil
+}
+
+// 仓库限流只重试同一不可变 URL，不改来源、版本或摘要。
+func requestDependency(ctx context.Context, client *http.Client, artifact jvmDependency, log io.Writer) (*http.Response, error) {
+	for attempt := 0; ; attempt++ {
+		request, err := http.NewRequestWithContext(ctx, http.MethodGet, artifact.URL, nil)
+		if err != nil {
+			return nil, err
+		}
+		response, err := client.Do(request)
+		if err != nil {
+			return nil, err
+		}
+		if response.StatusCode != http.StatusTooManyRequests || attempt == 4 {
+			return response, nil
+		}
+		response.Body.Close()
+		delay := time.Duration(2<<attempt) * time.Second
+		if value := response.Header.Get("Retry-After"); value != "" {
+			if seconds, err := strconv.Atoi(value); err == nil && seconds >= 0 {
+				if seconds > 1800 {
+					return nil, errors.New("仓库要求的限流等待超出 30 分钟安装预算")
+				}
+				delay = time.Duration(seconds) * time.Second
+			} else if date, err := http.ParseTime(value); err == nil {
+				delay = max(time.Until(date), 0)
+			} else {
+				return nil, fmt.Errorf("Maven 429 返回了无效 Retry-After：%s", value)
+			}
+		}
+		fmt.Fprintf(log, "仓库限流，%s 后重试 %s（%d/4）\n", delay, artifact.Coordinate, attempt+1)
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
 }
 
 func writeDependency(destination string, input io.Reader, artifact jvmDependency) error {

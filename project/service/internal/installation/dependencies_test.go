@@ -88,6 +88,37 @@ func TestJVMInstallRejectsWrongBytesWithoutPublishingAnyFinalFile(t *testing.T) 
 	}
 }
 
+func TestJVMInstallHonorsRepositoryRateLimitAndStillVerifiesBytes(t *testing.T) {
+	body := []byte("published immutable JAR bytes")
+	var requests atomic.Int32
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if requests.Add(1) == 1 {
+			w.Header().Set("Retry-After", "0")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.Write(body)
+	}))
+	defer server.Close()
+	artifact := lockedDependency(server.URL+"/library.jar", body)
+	root := installationRoots(t)
+	if err := installJVMDependencies(context.Background(), []jvmDependency{artifact}, root, t.TempDir(), server.Client(), io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if requests.Load() != 2 {
+		t.Fatalf("expected rate limit then exact download, got %d", requests.Load())
+	}
+	for _, location := range artifact.Locations {
+		path, err := dependencyPath(root, location)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := verifyDependency(path, artifact); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func TestJVMConcurrentInstallsShareOnlyVerifiedBytes(t *testing.T) {
 	body := bytes.Repeat([]byte("content-addressed dependency\n"), 2048)
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write(body) }))

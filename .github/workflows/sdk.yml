@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 已推送到源码仓库的精确发行标签，例如 v0.11.1
+        description: 已推送到源码仓库的精确发行标签，例如 v0.11.2
         required: true
         type: string
 
@@ -33,6 +33,7 @@ jobs:
         run: |
           node --input-type=module <<'JS'
           import { readFile } from 'node:fs/promises';
+          import { execFileSync } from 'node:child_process';
           const { version } = JSON.parse(await readFile('project/cli/package.json', 'utf8'));
           const tag = process.env.RELEASE_TAG;
           if (tag !== `v${version}`) throw new Error('发行标签必须与源码产品版本一致');
@@ -41,8 +42,24 @@ jobs:
           const response = await fetch(artifact('runtime', 'pom'), {
             signal: AbortSignal.timeout(30 * 60 * 1000),
           });
-          if (!response.ok) throw new Error(`JitPack 构建未完成：HTTP ${response.status}；查看 https://jitpack.io/#hanger-source/agentic-olap/${tag}`);
+          if (!response.ok && response.status !== 429) throw new Error(`JitPack 构建请求失败：HTTP ${response.status}；查看 https://jitpack.io/#hanger-source/agentic-olap/${tag}`);
           await response.text();
+          const deadline = Date.now() + 30 * 60 * 1000;
+          const commit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+          let previous;
+          for (;;) {
+            const stateResponse = await fetch(`https://jitpack.io/api/builds/com.github.hanger-source/agentic-olap/${tag}`, { signal: AbortSignal.timeout(60000) });
+            if (!stateResponse.ok) throw new Error(`JitPack 构建状态读取失败：HTTP ${stateResponse.status}`);
+            const state = await stateResponse.json();
+            if (state.status === 'ok') {
+              if (state.commit !== commit || state.private !== false) throw new Error('JitPack 实际源码或公开状态与发行要求不同');
+              break;
+            }
+            if (/error|fail|notfound/i.test(state.status) || Date.now() >= deadline) throw new Error(`JitPack 构建未成功：${JSON.stringify(state)}；查看 https://jitpack.io/com/github/hanger-source/agentic-olap/${tag}/build.log`);
+            if (state.status !== previous) console.log(`JitPack 正在构建 ${tag}：${state.status}`);
+            previous = state.status;
+            await new Promise(resolve => setTimeout(resolve, 15000));
+          }
           for (const module of ['runtime', 'connector-api', 'connector-loader', 'connector-h2', 'connector-duckdb']) {
             for (const extension of ['pom', 'jar']) {
               const selected = ['connector-h2', 'connector-duckdb'].includes(module) && extension === 'jar'
