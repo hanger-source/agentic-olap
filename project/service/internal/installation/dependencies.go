@@ -78,10 +78,10 @@ func InstallDependencies(ctx context.Context, version string) error {
 		}
 		return nil
 	}}
-	return installJVMDependencies(ctx, manifest.Artifacts, product.root, filepath.Join(cache, "jvm", "sha256"), client, os.Stderr)
+	return installJVMDependencies(ctx, version, manifest.Artifacts, product.root, filepath.Join(cache, "jvm", "sha256"), client, os.Stderr)
 }
 
-func installJVMDependencies(ctx context.Context, artifacts []jvmDependency, root string, cache string, client *http.Client, log io.Writer) error {
+func installJVMDependencies(ctx context.Context, version string, artifacts []jvmDependency, root string, cache string, client *http.Client, log io.Writer) error {
 	seen := map[string]bool{}
 	for _, artifact := range artifacts {
 		digest, err := hex.DecodeString(artifact.SHA256)
@@ -122,7 +122,7 @@ func installJVMDependencies(ctx context.Context, artifacts []jvmDependency, root
 				return
 			}
 			defer func() { <-capacity }()
-			if err := installJVMDependency(ctx, artifact, root, cache, client, log); err != nil {
+			if err := installJVMDependency(ctx, version, artifact, root, cache, client, log); err != nil {
 				first.Do(func() { failure = fmt.Errorf("安装 JVM 依赖 %s 失败：%w", artifact.Coordinate, err); cancel() })
 			}
 		}()
@@ -185,7 +185,7 @@ func verifyDependency(path string, artifact jvmDependency) error {
 	return nil
 }
 
-func installJVMDependency(ctx context.Context, artifact jvmDependency, root string, cache string, client *http.Client, log io.Writer) error {
+func installJVMDependency(ctx context.Context, version string, artifact jvmDependency, root string, cache string, client *http.Client, log io.Writer) error {
 	missing := []string{}
 	for _, location := range artifact.Locations {
 		path, err := dependencyPath(root, location)
@@ -204,7 +204,7 @@ func installJVMDependency(ctx context.Context, artifact jvmDependency, root stri
 	cached := filepath.Join(cache, artifact.SHA256+".jar")
 	if err := verifyDependency(cached, artifact); errors.Is(err, os.ErrNotExist) {
 		fmt.Fprintf(log, "下载 JVM 依赖 %s\n", artifact.Coordinate)
-		response, err := requestDependency(ctx, client, artifact, log)
+		response, err := requestDependency(ctx, version, client, artifact, log)
 		if err != nil {
 			return err
 		}
@@ -236,12 +236,13 @@ func installJVMDependency(ctx context.Context, artifact jvmDependency, root stri
 }
 
 // 仓库限流只重试同一不可变 URL，不改来源、版本或摘要。
-func requestDependency(ctx context.Context, client *http.Client, artifact jvmDependency, log io.Writer) (*http.Response, error) {
+func requestDependency(ctx context.Context, version string, client *http.Client, artifact jvmDependency, log io.Writer) (*http.Response, error) {
 	for attempt := 0; ; attempt++ {
 		request, err := http.NewRequestWithContext(ctx, http.MethodGet, artifact.URL, nil)
 		if err != nil {
 			return nil, err
 		}
+		request.Header.Set("User-Agent", "Agentic-OLAP/"+version+" (+https://github.com/hanger-source/agentic-olap)")
 		response, err := client.Do(request)
 		if err != nil {
 			return nil, err
@@ -254,13 +255,19 @@ func requestDependency(ctx context.Context, client *http.Client, artifact jvmDep
 		if value := response.Header.Get("Retry-After"); value != "" {
 			if seconds, err := strconv.Atoi(value); err == nil && seconds >= 0 {
 				if seconds > 1800 {
-					return nil, errors.New("仓库要求的限流等待超出 30 分钟安装预算")
+					return nil, fmt.Errorf("Maven HTTP 429：Retry-After=%q 超出 30 分钟安装总预算", value)
 				}
 				delay = time.Duration(seconds) * time.Second
 			} else if date, err := http.ParseTime(value); err == nil {
 				delay = max(time.Until(date), 0)
 			} else {
 				return nil, fmt.Errorf("Maven 429 返回了无效 Retry-After：%s", value)
+			}
+		}
+		if deadline, ok := ctx.Deadline(); ok {
+			remaining := time.Until(deadline)
+			if delay >= remaining {
+				return nil, fmt.Errorf("Maven HTTP 429：仓库要求等待 %s，安装剩余预算 %s 不足以重试", delay, max(remaining, 0))
 			}
 		}
 		fmt.Fprintf(log, "仓库限流，%s 后重试 %s（%d/4）\n", delay, artifact.Coordinate, attempt+1)

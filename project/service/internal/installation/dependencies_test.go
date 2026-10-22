@@ -5,14 +5,17 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func installationRoots(t *testing.T) string {
@@ -34,7 +37,7 @@ func TestJVMInstallDownloadsOnceAndReusesCacheWithoutNetwork(t *testing.T) {
 	artifact := lockedDependency(server.URL+"/library.jar", body)
 	cache := t.TempDir()
 	roots := installationRoots(t)
-	if err := installJVMDependencies(context.Background(), []jvmDependency{artifact}, roots, cache, server.Client(), io.Discard); err != nil {
+	if err := installJVMDependencies(context.Background(), "0.12.1", []jvmDependency{artifact}, roots, cache, server.Client(), io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	for _, location := range artifact.Locations {
@@ -52,7 +55,7 @@ func TestJVMInstallDownloadsOnceAndReusesCacheWithoutNetwork(t *testing.T) {
 	}
 	server.Close()
 	// 新安装目录没有任何 JAR；同一缓存可在来源完全不可达时填充两个目标。
-	if err := installJVMDependencies(context.Background(), []jvmDependency{artifact}, installationRoots(t), cache, server.Client(), io.Discard); err != nil {
+	if err := installJVMDependencies(context.Background(), "0.12.1", []jvmDependency{artifact}, installationRoots(t), cache, server.Client(), io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	if requests.Load() != 1 {
@@ -67,7 +70,7 @@ func TestJVMInstallRejectsWrongBytesWithoutPublishingAnyFinalFile(t *testing.T) 
 	artifact := lockedDependency(server.URL+"/library.jar", expected)
 	cache := t.TempDir()
 	roots := installationRoots(t)
-	if err := installJVMDependencies(context.Background(), []jvmDependency{artifact}, roots, cache, server.Client(), io.Discard); err == nil {
+	if err := installJVMDependencies(context.Background(), "0.12.1", []jvmDependency{artifact}, roots, cache, server.Client(), io.Discard); err == nil {
 		t.Fatal("accepted a same-length response with the wrong digest")
 	}
 	if _, err := os.Stat(filepath.Join(cache, artifact.SHA256+".jar")); !os.IsNotExist(err) {
@@ -92,6 +95,11 @@ func TestJVMInstallHonorsRepositoryRateLimitAndStillVerifiesBytes(t *testing.T) 
 	body := []byte("published immutable JAR bytes")
 	var requests atomic.Int32
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.UserAgent() != "Agentic-OLAP/0.12.1 (+https://github.com/hanger-source/agentic-olap)" {
+			t.Errorf("repository received an unidentified installer: %q", r.UserAgent())
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
 		if requests.Add(1) == 1 {
 			w.Header().Set("Retry-After", "0")
 			w.WriteHeader(http.StatusTooManyRequests)
@@ -102,7 +110,7 @@ func TestJVMInstallHonorsRepositoryRateLimitAndStillVerifiesBytes(t *testing.T) 
 	defer server.Close()
 	artifact := lockedDependency(server.URL+"/library.jar", body)
 	root := installationRoots(t)
-	if err := installJVMDependencies(context.Background(), []jvmDependency{artifact}, root, t.TempDir(), server.Client(), io.Discard); err != nil {
+	if err := installJVMDependencies(context.Background(), "0.12.1", []jvmDependency{artifact}, root, t.TempDir(), server.Client(), io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	if requests.Load() != 2 {
@@ -119,6 +127,33 @@ func TestJVMInstallHonorsRepositoryRateLimitAndStillVerifiesBytes(t *testing.T) 
 	}
 }
 
+func TestJVMInstallRejectsRateLimitWaitBeyondRemainingBudget(t *testing.T) {
+	for name, retryAfter := range map[string]string{
+		"seconds": "1800",
+		"date":    time.Now().Add(30 * time.Minute).UTC().Format(http.TimeFormat),
+	} {
+		t.Run(name, func(t *testing.T) {
+			var requests atomic.Int32
+			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests.Add(1)
+				w.Header().Set("Retry-After", retryAfter)
+				w.WriteHeader(http.StatusTooManyRequests)
+			}))
+			defer server.Close()
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			artifact := lockedDependency(server.URL+"/library.jar", []byte("immutable JAR bytes"))
+			err := installJVMDependencies(ctx, "0.12.1", []jvmDependency{artifact}, installationRoots(t), t.TempDir(), server.Client(), io.Discard)
+			if err == nil || errors.Is(err, context.DeadlineExceeded) || !strings.Contains(err.Error(), "Maven HTTP 429") || !strings.Contains(err.Error(), "剩余预算") {
+				t.Fatalf("unpayable repository wait did not fail with its limiting budget: %v", err)
+			}
+			if ctx.Err() != nil || requests.Load() != 1 {
+				t.Fatalf("installer waited for deadline or retried despite repository delay: ctx=%v requests=%d", ctx.Err(), requests.Load())
+			}
+		})
+	}
+}
+
 func TestJVMConcurrentInstallsShareOnlyVerifiedBytes(t *testing.T) {
 	body := bytes.Repeat([]byte("content-addressed dependency\n"), 2048)
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write(body) }))
@@ -132,7 +167,7 @@ func TestJVMConcurrentInstallsShareOnlyVerifiedBytes(t *testing.T) {
 		workers.Add(1)
 		go func() {
 			defer workers.Done()
-			failures <- installJVMDependencies(context.Background(), []jvmDependency{artifact}, roots, cache, server.Client(), io.Discard)
+			failures <- installJVMDependencies(context.Background(), "0.12.1", []jvmDependency{artifact}, roots, cache, server.Client(), io.Discard)
 		}()
 	}
 	workers.Wait()

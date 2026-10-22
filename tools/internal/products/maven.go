@@ -66,7 +66,7 @@ func (w Workspace) publishedJVM(ctx context.Context, build JVMBuild, directory s
 			defer func() { <-capacity }()
 			filename := filepath.Base(module.Jar.Path)
 			address := "https://jitpack.io/" + strings.ReplaceAll(module.GroupID, ".", "/") + "/" + module.ArtifactID + "/" + module.Version + "/" + filename
-			artifact, err := fetchPublishedJar(ctx, client, address, filepath.Join(directory, filename))
+			artifact, err := fetchPublishedJar(ctx, client, address, filepath.Join(directory, filename), module.Version)
 			artifact.Coordinate = module.GroupID + ":" + module.ArtifactID + ":" + module.Version
 			if module.Category == "connector" {
 				artifact.Coordinate += ":plugin"
@@ -108,12 +108,13 @@ func (w Workspace) publishedJVM(ctx context.Context, build JVMBuild, directory s
 	return build, artifacts, nil
 }
 
-func fetchPublishedJar(ctx context.Context, client *http.Client, address, destination string) (MavenArtifact, error) {
+func fetchPublishedJar(ctx context.Context, client *http.Client, address, destination, version string) (MavenArtifact, error) {
 	var artifact MavenArtifact
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, address, nil)
 	if err != nil {
 		return artifact, err
 	}
+	request.Header.Set("User-Agent", "Agentic-OLAP/"+strings.TrimPrefix(version, "v")+" (+https://github.com/hanger-source/agentic-olap)")
 	response, err := client.Do(request)
 	if err != nil {
 		return artifact, err

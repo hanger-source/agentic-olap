@@ -1,6 +1,6 @@
 # Agentic OLAP · 版本与变更
 
-## 0.12.0
+## 0.12.1
 
 Agent 通过 MCP 的 `describe-script-api` 发现正式 Kotlin 类型与能力，通过 `execute-script` 提交完整 kts。脚本在进程内构造和组合语义对象，调用调查、治理、发布、查询和结果能力时使用具体 Protobuf 消息；反射模型编码、JSON 作者输入和编译包中转退出主链。完整查询可以直接执行，保存查询仍是显式复用行为。
 
@@ -8,7 +8,7 @@ Go 管理数量有上限的常驻脚本 JVM。同一隔离归属下保留编译�
 
 调查、候选值、发布、查询、运行证据和结果交接使用正式类型及显式编码；计划解释从实际关系节点产生。来源调查失败保留具体能力与保证信息，保存查询回执包含精确引用，结果保存和回读继续由 Go 核验实际字节与授权。祖先闭包的递归 SQL 按真实临时关系列对齐，保留优化与原有计算含义。
 
-产品仍由一个 macOS arm64 npm 包交付，npm 安装阶段从精确 JitPack 标签及 Maven Central 备齐 JVM 构件，启动不下载依赖。连接器 API 为 `agentic-olap-connector/v11-kotlin-native-collection-relations-calcite-1.42`，脚本 DSL 为 `agentic-olap-kotlin-dsl/v1`，Query intent 为 `v7`，存储格式为 `16`。旧格式持久根明确拒绝，不自动改写；使用匹配发行读取原根。
+产品仍由一个 macOS arm64 npm 包交付，npm 安装阶段从精确 JitPack 标签及 Maven Central 备齐 JVM 构件，启动不下载依赖。安装下载明确标识产品与版本，仓库限流的等待要求无法在剩余安装预算内兑现时立即报告。连接器 API 为 `agentic-olap-connector/v11-kotlin-native-collection-relations-calcite-1.42`，脚本 DSL 为 `agentic-olap-kotlin-dsl/v1`，Query intent 为 `v7`，存储格式为 `16`。旧格式持久根明确拒绝，不自动改写；使用匹配发行读取原根。
 
 ## 0.11.3
 
