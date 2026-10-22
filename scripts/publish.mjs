@@ -9,7 +9,6 @@ import path from 'node:path';
 
 const repository = 'hanger-source/agentic-olap-skill';
 const main = '@hanger-source/agentic-olap';
-const targets = ['darwin-arm64', 'linux-x64'];
 const registry = 'https://registry.npmjs.org';
 function require(value, message) { if (!value) throw new Error(message); }
 function equal(a, b) { return JSON.stringify(Object.entries(a).sort()) === JSON.stringify(Object.entries(b).sort()); }
@@ -109,7 +108,7 @@ async function checkPackage(file, name, version, runtimes) {
   require(pkg.repository?.url === `git+https://github.com/${repository}.git`, '包 repository.url 与公开发布仓库不同');
   require(equal(pkg.publishConfig, { access: 'public', registry }) || equal(pkg.publishConfig, { access: 'public', registry: `${registry}/` }), '包 publishConfig 不符');
   if (name === main) {
-    require(equal(pkg.optionalDependencies, runtimes), '主包必须引用两个精确版本平台包');
+    require(equal(pkg.optionalDependencies, runtimes), '主包必须引用发行声明的精确版本平台包');
     const resources = members.get('package/resources.json')?.json;
     require(resources?.version === version && resources.sdk === 'sdk' && resources.connectorApiVersion?.startsWith('agentic-olap-connector/'), '主包必须交付同版本 SDK 与连接器 API 身份');
     require(Array.isArray(resources.connectors) && resources.connectors.length > 0 && resources.connectors.every(file => members.has(`package/${file}`)), '主包缺少实际插件 manifest');
@@ -117,7 +116,7 @@ async function checkPackage(file, name, version, runtimes) {
     return null;
   }
   const target = name.slice(`${main}-runtime-`.length);
-  require(targets.includes(target), '未知平台包');
+  require(/^[a-z]+-[a-z0-9]+$/.test(target), '平台包目标格式无效');
   const [system, cpu] = target.split('-');
   require(JSON.stringify(pkg.os) === JSON.stringify([system]) && JSON.stringify(pkg.cpu) === JSON.stringify([cpu]), '平台包 os/cpu 不符');
   const build = members.get('package/build.json')?.json;
@@ -132,8 +131,8 @@ async function checkArchives(directory, metadata, tag) {
   const release = JSON.parse(await readFile(metadata, 'utf8'));
   require(Object.keys(release).sort().join() === ['version', 'package', 'runtimes'].sort().join(), 'release.json 形状不符');
   require(/^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/.test(release.version) && tag === `v${release.version}` && release.package === main, 'release 版本、tag 或包身份不符');
-  const runtimes = Object.fromEntries(targets.map(target => [`${main}-runtime-${target}`, release.version]));
-  require(equal(release.runtimes, runtimes), 'release 平台包集合或版本不同');
+  const runtimes = release.runtimes;
+  require(runtimes && Object.keys(runtimes).length > 0 && Object.entries(runtimes).every(([name, version]) => name.startsWith(`${main}-runtime-`) && version === release.version), 'release 平台包身份或版本无效');
   const packages = [...Object.keys(runtimes), main].map(name => ({ name, version: release.version, file: path.join(directory, `${name.replace(/^@/, '').replace('/', '-')}-${release.version}.tgz`) }));
   const expected = new Set(packages.map(item => path.basename(item.file)));
   const sums = new Map();
@@ -143,7 +142,7 @@ async function checkArchives(directory, metadata, tag) {
     sums.set(match[2], match[1]);
   }
   const actual = (await readdir(directory)).filter(name => name.endsWith('.tgz'));
-  require(sums.size === expected.size && actual.length === expected.size && actual.every(name => expected.has(name)) && [...sums.keys()].every(name => expected.has(name)), 'release 必须包含主包及两个平台包的三个精确 npm 归档');
+  require(sums.size === expected.size && actual.length === expected.size && actual.every(name => expected.has(name)) && [...sums.keys()].every(name => expected.has(name)), 'release 归档必须与发行声明一致');
   for (const [name, expectedHash] of sums) {
     const file = path.join(directory, name);
     const stat = await lstat(file);
@@ -151,27 +150,9 @@ async function checkArchives(directory, metadata, tag) {
   }
   const revisions = new Set();
   for (const item of packages) { const revision = await checkPackage(item.file, item.name, item.version, runtimes); if (revision) revisions.add(revision); }
-  require(revisions.size === 1, '两个平台包必须来自同一源码 revision');
+  require(revisions.size === 1, '平台包必须包含精确源码 revision');
   console.log(JSON.stringify({ version: release.version, archivesChecked: expected.size, revision: [...revisions][0] }));
   return packages;
-}
-async function publishedIntegrity(name, version) {
-  const response = await fetch(`${registry}/${encodeURIComponent(name)}/${encodeURIComponent(version)}`, { signal: AbortSignal.timeout(30000) });
-  if (response.status === 404) return null;
-  require(response.ok, `registry 请求失败：${response.status}`);
-  const metadata = await response.json();
-  require(metadata.name === name && metadata.version === version && typeof metadata.dist?.integrity === 'string', 'registry 返回不同包、版本或无效摘要');
-  return metadata.dist.integrity;
-}
-async function waitForIntegrity(item) {
-  const deadline = performance.now() + 3600000;
-  while (performance.now() < deadline) {
-    const actual = await publishedIntegrity(item.name, item.version);
-    if (actual !== null) { require(actual === item.integrity, `发布后 integrity 不符：${item.name}`); return; }
-    console.log(`npm 已接受，等待 registry 可读：${item.name}@${item.version}`);
-    await new Promise(resolve => setTimeout(resolve, Math.min(5000, Math.max(0, deadline - performance.now()))));
-  }
-  throw new Error(`npm 已接受提交，但 3600 秒内不可读：${item.name}@${item.version}`);
 }
 async function publish(packages, submitted) {
   require([...submitted].every(name => packages.some(item => item.name === name)), '已受理包不属于本次发行');
@@ -179,32 +160,33 @@ async function publish(packages, submitted) {
   require(process.env.ACTIONS_ID_TOKEN_REQUEST_URL && process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN, '发布缺少 GitHub OIDC 授权');
   require(!('NODE_AUTH_TOKEN' in process.env) && !('NPM_TOKEN' in process.env), '发布不得提供长期 npm 令牌');
   require(execFileSync('npm', ['--version'], { encoding: 'utf8' }).trim() === '11.17.0' && process.version.startsWith('v24.'), '发布要求 npm 11.17.0 和 Node.js 24');
-  const pending = [];
-  for (const item of packages) {
-    item.integrity = `sha512-${await hashFile(item.file, 'sha512', 'base64')}`;
-    const actual = await publishedIntegrity(item.name, item.version);
-    require(actual === null || actual === item.integrity, `同一 npm 版本已存在不同字节：${item.name}`);
-    if (actual === null) pending.push(item); else console.log(`已存在且摘要匹配：${item.name}@${item.version}`);
-  }
   const temporary = await mkdtemp(path.join(tmpdir(), 'agentic-olap-publish-'));
   const user = path.join(temporary, 'user.npmrc'), global = path.join(temporary, 'global.npmrc');
   await writeFile(user, ''); await writeFile(global, '');
   const environment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.toLowerCase().startsWith('npm_config_')));
   Object.assign(environment, { NPM_CONFIG_USERCONFIG: user, NPM_CONFIG_GLOBALCONFIG: global, NPM_CONFIG_CACHE: path.join(temporary, 'cache') });
-  for (const batch of [pending.filter(item => item.name !== main), pending.filter(item => item.name === main)]) {
-    for (const item of batch) {
-      if (submitted.has(item.name)) { console.log(`按明确已受理记录继续，不重复提交：${item.name}@${item.version}`); continue; }
-      await new Promise((resolve, reject) => {
-        const child = spawn('npm', ['publish', item.file, '--access', 'public', '--registry', registry, '--ignore-scripts', '--provenance'], { cwd: temporary, env: environment, stdio: 'inherit' });
-        child.once('error', reject); child.once('exit', (code, signal) => code === 0 ? resolve() : reject(new Error(`npm publish 失败：${code ?? signal}`)));
-      });
-      console.log(`npm 已接受提交：${item.name}@${item.version}`);
-    }
-    for (const item of batch) { await waitForIntegrity(item); console.log(`已发布并核对摘要：${item.name}@${item.version}`); }
-  }
+  const outcomes = await Promise.allSettled(packages.map(async item => {
+    if (submitted.has(item.name)) { console.log(`按明确已受理记录继续，不重复提交：${item.name}@${item.version}`); return; }
+    await new Promise((resolve, reject) => {
+      const child = spawn('npm', ['publish', item.file, '--access', 'public', '--registry', registry, '--ignore-scripts', '--provenance', '--loglevel=error'], { cwd: temporary, env: environment, stdio: 'inherit' });
+      child.once('error', reject); child.once('exit', (code, signal) => code === 0 ? resolve() : reject(new Error(`${item.name} 发布失败：${code ?? signal}`)));
+    });
+    console.log(`npm 已接受提交：${item.name}@${item.version}`);
+  }));
+  const failures = outcomes.filter(outcome => outcome.status === 'rejected');
+  if (failures.length) throw new AggregateError(failures.map(outcome => outcome.reason), 'npm 发布失败');
 }
 const { values } = parseArgs({ options: { artifacts: { type: 'string' }, metadata: { type: 'string', default: 'release.json' }, tag: { type: 'string' }, submitted: { type: 'string', default: '' }, check: { type: 'boolean', default: false } } });
 require(values.artifacts && values.tag, '需要 --artifacts 与 --tag');
 require(!values.check || !values.submitted, '离线核验不能指定已受理包');
-const packages = await checkArchives(path.resolve(values.artifacts), path.resolve(values.metadata), values.tag);
-if (!values.check) await publish(packages, new Set(values.submitted.split(/\s+/).filter(Boolean)));
+if (values.check) {
+  await checkArchives(path.resolve(values.artifacts), path.resolve(values.metadata), values.tag);
+} else {
+  const release = JSON.parse(await readFile(path.resolve(values.metadata), 'utf8'));
+  require(values.tag === `v${release.version}` && release.package === main, 'release 版本、tag 或包身份不符');
+  const packages = [...Object.keys(release.runtimes), release.package].map(name => ({
+    name, version: release.version,
+    file: path.resolve(values.artifacts, `${name.replace(/^@/, '').replace('/', '-')}-${release.version}.tgz`),
+  }));
+  await publish(packages, new Set(values.submitted.split(/\s+/).filter(Boolean)));
+}

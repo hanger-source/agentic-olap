@@ -9,7 +9,7 @@ npm install --global @hanger-source/agentic-olap
 agentic-olap start
 ```
 
-安装自动选择匹配的平台运行包。支持 macOS arm64、Linux x64（glibc 2.35 或更高），需要 Node.js 20 或更高。
+安装包含 macOS arm64 平台运行包，需要 Node.js 20 或更高。
 
 同版本的连接器 SDK、H2 与 DuckDB 插件组也随 npm 安装，无需另外下载、找链接或手工解压：
 

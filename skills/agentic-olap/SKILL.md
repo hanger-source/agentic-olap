@@ -14,7 +14,7 @@ metadata:
 
 ## 安装与运行
 
-连接器 API 为 `agentic-olap-connector/v9-kotlin-source-sql-calcite-1.42`，存储格式为 `15`。Go 服务程序、JVM 运行时与 Kotlin 服务构件随平台包安装，需要 Node.js 20 或更高；支持 macOS arm64、Linux x64（glibc 2.35 或更高）。完整配置见[服务使用与部署](references/server.md)。安装后启动：
+连接器 API 为 `agentic-olap-connector/v9-kotlin-source-sql-calcite-1.42`，存储格式为 `15`。Go 服务程序、JVM 运行时与 Kotlin 服务构件随平台包安装，需要 Node.js 20 或更高；支持 macOS arm64。完整配置见[服务使用与部署](references/server.md)。安装后启动：
 
 ```sh
 npm install --global @hanger-source/agentic-olap
