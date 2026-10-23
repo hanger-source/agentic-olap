@@ -41,6 +41,12 @@ SDK 的 JAR、POM 由插件工程的 Gradle 从 JitPack 匿名取得，第三方
 
 `nativeAggregate(SqlKind)` 返回该精确来源的 `SqlAggFunction`，包括真实返回类型推导。核心将已定义的聚合映射为原生 kind，并继续组织 DISTINCT、分组、窗口和数量保证；插件不接收业务指标公式。不支持的 kind 明确拒绝。例如 `STDDEV_SAMP` 的返回类型由该来源实现声明，不能由共同编译器统一假定为 DOUBLE。
 
+AVG 的类型容量、算术正确性与舍入必须共同成立。`typeSystem.deriveAvgAggType` 与 `nativeAggregate(AVG)` 的类型推导须一致；`decimalAverageRounding` 声明原生精确结果的舍入，作者的最终 DECIMAL 合同只控制后续输出。原生累加或除法若已静默产生错误，错误值仍可能落在合法输出容量内，`Overflow.FAIL` 的结果范围检查不能据此检测或修复该错误。插件不得将这种实现声明为可接受的精确 AVG，也不得改成原生浮点、猜一个 DECIMAL 或自动替换为 SUM/COUNT。
+
+现有 SPI 适用于能为其接受的原生输入类型和支持的执行形态给出统一、可兑现合同的策略。声明需涵盖实际参与行数、分组／窗口、NULL 及原生运算的中间容量；不能仅以少量小值、一个常量执行路径或最终结果类型作为依据。同一类型在不同执行形态上显示不同 scale 时，先区分无损表示差异与已经发生的原生舍入；单纯增大声明 precision／scale 不能恢复丢失的位数。若插件提供已证明的原生输入转换或另一原生聚合映射，必须在 SQL AST 映射及类型推导中一致表达，并保持原人口、权重及错误行为；这不是执行失败后切换的备选路径。
+
+`deriveAvgAggType` 接收的是输入技术类型，不接收本次数据的最小值、最大值或行数；发现请求中的 `inputType` 也不是业务值域证明。最终数量容量及 `Approximate.minimum/maximum` 不能充当 AVG 的受限输入合同。当前没有从样本、字段名或过滤文本自动推导“安全评分范围”的机制。仅当来源先给出明确可证明的受限策略、而现有正式表达仍无法承载其前提时，才有依据讨论相应扩展；保证未知时保持拒绝。
+
 只读属性 `CompilationSupport.parameterSubmission` 必须明确声明 `BIND_PARAMETERS` 或 `TYPED_LITERALS`。前者保留有序参数，后者通过 `parameterLiteral` 将已校验值映射成 SQL AST 字面量并保留编译类型 CAST；共同默认映射覆盖参数编码中的精确数值、文本、布尔与时间值，后端特殊映射由插件明确实现。主查询、关系检查和候选值均使用该选择，不做问号文本替换或运行失败后的自动切换。
 
 `CORRELATED_DERIVED_PROJECTION` 声明派生关系的投影能引用外层查询值。普通 `EXISTS` 条件相关不要求这项能力；数量合同的行内求值槽若必须把外层人口条件绑定在派生投影中，则按本次实际构造检查。缺失时在提交 SQL 前抛出 `NativeCompilationCapabilityException`，公开错误 `NATIVE_COMPILATION_CAPABILITY_MISSING` 包含 `capability` 与 `operation=NUMERIC_EVALUATION_BINDING`。插件依据真实后端行为声明，它不代表来源事务或快照能力。内核不删除人口保护、不重复内联检查，也不在执行失败后切换方案。DuckDB 声明此能力；当前 H2 不声明。
@@ -71,7 +77,11 @@ SDK 的 JAR、POM 由插件工程的 Gradle 从 JitPack 匿名取得，第三方
 
 `readBasis` 如实为 Unknown 或 Versioned；来源支持强制精确数据版本时才声明 PINNED_READ 并落实 `SourceSqlRequest.expectedReadBasis`。返回基础必须与要求相符，不能忽略 pin 后读取最新。分区名或访问绑定本身不证明内容不可变，也不保证历史版本永远可用。
 
-`SourceAccess.supportsConstraintVerification` 表达对冻结证据的约束核验能力。访问层的 `CONSISTENT_READ` 表达检查与计算针对一致数据状态成立，具体可以使用事务快照、原子 SQL 或不可变数据版本；不把 `TRANSACTION_SNAPSHOT` 作为所有实现的前置。声明能力不能替代实际执行每项必需检查，空结果也不能吞掉保证失败。
+`SourceAccess.supportsConstraintVerification` 是不连接来源的纯能力声明，用于决定是否向优化器提供冻结键等约束。返回 false 不会把真实非空列改为可空：冻结非空类型进入 Calcite 时仍产生精确列的 `NOT_NULL` 采用，即使只是单表 RAW_BAG 投影。`SourceSqlRequest.sourceRequirements` 给出精确绑定、表版本、表坐标、实际列类型与 `constraintUses`；`NOT_NULL.name` 是列名，其他项引用冻结键或规则。插件不解析 SQL 猜测检查对象，也不能仅凭业务 EventIdentity 推断检查范围。
+
+`SourceAccess.execute` 拥有本次全部保证。访问层的 `CONSISTENT_READ` 要求检查与计算针对一致数据状态成立，可使用事务快照、原子 statement 或不可变数据版本，不把 `TRANSACTION_SNAPSHOT` 作为所有实现的前置。源端真实强制且覆盖既有数据的约束，也可在核验精确对象并保证执行期间 schema 稳定后兑现相应保证；仅目录 NULL 标记、约束名称、历史调查、DECLARED 或只检查后续写入的约束都不够。仅支持原生非空约束不代表能向优化器提供所有冻结键。内置 JDBC 继续使用数据非空见证，不因新增文档路径跳过扫描。
+
+同一原子 statement 的实现须保证必要检查不会因主结果为空、优化器裁剪、延迟求值或结果预算而跳过，并让违例传播为失败；一次 HTTP、SQL 批次或未被消费的 CTE 不是证明。插件保留核心主 SQL、检查 SQL 及各自参数的语义，不用 COUNT 前置、空人口跳过或运行后切换方式替代保证。发现真实 NULL 抛出 `SourceGuaranteeException("SOURCE_NOT_NULL_VIOLATION")`；能力不足使用 `SourceCapabilityException`，保留实际来源请求和阶段，不把无法核验写成数据已违例。单次执行保证可成立而 `readBasis` 仍为 Unknown；Unknown 不提供可重放版本坐标。完整机制条件与错误边界见[来源访问合同](../../../../docs/source-access.md)。
 
 集合结果、逐项展开、排序和文本显示分别声明 `COLLECTION_RESULTS/EXPANSION/SORT/TEXT` 能力。`sortCollection` 映射明确的方向及 NULL 顺序，`collectionText` 映射明确的分隔符与 NULL 替代；不能把数组提前解码成字符串代替这些运算。
 

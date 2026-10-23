@@ -143,6 +143,16 @@ when (parameters.text("phase")) {
         val rejected = runCatching { olap.queries.validate(QueryValidationRequest(QuerySelection.Inline(QueryIntent(coordinate, computation(publication, true))))) }.exceptionOrNull()
         check(rejected is CapabilityFailureException && rejected.failure.code == "EXECUTABLE_QUERY_NOT_PUBLISHED") { "未发布实例必须被正式授权拒绝：$rejected" }
         check(olap.queries.validate(QueryValidationRequest(QuerySelection.Inline(intent))).valid)
+        val explanation = olap.queries.explain(QueryExplanationRequest(QuerySelection.Inline(intent),
+            QueryExplanationSection.EXECUTION_REQUIREMENTS, 0, 20))
+        val requirements = requireNotNull((explanation.content as QueryExplanationContent.ExecutionRequirements).value)
+        val adoptedSource = requirements.sourceConstraints.single { it.physicalTableId == physical.physicalTable.id }
+        val orderColumnVersion = physical.physicalColumns.single { it.columnName == "ORDER_ID" }.id + "@1"
+        check(adoptedSource.physicalTableVersion == "1" && adoptedSource.binding.dataSourceId == "business")
+        check(adoptedSource.schema == "PUBLIC" && adoptedSource.table == "SALES_ORDERS")
+        val notNull = adoptedSource.constraints.single { it.kind == com.olap.prototype.contract.JdbcSourceRequirement.ConstraintKind.NOT_NULL }
+        check(notNull.name == "ORDER_ID" && notNull.columns == mapOf("ORDER_ID" to orderColumnVersion))
+        check(notNull.adoptedFor == "NON_NULL_NATIVE_COLUMN_TYPE" && !requirements.sourceCapabilitiesChecked)
         val saved = olap.queries.save(QueryDefinitionCommand("installed-sales-summary", null, requireNotNull(publication.capability.capabilityHash),
             "销售额与订单数", intent, null))
         val execution = execute(intent, "全部已登记订单销售额和订单数是多少？")
@@ -157,7 +167,8 @@ when (parameters.text("phase")) {
         val nextPublication = olap.semantics.publication(nextCoordinate)
         val continued = execute(QueryIntent(nextCoordinate, computation(nextPublication)), "修订上下文后保持订单口径")
         output("query" to olap.output(saved.reference), "result" to olap.output(requireNotNull(execution.resultReference)),
-            "continuedResult" to olap.output(requireNotNull(continued.resultReference)), "scenarioId" to text(scenario.id), "subjectAreaId" to text(subject.id))
+            "continuedResult" to olap.output(requireNotNull(continued.resultReference)), "scenarioId" to text(scenario.id),
+            "subjectAreaId" to text(subject.id), "orderColumnVersion" to text(orderColumnVersion))
     }
     "reopen" -> {
         val query = QueryReference(parameters.text("definitionId"), parameters.text("definitionVersion").toLong(), parameters.text("querySha256"))

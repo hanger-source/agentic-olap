@@ -12,6 +12,7 @@ import com.olap.prototype.util.OlapJsonUtils
 import com.olap.prototype.warehouse.DeadlineExecutionControl
 import com.olap.prototype.warehouse.contract.SourceConfiguration
 import com.olap.prototype.warehouse.contract.SourceReadEvidence
+import org.slf4j.MDC
 import java.nio.file.Path
 
 /** 单角色worker的实际状态；角色/精确来源变更由Go销毁进程重建。 */
@@ -49,6 +50,8 @@ internal class WorkerApplication(bootstrap: Bootstrap, private val budgets: Runt
 
     @Synchronized
     fun response(request: Request): Response {
+        val previousRequestId = MDC.get("requestId")
+        val previousWorkerKind = MDC.get("workerKind")
         var completedReadEvidence: SourceReadEvidence? = null
         var sourceExecutionStarted: Boolean? = false
         val timings = linkedMapOf<String, Long>()
@@ -62,6 +65,8 @@ internal class WorkerApplication(bootstrap: Bootstrap, private val budgets: Runt
             return timed("ENCODE") { encode(result) }
         }
         return try {
+            MDC.put("requestId", request.requestId)
+            MDC.put("workerKind", kind.name)
             require(request.operation == "worker-command" && !request.hasPrincipal()) { "worker accepts only supervisor commands" }
             require(request.remainingMillis in 1..budgets.requestMillis) { "request exceeds deployed deadline" }
             DeadlineExecutionControl(request.remainingMillis).use { control ->
@@ -108,6 +113,9 @@ internal class WorkerApplication(bootstrap: Bootstrap, private val budgets: Runt
                 .putAllTimingNanos(timings)
                 .setWorkerFailure(WorkerFailures.facts(failure, sourceExecutionStarted))
                 .setErrorJson(ByteString.copyFrom(mapper.writeValueAsBytes(WorkerFailures.project(kind, failure)))).build()
+        } finally {
+            if (previousRequestId == null) MDC.remove("requestId") else MDC.put("requestId", previousRequestId)
+            if (previousWorkerKind == null) MDC.remove("workerKind") else MDC.put("workerKind", previousWorkerKind)
         }
     }
 

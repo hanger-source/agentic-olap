@@ -50,6 +50,7 @@ internal class ScriptExecutionResources(directory: Path) : AutoCloseable {
     private fun inspectThreads(before: Set<Long>) {
         val observed = threadBean.allThreadIds.filter { it != thread.threadId() && it !in before }.sorted()
         if (observed.isEmpty()) return
+        var remainingCount = observed.size
         var truncated = observed.size > MAXIMUM_THREADS
         val selected = observed.take(MAXIMUM_THREADS)
         val observations = mutableListOf<ScriptThreadObservation>()
@@ -62,7 +63,9 @@ internal class ScriptExecutionResources(directory: Path) : AutoCloseable {
             val references = platformThreads(selected.toSet())
             val information = threadBean.getThreadInfo(selected.toLongArray(), MAXIMUM_STACK_FRAMES + 1)
             information.forEach { info ->
-                if (info == null) { truncated = true; return@forEach }
+                // allThreadIds 返回时线程可能已结束；正式 ThreadInfo=null 确认该平台线程已不再存活。
+                // 未取样或读取失败的候选没有这项证明，仍留在 remainingCount 中。
+                if (info == null) { remainingCount--; return@forEach }
                 val candidate = references[info.threadId]
                 val loader = if (candidate == null) {
                     truncated = true
@@ -80,9 +83,10 @@ internal class ScriptExecutionResources(directory: Path) : AutoCloseable {
             truncated = true
             inspectionFailure("bounded platform thread details could not be inspected", failure)
         }
+        if (remainingCount == 0) return
         issues += ScriptResourceIssue("SCRIPT_NEW_PLATFORM_THREADS",
-            "observed ${observed.size} platform threads absent from the evaluation baseline; ownership and continued lifetime are unknown; virtual threads are not included",
-            observed.size, java.util.List.copyOf(observations), truncated)
+            "observed $remainingCount platform threads absent from the evaluation baseline without confirmed termination; ownership and continued lifetime are unknown; virtual threads are not included",
+            remainingCount, java.util.List.copyOf(observations), truncated)
     }
 
     private fun platformThreads(selected: Set<Long>): Map<Long, Thread> {

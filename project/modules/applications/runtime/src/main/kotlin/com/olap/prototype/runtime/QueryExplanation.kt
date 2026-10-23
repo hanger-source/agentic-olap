@@ -7,6 +7,8 @@ import com.olap.prototype.engine.executable.ExecutableRelationInput
 import com.olap.prototype.query.QueryExplanationView as View
 import com.olap.prototype.query.QueryStageAnalysis
 import com.olap.prototype.query.RowPopulationContract
+import com.olap.prototype.contract.JdbcSourceRequirement
+import com.olap.prototype.contract.JdbcSourceRequirement.ConstraintKind
 
 /** 只投影引擎已经产出的事实；原生计划JSON是Calcite只读诊断，不是作者语义输入。 */
 internal object QueryExplanation {
@@ -36,10 +38,35 @@ internal object QueryExplanation {
             val request = lowered.toSourceRequest("execute-query", null)
             View.ExecutionRequirements(request.requiredCapabilities.map { it.name }, request.relationChecks.map { check ->
                 View.RelationCheck(check.code, check.origin?.scope, check.origin?.keys ?: emptyList(), check.origin?.reason)
-            }, request.sourceRequirements.flatMap { it.constraintUses }.map { it.kind.name }.distinct().sorted(), false)
+            }, request.sourceRequirements.flatMap { it.constraintUses }.map { it.kind.name }.distinct().sorted(), false,
+                request.sourceRequirements.filter { it.constraintUses.isNotEmpty() }
+                    .sortedWith(compareBy({ it.dataSourceId }, { it.physicalTableId }, { it.physicalTableVersion }))
+                    .map(::sourceConstraints))
         }
         return View(query.requestId, View.Summary(scopes.size, query.resolvedSources.size, "ONE_EXACT_SOURCE_BINDING", RowPopulationContract.contract(),
             "NOT_OBSERVED", "NOT_OBSERVED"), scopes, query.resolvedSources.map(::source), query.sqlPlan, scale, requirements)
+    }
+    private fun sourceConstraints(source: JdbcSourceRequirement): View.SourceConstraints {
+        val constraints = source.constraintUses.sortedWith(compareBy({ it.kind.name }, { it.name ?: "" })).map { use ->
+            val declared = source.evidence.constraints
+            val columns = when (use.kind) {
+                ConstraintKind.NOT_NULL -> listOf(requireNotNull(use.name))
+                ConstraintKind.PRIMARY_KEY -> declared.primaryKeyColumns
+                ConstraintKind.UNIQUE_KEY -> declared.uniqueKeys.single { it.name == use.name }.columns
+                ConstraintKind.FOREIGN_KEY -> declared.importedKeys.filter { it.name == use.name }.sortedBy { it.keySequence }.map { it.column }
+                ConstraintKind.TEMPORAL_KEY -> declared.temporalKeys.single { it.rule.name == use.name }.rule.columns().sorted()
+                ConstraintKind.SNAPSHOT_UNIQUE_KEY -> source.snapshotUniqueKeys.single { it.rule.name == use.name }.rule.columns
+            }
+            val adoptedFor = when (use.kind) {
+                ConstraintKind.NOT_NULL -> "NON_NULL_NATIVE_COLUMN_TYPE"
+                ConstraintKind.PRIMARY_KEY, ConstraintKind.UNIQUE_KEY, ConstraintKind.SNAPSHOT_UNIQUE_KEY -> "OPTIMIZER_KEY_METADATA"
+                ConstraintKind.FOREIGN_KEY -> "OPTIMIZER_REFERENCE_METADATA"
+                ConstraintKind.TEMPORAL_KEY -> "TEMPORAL_RELATION_RULE"
+            }
+            View.SourceConstraint(use.kind, use.name, columns.associateWith { source.evidence.columnVersionRefs.getValue(it) }, adoptedFor)
+        }
+        return View.SourceConstraints(source.bindingRef(), source.connectorRef, source.dialect, source.physicalTableId,
+            source.physicalTableVersion, source.table.catalog, source.table.schema, source.table.table, constraints)
     }
     private fun requirement(v: ExecutableRelationInput.Requirement) = View.RelationRequirement(v.outputSlots, v.outputs, v.keys)
     private fun root(v: CompiledScopeExplanation.Root): View.Root = when (v) {

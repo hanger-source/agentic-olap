@@ -76,6 +76,8 @@ agentic-olap call execute-script --payload '{"source":"olap.output(olap.sources.
 
 JSON 输入预算拒绝使用 `JSON_INPUT_RESOURCE_LIMIT`；诊断给出 `resource/limit/observed`、字段路径及期望与实际形态。`observed` 对节点与深度表示首次越界的观察值，不是完整树总量。普通十进制无法精确表示时使用 `SCRIPT_VALUE_DECIMAL_REPRESENTATION`，不解释为 precision 或 scale 额度不足。未配对的 UTF-16 代理项使用 `SCRIPT_OUTPUT_REPRESENTATION`，避免编码时替换文本或对象键。参数解码失败时脚本正文尚未执行，能力调用列表为空；后续失败不抹去已经完成的调用。
 
+合法返回只因完整消息较大时保持原程序结局，自动保存负责交付；实际不能无损表示或完成正式编码时才返回 OUTPUT 失败，分别保留 `SCRIPT_OUTPUT_REPRESENTATION` 或 `SCRIPT_OUTPUT_ENCODING_FAILED`，不返回成功但缺少结果的矛盾状态。已完成的正式调用及效果引用仍按实际保留，不重执行。
+
 日期、精确引用、选择项和完整结构目录都可以通过 `parameters` 正常提交，脚本读取这些值后构造正式请求。结构事实保持列、NULL、约束和来源，不需要为通过普通值检查而展开到源码或编码成字符串。遇到真实部署预算拒绝时按实际资源和范围处理，不自动拆分写入或扩大配置；结构登记成功与后续业务查询成功分别判断。
 
 ### 脚本回执与继续执行
@@ -84,7 +86,7 @@ JSON 输入预算拒绝使用 `JSON_INPUT_RESOURCE_LIMIT`；诊断给出 `resour
 
 引用只帮助在本次响应内定位已完成效果，读取仍须经过原有权限。嵌套列和成员从精确根版本的正式读取入口分页取得，不复制完整结果模型，不选择 latest。空 `effects` 不证明没有副作用：例如来源集合登记和查询使用备注仍会写入各自记录。查询历史不能代替治理写入追溯。本合同不提供断线或进程退出后的持久恢复；失败不自动重试、回滚或重放整段程序。
 
-`workerOutcome` 是借用 worker 时的启动或复用结果，`workerDisposition=RETAINED/RETIRED` 是本次实际归还时的保留或退役结局，`recycleReasons` 说明退役原因。编译或业务拒绝不直接等于 worker 故障。发现求值基线以外且归属未知的平台线程时，服务保守退役 worker；该观察不证明线程泄漏，不覆盖虚拟线程。关联 request/worker 的线程身份、状态、daemon、上下文类加载器和必要堆栈仅进入有数量与长度上限的私有诊断，公开脚本报告不携带线程堆栈。
+`workerOutcome` 是借用 worker 时的启动或复用结果，`workerDisposition=RETAINED/RETIRED` 是本次实际归还时的保留或退役结局，`recycleReasons` 说明退役原因。编译或业务拒绝不直接等于 worker 故障。求值基线以外、未确认结束且归属未知的平台线程触发保守退役；JVM 已确认结束的候选不计作残留，未取样或读取失败不当作已结束。该观察不证明线程泄漏，不覆盖虚拟线程。关联 request/worker 的线程身份、状态、daemon、上下文类加载器和必要堆栈仅进入有数量与长度上限的私有诊断，公开脚本报告不携带线程堆栈。
 
 ## 定义建设与持续复用
 
@@ -241,7 +243,11 @@ else olap.output(olap.results.read(ResultReadRequest(result, 0, 100, null)))
 
 `olap.queries.validate`、`explain` 与 `execute` 是独立能力。查询可直接执行，不要求先建立 Analysis、冻结任务结构、保存查询或调用校验。解释不执行来源 SQL，可按正式 section 读取人口、资格、粒度、阶段、来源、关系计划和编译规模；未取得的实际扫描量、基数及逐行 NULL 原因保持未知。
 
-`QueryExplanationSection.EXECUTION_REQUIREMENTS` 给出当前计划需要的来源能力、仍需执行的关系检查及其已知语义作用域、身份键和原因，以及采用的来源约束种类。它与执行准入使用同一份要求，但 `sourceCapabilitiesChecked=false`：纯解释没有打开来源，也没有证明当前插件已经兑现这些要求。执行请求额外选择固定 `readBasis` 时还需要 `PINNED_READ`。ALIGN 的身份检查只在完整关系不能证明非 NULL 时保留；过滤、投影和归约可以形成正式证明，样本中未出现 NULL 不构成证明。
+`QueryExplanationSection.EXECUTION_REQUIREMENTS` 给出当前计划需要的来源能力、仍需执行的关系检查及其已知语义作用域、身份键和原因。`sourceConstraints` 按精确来源绑定、连接器及物理表版本列出实际采用的约束；每项保留种类、约束名或非空列名、原生列到精确物理列版本的映射，以及 `adoptedFor`：非空原生列类型、优化器键元数据、引用元数据或时态关系规则。单表 RAW_BAG 也可能采用非空列类型；这不等于 Query 做了去重或唯一键归约。
+
+这份解释直接取自执行准入的实际要求，但 `sourceCapabilitiesChecked=false`：纯解释没有打开来源，也没有证明当前插件已经兑现这些要求。关系检查与来源约束采用分别列出，不能把 `NOT_NULL` 种类汇总当作所有列已核验。执行请求额外选择固定 `readBasis` 时还需要 `PINNED_READ`。ALIGN 的身份检查只在完整关系不能证明非 NULL 时保留；过滤、投影和归约可以形成正式证明，样本中未出现 NULL 不构成证明。
+
+实时 `explain` 核对本次发布及来源授权。已保存结果中的解释属于原运行的冻结技术上下文，沿结果元数据的主体、发布及读取授权交付，不要求重新连接来源或装载当年的插件，也不证明读取者目前仍有执行该来源的权限。
 
 保存查询与保存结果独立。需要复用查询时使用 `olap.queries.save/revise`，其正式 `QueryDefinitionResult` 包含 `definition` 和实际制品摘要生成的 `reference`。后续用 `QuerySelection.Saved(saved.reference)` 执行精确保存版本；不要用 intentHash、名称或最新版本代替引用。保存冻结模型，不保存或重跑原脚本。
 

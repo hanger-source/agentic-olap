@@ -8,11 +8,14 @@ import org.apache.calcite.sql.`fun`.SqlCase
 import org.apache.calcite.sql.`fun`.SqlStdOperatorTable as Ops
 import org.apache.calcite.sql.parser.SqlParserPos
 import org.apache.calcite.sql.validate.SqlValidatorUtil
+import org.slf4j.LoggerFactory
+import org.slf4j.MDC
 import java.util.TreeSet
 
 /** 核心构造完整输入上的展开位置、透传列和补空；插件只映射原生生成与取值表达式。 */
 internal object CollectionExpansionSql {
     private val position = SqlParserPos.ZERO
+    private val log = LoggerFactory.getLogger(CollectionExpansionSql::class.java)
 
     fun select(support: CompilationSupport, expansion: CollectionExpansionRel, from: SqlNode,
         fields: List<SqlNode>, tableAlias: String, uniqueAlias: (String) -> String): SqlSelect {
@@ -20,6 +23,14 @@ internal object CollectionExpansionSql {
             expansion.rowType.fieldList.takeLast(2).forEach { add(it.name, it.type) }
         }.build()
         val mapping = support.expandCollection(outputType, tableAlias)
+        if (log.isDebugEnabled) log.debug(
+            "原生集合展开映射：requestId={}, workerKind={}, relId={}, inputRelId={}, column={}, arrayType={}, outputType={}, placement={}, outer={}",
+            MDC.get("requestId"), MDC.get("workerKind"), expansion.id, expansion.input.id, expansion.column,
+            expansion.input.rowType.fieldList[expansion.column].type.fullTypeString, outputType.fullTypeString,
+            when (mapping) {
+                is CompilationSupport.CollectionExpansion.Relation -> "RELATION"
+                is CompilationSupport.CollectionExpansion.InputProjection -> "INPUT_PROJECTION"
+            }, expansion.outer)
         return when (mapping) {
             is CompilationSupport.CollectionExpansion.Relation -> {
                 val native = mapping.generate(fields[expansion.column])

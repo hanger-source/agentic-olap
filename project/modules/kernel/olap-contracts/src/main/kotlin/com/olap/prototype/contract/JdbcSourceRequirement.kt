@@ -25,7 +25,11 @@ class JdbcSourceRequirement(
 
     enum class Use { ROWS, NATIVE_TABLE }
     enum class ConstraintKind { PRIMARY_KEY, UNIQUE_KEY, FOREIGN_KEY, TEMPORAL_KEY, SNAPSHOT_UNIQUE_KEY, NOT_NULL }
-    /** NOT_NULL 的 name 是精确列名；PRIMARY_KEY 无名称，其余项引用精确冻结约束名。 */
+    /**
+     * NOT_NULL 的 name 是 columns 中的精确列名，表示编译已采用其非空原生类型；
+     * PRIMARY_KEY 无名称，其余项引用精确冻结约束名。
+     * 采用说明本次执行必须兑现什么，不说明来源已核验或必须使用哪种核验机制。
+     */
     data class ConstraintUse(val kind: ConstraintKind, val name: String?) {
         init { require(if (kind == ConstraintKind.PRIMARY_KEY) name == null else !name.isNullOrBlank()) { "source guarantee must identify its exact frozen column or constraint" } }
     }

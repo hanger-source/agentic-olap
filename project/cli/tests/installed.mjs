@@ -65,6 +65,7 @@ const call = (operation, payload) => {
   return response.result;
 };
 let dslApiVersion;
+let orderColumnVersion;
 function program(parameters) {
   const report = call("execute-script", { source: author, sourceName: "installed.olap.kts", dslApiVersion, parameters });
   assert.equal(report.success, true, JSON.stringify(report.diagnostics));
@@ -108,6 +109,13 @@ function verifySalesResult(reference) {
   assert.deepEqual(count, { type: "INTEGER", value: "3" });
   const metadata = call("read-query-result-metadata", { resultReference: reference, section: "RUN", offset: 0, limit: 20 });
   assert.equal(metadata.content.run.runId, reference.runId);
+  const explanation = call("read-query-result-metadata", { resultReference: reference, section: "EXPLANATION",
+    explanationSection: "EXECUTION_REQUIREMENTS", offset: 0, limit: 20 }).content.explanation.executionRequirements.value;
+  const adopted = explanation.sourceConstraints.find(source => source.schema === "PUBLIC" && source.table === "SALES_ORDERS");
+  assert(adopted, "保存及重启回读必须保留实际来源采用");
+  const nonNull = adopted.constraints.filter(constraint => constraint.kind === "NOT_NULL");
+  assert.equal(nonNull.length, 1);
+  assert.deepEqual(nonNull[0].columns, { ORDER_ID: orderColumnVersion });
 }
 const portServer = createServer();
 await new Promise(done => portServer.listen(0, "127.0.0.1", done));
@@ -183,6 +191,7 @@ try {
   await start("structure-reopened");
   const built = program({ phase: "build", businessLineId, snapshotId });
   const queryReference = built.query.reference.query;
+  orderColumnVersion = built.orderColumnVersion.text;
   const resultReference = built.result.reference.result;
   const continuedReference = built.continuedResult.reference.result;
   verifySalesResult(resultReference);
@@ -273,6 +282,14 @@ ScriptValue.DecimalValue(columns.toString())`, { declaredStructure: catalog }));
   assert(ordinary.result.calls.every(item => item.success));
   const inline = await rpc("execute-script", scriptPayload('ScriptValue.Text("small")'));
   assert.equal(inline.result.value.text, "small");
+  const invalidOutput = await rpc("execute-script", scriptPayload(`
+olap.sources.list(EmptyRequest)
+ScriptValue.Text(0xD800.toChar().toString())`));
+  assert.equal(invalidOutput.success, false);
+  assert.equal(invalidOutput.result.success, false);
+  assert(invalidOutput.result.diagnostics.some(item => item.stage === "OUTPUT" && item.code === "SCRIPT_OUTPUT_REPRESENTATION"));
+  assert.equal(invalidOutput.result.calls.length, 1);
+  assert.equal(invalidOutput.result.calls[0].success, true, "输出表示失败不能抹掉真实完成的能力调用");
   const escaped = await rpc("execute-script", scriptPayload('ScriptValue.Text("\\u0001".repeat(14000))'));
   assert.equal(escaped.success, true);
   assert.equal(escaped.result.delivery, "SAVED", "最终 JSON/MCP 转义后的大小应触发保存，而非只看 Protobuf");

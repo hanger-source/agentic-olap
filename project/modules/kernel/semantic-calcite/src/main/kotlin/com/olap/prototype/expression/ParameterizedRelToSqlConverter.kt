@@ -19,19 +19,26 @@ import org.apache.calcite.sql.type.SqlTypeName
 import org.apache.calcite.sql.type.SqlTypeUtil
 import org.apache.calcite.sql.util.SqlShuttle
 import org.apache.calcite.sql.validate.SqlValidatorUtil
+import org.slf4j.LoggerFactory
+import org.slf4j.MDC
 import java.util.IdentityHashMap
 import java.util.Locale
 import java.util.TreeSet
 
 /** 保留参数、窗口和完成关系边界；Calcite承载关系，精确连接器映射原生SQL节点。 */
 class ParameterizedRelToSqlConverter(private val support: CompilationSupport, private val evaluationBoundaries: Set<RelNode> = emptySet()) : RelToSqlConverter(support.dialect) {
+    private companion object {
+        val log = LoggerFactory.getLogger(ParameterizedRelToSqlConverter::class.java)
+    }
     private val shared = IdentityHashMap<RelNode, SqlIdentifier>()
     private val definitions = mutableListOf<SqlNode>()
 
     override fun aliasContext(aliases: Map<String, RelDataType>, qualified: Boolean): Context =
         object : AliasContext(dialect, aliases, qualified) {
-            override fun toSql(program: RexProgram?, expression: RexNode): SqlNode =
-                subQuery(program, expression, this) ?: super.toSql(program, expression)
+            override fun toSql(program: RexProgram?, expression: RexNode): SqlNode {
+                fieldAccessEvidence(expression)
+                return subQuery(program, expression, this) ?: super.toSql(program, expression)
+            }
         }
 
     override fun selectListContext(selectList: SqlNodeList, ignoreCast: Boolean): Context {
@@ -41,9 +48,18 @@ class ParameterizedRelToSqlConverter(private val support: CompilationSupport, pr
             override fun orderField(ordinal: Int): SqlNode = fields.orderField(ordinal)
             override fun implementor(): SqlImplementor = this@ParameterizedRelToSqlConverter
             override fun getAliasContext(variable: RexCorrelVariable): Context = this@ParameterizedRelToSqlConverter.getAliasContext(variable)
-            override fun toSql(program: RexProgram?, expression: RexNode): SqlNode =
-                subQuery(program, expression, this) ?: super.toSql(program, expression)
+            override fun toSql(program: RexProgram?, expression: RexNode): SqlNode {
+                fieldAccessEvidence(expression)
+                return subQuery(program, expression, this) ?: super.toSql(program, expression)
+            }
         }
+    }
+
+    private fun fieldAccessEvidence(expression: RexNode) {
+        if (expression is RexFieldAccess && log.isDebugEnabled) log.debug(
+            "原生 ROW 字段转换：requestId={}, workerKind={}, referenceType={}, fieldIndex={}, fieldType={}, resultType={}",
+            MDC.get("requestId"), MDC.get("workerKind"), expression.referenceExpr.type.fullTypeString, expression.field.index,
+            expression.field.type.fullTypeString, expression.type.fullTypeString)
     }
 
     private fun subQuery(program: RexProgram?, expression: RexNode, context: Context): SqlNode? {

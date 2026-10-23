@@ -1,16 +1,25 @@
 package com.olap.prototype.query
 
 import com.olap.prototype.calculation.*
+import com.olap.prototype.connector.ConnectorRef
+import com.olap.prototype.contract.JdbcSourceRequirement
 import com.olap.prototype.event.EventIdentity
 import com.olap.prototype.event.RelationAccessPath
 import com.olap.prototype.member.MemberCondition
 import com.olap.prototype.time.TemporalWindow
+import com.olap.prototype.warehouse.contract.SourceBindingRef
 
-/** 引擎实际观察的公开事实，不携带SQL、物理字段、Calcite节点或执行统计猜测。 */
+/** 引擎实际观察的公开事实；执行要求披露本次计算实际采用的精确来源声明，不携带SQL或执行统计猜测。 */
 data class QueryExplanationView(val requestId: String, val summary: Summary, val scopes: List<Scope>, val sources: List<Source>,
     val plan: List<PlanNode>, val compilationScale: CompilationScale?, val executionRequirements: ExecutionRequirements?) {
     data class ExecutionRequirements(val capabilities: List<String>, val relationChecks: List<RelationCheck>,
-        val constraintKinds: List<String>, val sourceCapabilitiesChecked: Boolean)
+        val constraintKinds: List<String>, val sourceCapabilitiesChecked: Boolean, val sourceConstraints: List<SourceConstraints>)
+    data class SourceConstraints(val binding: SourceBindingRef, val connectorRef: ConnectorRef, val dialect: String,
+        val physicalTableId: String, val physicalTableVersion: String, val catalog: String?, val schema: String?,
+        val table: String, val constraints: List<SourceConstraint>)
+    /** columns 将实际采用的原生列名映射至冻结的精确物理列版本；采用不代表来源已兑现保证。 */
+    data class SourceConstraint(val kind: JdbcSourceRequirement.ConstraintKind, val name: String?,
+        val columns: Map<String, String>, val adoptedFor: String)
     data class RelationCheck(val code: String, val scope: QueryStageAnalysis.ScopeId?, val keys: List<String>, val reason: String?)
     data class Summary(val scopeCount: Int, val sourceInputCount: Int, val executionBoundary: String,
         val populationContract: PopulationContract, val actualSourceStatistics: String, val rowNullAttribution: String)

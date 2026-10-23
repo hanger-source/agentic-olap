@@ -53,7 +53,7 @@ data class ScriptThreadObservation(
     val stack: List<String>,
 )
 
-/** observedCount 是观察时的总量；threads 仅为有限样本，truncated 表示细节不完整。 */
+/** observedCount 是观察数量；线程观察排除 JVM 已确认结束的候选，threads 仅为有限样本，truncated 表示细节不完整。 */
 data class ScriptResourceIssue(
     val code: String,
     val message: String,

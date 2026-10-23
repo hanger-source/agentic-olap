@@ -13,7 +13,18 @@ interface SourceAccess : WarehouseSourceInspection, AutoCloseable {
     val configurationParameters: com.olap.prototype.warehouse.contract.SourceConfigurationParameters
     fun validateConfiguration(source: SourceConfiguration)
     fun capabilities(source: SourceConfiguration): SourceCapabilities
+    /**
+     * 纯能力声明：是否能兑现该冻结证据交给优化器的键等约束，不连接来源。
+     * 返回 false 不会把真实非空列改成可空；本次 NOT_NULL 采用仍由 execute 兑现。
+     * execute 可使用同读基础的数据见证，或在稳定 schema 下核验源端真实强制的约束；
+     * 声明、历史 catalog 观察与能力标志本身都不是本次执行的约束证明。
+     */
     fun supportsConstraintVerification(evidence: PhysicalSourceConstraints): Boolean = false
+    /**
+     * 兑现 request 中全部精确来源保证和关系检查后才交付结果。
+     * 原子 statement 内核验必须保证必要检查不因主结果为空、优化器裁剪或结果预算而跳过；
+     * 不满足约束抛出 SourceGuaranteeException，不能兑现则准确拒绝对应能力。
+     */
     fun execute(source: SourceConfiguration, request: SourceSqlRequest, control: WarehouseExecutionControl,
         budget: ResultMaterializationBudget, nativeMemoryBytes: Long, stageNanos: (String, Long) -> Unit): SourceExecutionResult
 

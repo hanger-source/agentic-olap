@@ -140,7 +140,7 @@ agentic-olap call list-publications --payload '{"subjectAreaId":"实际主题域
 
 `scripting` 声明脚本 JVM 池容量、堆预算、每段程序的正式能力调用上限，以及 `nativeLogBytes` 原生诊断预算，准确字段与值使用完整模板。普通 `System.out/err` 经有序帧归属本次请求，日志采集按自身边界处理；原生 FD2 诊断按 worker 生命周期限额，不作为逐请求精确归属。worker 在同一 Subject＋Scopes 归属内复用，本次临时目录由 `olap.temporaryDirectory` 提供；`File(".")` 仍是稳定 worker 私有根。正常结束释放本次状态和受管资源，不承诺把任意 JVM 全局副作用恢复为新进程。
 
-脚本报告的 `workerOutcome` 是借用时的启动或复用，归还时的实际处置由 `workerDisposition=RETAINED/RETIRED` 和 `recycleReasons` 给出。新增且归属未知的平台线程触发保守退役，不认定线程泄漏；线程身份、状态、daemon、上下文类加载器和必要堆栈仅保存在关联 request/worker 的有界私有诊断中，公开报告不返回线程堆栈。
+脚本报告的 `workerOutcome` 是借用时的启动或复用，归还时的实际处置由 `workerDisposition=RETAINED/RETIRED` 和 `recycleReasons` 给出。新增、未确认结束且归属未知的平台线程触发保守退役；JVM 已确认结束的候选不计作残留，未取样或读取失败仍按未知处理。这不认定线程泄漏；线程身份、状态、daemon、上下文类加载器和必要堆栈仅保存在关联 request/worker 的有界私有诊断中，公开报告不返回线程堆栈。
 
 `limits` 分别声明输入预算、直接响应阈值、并发、背压、来源工作进程、原生内存和 SQL 结果预算：
 

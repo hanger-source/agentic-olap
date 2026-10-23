@@ -4,7 +4,7 @@ description: 使用 Agentic OLAP 服务调查业务数据、建设和复用可�
 license: Apache-2.0
 metadata:
   author: hanger
-  version: "0.14.0"
+  version: "0.14.1"
   repository: https://github.com/hanger-source/agentic-olap
 ---
 
@@ -68,7 +68,7 @@ CLI 的 `--payload` 是参数对象；直接用 MCP SDK 时，arguments 包为 `
 
 作者身份用只读 `olap.caller.subject`，不从参数伪造。`olap.temporaryDirectory` 是本次提交的受管临时子目录；`File(".")` 仍是稳定 worker 私有根，不表示本次目录。脚本池在同一 Subject＋Scopes 归属内复用；每次提交重新建立执行状态与受管资源，不承诺任意 JVM 全局副作用自动清为全新状态。
 
-报告中的 `workerOutcome` 是借用时的启动／复用结果；`workerDisposition=RETAINED/RETIRED` 和 `recycleReasons` 描述实际归还结局。新增且归属未知的平台线程会触发保守退役，不能据此断言线程泄漏；有界线程证据只进入私有诊断，公开报告不返回线程堆栈。
+报告中的 `workerOutcome` 是借用时的启动／复用结果；`workerDisposition=RETAINED/RETIRED` 和 `recycleReasons` 描述实际归还结局。新增、未确认结束且归属未知的平台线程触发保守退役；JVM 已确认结束的候选不计作残留，未取样或读取失败不视为已结束。不能据此断言线程泄漏；有界线程证据只进入私有诊断，公开报告不返回线程堆栈。
 
 末表达式返回 `olap.output(response)`、`olap.output(reference)`、普通 `ScriptValue` 或 `Unit`。正式回执须来自本次真实能力调用；普通值支持精确十进制、布尔、文本、NULL 和不可变数组、对象，不能返回任意 JVM 对象。整段程序不是跨所有调用的一个事务；后续失败不会撤销前面已完成的写入或查询，不盲目重放。
 

@@ -31,7 +31,11 @@ class SourceSqlRequest(
             this.outputTypes.keys == this.aliasMapping.values.toSet()) { "source SQL requires its complete output contract" }
     }
 
-    /** 计划解释与执行准入消费同一份要求；不据此声称来源已经兑现能力。 */
+    /**
+     * 计划解释与执行准入消费同一份要求；不据此声称来源已经兑现能力。
+     * 非空原生类型也属于约束采用，不以 JOIN、聚合或唯一键归约为前提。
+     * CONSISTENT_READ 要求保证覆盖本次计算，不限定事务实现，也不要求可重放的版本坐标。
+     */
     val requiredCapabilities: Set<Capability> get() = buildSet {
         if (expectedReadBasis != null) add(Capability.PINNED_READ)
         if (parameters.isNotEmpty() || relationChecks.any { it.parameters.isNotEmpty() })

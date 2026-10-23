@@ -19,10 +19,13 @@ import org.apache.calcite.sql.`fun`.SqlStdOperatorTable as Ops
 import org.apache.calcite.sql.type.SqlTypeName
 import org.apache.calcite.tools.RelBuilder
 import org.apache.calcite.util.ImmutableBitSet
+import org.slf4j.LoggerFactory
+import org.slf4j.MDC
 import java.math.BigDecimal
 
 /** 已分析完成关系的原生发射，类型检验与执行共用同一Rel/Rex算法。 */
 object CompletedRelationCompiler {
+    private val log = LoggerFactory.getLogger(CompletedRelationCompiler::class.java)
     fun compile(builder: RelBuilder, analysis: QueryStageAnalysis.Analysis, display: MutableMap<String, String>,
         parameters: MutableList<JdbcParameter>, relations: Map<String, RelNode>, checks: MutableList<RelationalCheck>) {
         Pipeline(builder, analysis, display, parameters, relations, checks).compile()
@@ -211,6 +214,10 @@ object CompletedRelationCompiler {
             val aggregation = aggregate.aggregation
             val input = SemanticNumericRex.aggregate(b, aggregation, b.field(aggregate.input))
             val function = RelationalAggregates.aggregateFunction(aggregate.aggregation, (b.typeFactory.typeSystem as SemanticCalciteTypeSystem).nativeSupport)
+            if (aggregation is ResultAggregation.Collect && log.isDebugEnabled) log.debug(
+                "原生集合聚合输入：requestId={}, workerKind={}, inputRelId={}, input={}, inputType={}, function={}, distinct={}, groupBy={}, groupingSets={}",
+                MDC.get("requestId"), MDC.get("workerKind"), b.peek().id, aggregate.input, input.type.fullTypeString, function.name, aggregation.distinct,
+                grouping.groupBy, grouping.groupingLevels?.levels?.map { it.groupBy })
             calls.add(b.aggregateCall(function, listOf(input)).distinct(RelationalAggregates.distinct(aggregate.aggregation)).`as`(aggregate.outputAlias))
             if (aggregation is ResultAggregation.Collect && rowCount == null) rowCount = internalAlias()
             if (aggregation is ResultAggregation.Scalar && aggregation.nullPolicy == ResultAggregation.NullPolicy.PROPAGATE) {
@@ -230,7 +237,13 @@ object CompletedRelationCompiler {
         }
         grouping.aggregates.forEach { aggregate ->
             var value: RexNode = b.field(aggregate.outputAlias)
-            if (aggregate.aggregation is ResultAggregation.Collect) value = b.call(Ops.CASE, b.equals(b.field(requireNotNull(rowCount)), b.literal(0)), b.rexBuilder.makeNullLiteral(value.type), value)
+            if (aggregate.aggregation is ResultAggregation.Collect) {
+                val nativeType = value.type
+                value = b.call(Ops.CASE, b.equals(b.field(requireNotNull(rowCount)), b.literal(0)), b.rexBuilder.makeNullLiteral(value.type), value)
+                if (log.isDebugEnabled) log.debug(
+                    "原生集合聚合输出：requestId={}, workerKind={}, relId={}, output={}, nativeType={}, completedType={}, emptyInput=NULL",
+                    MDC.get("requestId"), MDC.get("workerKind"), b.peek().id, aggregate.outputAlias, nativeType.fullTypeString, value.type.fullTypeString)
+            }
             knownCounts[aggregate.outputAlias]?.let { known -> value = b.call(Ops.CASE, b.equals(b.field(known), b.field(requireNotNull(rowCount))), value, b.rexBuilder.makeNullLiteral(value.type)) }
             names.add(aggregate.outputAlias); values.add(SemanticNumericRex.aggregateOutput(b, value, aggregate.aggregation))
         }

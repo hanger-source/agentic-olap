@@ -21,6 +21,11 @@ import org.apache.calcite.tools.RelBuilder
 /** 已有语义的原生映射；不替换业务关系规划或访问连接。 */
 interface CompilationSupport {
     val nativeScalarFunctions: List<NativeScalarFunction>
+    /**
+     * 映射已定义的聚合，不改变参与人口、NULL、重复和权重。
+     * 返回类型与原生舍入必须覆盖所接受的输入类型及支持的执行形态；不能用最终输出容量替代原生算术保证。
+     * 后端会静默产生错误结果或保证仍未知时明确拒绝，不以采样范围、结果 CAST 或执行失败后的替换策略宣称支持。
+     */
     fun nativeAggregate(kind: SqlKind): SqlAggFunction
 
     sealed interface NativeArgument
@@ -88,6 +93,7 @@ interface CompilationSupport {
     data class CollectionValues(val element: SqlNode, val ordinal: SqlNode)
     fun sortCollection(builder: RelBuilder, value: RexNode, descending: Boolean, nullsFirst: Boolean): RexNode
     fun collectionText(builder: RelBuilder, value: RexNode, delimiter: String, nullReplacement: String?): RexNode
+    /** 原生精确 AVG 已兑现的舍入策略；与其类型系统声明的容量共同成立，不代表最终业务输出的舍入。 */
     val decimalAverageRounding: MetricValueContract.Rounding
     fun numericFailure(value: SqlNode, type: RelDataType, position: SqlParserPos): SqlNode
     fun parameter(type: RelDataType, value: Any?): JdbcParameter

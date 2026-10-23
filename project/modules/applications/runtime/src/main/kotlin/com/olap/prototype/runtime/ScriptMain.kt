@@ -50,6 +50,7 @@ private fun executeScript(request: ScriptRequest, transport: CapabilityTransport
                           dslVersion: String, parametersLimit: JsonStructure.Limits, workerDirectory: Path,
                           checkActive: () -> Unit): ScriptResponse {
     val response = ScriptResponse.newBuilder().setRequestId(request.requestId)
+    var encodingOutput = false
     try {
         require(request.hasSource() && request.source.dslApiVersion == dslVersion) { "explicit source must select the deployed DSL API version" }
         require(!request.parametersJson.isEmpty) { "explicit parameters JSON is required" }
@@ -68,10 +69,12 @@ private fun executeScript(request: ScriptRequest, transport: CapabilityTransport
             .addAllThreads(issue.threads.map { thread -> ScriptThreadObservation.newBuilder().setId(thread.id).setName(thread.name)
                 .setState(thread.state).setDaemon(thread.daemon).setContextClassLoader(thread.contextClassLoader).addAllStack(thread.stack).build() }).build() })
         if (result.successful) {
+            encodingOutput = true
             val value = QueryProto.scriptValue(requireNotNull(result.value))
             response.setResult(ProtoBytes.pack(value))
         }
     } catch (failure: Exception) {
+        response.setSuccess(false).clearResult()
         System.err.println("script request failed: requestId=${request.requestId}")
         failure.printStackTrace(System.err)
         val diagnostic = ScriptDiagnostic.newBuilder().setSeverity("ERROR").setMessage((failure.message ?: failure.javaClass.simpleName).take(4_096))
@@ -85,7 +88,8 @@ private fun executeScript(request: ScriptRequest, transport: CapabilityTransport
             .addAllFieldPath(failure.fieldPath).setExpected("WELL_FORMED_UNICODE_TEXT").setActual("UNPAIRED_UTF16_SURROGATE")
         else if (failure is ScriptValueException) diagnostic.setCode(failure.code).setStage("SCRIPT_PARAMETERS")
             .addAllFieldPath(failure.fieldPath.map(Any::toString)).setExpected(failure.expected).setActual(failure.actual)
-        else diagnostic.setCode("SCRIPT_REQUEST_REJECTED").setStage("SCRIPT_INPUT_OR_OUTPUT")
+        else if (encodingOutput) diagnostic.setCode("SCRIPT_OUTPUT_ENCODING_FAILED").setStage("OUTPUT")
+        else diagnostic.setCode("SCRIPT_REQUEST_REJECTED").setStage("SCRIPT_INPUT")
         response.addDiagnostics(diagnostic)
     }
     return response.build()

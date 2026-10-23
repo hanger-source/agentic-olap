@@ -88,7 +88,9 @@ message RegisteredReply { string operation_id = 1; google.protobuf.Any content =
 message QueryExplanationView { string request_id = 1; ExplanationSummary summary = 2; repeated ExplanationScope scopes = 3; repeated ExplanationSource sources = 4; repeated ExplanationPlanNode plan = 5; ExplanationCompilationScale compilation_scale = 6; ExplanationExecutionRequirements execution_requirements = 7; }
 message QueryExplanationContent { oneof kind { ExplanationSummary summary = 1; ExplanationScopes scopes = 2; ExplanationSources sources = 3; ExplanationPlan plan = 4; ExplanationScale scale = 5; ExplanationRequirementSection execution_requirements = 6; } }
 message ExplanationRequirementSection { ExplanationExecutionRequirements value = 1; }
-message ExplanationExecutionRequirements { repeated string capabilities = 1; repeated ExplanationRelationCheck relation_checks = 2; repeated string constraint_kinds = 3; bool source_capabilities_checked = 4; }
+message ExplanationExecutionRequirements { repeated string capabilities = 1; repeated ExplanationRelationCheck relation_checks = 2; repeated string constraint_kinds = 3; bool source_capabilities_checked = 4; repeated ExplanationSourceConstraints source_constraints = 5; }
+message ExplanationSourceConstraints { SourceBinding binding = 1; agentic.olap.semantic.v1.ConnectorRef connector_ref = 2; string dialect = 3; string physical_table_id = 4; string physical_table_version = 5; optional string catalog = 6; optional string schema = 7; string table = 8; repeated ExplanationSourceConstraint constraints = 9; }
+message ExplanationSourceConstraint { string kind = 1; optional string name = 2; map<string,string> columns = 3; string adopted_for = 4; }
 message ExplanationRelationCheck { string code = 1; agentic.olap.semantic.v1.ScopeId scope = 2; repeated string keys = 3; optional string reason = 4; }
 message ExplanationScopes { repeated ExplanationScope items = 1; int32 total_items = 2; optional int32 next_offset = 3; }
 message ExplanationSources { repeated ExplanationSource items = 1; int32 total_items = 2; optional int32 next_offset = 3; }

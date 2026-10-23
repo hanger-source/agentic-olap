@@ -4,6 +4,7 @@ import com.olap.prototype.query.QueryExplanationView as View
 import com.olap.prototype.query.QueryExplanationContent as Content
 import com.olap.prototype.query.QueryStageAnalysis
 import com.olap.prototype.calculation.Calculation
+import com.olap.prototype.contract.JdbcSourceRequirement
 import com.olap.prototype.wire.query.*
 
 /** 解释只是已观测事实的正式投影；边界不会重新推导键、人口或贡献关系。 */
@@ -33,11 +34,25 @@ object QueryExplanationProto {
     }
     fun toProto(v: View.ExecutionRequirements): ExplanationExecutionRequirements = ExplanationExecutionRequirements.newBuilder()
         .addAllCapabilities(v.capabilities).addAllConstraintKinds(v.constraintKinds).setSourceCapabilitiesChecked(v.sourceCapabilitiesChecked)
+        .addAllSourceConstraints(v.sourceConstraints.map(::toProto))
         .addAllRelationChecks(v.relationChecks.map { check -> ExplanationRelationCheck.newBuilder().setCode(check.code).addAllKeys(check.keys)
             .apply { check.scope?.let { setScope(SemanticProto.toProto(it)) }; check.reason?.let(::setReason) }.build() }).build()
     fun fromProto(v: ExplanationExecutionRequirements) = View.ExecutionRequirements(v.capabilitiesList.toList(), v.relationChecksList.map { check ->
         View.RelationCheck(check.code, if (check.hasScope()) SemanticProto.fromProto(check.scope) else null, check.keysList.toList(), if (check.hasReason()) check.reason else null)
-    }, v.constraintKindsList.toList(), v.sourceCapabilitiesChecked)
+    }, v.constraintKindsList.toList(), v.sourceCapabilitiesChecked, v.sourceConstraintsList.map(::fromProto))
+    fun toProto(v: View.SourceConstraints): ExplanationSourceConstraints = ExplanationSourceConstraints.newBuilder()
+        .setBinding(QuerySourceProto.toProto(v.binding)).setConnectorRef(SemanticProto.toProto(v.connectorRef)).setDialect(v.dialect)
+        .setPhysicalTableId(v.physicalTableId).setPhysicalTableVersion(v.physicalTableVersion).setTable(v.table)
+        .addAllConstraints(v.constraints.map { constraint -> ExplanationSourceConstraint.newBuilder().setKind(constraint.kind.name)
+            .putAllColumns(constraint.columns).setAdoptedFor(constraint.adoptedFor).apply { constraint.name?.let(::setName) }.build() })
+        .apply { v.catalog?.let(::setCatalog); v.schema?.let(::setSchema) }.build()
+    fun fromProto(v: ExplanationSourceConstraints): View.SourceConstraints {
+        require(v.hasBinding() && v.hasConnectorRef()) { "source constraint explanation requires an exact source and connector" }
+        return View.SourceConstraints(QuerySourceProto.fromProto(v.binding), SemanticProto.fromProto(v.connectorRef), v.dialect,
+            v.physicalTableId, v.physicalTableVersion, if (v.hasCatalog()) v.catalog else null, if (v.hasSchema()) v.schema else null,
+            v.table, v.constraintsList.map { constraint -> View.SourceConstraint(JdbcSourceRequirement.ConstraintKind.valueOf(constraint.kind),
+                if (constraint.hasName()) constraint.name else null, constraint.columnsMap.toMap(), constraint.adoptedFor) })
+    }
     fun toProto(v: View.PopulationContract): PopulationContract = PopulationContract.newBuilder().setFormatVersion(v.formatVersion).setRequired(v.required)
         .addAllModes(v.modes.map { PopulationMode.newBuilder().setMode(it.mode).addAllFields(it.fields).setGroups(it.groups).apply { it.inputs?.let(::setInputs) }.build() })
         .setScope(v.scope).setGrain(v.grain).setUnmatchedMetrics(v.unmatchedMetrics).setCalculationMetric(v.calculationMetric).setEmptyPopulation(v.emptyPopulation).setCoverage(v.coverage).build()
