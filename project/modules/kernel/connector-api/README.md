@@ -129,7 +129,7 @@ lowering 结果在本次计算内持有与精确引用对应的同一编译支�
 独立 Kotlin 插件工程从 SDK 仓库声明宿主提供的公开构件，例如 Gradle Kotlin DSL：
 
 ```kotlin
-plugins { kotlin("jvm") version "2.2.21" }
+plugins { kotlin("jvm") version "2.4.21" }
 
 repositories {
     mavenCentral()

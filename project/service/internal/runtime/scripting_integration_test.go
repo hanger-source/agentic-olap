@@ -205,6 +205,11 @@ val originalParameters = parameters
 val observedSources = olap.sources.list(EmptyRequest)
 data class Holder<T>(val value: T)
 val heldSources = Holder(observedSources)
+val selectedTotals = when (observedSources.items.size) {
+    0 -> listOf("first" to 2, "second" to 3).map { (label, amount) -> label to amount * 2 }
+    else -> emptyList()
+}
+check(selectedTotals == listOf("first" to 4, "second" to 6))
 fun <T> Holder<T>.unwrap(): T = value
 fun AvailableSources.sourceCount(): Int = items.size
 fun currentLabel(): String = parameters.text("label")
@@ -222,6 +227,7 @@ heldSources`, map[string]any{"label": "first"}))
 check(originalParameters.text("label") == "first")
 check(currentLabel() == "second")
 check(heldSources.unwrap().sourceCount() == 0)
+check(selectedTotals.sumOf { (_, amount) -> amount } == 10)
 println("before-formal-output")
 olap.output(heldSources.unwrap())
 System.err.println("between-formal-outputs")

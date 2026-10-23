@@ -187,7 +187,7 @@ class ReleaseFreezer(private val physicalAssets: PhysicalAssetGovernanceService,
             val reason = if (available) null else "精确采用在此来源事件和层级下没有获选的维度映射，无法进入可执行目录"
             val target = "adoption:${adoption.adoptionId};analysis-dimension:${dimension.id}"
             val targetVersion = "adoption:${adoption.adoptionId}@${adoption.adoptionVersion};metric:${metric.id}@v$metricVersion|event:${event.id}@v${event.currentVersion}|analysisDimension:${dimension.id}@v${dimension.version}|level:${level.levelCode}"
-            val identity = arrayOf(releaseId, releaseVersion, scenario.scenarioId, scenario.scenarioVersion, adoption.adoptionId, adoption.adoptionVersion,
+            val identity = arrayOf<Any>(releaseId, releaseVersion, scenario.scenarioId, scenario.scenarioVersion, adoption.adoptionId, adoption.adoptionVersion,
                 dimension.id, dimension.version, level.levelCode, event.id, event.currentVersion)
             capabilities.add(ReleaseMetricDimensionCapabilityRecord(releaseObjectId("rmdc", *identity), releaseId, releaseVersion, subjectAreaId, scenario.scenarioId,
                 scenario.scenarioVersion, adoption.adoptionId, adoption.adoptionVersion, metric.id, metricVersion, event.id, event.currentVersion,

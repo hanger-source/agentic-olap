@@ -31,6 +31,6 @@ class ReplConfiguration(
     }
 
     companion object {
-        const val KOTLIN_VERSION = "2.2.21"
+        const val KOTLIN_VERSION = "2.4.21"
     }
 }

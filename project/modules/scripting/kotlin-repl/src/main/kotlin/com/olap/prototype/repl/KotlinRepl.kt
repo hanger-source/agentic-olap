@@ -73,7 +73,7 @@ class KotlinRepl(private val configuration: ReplConfiguration) : AutoCloseable {
                     }) continuation = ReplContinuation.RESET_REQUIRED
                 if (continuation == ReplContinuation.AVAILABLE && previousCompiled == null &&
                     state.evaluator.lastEvaluatedSnippet == null) {
-                    // K2 2.2.21 在语义拒绝前已把首段登记到 FIR，但此时尚未生成
+                    // K2 在语义拒绝前已把首段登记到 FIR，但此时尚未生成
                     // ReplState（KT-74584）。空的成功历史不能发布这份半初始化上下文。
                     // 释放后，下次按同一配置创建官方状态；不求值空片段或重放作者源码。
                     compilation = null

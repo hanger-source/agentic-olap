@@ -1,8 +1,8 @@
 # Agentic OLAP · 版本与变更
 
-## 0.15.0
+## 0.15.1
 
-Kotlin 作者入口采用显式持续 REPL 会话。独立 `kotlin-repl` 模块使用官方 K2 编译与 JVM 求值历史，不依赖 OLAP；应用运行入口注入正式客户端和当前参数。会话固定拥有沙箱 JVM，后续片段可直接引用既有模型、函数和变量。产品、Kotlin、DSL、classpath 及 JVM target 在会话内固定；进程丢失不重放源码，也不恢复语言对象。
+Kotlin 作者入口采用显式持续 REPL 会话。独立 `kotlin-repl` 模块使用官方 K2 编译与 JVM 求值历史，不依赖 OLAP；应用运行入口注入正式客户端和当前参数。编译器、标准库与脚本环境统一为 Kotlin 2.4.21，采用官方解构表达式修复，不重写作者源码。会话固定拥有沙箱 JVM，后续片段可直接引用既有模型、函数和变量。产品、Kotlin、DSL、classpath 及 JVM target 在会话内固定；进程丢失不重放源码，也不恢复语言对象。
 
 公开 `execute-script`、`wait-script`、`cancel-script`、`read-script-session`、`reset-script-session` 和 `close-script-session`。首次提交可建立会话，每次执行要求明确 `executionId`；相同身份与输入观察原执行，不同输入拒绝。同一会话同时执行一段代码，忙时明确拒绝；等待时长与执行期限分别生效。重置及关闭主动停止活动执行，核对旧 JVM 退出后再处理目录及容量。
 

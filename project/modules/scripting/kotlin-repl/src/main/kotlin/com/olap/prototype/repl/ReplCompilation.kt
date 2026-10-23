@@ -31,7 +31,7 @@ internal class ReplCompilation(configuration: ReplConfiguration) : AutoCloseable
                 fileExtension("kts")
                 defaultImports.put(configuration.defaultImports)
                 dependencies(JvmDependency(configuration.classpath.map { it.toFile() }))
-                compilerOptions("-language-version", "2.2", "-api-version", "2.2", "-no-stdlib", "-no-reflect")
+                compilerOptions("-language-version", "2.4", "-api-version", "2.4", "-no-stdlib", "-no-reflect")
                 jvm { jvmTarget(configuration.jvmTarget) }
             }
             // 使用官方默认的 FIR REPL history provider 与 snippet source 声明。
