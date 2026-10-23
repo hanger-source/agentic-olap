@@ -26,6 +26,10 @@ HTTP 或其他后端由使用方提供匹配其 SQL 后端及实际协议的插�
 
 集合展开的 `expandCollection(outputType,tableAlias)` 返回封闭的 `CollectionExpansion.Relation` 或 `InputProjection` 计划：前者映射原生 FROM 关系，后者映射完整输入上的单个 SELECT-list SRF；插件分别提供生成与完整元素／序号取值表达式。核心负责输入透传、INNER／OUTER 人口、重复度与缺行补 NULL，不开放完整输入的任意关系改写。投影式 OUTER 另需 `COLLECTION_PROJECTION_OUTER`，兑现核心的数组长度判断、typed singleton 哨兵、存在标记与整元素 NULL；未兑现时编译明确拒绝。具体合同与实现入口见随 npm 安装的 SDK `API.md`。使用真实表行或聚合结果回放原 Query，常量数组成功不能替代相关展开验收。
 
+集合生成、展开和来源物理传递分别判断。一个 Query 可能只构造完整 ROW 集合，再经 JOIN 继续组合，并未使用集合展开；这类失败不能直接归到 LATERAL 或 SRF 放置。逻辑 ARRAY／ROW 的原生构造、CAST 与聚合由既有方言和聚合映射承担；能力发现不承诺所有来源计划均可执行。结果列合同仍须满足 ARRAY 或 STRUCT／JAVA_OBJECT 容器类别，并交付递归类型化值，不能仅更换运输 JSON 或类型标签宣称接通。若目标来源存在可用替代表示，先明确其完整 NULL、去重、字段与后续计算语义，再判断既有入口能否表达。
+
+按主体分组收集完整 ROW，结果是该主体下这些 tuple 的集合；若问题要求保留每个对象的归属，须将真实对象身份继续留在分组与输出中。已保留的类别或选项 ID 不同，即使显示值相同也不会合并；未进入 ROW 的对象归属不会自动保留。没有关联、整体 NULL 与字段为 NULL 的真实记录分别处理。
+
 ## 登记数据源
 
 保留已初始化配置中的其他字段，设置：

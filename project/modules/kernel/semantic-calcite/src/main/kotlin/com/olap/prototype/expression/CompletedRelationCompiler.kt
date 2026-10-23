@@ -208,6 +208,7 @@ object CompletedRelationCompiler {
         val reserved = (b.peek().rowType.fieldNames + grouping.aggregates.map { it.outputAlias }).toCollection(linkedSetOf())
         val calls = mutableListOf<RelBuilder.AggCall>()
         val knownCounts = linkedMapOf<String, String>()
+        val mayEmitEmptyGroup = grouping.groupBy.isEmpty() || grouping.groupingLevels?.levels?.any { it.groupBy.isEmpty() } == true
         var rowCount: String? = null
         fun internalAlias() = SemanticNativeTypes.internalAlias(reserved, "__regroup_count_")
         grouping.aggregates.forEach { aggregate ->
@@ -219,7 +220,7 @@ object CompletedRelationCompiler {
                 MDC.get("requestId"), MDC.get("workerKind"), b.peek().id, aggregate.input, input.type.fullTypeString, function.name, aggregation.distinct,
                 grouping.groupBy, grouping.groupingLevels?.levels?.map { it.groupBy })
             calls.add(b.aggregateCall(function, listOf(input)).distinct(RelationalAggregates.distinct(aggregate.aggregation)).`as`(aggregate.outputAlias))
-            if (aggregation is ResultAggregation.Collect && rowCount == null) rowCount = internalAlias()
+            if (aggregation is ResultAggregation.Collect && mayEmitEmptyGroup && rowCount == null) rowCount = internalAlias()
             if (aggregation is ResultAggregation.Scalar && aggregation.nullPolicy == ResultAggregation.NullPolicy.PROPAGATE) {
                 val known = internalAlias(); calls.add(b.count(input).`as`(known)); knownCounts[aggregate.outputAlias] = known
                 if (rowCount == null) rowCount = internalAlias()
@@ -239,10 +240,11 @@ object CompletedRelationCompiler {
             var value: RexNode = b.field(aggregate.outputAlias)
             if (aggregate.aggregation is ResultAggregation.Collect) {
                 val nativeType = value.type
-                value = b.call(Ops.CASE, b.equals(b.field(requireNotNull(rowCount)), b.literal(0)), b.rexBuilder.makeNullLiteral(value.type), value)
+                if (mayEmitEmptyGroup)
+                    value = b.call(Ops.CASE, b.equals(b.field(requireNotNull(rowCount)), b.literal(0)), b.rexBuilder.makeNullLiteral(value.type), value)
                 if (log.isDebugEnabled) log.debug(
-                    "原生集合聚合输出：requestId={}, workerKind={}, relId={}, output={}, nativeType={}, completedType={}, emptyInput=NULL",
-                    MDC.get("requestId"), MDC.get("workerKind"), b.peek().id, aggregate.outputAlias, nativeType.fullTypeString, value.type.fullTypeString)
+                    "原生集合聚合输出：requestId={}, workerKind={}, relId={}, output={}, nativeType={}, completedType={}, emptyGroupGuard={}",
+                    MDC.get("requestId"), MDC.get("workerKind"), b.peek().id, aggregate.outputAlias, nativeType.fullTypeString, value.type.fullTypeString, mayEmitEmptyGroup)
             }
             knownCounts[aggregate.outputAlias]?.let { known -> value = b.call(Ops.CASE, b.equals(b.field(known), b.field(requireNotNull(rowCount))), value, b.rexBuilder.makeNullLiteral(value.type)) }
             names.add(aggregate.outputAlias); values.add(SemanticNumericRex.aggregateOutput(b, value, aggregate.aggregation))

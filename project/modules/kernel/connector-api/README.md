@@ -89,6 +89,10 @@ AVG 的类型容量、算术正确性与舍入必须共同成立。`typeSystem.d
 
 集合结果、逐项展开、排序和文本显示分别声明 `COLLECTION_RESULTS/EXPANSION/SORT/TEXT` 能力。`sortCollection` 映射明确的方向及 NULL 顺序，`collectionText` 映射明确的分隔符与 NULL 替代；不能把数组提前解码成字符串代替这些运算。
 
+逻辑 ROW／ARRAY 不指定后端必须采用某一种记录或数组类型。`nativeAggregate` 返回的聚合函数参与已定型输入的类型推导，`SqlDialect.getCastSpec` 接收完整 `RelDataType`，`prepareUnparse(RexNode)` 可处理仍保有类型的构造及字段访问。原生映射须使记录构造、类型转换、集合去重、整体 NULL 与字段 NULL、字段读取及实际采用的后续运算一致成立；只替换最终运输包装不能解决中间物理算子的类型传递问题。结果仍须交付 `SqlResultValues.ArrayValue/RowValue` 并逐值核验；来源响应元数据或明确的结果列合同须满足 ARRAY 或 STRUCT／JAVA_OBJECT 容器类别。内部编码载体也须提供真实且可核验的完整映射，不能仅替换类型标签，或据现有入口直接声称任意编码已支持。
+
+`COLLECTION_RESULTS` 和精确输入的聚合映射描述编译支持，不代替完整来源 Query 的物理执行事实。插件可在既有类型及运算映射中拒绝不能兑现的输入；一个常量、单对象或局部原生调用成功，不扩大为所有关联、分组和协议运输形态的保证。实际失败需区分核心主 SQL、访问实现增加的运输结构及来源物理边界；支持范围由真实映射决定，不按错误文字将已成立的其他集合路径一并关闭。
+
 `expandCollection(outputType,tableAlias)` 在 Rel 转 SQL 时返回 `CompilationSupport.CollectionExpansion` 的原生放置计划。`outputType.fieldList` 依次声明完整元素、从 1 开始的位置两列的名称和类型，保留 ROW 字段顺序、递归类型及 NULL 性质。两种计划分别对应原生 FROM 与输入投影 SRF；精确插件在编译时明确选择，不在来源执行失败后切换。
 
 - `CollectionExpansion.Relation(generate)`：核心将当前输入行的 ARRAY 引用交给 `generate`，取得 `CollectionRows(relation,element,ordinal)`。`relation` 是使用给定 `tableAlias` 的原生 FROM AST；核心构造 CROSS／LEFT JOIN、完整输入透传与输出投影。必要的表函数 LATERAL 语法由插件映射。
@@ -101,6 +105,8 @@ AVG 的类型容量、算术正确性与舍入必须共同成立。`typeSystem.d
 序号从 1 开始，实际元素的 `ordinal` 必须非 NULL；不直接暴露原生数组下界，不凭元素或所有 ROW 字段为 NULL 推断缺行。映射不得自行过滤、去重、归约、复制输入或改变求值作用域；生成与取值针对同一条输入记录的同一绑定数组，中间 ARRAY／ROW 保留类型与身份，不能压成展示字符串。运行验证须覆盖真实表行与聚合输入、空／NULL 数组、整体 NULL ROW、字段全 NULL 的非空 ROW、重复元素及位置规范化。其他后端上的通用 fixture 或常量数组成功不替代目标后端的正式 Query 验收；固定零行／一行外壳可能被折叠，不能证明物理扫描或原生引擎之间的集合类型传递已经成立。
 
 零条输入关系与一条输入记录上的 NULL／空数组是不同人口。带分组键的聚合在零条输入时不产生分组；集合聚合的 typed NULL 分支保留该聚合声明的空输入含义，不会创建分组。INNER 展开不制造输入记录，OUTER 只保留实际存在的输入记录。插件不能用预先 COUNT、跳过执行、额外分组、删除透传列或外围 SQL 改写来掩盖来源错误。
+
+REGROUP 的 COLLECT 仅在全局聚合或存在空 grouping set 时生成空输入 NULL 保护。没有空分组集合的实际分组至少包含一条输入，不再添加恒不命中的集合空输入 CASE；NULL 分组键、真实 NULL 元素及字段全 NULL 的 ROW 均仍是实际输入。标量 PROPAGATE 的非空计数检查与窗口帧的空帧规则分别处理，不由这项分组事实消除。
 
 `COLLECTION_RESULTS/EXPANSION/SORT/TEXT` 与投影式 OUTER 的能力缺失均在来源提交前使用 `NATIVE_COMPILATION_CAPABILITY_MISSING` 拒绝，保留实际缺少的 `capability` 和触发编译的 `operation`。插件声明支持后，原生 ARRAY／ROW 类型、聚合结果描述符、SRF 放置与字段读取仍须共同成立；`InputProjection` 提供放置入口，不代替来源的类型保证。
 
