@@ -22,7 +22,8 @@ object JdbcIdentifiers {
     }
     fun qualified(metadata: DatabaseMetaData, table: JdbcTableConstraints.Table): String {
         var name = table.schema?.let { quote(metadata, it) + "." } .orEmpty() + quote(metadata, table.table)
-        val catalog = table.catalog
+        // 与来源合同一致：空 catalog 表示未限定，不能生成名为空串的 SQL 标识符。
+        val catalog = table.catalog?.takeIf { it.isNotEmpty() }
         if (catalog != null) {
             if (metadata.supportsCatalogsInDataManipulation()) {
                 val separator = metadata.catalogSeparator

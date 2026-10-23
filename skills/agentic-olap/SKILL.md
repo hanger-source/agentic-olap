@@ -4,7 +4,7 @@ description: 使用 Agentic OLAP 服务调查业务数据、建设和复用可�
 license: Apache-2.0
 metadata:
   author: hanger
-  version: "0.13.0"
+  version: "0.13.1"
   repository: https://github.com/hanger-source/agentic-olap
 ---
 

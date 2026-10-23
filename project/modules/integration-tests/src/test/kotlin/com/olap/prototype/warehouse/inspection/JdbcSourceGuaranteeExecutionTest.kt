@@ -139,6 +139,7 @@ class JdbcSourceGuaranteeExecutionTest {
                 frozen.connectorRef, null, null, null, null, JdbcTableConstraints(emptyList(), emptyList(), emptyList(), emptyList()),
                 frozen.columnVersionRefs, emptyList(), StructureProvenance(StructureProvenance.Kind.DECLARED, "source-owner", "1"))
             val adopted = binding.copy(sourceConstraints = declared,
+                catalogName = if (dialect == "h2") "" else binding.catalogName,
                 physicalColumnTypes = binding.physicalColumnTypes.mapValues { (_, type) -> type.copy(nullable = false) })
             val amount = binding.physicalColumnBindings.entries.single { it.value == "amount" }.key
             val inputs = CalciteQueryCompiler.inputs(listOf(adopted), setOf(amount), emptySet(), connectors)
