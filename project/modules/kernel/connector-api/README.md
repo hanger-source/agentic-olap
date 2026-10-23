@@ -2,7 +2,7 @@
 
 `connector-api` 为独立后端实现提供共同合同和 Calcite 1.42.0 的公开类型。它不依赖治理、服务应用或内部编译实现。连接器实现已定义语义的原生映射与来源访问，业务指标、对象资格、数量、NULL 与查询组织仍由语义定义和共同内核拥有。
 
-SDK 按精确发行标签发布到 JitPack。`agentic-olap sdk` 返回本版 API、随包文档、Maven 仓库及 `artifacts` 中的完整坐标；`sdk --repository` 只输出仓库地址。构件使用 `com.github.hanger-source.agentic-olap` group，版本为 `v` 加产品版本，公开入口为 `connector-api`，可复用 JDBC 支持为 `warehouse-jdbc`，应用装载器为 `connector-loader`。使用命令返回的精确版本，不使用 SNAPSHOT。API 标识为 `agentic-olap-connector/v11-kotlin-native-collection-relations-calcite-1.42`。
+SDK 按精确发行标签发布到 JitPack。`agentic-olap sdk` 返回本版 API、随包文档、Maven 仓库及 `artifacts` 中的完整坐标；`sdk --repository` 只输出仓库地址。构件使用 `com.github.hanger-source.agentic-olap` group，版本为 `v` 加产品版本，公开入口为 `connector-api`，可复用 JDBC 支持为 `warehouse-jdbc`，应用装载器为 `connector-loader`。使用命令返回的精确版本，不使用 SNAPSHOT。API 标识为 `agentic-olap-connector/v12-kotlin-native-collection-placement-calcite-1.42`。
 
 SDK 的 JAR、POM 由插件工程的 Gradle 从 JitPack 匿名取得，第三方传递依赖从 Maven Central 取得。插件开发仍需 Kotlin/Gradle 工具链；运行产品无需这些构建工具。部署到其他服务前核对该服务的实际 API，不能把本地安装版本当作远程运行版本。
 
@@ -19,7 +19,7 @@ SDK 的 JAR、POM 由插件工程的 Gradle 从 JitPack 匿名取得，第三方
 ```json
 {
   "connectorRef": {"id": "backend", "version": "1.0.0", "sha256": "完整插件组摘要"},
-  "apiVersion": "agentic-olap-connector/v11-kotlin-native-collection-relations-calcite-1.42",
+  "apiVersion": "agentic-olap-connector/v12-kotlin-native-collection-placement-calcite-1.42",
   "jars": [
     {"file": "connector-backend.jar", "sha256": "该JAR摘要"},
     {"file": "backend-jdbc.jar", "sha256": "该JAR摘要"}
@@ -75,15 +75,22 @@ SDK 的 JAR、POM 由插件工程的 Gradle 从 JitPack 匿名取得，第三方
 
 集合结果、逐项展开、排序和文本显示分别声明 `COLLECTION_RESULTS/EXPANSION/SORT/TEXT` 能力。`sortCollection` 映射明确的方向及 NULL 顺序，`collectionText` 映射明确的分隔符与 NULL 替代；不能把数组提前解码成字符串代替这些运算。
 
-`expandCollection(collection,outputType,tableAlias)` 在 Rel 转 SQL 时接收当前输入行中已限定来源的 ARRAY 表达式和内核决定的完整输出类型。`collection` 可以直接是输入列引用，不附带读取该值的子查询。`outputType.fieldList` 依次声明完整元素、实际位置两列的名称和类型，保留 ROW 字段顺序、递归类型及 NULL 性质。返回 `CompilationSupport.CollectionExpansion(relation,element,ordinal)`：`relation` 为使用给定别名的原生 FROM AST，`element` 与 `ordinal` 为针对这条输入记录和展开关系的取值表达式。插件按后端语法在该关系中表达必要的 LATERAL；核心不额外强制包一层相关派生表。
+`expandCollection(outputType,tableAlias)` 在 Rel 转 SQL 时返回 `CompilationSupport.CollectionExpansion` 的原生放置计划。`outputType.fieldList` 依次声明完整元素、从 1 开始的位置两列的名称和类型，保留 ROW 字段顺序、递归类型及 NULL 性质。两种计划分别对应原生 FROM 与输入投影 SRF；精确插件在编译时明确选择，不在来源执行失败后切换。
 
-例如，支持数组下标的来源可以用表函数产生真实下标：`relation` 映射为 `GENERATE_SUBSCRIPTS(input.items,1) AS expanded(i)`，`element` 映射为 `input.items[expanded.i]`，`ordinal` 映射为 `expanded.i - ARRAY_LOWER(input.items,1) + 1` 并按所给整数类型定型。直接返回完整元素的来源也可以使用 `UNNEST(input.items) WITH ORDINALITY`。这说明映射所需的三部分，不宣称任意后端都支持示例语法或相关执行。
+- `CollectionExpansion.Relation(generate)`：核心将当前输入行的 ARRAY 引用交给 `generate`，取得 `CollectionRows(relation,element,ordinal)`。`relation` 是使用给定 `tableAlias` 的原生 FROM AST；核心构造 CROSS／LEFT JOIN、完整输入透传与输出投影。必要的表函数 LATERAL 语法由插件映射。
+- `CollectionExpansion.InputProjection(generate,values)`：核心在完整输入上添加恰好一个 `generate(array)` 返回的 SELECT-list SRF，并将生成值绑定为内部列；下一层调用 `values(array,generated)` 取得 `CollectionValues(element,ordinal)`。两个回调只使用各自拿到的当前作用域引用，不能捕获另一层的字段别名。原生生成值可以是下标或完整有类型值，不能将多个独立 SRF 放入同一生成表达式。
 
-内核拥有输入人口、输出投影和 INNER／OUTER：NULL 数组或空数组在 INNER 下无记录，在 OUTER 下补一个 NULL 元素及 NULL 序号；实际 NULL 元素有自己的非 NULL 序号，重复元素不丢弃。序号从 1 开始，不直接暴露可能具有其他下界的原生数组下标；`ordinal` 必须在实际元素上非 NULL，并在 OUTER 无匹配时保持 NULL。核心据此为 OUTER 的元素投影补整个 NULL，避免重建 ROW 时制造“成员全 NULL 的非空 ROW”。原生展开扁平化 ROW 字段时，插件仍须保留或重建完整元素，不能仅凭所有成员为 NULL 判断整个 ROW 为 NULL。映射不得自行过滤、去重、归约或扩大输入人口，无法兑现的形态应明确拒绝。
+例如，位置生成器的原生下标可由插件映射为 `element=array[index]`，`ordinal=index-array_lower(array,1)+1` 并按输出整数类型定型。FROM 表函数和 SELECT-list SRF 的放置由各自计划表达；插件不需要解析核心别名、取得完整输入关系、复制聚合或改写生成后的 SQL。原生类型、下标取值与数组下界由插件负责，不宣称任意后端都具有相同语法或能力。
+
+内核拥有输入人口、输出投影和 INNER／OUTER：NULL 数组或空数组在 INNER 下无记录，在 OUTER 下补一个 NULL 元素及 NULL 序号；实际 NULL 元素有自己的非 NULL 序号，重复元素不丢弃。FROM 计划由核心 LEFT JOIN 并依据真实位置的非空性补整元素 NULL。输入投影计划的 OUTER 另需明确声明 `COLLECTION_PROJECTION_OUTER`：核心用标准 CARDINALITY 绑定存在标记，将 NULL／空数组替换为仅含一个 typed NULL 的同元素类型数组；生成后按存在标记将整个元素和序号置 NULL，原始输入列仍原样透传。该能力要求插件的原生类型与方言兑现 CARDINALITY、typed singleton ARRAY、CASE 和完整 ROW NULL 的组合；接受的类型超出保证时明确拒绝。缺少能力时在提交来源前返回 `NATIVE_COMPILATION_CAPABILITY_MISSING`、`capability=COLLECTION_PROJECTION_OUTER`、`operation=EXPAND_COLLECTION_OUTER`，不将 INNER 非空样本当作 OUTER 证明。
+
+序号从 1 开始，实际元素的 `ordinal` 必须非 NULL；不直接暴露原生数组下界，不凭元素或所有 ROW 字段为 NULL 推断缺行。映射不得自行过滤、去重、归约、复制输入或改变求值作用域；生成与取值针对同一条输入记录的同一绑定数组。运行验证须覆盖真实表行与聚合输入、空／NULL 数组、整体 NULL ROW、字段全 NULL 的非空 ROW、重复元素及位置规范化。其他后端上的通用 fixture 或常量数组成功不替代目标后端的正式 Query 验收。
 
 `ROW_FIELD` 的逻辑字段索引仍由内核验证。需要原生匿名字段名或专用字段运算的插件，可以在 `SqlDialect.prepareUnparse(RexNode)` 处理 `RexFieldAccess`：此时保有 `referenceExpr.type`、`field.index` 和结果类型，再转换为插件自己的有类型 Rex 调用及 SQL AST。不要等普通 SQL 标识符已经生成后解析 `EXPR$N`，也不能把逻辑字段名普遍替换成某个后端的 `fN`。
 
 `textIdentityEquals(builder,left,right)` 返回两个真实文本操作数的完整精确身份 BOOLEAN 比较，保留 NULL 三值逻辑，不要求产生二进制中间值。原生等号只有在插件能够兑现类型、编码及 collation 的适用保证时才可直接使用。后端是否保留 HashJoin、过滤下推及运行时过滤，由实际执行计划确认；此映射不授予插件改写业务人口、LEFT 补空或重复度的权限。
+
+插件构造原生 Rex 函数时，应通过 Calcite 的正式运算符合同如实披露 NULL 传播。仅声明可空返回类型不足以证明输入 NULL 时结果必为 NULL；严格传播且非 NULL 输入不产生 NULL 的函数可通过 `SqlOperator.getStrongPolicyInference()` 返回 `Strong.Policy.ANY`。内置 DuckDB `ENCODE`、H2 `RAWTOHEX/STRINGTOUTF8` 按实际编码函数语义声明这一性质，SQL 与精确身份比较保持原样。核心据此分析过滤条件排除 NULL 的事实；函数语义未知或证明不完整时，保留运行关系检查，不能用声明跳过人口、NULL、重复度或数量保证。
 
 lowering 结果在本次计算内持有与精确引用对应的同一编译支持，结果转换显式使用该支持；它不写入发布、JSON 或另一份原生类型表。连接器不能用不透明业务 SQL 替换完整查询。
 

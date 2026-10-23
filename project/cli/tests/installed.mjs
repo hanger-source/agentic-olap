@@ -70,6 +70,30 @@ function program(parameters) {
   assert(report.calls.length > 1, "真实安装验收必须在程序中继续调用正式能力");
   return report.value.object.values;
 }
+function authorContract(source, expected) {
+  const result = command(["call", "execute-script", "--payload", JSON.stringify({
+    source, sourceName: "author-contract.olap.kts", dslApiVersion, parameters: {},
+  }), "--home", home]);
+  const response = JSON.parse(JSON.parse(result.stdout).content[0].text);
+  if (!expected) {
+    assert.equal(result.status, 0, result.stderr + result.stdout);
+    assert.equal(response.success, true);
+    assert.equal(response.result.success, true);
+    assert.equal(response.result.calls.length, 1, "合法构造后应继续调用一次真实来源读取");
+    return;
+  }
+  assert.equal(result.status, 1, "非法作者构造必须拒绝");
+  assert.equal(response.success, false);
+  assert.equal(response.result.calls.length, 0, "非法构造不得进入后续业务能力调用");
+  const diagnostic = response.result.diagnostics.find(item => item.code === expected.code);
+  assert(diagnostic, JSON.stringify(response.result.diagnostics));
+  assert.equal(diagnostic.stage, "CONTRACT_INPUT");
+  assert.deepEqual(diagnostic.field_path, expected.path);
+  assert.equal(diagnostic.expected, expected.expected);
+  assert.equal(diagnostic.actual, expected.actual);
+  assert.equal(diagnostic.location.source_name, "author-contract.olap.kts");
+  assert(diagnostic.location.start_line > 0, "构造拒绝应保留实际脚本位置");
+}
 function verifySalesResult(reference) {
   const page = call("read-query-result", { resultReference: reference, offset: 0, limit: 10 });
   assert.equal(page.totalRows, 1);
@@ -170,6 +194,35 @@ try {
   assert.equal(failed.success, false);
   assert(failed.result.diagnostics.some(diagnostic => diagnostic.stage === "COMPILE"), "应给出脚本编译诊断");
   assert.equal(failed.result.calls.length, 0, "构造类型错误前不得调用业务能力");
+  const callRules = call("describe-script-api", { type: "com.olap.prototype.calculation.Calculation.Call" }).rules.targetRules.MEASUREMENT;
+  assert.deepEqual(callRules.emptyMaps, ["dimensionSlots", "measurementSlots"]);
+  const measurementCall = (field) => `
+val selected = Calculation.Call("selected", Calculation.Measurement("adopted"), "total",
+    ${field === "dimensionSlots" ? 'mapOf("seller" to "seller")' : "emptyMap()"}, emptyMap(),
+    ${field === "measurementSlots" ? 'mapOf("amount" to "amount")' : "emptyMap()"}, emptyMap(), emptyMap(),
+    Calculation.Condition(DimensionCondition.Unrestricted()))
+olap.output(olap.sources.list(EmptyRequest))`;
+  for (const field of callRules.emptyMaps) authorContract(measurementCall(field), {
+    code: "MEASUREMENT_BINDING_OVERRIDE", path: [field], expected: "EMPTY_MAP", actual: "NONEMPTY_MAP",
+  });
+  authorContract(measurementCall(null));
+  const memberRules = call("describe-script-api", { type: "com.olap.prototype.member.MemberResult" }).rules.outputRules.quantity;
+  assert.equal(memberRules.valueType, "NUMBER");
+  assert.equal(memberRules.unitEquations, "EMPTY_MAP");
+  const quantityMember = (equations, valueType = "NUMBER") => `
+val quantity = MetricValueContract(MetricValueContract.Fixed(MetricValueContract.ONE), MetricValueContract.Exact(),
+    MetricValueContract.Integer(64), ${equations ? 'mapOf("ratio" to MetricValueContract.SameUnitRatio())' : "emptyMap()"}, MetricValueContract.Overflow.FAIL)
+val result = MemberResult("observation", "observation", MemberShape.RAW_BAG, emptyList(), mapOf(
+    "total" to MemberSourceDefinition.ComputedPropertyOutput("合计", "total", ScalarValueType.${valueType}, "total", quantity)),
+    emptyMap(), null, emptyMap(), null)
+olap.output(olap.sources.list(EmptyRequest))`;
+  authorContract(quantityMember(true), {
+    code: "MEMBER_QUANTITY_UNIT_EQUATIONS", path: ["outputs", "total", "valueContract", "unitEquations"], expected: "EMPTY_MAP", actual: "NONEMPTY_MAP",
+  });
+  authorContract(quantityMember(false, "TEXT"), {
+    code: "MEMBER_QUANTITY_TYPE", path: ["outputs", "total", "valueType"], expected: "NUMBER", actual: "TEXT",
+  });
+  authorContract(quantityMember(false));
   await stop();
 
   await start("analysis-reopened");

@@ -84,8 +84,10 @@ private fun executeScript(request: ScriptRequest, transport: CapabilityTransport
 }
 
 private fun diagnostic(value: RuntimeDiagnostic): ScriptDiagnostic {
-    val result = ScriptDiagnostic.newBuilder().setCode(value.code).setStage(value.capabilityFailure?.stage ?: value.phase.name)
+    val result = ScriptDiagnostic.newBuilder().setCode(value.code).setStage(value.capabilityFailure?.stage ?: value.inputRule?.stage ?: value.phase.name)
         .setSeverity(value.severity.name).setMessage(value.message)
+        .addAllFieldPath(value.fieldPath)
+    value.expectedKind?.let(result::setExpected); value.actualKind?.let(result::setActual)
     if (value.sourceName != null) {
         val location = SourceLocation.newBuilder().setSourceName(value.sourceName)
         value.line?.let(location::setStartLine); value.column?.let(location::setStartColumn)

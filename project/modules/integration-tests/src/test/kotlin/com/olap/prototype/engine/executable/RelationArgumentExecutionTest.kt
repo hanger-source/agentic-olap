@@ -42,7 +42,7 @@ class RelationArgumentExecutionTest {
 
     private fun catalog(warehouse: NativeWarehouse, sourceMoney: MetricValueContract = money(),
         sellerShape: SetOutputContract.Shape = SetOutputContract.DimensionSlot("seller"), relationMoney: MetricValueContract = money(),
-        sellerReference: ScopedInputContract.DimensionRef = seller, withText: Boolean = false): ExecutableCatalog {
+        sellerReference: ScopedInputContract.DimensionRef = seller, withText: Boolean = false, averageFilter: ResultExpression? = null): ExecutableCatalog {
         val units = listOf("id", "seller", "day", "buyer", "amount") + if (withText) listOf("quantity", "fee", "pay_text") else emptyList()
         val event = ExecutableEvent("orders", "1", "orders", "1", null,
             EventIdentity(listOf(EventIdentity.LogicUnitRef("orders.id", 1)), emptyMap()), emptyMap(), null, null, null)
@@ -55,7 +55,7 @@ class RelationArgumentExecutionTest {
             listOf(ResultExpression.ResultSymbol("amount"), ResultExpression.ResultSymbol("people"))), average, "per_buyer")
         val leaf = MetricCalculation(Calculation(listOf(dimension), emptyList(), emptyList(),
             listOf(Calculation.RelationSlot("rows", outputs, listOf("seller"))), emptyMap(),
-            Calculation.Scope(Calculation.Relation("rows"), emptyMap(), listOf(PostOperationContract.Derive(ratio, "average", "客单价"),
+            Calculation.Scope(Calculation.Relation("rows"), emptyMap(), listOfNotNull(averageFilter?.let { PostOperationContract.PostFilter(it) }) + listOf(PostOperationContract.Derive(ratio, "average", "客单价"),
                 PostOperationContract.Project(listOf("seller", "average"))))), "average", listOf("seller"), average)
         val parentOutputs = outputs + SetOutputContract("records", SetOutputContract.Quantity(count))
         val parent = MetricCalculation(Calculation(listOf(dimension), emptyList(), emptyList(),
@@ -216,6 +216,51 @@ class RelationArgumentExecutionTest {
     private fun rows(warehouse: NativeWarehouse, compiled: ExecutableLoweringResult): List<List<Any?>> = warehouse.execute(compiled).map { row ->
         row.mapIndexed { index, value -> if (index == 0) (value as Number).toInt() else value?.let { BigDecimal(it.toString()).stripTrailingZeros().toPlainString() } }
     }.sortedBy { it.first() as Int }
+
+    @Test fun combinesSavedProjectionsOfOneCompletedPopulationWithoutRepeatingItsAlignment(@TempDir directory: Path) {
+        NativeWarehouse(directory, "duckdb", listOf("CREATE TABLE orders(id INTEGER PRIMARY KEY,seller INTEGER,day INTEGER,buyer INTEGER,amount DECIMAL(18,2))",
+            "INSERT INTO orders VALUES (1,1,1,11,10),(2,1,1,12,20),(3,1,2,11,30),(4,2,1,21,NULL),(5,2,2,22,NULL),(6,3,1,31,7),(7,3,2,31,7)")).use { warehouse ->
+            val valid = catalog(warehouse)
+            val sellerOne = DimensionCondition.Predicate("selected_seller", seller, MemberCondition.Operator.EQ, listOf(Calculation.Scalar(ScalarValueType.NUMBER, "1")))
+            val completedCalls = listOf("amount", "people", "records").map { id -> QueryComputation.Invocation(id, MetricInstanceRef(id), id,
+                emptyMap(), emptyMap(), emptyMap(), if (id == "people") sellerOne else unrestricted) }
+            val completed = QueryComputation.Scope(QueryComputation.Measures(completedCalls, listOf(seller), null, emptyMap(), unrestricted, unrestricted,
+                emptyList(), RowPopulationContract.calls(listOf("records")), null), emptyMap(), emptyList())
+            fun query(basis: QueryComputation.Scope) : QueryComputation.Scope {
+                val calls = listOf("people", "records").map { denominator -> QueryComputation.Invocation("per_$denominator", MetricInstanceRef("average"), "per_$denominator",
+                    emptyMap(), emptyMap(), mapOf("rows" to CalculationBindings.LocalRelation("basis", mapOf("seller" to "seller", "amount" to "amount", "people" to denominator))), unrestricted) }
+                return QueryComputation.Scope(QueryComputation.Measures(calls, listOf(seller), null, emptyMap(), unrestricted, unrestricted, emptyList(),
+                    RowPopulationContract.calls(calls.map { it.callId }), null), mapOf("basis" to QueryComputation.Input("ROOT", basis)), emptyList())
+            }
+            val filtered = catalog(warehouse, averageFilter = ResultExpression.ResultOperation(ResultExpression.ResultOperator.EQ,
+                listOf(ResultExpression.ResultSymbol("seller"), ResultExpression.ResultLiteral(BigDecimal.ONE))))
+            warehouse.finishSetup()
+            val basis = compile(valid, completed)
+            val combined = compile(valid, query(completed))
+            assertEquals(listOf(listOf(1, "30", "20"), listOf(2, null, null), listOf(3, null, "7")), rows(warehouse, combined))
+            fun leftJoins(sql: String) = Regex("\\bLEFT JOIN\\b").findAll(sql).count()
+            assertTrue(leftJoins(basis.sql) > 0, "试验人口包含真实的独立资格与缺组对齐")
+            assertEquals(leftJoins(basis.sql), leftJoins(combined.sql), combined.sql)
+            assertFalse(Regex("\\bUNION\\b").containsMatchIn(combined.sql), combined.sql)
+
+            // 即使两个调用的过滤看似相同，也不将未知的调用人口改写为共同投影。
+            val independentlyFiltered = compile(filtered, query(completed))
+            assertEquals(listOf(listOf(1, "30", "20")), rows(warehouse, independentlyFiltered))
+            assertTrue(leftJoins(independentlyFiltered.sql) > leftJoins(basis.sql), independentlyFiltered.sql)
+        }
+        NativeWarehouse(directory, "duckdb", listOf("CREATE TABLE orders(id INTEGER PRIMARY KEY,seller INTEGER,day INTEGER,buyer INTEGER,amount DECIMAL(18,2))",
+            "INSERT INTO orders VALUES (1,1,1,NULL,10)")).use { warehouse ->
+            val valid = catalog(warehouse)
+            val calls = listOf("first", "second").map { id -> QueryComputation.Invocation(id, MetricInstanceRef("average"), id, emptyMap(), emptyMap(),
+                mapOf("rows" to CalculationBindings.LocalRelation("basis", listOf("seller", "amount", "people").associateWith { it })), unrestricted) }
+            val query = QueryComputation.Scope(QueryComputation.Measures(calls, listOf(seller), null, emptyMap(), unrestricted, unrestricted, emptyList(),
+                RowPopulationContract.calls(calls.map { it.callId }), null), mapOf("basis" to QueryComputation.Input("ROOT", basis())), emptyList())
+            warehouse.finishSetup()
+            val failure = assertThrows(com.olap.prototype.connector.SourceExecutionException::class.java) { warehouse.execute(compile(valid, query)) }
+            assertEquals(com.olap.prototype.warehouse.contract.SourceFailureCategory.SQL, failure.failure.category,
+                "合并投影仍必须兑现原有非有限数量失败")
+        }
+    }
 
     @Test fun reusesGroupedFactsThroughNestedRelationsWithoutInventingKeysRolesOrQuantityGuarantees(@TempDir directory: Path) {
         NativeWarehouse(directory, "duckdb", listOf("CREATE TABLE orders(id INTEGER PRIMARY KEY,seller INTEGER,day INTEGER,buyer INTEGER,amount DECIMAL(18,2))",

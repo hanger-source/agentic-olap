@@ -26,7 +26,8 @@ object JdbcSourceVerifier {
                 control.checkCancellation()
                 val evidence = source.evidence
                 val observed = evidence.structureProvenance.kind == StructureProvenance.Kind.DATABASE_CATALOG
-                if (observed && !jdbc.supportsColumnInspection(evidence) || source.constraintUses.isNotEmpty() && !jdbc.supportsConstraintSnapshot(evidence)) throw SourceGuaranteeException("SOURCE_CONSISTENCY_UNSUPPORTED")
+                val catalogConstraints = source.constraintUses.any { it.kind != JdbcSourceRequirement.ConstraintKind.NOT_NULL }
+                if (observed && !jdbc.supportsColumnInspection(evidence) || catalogConstraints && !jdbc.supportsConstraintSnapshot(evidence)) throw SourceGuaranteeException("SOURCE_CONSISTENCY_UNSUPPORTED")
                 if (observed && (technology.databaseProductName != evidence.databaseProductName || technology.databaseProductVersion != evidence.databaseProductVersion || technology.driverName != evidence.driverName || technology.driverVersion != evidence.driverVersion)) throw SourceGuaranteeException("SOURCE_TECHNOLOGY_DRIFT")
             }
             if (!connection.autoCommit) throw SourceGuaranteeException("SOURCE_TRANSACTION_ALREADY_OPEN")
@@ -61,10 +62,27 @@ object JdbcSourceVerifier {
             if (columns != source.columns) throw SourceGuaranteeException("SOURCE_COLUMN_TYPE_DRIFT")
         }
         if (source.readsRows()) source.evidence.sourceCollections.forEach { control.checkCancellation(); if (it.anchor != anchor) throw SourceGuaranteeException("SOURCE_COVERAGE_ANCHOR_DRIFT") }
-        if (source.constraintUses.isEmpty()) return
+        val nonNull = source.constraintUses.filter { it.kind == JdbcSourceRequirement.ConstraintKind.NOT_NULL }.map { requireNotNull(it.name) }
+        if (nonNull.isNotEmpty()) {
+            val metadata = connection.metaData
+            // IS NOT DISTINCT FROM NULL 检查整个值，不把字段全 NULL 的非空 ROW 当作 NULL。
+            val predicate = nonNull.joinToString(" OR ") { "${JdbcIdentifiers.quote(metadata, it)} IS NOT DISTINCT FROM NULL" }
+            connection.prepareStatement("SELECT 1 FROM ${JdbcIdentifiers.qualified(metadata, source.table)} WHERE $predicate").use { statement ->
+                control.registerCancellationAction(statement::cancel).use {
+                    statement.maxRows = 1
+                    control.checkCancellation()
+                    statement.executeQuery().use { rows ->
+                        control.checkCancellation()
+                        if (rows.next()) throw SourceGuaranteeException("SOURCE_NOT_NULL_VIOLATION")
+                    }
+                }
+            }
+        }
+        val catalogConstraints = source.constraintUses.filter { it.kind != JdbcSourceRequirement.ConstraintKind.NOT_NULL }
+        if (catalogConstraints.isEmpty()) return
         val actual = jdbc.constraints(connection, table, control)
         val expected = source.evidence.constraints
-        source.constraintUses.forEach { use ->
+        catalogConstraints.forEach { use ->
             control.checkCancellation()
             val matches = when (use.kind) {
                 JdbcSourceRequirement.ConstraintKind.PRIMARY_KEY -> expected.primaryKeyColumns == actual.primaryKeyColumns
@@ -72,6 +90,7 @@ object JdbcSourceVerifier {
                 JdbcSourceRequirement.ConstraintKind.FOREIGN_KEY -> expected.importedKeys.filter { it.name == use.name } == actual.importedKeys.filter { it.name == use.name }
                 JdbcSourceRequirement.ConstraintKind.TEMPORAL_KEY -> { if (expected.temporalKeys.first { it.rule.name == use.name }.anchor != anchor) throw SourceGuaranteeException("SOURCE_DATA_ANCHOR_DRIFT"); true }
                 JdbcSourceRequirement.ConstraintKind.SNAPSHOT_UNIQUE_KEY -> { if (source.snapshotUniqueKeys.first { it.rule.name == use.name }.anchor != anchor) throw SourceGuaranteeException("SOURCE_DATA_ANCHOR_DRIFT"); true }
+                JdbcSourceRequirement.ConstraintKind.NOT_NULL -> error("NOT_NULL uses its data witness")
             }
             if (!matches) throw SourceGuaranteeException("SOURCE_CONSTRAINT_DRIFT")
         }

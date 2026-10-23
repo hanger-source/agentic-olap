@@ -23,7 +23,13 @@ internal class FrozenCalciteTable(private val table: FrozenSourceTables.Table, s
     private val frozen = table.columns
 
     override fun getRowType(factory: RelDataTypeFactory): RelDataType = factory.builder().apply {
-        names.forEach { add(it, resolved.compilation.jdbcType(factory, frozen.getValue(it))) }
+        names.forEach { name ->
+            val declared = frozen.getValue(name)
+            val native = resolved.compilation.jdbcType(factory, declared)
+            require(native.isNullable || declared.nullable == false) { "native source type cannot strengthen declared column nullability" }
+            if (!native.isNullable) proofs.adopt(path, ConstraintUse(ConstraintKind.NOT_NULL, name))
+            add(name, native)
+        }
     }.build()
 
     override fun <C : Any?> unwrap(type: Class<C>): C? {

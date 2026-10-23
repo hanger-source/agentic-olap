@@ -5,6 +5,7 @@ import com.olap.prototype.connector.StandardJdbcTypes
 import com.olap.prototype.contract.*
 import com.olap.prototype.expression.NativeScalarFunction
 import com.olap.prototype.metric.MetricValueContract
+import org.apache.calcite.plan.Strong
 import org.apache.calcite.rel.type.*
 import org.apache.calcite.rex.RexLambdaRef
 import org.apache.calcite.rex.RexNode
@@ -17,6 +18,7 @@ import java.math.BigDecimal
 import java.math.BigInteger
 import java.sql.Types
 import java.util.Locale
+import java.util.function.Supplier
 
 internal class DuckdbCompilation : CompilationSupport {
     override val nativeScalarFunctions: List<NativeScalarFunction> = emptyList()
@@ -77,7 +79,7 @@ internal class DuckdbCompilation : CompilationSupport {
         return StandardJdbcTypes.resolve(factory, resolved)
     }
     override fun textIdentityEquals(builder: RelBuilder, left: RexNode, right: RexNode): RexNode = builder.equals(codeBytes(builder, left), codeBytes(builder, right))
-    override fun expandCollection(collection: SqlNode, outputType: RelDataType, tableAlias: String): CompilationSupport.CollectionExpansion {
+    override fun expandCollection(outputType: RelDataType, tableAlias: String): CompilationSupport.CollectionExpansion = CompilationSupport.CollectionExpansion.Relation { collection ->
         val position = SqlParserPos.ZERO
         val element = outputType.fieldList[0]
         val ordinal = outputType.fieldList[1]
@@ -86,11 +88,13 @@ internal class DuckdbCompilation : CompilationSupport {
         val source = SqlStdOperatorTable.AS.createCall(position, unnest, SqlIdentifier(alias, position),
             SqlIdentifier(element.name, position), SqlIdentifier(ordinal.name, position))
         val number = SqlStdOperatorTable.CAST.createCall(position, SqlIdentifier(listOf(alias, ordinal.name), position), dialect.getCastSpec(ordinal.type))
-        return CompilationSupport.CollectionExpansion(source, SqlIdentifier(listOf(alias, element.name), position), number)
+        CompilationSupport.CollectionRows(source, SqlIdentifier(listOf(alias, element.name), position), number)
     }
     private fun codeBytes(builder: RelBuilder, value: RexNode): RexNode {
         val binary = builder.typeFactory.createTypeWithNullability(builder.typeFactory.createSqlType(SqlTypeName.VARBINARY), value.type.isNullable)
-        val function = SqlFunction("ENCODE", SqlKind.OTHER_FUNCTION, ReturnTypes.explicit(binary), null, OperandTypes.CHARACTER, SqlFunctionCategory.STRING)
+        val function = object : SqlFunction("ENCODE", SqlKind.OTHER_FUNCTION, ReturnTypes.explicit(binary), null, OperandTypes.CHARACTER, SqlFunctionCategory.STRING) {
+            override fun getStrongPolicyInference(): Supplier<Strong.Policy> = Supplier { Strong.Policy.ANY }
+        }
         return builder.rexBuilder.makeCall(binary, function, listOf(value))
     }
     override fun numericFailure(value: SqlNode, type: RelDataType, position: SqlParserPos): SqlNode =

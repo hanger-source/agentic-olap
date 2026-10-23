@@ -68,16 +68,16 @@ internal class InputRootCompiler(
 
     private fun objectMeasure(input: ExecutableInputScope, scope: ScopeId, root: ExecutableInputRoot.ObjectMeasure, display: MutableMap<String, String>): RelNode {
         val population = rootInput(input, scope, "objects", linkedMapOf())
-        root.roles.forEach { RelationalIdentity.checkKnown(builder, population, it.objectKeys, "OBSERVATION_OBJECT_IDENTITY_NULL", relationChecks) }
+        root.roles.forEach { RelationalIdentity.checkKnown(builder, population, it.objectKeys, "OBSERVATION_OBJECT_IDENTITY_NULL", relationChecks, scope.child("objects")) }
         return rootInput(input, scope, "measurement", display)
     }
     private fun observationStatistics(input: ExecutableInputScope, scope: ScopeId, root: ExecutableInputRoot.ObservationStatistics, display: MutableMap<String, String>): RelNode {
         val observations = rootInput(input, scope, "observations", display)
-        (root.unit as? Calculation.ObjectsBy)?.let { RelationalIdentity.checkKnown(builder, observations, it.keys, "OBSERVATION_OBJECT_IDENTITY_NULL", relationChecks) }
+        (root.unit as? Calculation.ObjectsBy)?.let { RelationalIdentity.checkKnown(builder, observations, it.keys, "OBSERVATION_OBJECT_IDENTITY_NULL", relationChecks, scope.child("observations")) }
         return observations
     }
     private fun alignedMeasurements(input: ExecutableInputScope, scope: ScopeId, root: ExecutableInputRoot.AlignMeasurements, display: MutableMap<String, String>): RelNode {
-        val alignment = ObservationAlignmentCompiler(builder, root, relationChecks)
+        val alignment = ObservationAlignmentCompiler(builder, root, relationChecks, scope)
         root.keys.forEach { (id, _) -> alignment.input(id, rootInput(input, scope, id, linkedMapOf())) }
         return alignment.compile(display)
     }
@@ -139,6 +139,7 @@ internal class InputRootCompiler(
     private fun calculationCalls(input: ExecutableInputScope, scope: ScopeId): Calls {
         val branches = mutableListOf<RelNode>()
         val calls = linkedMapOf<String, RelNode>()
+        val projections = linkedMapOf<ScopeId, MutableList<RelNode>>()
         input.metricCalls.filter { it.calculations().isNotEmpty() }.forEach { call ->
             val levels = mutableListOf<GroupingLevels.BoundLevel>()
             val variants = call.calculationScopes(scope).map { (child, calculation) ->
@@ -155,6 +156,18 @@ internal class InputRootCompiler(
             else variants.first()
             branches += relation
             calls[call.invocation.callId] = relation
+            if (call is ExecutableMetricCall.Calculation) (call.input.root as? ExecutableInputRoot.Relation)?.let { root ->
+                projections.getOrPut(root.input.inputScope) { mutableListOf() }.add(relation)
+            }
+        }
+        projections.forEach { (source, group) ->
+            if (group.size < 2) return@forEach
+            // outputSlots 已编译为实际投影；合并仍要求它们回到这个精确完成位置及同一完整键。
+            val merged = CompletedRelations.combineProjections(builder, relation(source, linkedMapOf()), group, input.measures().grouping.keys.toList()) ?: return@forEach
+            val first = branches.indexOfFirst { branch -> group.any { it === branch } }
+            branches.removeAll { branch -> group.any { it === branch } }
+            branches.add(first, merged)
+            calls.entries.forEach { if (group.any { branch -> branch === it.value }) it.setValue(merged) }
         }
         return Calls(branches.toList(), calls.toMap())
     }

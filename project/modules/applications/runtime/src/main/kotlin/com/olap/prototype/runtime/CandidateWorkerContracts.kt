@@ -3,6 +3,7 @@ package com.olap.prototype.runtime
 import com.olap.prototype.query.contract.*
 
 sealed interface CandidateWorkerCommand {
+    data class Lookup(val identity: CandidatePublicationIdentity) : CandidateWorkerCommand
     data class Load(val entry: PublishedQueryEntry, val executable: PublishedExecutableCatalog) : CandidateWorkerCommand
     data class Unload(val identity: CandidatePublicationIdentity) : CandidateWorkerCommand
     data class Resolve(val request: CandidateRequest) : CandidateWorkerCommand
@@ -10,6 +11,7 @@ sealed interface CandidateWorkerCommand {
 }
 data class CandidatePublicationIdentity(val coordinate: QueryCapabilityRequest, val catalogHash: String, val capabilityHash: String, val semanticCatalogHash: String)
 sealed interface CandidateWorkerResult {
+    data class Present(val value: Boolean) : CandidateWorkerResult
     data class Loaded(val identity: CandidatePublicationIdentity) : CandidateWorkerResult
     data class Unloaded(val identity: CandidatePublicationIdentity) : CandidateWorkerResult
     data class Resolved(val value: CandidateResolution) : CandidateWorkerResult

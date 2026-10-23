@@ -18,6 +18,12 @@ internal class QueryHandler(private val connectors: ConnectorRegistry, private v
     fun execute(command: QueryWorkerCommand, control: WarehouseExecutionControl): QueryWorkerResult {
         control.checkCancellation()
         return when (command) {
+            is QueryWorkerCommand.Lookup -> {
+                val entry = capabilities[command.coordinate]?.entry
+                require(entry == null || (entry.catalogHash == command.catalogHash && entry.capability.capabilityHash == command.capabilityHash &&
+                    entry.semanticCatalogHash == command.semanticCatalogHash)) { "same capability identity has different immutable content" }
+                QueryWorkerResult.Present(entry != null)
+            }
             is QueryWorkerCommand.Load -> load(command.entry, control)
             is QueryWorkerCommand.Unload -> {
                 val loaded = capabilities[command.coordinate] ?: error("exact capability is not loaded")

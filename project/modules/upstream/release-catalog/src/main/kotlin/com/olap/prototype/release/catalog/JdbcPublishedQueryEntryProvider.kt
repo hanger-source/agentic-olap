@@ -12,12 +12,18 @@ class JdbcPublishedQueryEntryProvider(private val database: PlatformDatabase) : 
     private val artifacts = ReleaseArtifactRepository(database)
     private val capabilities = ReleaseQueryCapabilityRepository(database)
     override fun require(request: QueryCapabilityRequest): PublishedQueryEntry = readPublication(request).entry
-    fun readPublication(coordinate: QueryCapabilityRequest): Publication = database.inReadSnapshot {
+    fun readPublication(coordinate: QueryCapabilityRequest, observe: (String, Long) -> Unit = { _, _ -> }): Publication = database.inReadSnapshot {
+        fun <T> timed(stage: String, action: () -> T): T {
+            val started = System.nanoTime()
+            return try { action() } finally { observe(stage, System.nanoTime() - started) }
+        }
         val catalogCoordinate = ReleaseCatalogRequest(coordinate.scenarioId, coordinate.scenarioVersion, coordinate.releaseId, coordinate.releaseVersion)
-        val capability = capabilities.load(coordinate)
-        val executable = artifacts.loadExecutableCatalog(catalogCoordinate)
-        val semantic = PublishedSemanticCatalogProducer().produce(capability, artifacts.loadCatalog(catalogCoordinate), executable)
-        Publication(PublishedQueryEntry(capability, com.olap.prototype.codec.PublicationProto.contentHash(executable), semantic.sha256, semantic), executable)
+        val capability = timed("CAPABILITY_LOAD") { capabilities.load(coordinate) }
+        val executable = timed("EXECUTABLE_LOAD") { artifacts.loadExecutableCatalog(catalogCoordinate) }
+        val producer = timed("PRODUCER_LOAD") { artifacts.loadCatalog(catalogCoordinate) }
+        val semantic = timed("SEMANTIC_CATALOG") { PublishedSemanticCatalogProducer().produce(capability, producer, executable) }
+        val hash = timed("CATALOG_HASH") { com.olap.prototype.codec.PublicationProto.contentHash(executable) }
+        Publication(PublishedQueryEntry(capability, hash, semantic.sha256, semantic), executable)
     }
     fun list(offset: Int, limit: Int, subjectAreaId: String? = null, releaseId: String? = null, scopes: List<Scope> = listOf(Scope(null, null))): Page {
         require(offset >= 0 && limit in 1..1000) { "publication pagination requires offset>=0 and 1<=limit<=1000" }

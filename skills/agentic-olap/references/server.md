@@ -4,7 +4,7 @@
 
 ## 安装与启动
 
-连接器 API 为 `agentic-olap-connector/v11-kotlin-native-collection-relations-calcite-1.42`，存储格式为 `16`。服务、连接器和 SDK 使用同轮交付构件；独立插件须使用本版正式 Maven SDK 重新构建，集合展开实现与精确绑定要求见[连接说明](connections.md)。
+本仓库源码的连接器 API 为 `agentic-olap-connector/v12-kotlin-native-collection-placement-calcite-1.42`，存储格式为 `16`。服务、连接器和 SDK 使用同轮交付构件；安装发行物时以实际服务及 `agentic-olap sdk` 披露的 API 为准。独立插件须使用对应正式 Maven SDK 重新构建，集合展开实现与精确绑定要求见[连接说明](connections.md)。
 
 需要 Node.js 20 或更高版本。macOS arm64 产品通过一个 npm 包交付 Go 程序和 JRE；npm 安装脚本从 JitPack 取得自有 Kotlin 运行构件和内置连接器，从 Maven Central 取得第三方 JVM 库和 H2／DuckDB 驱动，全部按发行清单锁定，完成摘要校验及本地安装。需要允许该安装脚本，下载失败会使安装失败。安装完成后启动只使用本地文件，不再下载依赖。SDK 的正式 Maven 坐标和文档由 `agentic-olap sdk` 读取。使用者无需安装编译工具或自行编译产品源码：
 

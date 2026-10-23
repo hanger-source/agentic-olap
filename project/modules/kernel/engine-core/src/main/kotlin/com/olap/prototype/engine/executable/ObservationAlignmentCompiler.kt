@@ -13,12 +13,13 @@ import org.apache.calcite.tools.RelBuilder
 
 /** 一次完整观察对齐，局部输入在规范身份后才参与总体和缺席策略。 */
 internal class ObservationAlignmentCompiler(private val builder: RelBuilder,
-    private val aligned: ExecutableInputRoot.AlignMeasurements, private val checks: MutableList<RelationalCheck>) {
+    private val aligned: ExecutableInputRoot.AlignMeasurements, private val checks: MutableList<RelationalCheck>,
+    private val scope: com.olap.prototype.query.QueryStageAnalysis.ScopeId) {
     private val inputs = linkedMapOf<String, RelNode>()
     fun input(id: String, relation: RelNode) {
         val keys = requireNotNull(aligned.keys[id]) { "undeclared measurement input" }.values.toList()
         RelationalIdentity.requireUnique(relation, keys, "completed observation")
-        RelationalIdentity.checkKnown(builder, relation, keys, "OBSERVATION_OBJECT_IDENTITY_NULL", checks)
+        RelationalIdentity.checkKnown(builder, relation, keys, "OBSERVATION_OBJECT_IDENTITY_NULL", checks, scope.child(id))
         require(inputs.putIfAbsent(id, relation) == null) { "measurement input is already attached" }
     }
     fun compile(display: MutableMap<String, String>): RelNode {

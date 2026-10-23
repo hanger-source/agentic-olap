@@ -80,13 +80,21 @@ class HttpSqlConnector : OlapConnector {
         }
         override fun supportsConstraintVerification(evidence: PhysicalSourceConstraints): Boolean = true
         private fun constraints(source: SourceConfiguration, requirements: List<JdbcSourceRequirement>): List<JdbcRelationCheck> = requirements.flatMap { requirement -> requirement.constraintUses.map { use ->
-            if (use.kind != JdbcSourceRequirement.ConstraintKind.PRIMARY_KEY) throw SourceCapabilityException(source.dataSourceId, "verify-constraint/${use.kind}", SourceCapabilities.Capability.CONSTRAINT_VERIFICATION)
-            val keys = requirement.evidence.constraints.primaryKeyColumns
-            check(keys.isNotEmpty()) { "required primary key declaration is absent" }
-            val quoted = keys.map(compilation.dialect::quoteIdentifier)
             val table = requirement.table
             val path = compilation.tablePath(table.catalog, table.schema, table.table).map(compilation.dialect::quoteIdentifier)
-            JdbcRelationCheck("SOURCE_PRIMARY_KEY_VIOLATION", "SELECT 1 FROM ${path.joinToString(".")} GROUP BY ${quoted.joinToString(",")} HAVING COUNT(*) > 1 OR ${quoted.joinToString(" OR ") { "$it IS NULL" }} LIMIT 1", emptyList())
+            when (use.kind) {
+                JdbcSourceRequirement.ConstraintKind.PRIMARY_KEY -> {
+                    val keys = requirement.evidence.constraints.primaryKeyColumns
+                    check(keys.isNotEmpty()) { "required primary key declaration is absent" }
+                    val quoted = keys.map(compilation.dialect::quoteIdentifier)
+                    JdbcRelationCheck("SOURCE_PRIMARY_KEY_VIOLATION", "SELECT 1 FROM ${path.joinToString(".")} GROUP BY ${quoted.joinToString(",")} HAVING COUNT(*) > 1 OR ${quoted.joinToString(" OR ") { "$it IS NULL" }} LIMIT 1", emptyList())
+                }
+                JdbcSourceRequirement.ConstraintKind.NOT_NULL -> {
+                    val column = compilation.dialect.quoteIdentifier(requireNotNull(use.name))
+                    JdbcRelationCheck("SOURCE_NOT_NULL_VIOLATION", "SELECT 1 FROM ${path.joinToString(".")} WHERE $column IS NOT DISTINCT FROM NULL LIMIT 1", emptyList())
+                }
+                else -> throw SourceCapabilityException(source.dataSourceId, "verify-constraint/${use.kind}", SourceCapabilities.Capability.CONSTRAINT_VERIFICATION)
+            }
         } }
         override fun execute(source: SourceConfiguration, request: SourceSqlRequest, control: WarehouseExecutionControl, budget: ResultMaterializationBudget, nativeMemoryBytes: Long, stageNanos: (String, Long) -> Unit): SourceExecutionResult {
             val response = try {

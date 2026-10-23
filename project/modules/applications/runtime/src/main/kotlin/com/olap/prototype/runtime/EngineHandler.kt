@@ -30,6 +30,12 @@ internal class EngineHandler(private val connectors: ConnectorRegistry, private 
     private var catalogBytes = 0L
 
     fun execute(command: EngineWorkerCommand, control: WarehouseExecutionControl, sourceCompleted: (SourceReadEvidence) -> Unit): EngineWorkerResult = when (command) {
+        is EngineWorkerCommand.Lookup -> {
+            control.checkCancellation()
+            val loaded = catalogs[command.catalogId]
+            require(loaded == null || loaded.contentHash == command.contentHash) { "catalog ID already loaded with different immutable content" }
+            EngineWorkerResult.Present(loaded != null)
+        }
         is EngineWorkerCommand.Load -> load(command.publication, control)
         is EngineWorkerCommand.Unload -> {
             val id = command.catalogId

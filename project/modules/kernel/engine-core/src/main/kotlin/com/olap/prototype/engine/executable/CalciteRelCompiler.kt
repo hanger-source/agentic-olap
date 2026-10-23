@@ -47,10 +47,11 @@ class CalciteRelCompiler private constructor(val connectors: ConnectorRegistry, 
         val (rendered, nativeChecks) = timed(context, "COMPILE_RENDER_SQL") {
             phase("RENDER_SQL", "EXECUTABLE_SQL_RENDERING_FAILED", "Native SQL conversion failed") {
                 val sql = CalciteSqlRendering.compile(optimized, support, parameters)
-                val checks = relations.relationChecks.map { check ->
+                val checks = relations.relationChecks.mapNotNull { check ->
                     val checked = CalciteQueryCompiler.optimize(check.violations, parameters)
+                    if (checked.cluster.metadataQuery.getMaxRowCount(checked) == 0.0) return@mapNotNull null
                     val statement = CalciteSqlRendering.render(checked, support, parameters)
-                    JdbcRelationCheck(check.code, statement.sql, CalciteSqlRendering.orderedParameters(statement, parameters))
+                    JdbcRelationCheck(check.code, statement.sql, CalciteSqlRendering.orderedParameters(statement, parameters), check.origin)
                 }
                 sql to checks
             }

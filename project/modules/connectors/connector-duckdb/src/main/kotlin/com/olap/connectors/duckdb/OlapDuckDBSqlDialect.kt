@@ -54,6 +54,11 @@ internal object OlapDuckDBSqlDialect : DuckDBSqlDialect(DuckDBSqlDialect.DEFAULT
     override fun supportsCharSet(): Boolean = false
     override fun defaultNullDirection(direction: RelFieldCollation.Direction): RelFieldCollation.NullDirection = RelFieldCollation.NullDirection.UNSPECIFIED
     override fun unparseCall(writer: SqlWriter, call: SqlCall, leftPrec: Int, rightPrec: Int) {
+        if (call.operator == Ops.CARDINALITY) {
+            SqlBasicFunction.create("ARRAY_LENGTH", ReturnTypes.BIGINT_NULLABLE, OperandTypes.ARRAY, SqlFunctionCategory.SYSTEM)
+                .createCall(call.parserPosition, call.operand<SqlNode>(0)).unparse(writer, leftPrec, rightPrec)
+            return
+        }
         if (call.kind == SqlKind.TIMESTAMP_ADD) {
             val unit = requireNotNull(call.operand<SqlLiteral>(0).getValueAs(TimeUnit::class.java))
             val base = when (unit) {

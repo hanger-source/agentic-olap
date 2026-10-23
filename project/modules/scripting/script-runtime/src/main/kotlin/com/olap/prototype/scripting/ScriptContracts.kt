@@ -2,6 +2,7 @@ package com.olap.prototype.scripting
 
 import com.olap.prototype.dsl.ScriptValue
 import com.olap.prototype.dsl.transport.CapabilityFailure
+import com.olap.prototype.contract.InputContractException
 import java.security.MessageDigest
 
 /** 编译、加载与求值的限制分别检查；进程期限和强制终止由 Go 负责。 */
@@ -36,6 +37,10 @@ data class ScriptDiagnostic(
     val endLine: Int? = null,
     val endColumn: Int? = null,
     val capabilityFailure: CapabilityFailure? = null,
+    val inputRule: InputContractException.Rule? = null,
+    val fieldPath: List<String> = emptyList(),
+    val expectedKind: String? = null,
+    val actualKind: String? = null,
 )
 
 data class ScriptRunResult(

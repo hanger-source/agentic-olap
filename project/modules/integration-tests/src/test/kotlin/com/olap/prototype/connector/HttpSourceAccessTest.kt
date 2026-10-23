@@ -78,6 +78,7 @@ class HttpSourceAccessTest {
             assertEquals("1", argument.physicalTableVersion)
             assertEquals(setOf(JdbcSourceRequirement.Use.NATIVE_TABLE), argument.uses)
             assertTrue(argument.columns.isEmpty(), "参数表不能伪造字段或冒充行来源")
+            assertTrue(argument.constraintUses.isEmpty(), "仅作为原生函数参数的表不采用 NOT_NULL 行保证")
             assertTrue(plan.sourceRequirements.any { it.physicalTableId == "request_context" && it.readsRows() && "state" in it.columns })
             assertEquals(source.bindingRef(), JdbcSourceRequirement.requireSingleBinding(plan.sourceRequirements))
             listOf("2026-01-03", "2026-01-04").forEach { expected ->
@@ -97,6 +98,17 @@ class HttpSourceAccessTest {
             val crossBinding = assertThrows(IllegalArgumentException::class.java) { CandidateValueCompiler.compile(crossed, expression, 0, 10, mutableListOf(), loaded.registry) }
             assertTrue(crossBinding.message!!.contains("source binding"))
             assertEquals(requests, server.queries, "未采用版本和跨binding表必须在HTTP请求前拒绝")
+            TestConnectors.open("duckdb", url).use { writer -> writer.createStatement().use { statement ->
+                statement.execute("ALTER TABLE request_context ALTER COLUMN state DROP NOT NULL")
+                statement.execute("UPDATE request_context SET state=NULL")
+            } }
+            DeadlineExecutionControl(10000).use { control ->
+                val failure = assertThrows(SourceExecutionException::class.java) {
+                    provider.execute(plan, control, ResultMaterializationLimits(100, 1000, 100000, 16), 1000000) { _, _ -> }
+                }
+                assertEquals("SOURCE_NOT_NULL_VIOLATION", failure.failure.code)
+            }
+            assertEquals(requests + 1, server.queries, "冻结的非空类型必须由同一 HTTP 来源请求中的真实见证兑现")
         } }
     }
 

@@ -20,9 +20,9 @@ agentic-olap sdk --repository
 
 HTTP 或其他后端由使用方提供匹配其 SQL 后端及实际协议的插件；SQL 协议兼容不证明类型、数值、时间或一致性映射已经成立。业务 Agent 通过正式 MCP 使用已配置的来源。
 
-连接器 API 为 `agentic-olap-connector/v11-kotlin-native-collection-relations-calcite-1.42`。`connectorRef` 是 manifest 中实际的 `{id,version,sha256}`，数据源逐项引用该完整对象。服务核验 API 和摘要，驱动只由 JDBC 实现核验。
+本仓库源码的连接器 API 为 `agentic-olap-connector/v12-kotlin-native-collection-placement-calcite-1.42`；安装发行物时以实际服务及 `agentic-olap sdk` 披露的 API 为准。`connectorRef` 是 manifest 中实际的 `{id,version,sha256}`，数据源逐项引用该完整对象。服务核验 API 和摘要，驱动只由 JDBC 实现核验。
 
-独立插件必须使用`agentic-olap sdk` 返回的同版正式 Maven 坐标 重新构建，并更新插件 manifest 和精确来源绑定。集合展开的 `expandCollection` 接收当前输入行的 ARRAY 表达式，返回 `CollectionExpansion(relation, element, ordinal)`，分别提供原生 FROM 关系、完整元素及从 1 开始的序号表达式。核心负责 INNER／OUTER 人口、重复度与缺行补 NULL；插件负责原生语法和类型映射。具体合同与实现入口见随 npm 安装的 SDK `API.md`。使用真实表行或聚合结果回放原 Query，常量数组成功不能替代相关展开验收。
+独立插件必须使用 `agentic-olap sdk` 返回的同版正式 Maven 坐标重新构建，并更新插件 manifest 和精确来源绑定。集合展开的 `expandCollection(outputType,tableAlias)` 返回封闭的 `CollectionExpansion.Relation` 或 `InputProjection` 计划：前者映射原生 FROM 关系，后者映射完整输入上的单个 SELECT-list SRF；插件分别提供生成与完整元素／序号取值表达式。核心负责输入透传、INNER／OUTER 人口、重复度与缺行补 NULL，不开放完整输入的任意关系改写。投影式 OUTER 另需 `COLLECTION_PROJECTION_OUTER`，兑现核心的数组长度判断、typed singleton 哨兵、存在标记与整元素 NULL；未兑现时编译明确拒绝。具体合同与实现入口见随 npm 安装的 SDK `API.md`。使用真实表行或聚合结果回放原 Query，常量数组成功不能替代相关展开验收。
 
 ## 登记数据源
 

@@ -31,7 +31,7 @@ agentic-olap call describe-script-api --payload '{}'
 
 首次启动生成本机配置、随机令牌与持久目录，仅监听回环地址。已有远程服务可直接接入 MCP；CLI 使用 `--url https://actual-service/mcp --token-env OLAP_TOKEN`。令牌由实际服务方提供，不写入仓库或日志。模型账号、提示词与会话由外部客户端持有。
 
-配置与认证见[服务使用与部署](references/server.md)；连接业务源时再读[来源接入](references/connections.md)。连接器 API 为 `agentic-olap-connector/v11-kotlin-native-collection-relations-calcite-1.42`，存储格式为 `16`。安装不会自动重启原服务或转换旧持久根。
+配置与认证见[服务使用与部署](references/server.md)；连接业务源时再读[来源接入](references/connections.md)。服务、SDK 与插件须匹配实际服务披露的连接器 API；本仓库源码为 `agentic-olap-connector/v12-kotlin-native-collection-placement-calcite-1.42`，存储格式为 `16`。安装不会自动重启原服务或转换旧持久根。
 
 ## 从服务发现 Kotlin API
 
@@ -42,7 +42,7 @@ agentic-olap call describe-script-api --payload '{"operation":"create-event"}'
 agentic-olap call describe-script-api --payload '{"type":"com.olap.prototype.calculation.Calculation"}'
 ~~~
 
-`operation/type` 二选一，完整名称按实际返回继续读取。类型的 `kind=OBJECT` 表示直接使用对象，例如 `EmptyRequest`，不调用构造器。`functions/companion` 的 `access` 给出实际公开访问表达式，例如 `MetricValueContract.ONE`；嵌套类型的 `enclosingType` 可继续发现外层对象及工厂，例如 `RowPopulationContract.calls/contract`。发现不执行 getter 或工厂。`describe-operation` 仅描述 MCP 工具的外层提交合同。不要从旧 JSON 节点表、方法名或历史版本猜当前作者输入，也不需要阅读源码才能正常构造模型。
+`operation/type` 二选一，完整名称按实际返回继续读取。类型的 `kind=OBJECT` 表示直接使用对象，例如 `EmptyRequest`，不调用构造器。`functions/companion` 的 `access` 给出实际公开访问表达式，例如 `MetricValueContract.ONE`；嵌套类型的 `enclosingType` 可继续发现外层对象及工厂，例如 `RowPopulationContract.calls/contract`。结构发现不执行任意 getter 或工厂；`rules` 读取已知模型自身声明的局部语义合同，包括测量调用不可覆盖槽位及成员数量出口的要求。`describe-operation` 仅描述 MCP 工具的外层提交合同。不要从旧 JSON 节点表、方法名或历史版本猜当前作者输入，也不需要阅读源码才能正常构造模型。
 
 `execute-script` 一次提交完整 kts 程序。先从概览取得精确版本，再调用：
 

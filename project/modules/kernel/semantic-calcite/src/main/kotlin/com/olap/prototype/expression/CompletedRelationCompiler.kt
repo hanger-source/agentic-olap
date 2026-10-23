@@ -181,7 +181,7 @@ object CompletedRelationCompiler {
         private fun requireKnownNativeIdentity(identity: List<String>, meaning: String, code: String) {
             val input = b.build()
             RelationalIdentity.requireUnique(input, identity, meaning)
-            RelationalIdentity.checkKnown(b, input, identity, code, checks)
+            RelationalIdentity.checkKnown(b, input, identity, code, checks, analysis.scope)
             b.push(input)
         }
     }

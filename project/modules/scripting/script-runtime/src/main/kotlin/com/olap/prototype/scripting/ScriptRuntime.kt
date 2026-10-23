@@ -4,6 +4,7 @@ import com.olap.prototype.dsl.OlapClient
 import com.olap.prototype.dsl.ScriptArguments
 import com.olap.prototype.dsl.ScriptValue
 import com.olap.prototype.dsl.transport.CapabilityFailureException
+import com.olap.prototype.contract.InputContractException
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
@@ -101,10 +102,13 @@ class ScriptRuntime(private val environment: ScriptEnvironment) {
         var current: Throwable? = error
         while (current != null && causes.size < 16 && causes.none { it === current }) { causes += current; current = current.cause }
         val capability = causes.filterIsInstance<CapabilityFailureException>().firstOrNull()?.failure
+        val input = if (capability == null) causes.filterIsInstance<InputContractException>().firstOrNull() else null
         val location = causes.asSequence().flatMap { it.stackTrace.asSequence() }.firstOrNull { it.fileName == sourceName }
-        return ScriptDiagnostic(capability?.code ?: code, phase, ScriptSeverity.ERROR,
-            (capability?.message ?: error.message ?: error.javaClass.simpleName).take(4_096), sourceName,
-            location?.lineNumber?.takeIf { it > 0 }, capabilityFailure = capability)
+        return ScriptDiagnostic(capability?.code ?: input?.rule?.code ?: code, phase, ScriptSeverity.ERROR,
+            (capability?.message ?: input?.message ?: error.message ?: error.javaClass.simpleName).take(4_096), sourceName,
+            location?.lineNumber?.takeIf { it > 0 }, capabilityFailure = capability, inputRule = input?.rule,
+            fieldPath = (input?.details?.get("fieldPath") as? List<*>)?.map { it.toString() } ?: emptyList(),
+            expectedKind = input?.details?.get("expectedKind") as? String, actualKind = input?.details?.get("actualKind") as? String)
     }
     private fun failure(code: String, phase: ScriptPhase, message: String, sourceName: String) =
         ScriptDiagnostic(code, phase, ScriptSeverity.ERROR, message, sourceName)

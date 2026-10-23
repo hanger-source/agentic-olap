@@ -406,6 +406,7 @@ func (m *Manager) performWork(ctx context.Context, state *requestState, request 
 		reply.ErrorJson = response.ErrorJson
 		reply.Model = response.Model
 		reply.WorkerFailure = response.WorkerFailure
+		reply.TimingNanos = response.TimingNanos
 		reply.LeaseId = l.id
 		return nil
 	case *pb.WorkRequest_Release:

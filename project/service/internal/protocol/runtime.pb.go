@@ -756,6 +756,7 @@ type Response struct {
 	Ready         *RuntimeReady             `protobuf:"bytes,6,opt,name=ready,proto3" json:"ready,omitempty"`
 	Model         *anypb.Any                `protobuf:"bytes,7,opt,name=model,proto3" json:"model,omitempty"`
 	WorkerFailure *query.WorkerFailureFacts `protobuf:"bytes,8,opt,name=worker_failure,json=workerFailure,proto3" json:"worker_failure,omitempty"`
+	TimingNanos   map[string]int64          `protobuf:"bytes,9,rep,name=timing_nanos,json=timingNanos,proto3" json:"timing_nanos,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -842,6 +843,13 @@ func (x *Response) GetModel() *anypb.Any {
 func (x *Response) GetWorkerFailure() *query.WorkerFailureFacts {
 	if x != nil {
 		return x.WorkerFailure
+	}
+	return nil
+}
+
+func (x *Response) GetTimingNanos() map[string]int64 {
+	if x != nil {
+		return x.TimingNanos
 	}
 	return nil
 }
@@ -1449,6 +1457,7 @@ type WorkResponse struct {
 	LeaseInvalidated bool                      `protobuf:"varint,7,opt,name=lease_invalidated,json=leaseInvalidated,proto3" json:"lease_invalidated,omitempty"`
 	Model            *anypb.Any                `protobuf:"bytes,8,opt,name=model,proto3" json:"model,omitempty"`
 	WorkerFailure    *query.WorkerFailureFacts `protobuf:"bytes,9,opt,name=worker_failure,json=workerFailure,proto3" json:"worker_failure,omitempty"`
+	TimingNanos      map[string]int64          `protobuf:"bytes,10,rep,name=timing_nanos,json=timingNanos,proto3" json:"timing_nanos,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -1535,6 +1544,13 @@ func (x *WorkResponse) GetModel() *anypb.Any {
 func (x *WorkResponse) GetWorkerFailure() *query.WorkerFailureFacts {
 	if x != nil {
 		return x.WorkerFailure
+	}
+	return nil
+}
+
+func (x *WorkResponse) GetTimingNanos() map[string]int64 {
+	if x != nil {
+		return x.TimingNanos
 	}
 	return nil
 }
@@ -2759,7 +2775,7 @@ const file_runtime_proto_rawDesc = "" +
 	"\x14result_authorization\x18\t \x01(\v2,.agentic.olap.runtime.v2.ResultAuthorizationR\x13resultAuthorization\"\x83\x01\n" +
 	"\x13ResultAuthorization\x12!\n" +
 	"\foperation_id\x18\x01 \x01(\tR\voperationId\x12I\n" +
-	"\treference\x18\x02 \x01(\v2+.agentic.olap.query.v1.QueryResultReferenceR\treference\"\x83\x03\n" +
+	"\treference\x18\x02 \x01(\v2+.agentic.olap.query.v1.QueryResultReferenceR\treference\"\x9a\x04\n" +
 	"\bResponse\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x18\n" +
@@ -2771,7 +2787,11 @@ const file_runtime_proto_rawDesc = "" +
 	"\bartifact\x18\x05 \x01(\v2'.agentic.olap.runtime.v2.ResultArtifactR\bartifact\x12;\n" +
 	"\x05ready\x18\x06 \x01(\v2%.agentic.olap.runtime.v2.RuntimeReadyR\x05ready\x12*\n" +
 	"\x05model\x18\a \x01(\v2\x14.google.protobuf.AnyR\x05model\x12P\n" +
-	"\x0eworker_failure\x18\b \x01(\v2).agentic.olap.query.v1.WorkerFailureFactsR\rworkerFailure\"\x81\x01\n" +
+	"\x0eworker_failure\x18\b \x01(\v2).agentic.olap.query.v1.WorkerFailureFactsR\rworkerFailure\x12U\n" +
+	"\ftiming_nanos\x18\t \x03(\v22.agentic.olap.runtime.v2.Response.TimingNanosEntryR\vtimingNanos\x1a>\n" +
+	"\x10TimingNanosEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01\"\x81\x01\n" +
 	"\tOperation\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1b\n" +
 	"\tread_only\x18\x02 \x01(\bR\breadOnly\x12 \n" +
@@ -2812,7 +2832,7 @@ const file_runtime_proto_rawDesc = "" +
 	"\aacquire\x18\x04 \x01(\v2&.agentic.olap.runtime.v2.AcquireWorkerH\x00R\aacquire\x12E\n" +
 	"\bexchange\x18\x05 \x01(\v2'.agentic.olap.runtime.v2.ExchangeWorkerH\x00R\bexchange\x12B\n" +
 	"\arelease\x18\x06 \x01(\v2&.agentic.olap.runtime.v2.ReleaseWorkerH\x00R\areleaseB\b\n" +
-	"\x06action\"\xcb\x02\n" +
+	"\x06action\"\xe6\x03\n" +
 	"\fWorkResponse\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x17\n" +
@@ -2823,7 +2843,12 @@ const file_runtime_proto_rawDesc = "" +
 	"error_json\x18\x06 \x01(\fR\terrorJson\x12+\n" +
 	"\x11lease_invalidated\x18\a \x01(\bR\x10leaseInvalidated\x12*\n" +
 	"\x05model\x18\b \x01(\v2\x14.google.protobuf.AnyR\x05model\x12P\n" +
-	"\x0eworker_failure\x18\t \x01(\v2).agentic.olap.query.v1.WorkerFailureFactsR\rworkerFailureJ\x04\b\x05\x10\x06\"'\n" +
+	"\x0eworker_failure\x18\t \x01(\v2).agentic.olap.query.v1.WorkerFailureFactsR\rworkerFailure\x12Y\n" +
+	"\ftiming_nanos\x18\n" +
+	" \x03(\v26.agentic.olap.runtime.v2.WorkResponse.TimingNanosEntryR\vtimingNanos\x1a>\n" +
+	"\x10TimingNanosEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01J\x04\b\x05\x10\x06\"'\n" +
 	"\x06Cancel\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\"\n" +
@@ -2975,7 +3000,7 @@ func file_runtime_proto_rawDescGZIP() []byte {
 }
 
 var file_runtime_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_runtime_proto_msgTypes = make([]protoimpl.MessageInfo, 34)
+var file_runtime_proto_msgTypes = make([]protoimpl.MessageInfo, 36)
 var file_runtime_proto_goTypes = []any{
 	(WorkerKind)(0),                    // 0: agentic.olap.runtime.v2.WorkerKind
 	(DeliveryStatus)(0),                // 1: agentic.olap.runtime.v2.DeliveryStatus
@@ -3012,11 +3037,13 @@ var file_runtime_proto_goTypes = []any{
 	(*CapabilityResponse)(nil),         // 32: agentic.olap.runtime.v2.CapabilityResponse
 	(*WorkerObservation)(nil),          // 33: agentic.olap.runtime.v2.WorkerObservation
 	(*DeliveryConfirmation)(nil),       // 34: agentic.olap.runtime.v2.DeliveryConfirmation
-	nil,                                // 35: agentic.olap.runtime.v2.ScriptResponse.TimingNanosEntry
-	nil,                                // 36: agentic.olap.runtime.v2.DeliveryConfirmation.TimingNanosEntry
-	(*anypb.Any)(nil),                  // 37: google.protobuf.Any
-	(*query.QueryResultReference)(nil), // 38: agentic.olap.query.v1.QueryResultReference
-	(*query.WorkerFailureFacts)(nil),   // 39: agentic.olap.query.v1.WorkerFailureFacts
+	nil,                                // 35: agentic.olap.runtime.v2.Response.TimingNanosEntry
+	nil,                                // 36: agentic.olap.runtime.v2.WorkResponse.TimingNanosEntry
+	nil,                                // 37: agentic.olap.runtime.v2.ScriptResponse.TimingNanosEntry
+	nil,                                // 38: agentic.olap.runtime.v2.DeliveryConfirmation.TimingNanosEntry
+	(*anypb.Any)(nil),                  // 39: google.protobuf.Any
+	(*query.QueryResultReference)(nil), // 40: agentic.olap.query.v1.QueryResultReference
+	(*query.WorkerFailureFacts)(nil),   // 41: agentic.olap.query.v1.WorkerFailureFacts
 }
 var file_runtime_proto_depIdxs = []int32{
 	4,  // 0: agentic.olap.runtime.v2.Frame.bootstrap:type_name -> agentic.olap.runtime.v2.Bootstrap
@@ -3037,44 +3064,46 @@ var file_runtime_proto_depIdxs = []int32{
 	5,  // 15: agentic.olap.runtime.v2.Request.principal:type_name -> agentic.olap.runtime.v2.Principal
 	21, // 16: agentic.olap.runtime.v2.Request.capability:type_name -> agentic.olap.runtime.v2.CapabilityInvocation
 	34, // 17: agentic.olap.runtime.v2.Request.delivery:type_name -> agentic.olap.runtime.v2.DeliveryConfirmation
-	37, // 18: agentic.olap.runtime.v2.Request.worker_model:type_name -> google.protobuf.Any
+	39, // 18: agentic.olap.runtime.v2.Request.worker_model:type_name -> google.protobuf.Any
 	7,  // 19: agentic.olap.runtime.v2.Request.result_authorization:type_name -> agentic.olap.runtime.v2.ResultAuthorization
-	38, // 20: agentic.olap.runtime.v2.ResultAuthorization.reference:type_name -> agentic.olap.query.v1.QueryResultReference
+	40, // 20: agentic.olap.runtime.v2.ResultAuthorization.reference:type_name -> agentic.olap.query.v1.QueryResultReference
 	12, // 21: agentic.olap.runtime.v2.Response.artifact:type_name -> agentic.olap.runtime.v2.ResultArtifact
 	11, // 22: agentic.olap.runtime.v2.Response.ready:type_name -> agentic.olap.runtime.v2.RuntimeReady
-	37, // 23: agentic.olap.runtime.v2.Response.model:type_name -> google.protobuf.Any
-	39, // 24: agentic.olap.runtime.v2.Response.worker_failure:type_name -> agentic.olap.query.v1.WorkerFailureFacts
-	13, // 25: agentic.olap.runtime.v2.RegisteredSource.binding:type_name -> agentic.olap.runtime.v2.SourceBinding
-	9,  // 26: agentic.olap.runtime.v2.RuntimeReady.operations:type_name -> agentic.olap.runtime.v2.Operation
-	10, // 27: agentic.olap.runtime.v2.RuntimeReady.sources:type_name -> agentic.olap.runtime.v2.RegisteredSource
-	0,  // 28: agentic.olap.runtime.v2.AcquireWorker.kind:type_name -> agentic.olap.runtime.v2.WorkerKind
-	13, // 29: agentic.olap.runtime.v2.AcquireWorker.bindings:type_name -> agentic.olap.runtime.v2.SourceBinding
-	37, // 30: agentic.olap.runtime.v2.ExchangeWorker.command_model:type_name -> google.protobuf.Any
-	14, // 31: agentic.olap.runtime.v2.WorkRequest.acquire:type_name -> agentic.olap.runtime.v2.AcquireWorker
-	15, // 32: agentic.olap.runtime.v2.WorkRequest.exchange:type_name -> agentic.olap.runtime.v2.ExchangeWorker
-	16, // 33: agentic.olap.runtime.v2.WorkRequest.release:type_name -> agentic.olap.runtime.v2.ReleaseWorker
-	37, // 34: agentic.olap.runtime.v2.WorkResponse.model:type_name -> google.protobuf.Any
-	39, // 35: agentic.olap.runtime.v2.WorkResponse.worker_failure:type_name -> agentic.olap.query.v1.WorkerFailureFacts
-	37, // 36: agentic.olap.runtime.v2.CapabilityInvocation.input:type_name -> google.protobuf.Any
-	23, // 37: agentic.olap.runtime.v2.ScriptRequest.source:type_name -> agentic.olap.runtime.v2.ScriptSource
-	2,  // 38: agentic.olap.runtime.v2.ScriptOutput.stream:type_name -> agentic.olap.runtime.v2.ScriptOutput.Stream
-	26, // 39: agentic.olap.runtime.v2.ScriptDiagnostic.location:type_name -> agentic.olap.runtime.v2.SourceLocation
-	31, // 40: agentic.olap.runtime.v2.ScriptDiagnostic.capability_failure:type_name -> agentic.olap.runtime.v2.CapabilityFailure
-	37, // 41: agentic.olap.runtime.v2.ScriptResponse.result:type_name -> google.protobuf.Any
-	27, // 42: agentic.olap.runtime.v2.ScriptResponse.diagnostics:type_name -> agentic.olap.runtime.v2.ScriptDiagnostic
-	35, // 43: agentic.olap.runtime.v2.ScriptResponse.timing_nanos:type_name -> agentic.olap.runtime.v2.ScriptResponse.TimingNanosEntry
-	21, // 44: agentic.olap.runtime.v2.CapabilityRequest.invocation:type_name -> agentic.olap.runtime.v2.CapabilityInvocation
-	37, // 45: agentic.olap.runtime.v2.CapabilityResponse.result:type_name -> google.protobuf.Any
-	31, // 46: agentic.olap.runtime.v2.CapabilityResponse.failure:type_name -> agentic.olap.runtime.v2.CapabilityFailure
-	1,  // 47: agentic.olap.runtime.v2.DeliveryConfirmation.status:type_name -> agentic.olap.runtime.v2.DeliveryStatus
-	36, // 48: agentic.olap.runtime.v2.DeliveryConfirmation.timing_nanos:type_name -> agentic.olap.runtime.v2.DeliveryConfirmation.TimingNanosEntry
-	33, // 49: agentic.olap.runtime.v2.DeliveryConfirmation.workers:type_name -> agentic.olap.runtime.v2.WorkerObservation
-	37, // 50: agentic.olap.runtime.v2.DeliveryConfirmation.execution_receipt:type_name -> google.protobuf.Any
-	51, // [51:51] is the sub-list for method output_type
-	51, // [51:51] is the sub-list for method input_type
-	51, // [51:51] is the sub-list for extension type_name
-	51, // [51:51] is the sub-list for extension extendee
-	0,  // [0:51] is the sub-list for field type_name
+	39, // 23: agentic.olap.runtime.v2.Response.model:type_name -> google.protobuf.Any
+	41, // 24: agentic.olap.runtime.v2.Response.worker_failure:type_name -> agentic.olap.query.v1.WorkerFailureFacts
+	35, // 25: agentic.olap.runtime.v2.Response.timing_nanos:type_name -> agentic.olap.runtime.v2.Response.TimingNanosEntry
+	13, // 26: agentic.olap.runtime.v2.RegisteredSource.binding:type_name -> agentic.olap.runtime.v2.SourceBinding
+	9,  // 27: agentic.olap.runtime.v2.RuntimeReady.operations:type_name -> agentic.olap.runtime.v2.Operation
+	10, // 28: agentic.olap.runtime.v2.RuntimeReady.sources:type_name -> agentic.olap.runtime.v2.RegisteredSource
+	0,  // 29: agentic.olap.runtime.v2.AcquireWorker.kind:type_name -> agentic.olap.runtime.v2.WorkerKind
+	13, // 30: agentic.olap.runtime.v2.AcquireWorker.bindings:type_name -> agentic.olap.runtime.v2.SourceBinding
+	39, // 31: agentic.olap.runtime.v2.ExchangeWorker.command_model:type_name -> google.protobuf.Any
+	14, // 32: agentic.olap.runtime.v2.WorkRequest.acquire:type_name -> agentic.olap.runtime.v2.AcquireWorker
+	15, // 33: agentic.olap.runtime.v2.WorkRequest.exchange:type_name -> agentic.olap.runtime.v2.ExchangeWorker
+	16, // 34: agentic.olap.runtime.v2.WorkRequest.release:type_name -> agentic.olap.runtime.v2.ReleaseWorker
+	39, // 35: agentic.olap.runtime.v2.WorkResponse.model:type_name -> google.protobuf.Any
+	41, // 36: agentic.olap.runtime.v2.WorkResponse.worker_failure:type_name -> agentic.olap.query.v1.WorkerFailureFacts
+	36, // 37: agentic.olap.runtime.v2.WorkResponse.timing_nanos:type_name -> agentic.olap.runtime.v2.WorkResponse.TimingNanosEntry
+	39, // 38: agentic.olap.runtime.v2.CapabilityInvocation.input:type_name -> google.protobuf.Any
+	23, // 39: agentic.olap.runtime.v2.ScriptRequest.source:type_name -> agentic.olap.runtime.v2.ScriptSource
+	2,  // 40: agentic.olap.runtime.v2.ScriptOutput.stream:type_name -> agentic.olap.runtime.v2.ScriptOutput.Stream
+	26, // 41: agentic.olap.runtime.v2.ScriptDiagnostic.location:type_name -> agentic.olap.runtime.v2.SourceLocation
+	31, // 42: agentic.olap.runtime.v2.ScriptDiagnostic.capability_failure:type_name -> agentic.olap.runtime.v2.CapabilityFailure
+	39, // 43: agentic.olap.runtime.v2.ScriptResponse.result:type_name -> google.protobuf.Any
+	27, // 44: agentic.olap.runtime.v2.ScriptResponse.diagnostics:type_name -> agentic.olap.runtime.v2.ScriptDiagnostic
+	37, // 45: agentic.olap.runtime.v2.ScriptResponse.timing_nanos:type_name -> agentic.olap.runtime.v2.ScriptResponse.TimingNanosEntry
+	21, // 46: agentic.olap.runtime.v2.CapabilityRequest.invocation:type_name -> agentic.olap.runtime.v2.CapabilityInvocation
+	39, // 47: agentic.olap.runtime.v2.CapabilityResponse.result:type_name -> google.protobuf.Any
+	31, // 48: agentic.olap.runtime.v2.CapabilityResponse.failure:type_name -> agentic.olap.runtime.v2.CapabilityFailure
+	1,  // 49: agentic.olap.runtime.v2.DeliveryConfirmation.status:type_name -> agentic.olap.runtime.v2.DeliveryStatus
+	38, // 50: agentic.olap.runtime.v2.DeliveryConfirmation.timing_nanos:type_name -> agentic.olap.runtime.v2.DeliveryConfirmation.TimingNanosEntry
+	33, // 51: agentic.olap.runtime.v2.DeliveryConfirmation.workers:type_name -> agentic.olap.runtime.v2.WorkerObservation
+	39, // 52: agentic.olap.runtime.v2.DeliveryConfirmation.execution_receipt:type_name -> google.protobuf.Any
+	53, // [53:53] is the sub-list for method output_type
+	53, // [53:53] is the sub-list for method input_type
+	53, // [53:53] is the sub-list for extension type_name
+	53, // [53:53] is the sub-list for extension extendee
+	0,  // [0:53] is the sub-list for field type_name
 }
 
 func init() { file_runtime_proto_init() }
@@ -3108,7 +3137,7 @@ func file_runtime_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_runtime_proto_rawDesc), len(file_runtime_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   34,
+			NumMessages:   36,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

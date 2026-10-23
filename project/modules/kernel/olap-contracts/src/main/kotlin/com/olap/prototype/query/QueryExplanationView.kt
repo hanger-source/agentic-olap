@@ -8,7 +8,10 @@ import com.olap.prototype.time.TemporalWindow
 
 /** 引擎实际观察的公开事实，不携带SQL、物理字段、Calcite节点或执行统计猜测。 */
 data class QueryExplanationView(val requestId: String, val summary: Summary, val scopes: List<Scope>, val sources: List<Source>,
-    val plan: List<PlanNode>, val compilationScale: CompilationScale?) {
+    val plan: List<PlanNode>, val compilationScale: CompilationScale?, val executionRequirements: ExecutionRequirements?) {
+    data class ExecutionRequirements(val capabilities: List<String>, val relationChecks: List<RelationCheck>,
+        val constraintKinds: List<String>, val sourceCapabilitiesChecked: Boolean)
+    data class RelationCheck(val code: String, val scope: QueryStageAnalysis.ScopeId?, val keys: List<String>, val reason: String?)
     data class Summary(val scopeCount: Int, val sourceInputCount: Int, val executionBoundary: String,
         val populationContract: PopulationContract, val actualSourceStatistics: String, val rowNullAttribution: String)
     data class PopulationMode(val mode: String, val fields: List<String>, val groups: String, val inputs: String?)
@@ -69,4 +72,5 @@ sealed interface QueryExplanationContent {
     data class Sources(val items: List<QueryExplanationView.Source>, val totalItems: Int, val nextOffset: Int?) : QueryExplanationContent
     data class Plan(val items: List<QueryExplanationView.PlanNode>, val totalItems: Int, val nextOffset: Int?) : QueryExplanationContent
     data class CompilationScale(val value: QueryExplanationView.CompilationScale?) : QueryExplanationContent
+    data class ExecutionRequirements(val value: QueryExplanationView.ExecutionRequirements?) : QueryExplanationContent
 }

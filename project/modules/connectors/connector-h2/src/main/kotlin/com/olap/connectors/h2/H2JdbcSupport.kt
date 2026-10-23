@@ -16,7 +16,9 @@ internal class H2JdbcSupport : StandardJdbcSupport("org.h2.Driver") {
         SourceCapabilities.Capability.PARAMETER_BINDING, SourceCapabilities.Capability.CANCELLATION,
         SourceCapabilities.Capability.TRANSACTION_SNAPSHOT, SourceCapabilities.Capability.CONSISTENT_READ,
         SourceCapabilities.Capability.STRUCTURE_INSPECTION, SourceCapabilities.Capability.DATA_PREVIEW,
-        SourceCapabilities.Capability.DATA_PROFILING, SourceCapabilities.Capability.RELATIONSHIP_PROFILING))
+        SourceCapabilities.Capability.DATA_PROFILING, SourceCapabilities.Capability.RELATIONSHIP_PROFILING,
+        // 同读基础的数据见证可以核验 NOT_NULL；catalog 的 PK/UK 等仍不作快照保证。
+        SourceCapabilities.Capability.CONSTRAINT_VERIFICATION))
     override fun close() {
         markClosed()
         val drivers = DriverManager.getDrivers()

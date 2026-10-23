@@ -47,7 +47,9 @@ internal class ServerQueries(private val queries: JdbcQueryDefinitionRepository,
     fun execute(request: ServerRequest, input: QueryExecutionRequest): Response {
         val started = System.nanoTime()
         val selected = select(request, input.query)
-        val publication = request.work.timed("METADATA_LOAD_PUBLICATION") { publications.readPublication(selected.intent.publication) }
+        val publication = request.work.timed("METADATA_LOAD_PUBLICATION") { publications.readPublication(selected.intent.publication) { stage, nanos ->
+            request.work.timingNanos.merge("METADATA_$stage", nanos, Long::plus)
+        } }
         request.work.timed("METADATA_AUTHORIZE_PUBLICATION") { authorization.publication(request.principal, "execute-query", publication.entry) }
         val run = usage.accept("run-${UUID.randomUUID().toString().replace("-", "")}", request.principal.subject,
             publication.entry, selected.intent, selected.reference, historyEnabled, input.saveResult, input.question)
@@ -182,6 +184,7 @@ internal class ServerQueries(private val queries: JdbcQueryDefinitionRepository,
             QueryExplanationSection.SOURCES -> QueryExplanationContent.Sources(view.sources.drop(input.offset).take(input.limit), view.sources.size, next(view.sources.size))
             QueryExplanationSection.PLAN -> QueryExplanationContent.Plan(view.plan.drop(input.offset).take(input.limit), view.plan.size, next(view.plan.size))
             QueryExplanationSection.COMPILATION_SCALE -> { require(input.offset == 0); QueryExplanationContent.CompilationScale(view.compilationScale) }
+            QueryExplanationSection.EXECUTION_REQUIREMENTS -> { require(input.offset == 0); QueryExplanationContent.ExecutionRequirements(view.executionRequirements) }
         }
         return QueryExplanationResult(input.section, content)
     }

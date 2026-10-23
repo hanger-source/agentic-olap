@@ -442,6 +442,59 @@ class MemberRelationExecutionTest {
             assertEquals("ANALYZE_STAGES", failure.stage); assertTrue(requireNotNull(failure.message).contains("uniform allocation requires"), failure.message)
         }
     }
+    @Test fun provesFilteredAlignmentIdentitiesWithoutTrustingNullableRawPopulation(@TempDir directory: Path) {
+        for (identityType in listOf(ScalarValueType.NUMBER, ScalarValueType.TEXT)) NativeWarehouse(directory, "duckdb", listOf(
+            "CREATE TABLE orders(id INTEGER, customer ${if (identityType == ScalarValueType.NUMBER) "INTEGER" else "VARCHAR"}, period INTEGER, kind INTEGER, amount DECIMAL(18,2))",
+            "INSERT INTO orders VALUES (1,1,1,1,10),(2,1,2,1,20),(3,NULL,1,1,5),(4,2,2,1,NULL)"
+        )).use { warehouse ->
+            val definitions = observationCatalog(warehouse)
+            declareUnits(definitions, "orders", mapOf("customer" to identityType))
+            val projected = definitions.members.getValue("orders@1") as MemberSource.Projection
+            val result = projected.definition.result
+            val memberOutputs = result.outputs + ("customer" to property("客户", "customer", identityType, "orders.customer"))
+            definitions.members["orders@1"] = MemberSource.Projection(projected.id, projected.version,
+                projected.definition.copy(result = MemberResult(result.entity, result.role, MemberShape.RAW_BAG, emptyList(),
+                    memberOutputs, result.filterOperators, result.timeSlot, result.clockSlots, result.description)), projected.outputExpressions)
+            val formal = orderFormal("rows", MemberRef("orders", 1))
+            val members = listOf(Calculation.MemberSlot(formal.name, formal.entity, formal.role, MemberShape.RAW_BAG,
+                formal.outputs + ("customer" to Calculation.MemberProperty("customer", identityType, null)), formal.fixedSource))
+            val bindings = observationBindings(definitions, mapOf("rows" to orderSource()), emptyMap())
+            fun query(restrictIdentity: Boolean): QueryComputation.Scope {
+                fun period(value: Int) = orderRows("rows", if (restrictIdentity)
+                    MemberCondition.All(listOf(MemberCondition.Predicate("customer", MemberCondition.Operator.EQ,
+                        listOf(Calculation.Scalar(identityType, "1"))), memberEquals("period", value)))
+                else memberEquals("period", value), listOf(
+                    regroup(listOf("customer"), listOf(reduction("amount", ResultAggregation.Sum(money, ResultAggregation.NullPolicy.IGNORE), "total")))
+                ))
+                val inputs = linkedMapOf(
+                    "before" to Calculation.AlignedInput(period(1), mapOf("customer" to "customer"), listOf(Calculation.AlignedValue("total", "before", Calculation.NoMatch.PRESERVE_NULL))),
+                    "after" to Calculation.AlignedInput(period(2), mapOf("customer" to "customer"), listOf(Calculation.AlignedValue("total", "after", Calculation.NoMatch.ZERO_WHEN_ABSENT)))
+                )
+                return observationCompute(Calculation.Scope(Calculation.AlignMeasurements(inputs, listOf("customer"),
+                    Calculation.AlignmentPopulation(Calculation.PopulationKind.BASE, listOf("before"))), emptyMap(), emptyList()), members, emptyList(), bindings)
+            }
+            warehouse.finishSetup()
+            val catalog = definitions.catalog()
+            val compiled = OlapSemanticCompiler(CalciteRelCompiler(TestConnectors.registry)).compile(catalog,
+                ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION, "filtered-alignment", catalog.manifest.catalogId, query(true)),
+                OlapQueryContext("filtered-alignment"), observer)
+            val lowered = requireNotNull(compiled.executableLoweringResult)
+            assertTrue(lowered.relationChecks.isEmpty(), "过滤与归约已经证明非 NULL，不应再提交独立关系检查：${lowered.relationChecks.joinToString { it.sql }}")
+            assertFalse(com.olap.prototype.connector.SourceCapabilities.Capability.CONSISTENT_READ in lowered.toSourceRequest("execute-query", null).requiredCapabilities)
+            assertEquals(listOf(listOf(decimal("1"), decimal("10"), decimal("20"))), warehouse.execute(lowered).map { row -> row.map { it.toString().toBigDecimal().stripTrailingZeros() } })
+
+            val unknown = OlapSemanticCompiler(CalciteRelCompiler(TestConnectors.registry)).compile(catalog,
+                ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION, "unknown-alignment", catalog.manifest.catalogId, query(false)),
+                OlapQueryContext("unknown-alignment"), observer)
+            val guarded = requireNotNull(unknown.executableLoweringResult)
+            val check = guarded.relationChecks.first { it.code == "OBSERVATION_OBJECT_IDENTITY_NULL" }
+            assertEquals(listOf("customer"), requireNotNull(check.origin).keys)
+            assertNotNull(check.origin?.scope)
+            assertTrue(com.olap.prototype.connector.SourceCapabilities.Capability.CONSISTENT_READ in guarded.toSourceRequest("execute-query", null).requiredCapabilities)
+            val failure = assertThrows(EngineExecutionException::class.java) { execute(engine(warehouse), definitions, query(false)) }
+            assertEquals("OBSERVATION_OBJECT_IDENTITY_NULL", failure.code)
+        }
+    }
     @Test fun distinguishesWeightedObjectsRawOccurrencesAndAnIndependentReferencePopulation(@TempDir directory: Path) {
         NativeWarehouse(directory, "duckdb", listOf("CREATE TABLE orders(id INTEGER PRIMARY KEY, customer INTEGER, period INTEGER, kind INTEGER, amount DECIMAL(18,2))",
             "INSERT INTO orders VALUES (1,1,1,1,10),(2,2,1,1,100),(3,2,1,1,100),(4,2,1,1,100),(5,3,1,1,30),(6,4,1,1,NULL),(7,NULL,1,1,NULL)")).use { warehouse ->

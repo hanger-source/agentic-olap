@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"time"
 
 	q "github.com/hanger-source/agentic-olap/service/internal/protocol/query"
 	"google.golang.org/protobuf/proto"
@@ -88,17 +89,27 @@ func (s Store) Validate(ref Reference, raw []byte) error { _, err := s.artifact(
 func (s Store) Record(ref Reference, raw []byte) (*q.SavedQueryResultRecord, error) {
 	return s.artifact(raw, ref)
 }
-func (s Store) Save(ctx context.Context, ref Reference, raw []byte) (int64, error) {
-	if err := s.Validate(ref, raw); err != nil {
+func (s Store) Save(ctx context.Context, ref Reference, raw []byte, observe func(string, time.Duration)) (int64, error) {
+	measured := func(stage string, action func() error) error {
+		started := time.Now()
+		defer func() { observe(stage, time.Since(started)) }()
+		return action()
+	}
+	if err := measured("RESULT_STORE_VALIDATE", func() error { return s.Validate(ref, raw) }); err != nil {
 		return 0, err
 	}
 	if err := ctx.Err(); err != nil {
 		return 0, err
 	}
-	if err := os.MkdirAll(s.Directory, 0700); err != nil {
-		return 0, err
-	}
-	file, err := os.CreateTemp(s.Directory, "."+ref.RunID+"-")
+	var file *os.File
+	err := measured("RESULT_STORE_CREATE", func() error {
+		if err := os.MkdirAll(s.Directory, 0700); err != nil {
+			return err
+		}
+		var err error
+		file, err = os.CreateTemp(s.Directory, "."+ref.RunID+"-")
+		return err
+	})
 	if err != nil {
 		return 0, err
 	}
@@ -107,10 +118,10 @@ func (s Store) Save(ctx context.Context, ref Reference, raw []byte) (int64, erro
 	if err = file.Chmod(0600); err != nil {
 		return 0, err
 	}
-	if _, err = file.Write(raw); err != nil {
+	if err = measured("RESULT_STORE_WRITE", func() error { _, err := file.Write(raw); return err }); err != nil {
 		return 0, err
 	}
-	if err = file.Sync(); err != nil {
+	if err = measured("RESULT_STORE_FILE_SYNC", file.Sync); err != nil {
 		return 0, err
 	}
 	if err = file.Close(); err != nil {
@@ -119,7 +130,7 @@ func (s Store) Save(ctx context.Context, ref Reference, raw []byte) (int64, erro
 	if err = ctx.Err(); err != nil {
 		return 0, err
 	}
-	if err = os.Link(file.Name(), filepath.Join(s.Directory, ref.RunID+".pb")); err != nil {
+	if err = measured("RESULT_STORE_COMMIT", func() error { return os.Link(file.Name(), filepath.Join(s.Directory, ref.RunID+".pb")) }); err != nil {
 		return 0, err
 	}
 	directory, err := os.Open(s.Directory)
@@ -127,7 +138,7 @@ func (s Store) Save(ctx context.Context, ref Reference, raw []byte) (int64, erro
 		return 0, err
 	}
 	defer directory.Close()
-	if err = directory.Sync(); err != nil {
+	if err = measured("RESULT_STORE_DIRECTORY_SYNC", directory.Sync); err != nil {
 		return 0, err
 	}
 	return int64(len(raw)), nil

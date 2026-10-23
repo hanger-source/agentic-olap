@@ -79,6 +79,7 @@ message Response {
   RuntimeReady ready = 6;
   google.protobuf.Any model = 7;
   agentic.olap.query.v1.WorkerFailureFacts worker_failure = 8;
+  map<string, int64> timing_nanos = 9;
 }
 
 message Operation {
@@ -156,6 +157,7 @@ message WorkResponse {
   bool lease_invalidated = 7;
   google.protobuf.Any model = 8;
   agentic.olap.query.v1.WorkerFailureFacts worker_failure = 9;
+  map<string, int64> timing_nanos = 10;
 }
 
 message Cancel {

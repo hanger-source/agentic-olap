@@ -130,6 +130,39 @@ class JdbcSourceGuaranteeExecutionTest {
         }
     }
 
+    @Test fun verifiesDeclaredNonNullColumnsAgainstTheQuerySnapshotWithoutCatalogEvidence(@TempDir directory: Path) {
+        for (dialect in listOf("h2", "duckdb")) {
+            val observed = source(dialect, directory.resolve("declared-non-null-$dialect.duckdb"))
+            val binding = observed.binding
+            val frozen = requireNotNull(binding.sourceConstraints)
+            val declared = PhysicalSourceConstraints("declared-not-null", "declared-columns", frozen.sourceIdentityHash,
+                frozen.connectorRef, null, null, null, null, JdbcTableConstraints(emptyList(), emptyList(), emptyList(), emptyList()),
+                frozen.columnVersionRefs, emptyList(), StructureProvenance(StructureProvenance.Kind.DECLARED, "source-owner", "1"))
+            val adopted = binding.copy(sourceConstraints = declared,
+                physicalColumnTypes = binding.physicalColumnTypes.mapValues { (_, type) -> type.copy(nullable = false) })
+            val amount = binding.physicalColumnBindings.entries.single { it.value == "amount" }.key
+            val inputs = CalciteQueryCompiler.inputs(listOf(adopted), setOf(amount), emptySet(), connectors)
+            val builder = inputs.builder.scan(FrozenCatalogSchema.path(adopted))
+            builder.aggregate(builder.groupKey(), builder.sum(false, "total", builder.field("amount")))
+            val output = SemanticNativeTypes.resultType(builder.peek().rowType.fieldList.single().type)
+            val rendered = CalciteSqlRendering.render(CalciteQueryCompiler.optimize(builder.build(), emptyList()),
+                connectors.require(adopted.connectorRef).compilation)
+            val requirements = inputs.sourceRequirements()
+            assertEquals(setOf(JdbcSourceRequirement.ConstraintUse(JdbcSourceRequirement.ConstraintKind.NOT_NULL, "amount")),
+                requirements.single().constraintUses, "只采用本次暴露的精确列，不依赖未选择的 tenant/id 或声明的主键")
+            val request = SourceSqlRequest("execute-query", rendered.sql, emptyList(), mapOf("total" to "total"),
+                mapOf("total" to "总额"), mapOf("total" to output), requirements, emptyList(), null)
+            val provider = JdbcProvider(observed.spec, connectors)
+            assertEquals(0, BigDecimal("110").compareTo(execute(provider, request).rows.single().cells.single().value as BigDecimal))
+            TestConnectors.open(dialect, observed.spec.jdbcUrl, observed.spec.username, "").use { writer -> writer.createStatement().use {
+                it.execute("UPDATE source_test.records SET amount=NULL WHERE id=2")
+            } }
+            assertEquals("SOURCE_NOT_NULL_VIOLATION", assertThrows(SourceExecutionException::class.java) {
+                execute(provider, request)
+            }.failure.code, "结果只输出总额，不能靠最终结果类型发现被聚合隐藏的脏 NULL")
+        }
+    }
+
     @Test fun queryKeepsTheVerifiedDataSnapshotDuringConcurrentInsert(@TempDir directory: Path) {
         listOf("h2", "duckdb").forEach { dialect -> listOf(false, true).forEach { empty ->
             val source = source(dialect, directory.resolve("snapshot-$dialect-$empty.duckdb"))

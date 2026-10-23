@@ -8,6 +8,7 @@ import com.olap.prototype.warehouse.contract.*
 
 /** 只描述跨进程实际工作，不复制语义AST或来源选择规则。 */
 sealed interface EngineWorkerCommand {
+    data class Lookup(val catalogId: String, val contentHash: String) : EngineWorkerCommand
     data class Load(val publication: PublishedExecutableCatalog) : EngineWorkerCommand
     data class Unload(val catalogId: String, val contentHash: String) : EngineWorkerCommand
     data class Inspect(val mode: InspectionMode, val catalogId: String, val requestId: String, val intent: QueryIntent) : EngineWorkerCommand
@@ -16,6 +17,7 @@ sealed interface EngineWorkerCommand {
 }
 enum class InspectionMode { RESOLVE, VALIDATE, EXPLAIN }
 sealed interface EngineWorkerResult {
+    data class Present(val value: Boolean) : EngineWorkerResult
     data class Loaded(val catalogId: String, val contentHash: String) : EngineWorkerResult
     data class Unloaded(val catalogId: String, val contentHash: String) : EngineWorkerResult
     data class Resolved(val value: EngineInputResolution) : EngineWorkerResult
@@ -30,11 +32,13 @@ data class EngineExecutionPayload(val publication: QueryCapabilityRequest, val r
     val explanation: QueryExplanationView)
 
 sealed interface QueryWorkerCommand {
+    data class Lookup(val coordinate: QueryCapabilityRequest, val catalogHash: String, val capabilityHash: String, val semanticCatalogHash: String) : QueryWorkerCommand
     data class Load(val entry: PublishedQueryEntry) : QueryWorkerCommand
     data class Unload(val coordinate: QueryCapabilityRequest, val catalogHash: String, val capabilityHash: String) : QueryWorkerCommand
     data class Validate(val intent: QueryIntent) : QueryWorkerCommand
 }
 sealed interface QueryWorkerResult {
+    data class Present(val value: Boolean) : QueryWorkerResult
     data class Loaded(val coordinate: QueryCapabilityRequest, val catalogHash: String, val capabilityHash: String) : QueryWorkerResult
     data class Unloaded(val coordinate: QueryCapabilityRequest) : QueryWorkerResult
     data class Validated(val capabilityHash: String) : QueryWorkerResult

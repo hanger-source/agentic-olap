@@ -2,7 +2,7 @@
 
 完整 MCP 服务通过来源插件访问数据。使用方提供与其网络、鉴权和查询协议相符的插件，服务负责语义管理、发布、规划、SQL 生成、执行要求检查及结果合同校验。HTTP 查询服务是来源访问实现，不需要数据库端口、JDBC URL、数据库凭据或 catalog 权限。业务公式、资格规则和指标组合仍通过语义定义和 Query 表达。
 
-本文描述源码中的来源访问合同：连接器 API 为 `agentic-olap-connector/v11-kotlin-native-collection-relations-calcite-1.42`，元数据存储格式为 `16`。服务、SDK 与插件须来自同一发行或同轮源码构建，安装发行物时以该发行声明及实际服务合同为准。旧存储格式明确拒绝，服务不会自动改写已有持久根。
+本文描述源码中的来源访问合同：连接器 API 为 `agentic-olap-connector/v12-kotlin-native-collection-placement-calcite-1.42`，元数据存储格式为 `16`。服务、SDK 与插件须来自同一发行或同轮源码构建，安装发行物时以该发行声明及实际服务合同为准。旧存储格式明确拒绝，服务不会自动改写已有持久根。
 
 ## 配置来源
 
@@ -46,6 +46,8 @@ JDBC 实现的 `identityParameters` 为 `jdbcUrl`、可选 `username` 和 `drive
 内置 JDBC 实现的 `revision` 标识精确访问绑定；本次结构观察由保存的 snapshot ID 和表的 `schemaHash` 标识，不把绑定摘要称为数据库原生结构版本或数据快照。
 
 约束声明不等于约束已核验。规划或执行实际依赖键、关系检查、封存集合等保证时，来源必须兑现对应要求。结构供应者负责及时登记变化并修订、发布受影响定义；显式结构不会被服务偷偷替换成一次数据库调查结果。
+
+冻结列的非空声明进入原生类型系统时，核心记录对应精确来源列的 `NOT_NULL` 采用；声明本身不代替核验。执行者必须在与主查询一致的读基础中检查真实数据，发现 NULL 返回 `SOURCE_NOT_NULL_VIOLATION`；最终输出没有保留该列、或 NULL 已被聚合隐藏时也不能省略。原本可空的列由查询内过滤证明非空，不因此增加来源非空保证。仅作为原生函数参数的表不采用行字段的非空保证；同时实际读取其数据行时按真实列用途记录。JDBC 的数据非空见证不要求读取 catalog 约束，PK／UK 等命名约束仍按插件明确兑现的 catalog／数据一致性核验。
 
 字段必须明确提供类型、顺序与可空性。`autoIncrement/generated` 可以缺省并保存为未知；它们不决定读取查询的保证。主键列必须明确声明为不可空，约束引用必须属于已声明字段。查询返回头可以提供类型信息，但不能替代基础表的键与非空声明；服务不会从样本中推导这些保证。
 
@@ -106,9 +108,11 @@ olap.output(olap.sources.connectorCapabilities(
 
 读取不连接数据源、不执行 SQL，披露的是精确插件的编译声明，不验证后端实际版本、连接状态或完整 Query。`MAPPED` 不代替单位、算术保证、NULL、溢出和最终结果容量检查。数值 AVG 的 `valueContract` 仍为必填；事实度量的 `aggregationRounding`、完成关系中 `ResultAggregation.Average.rounding` 都须明确接受相应原生策略，`valueContract.result.rounding` 仅负责额外的最终输出舍入。原 SQL 没有 ROUND，不能据此把原生策略填为 NONE；插件也不能用未经核实的统一舍入值宣称支持。
 
-`expandCollection` 接收当前输入行的类型化数组表达式，返回原生展开关系、完整元素和序号三部分 SQL AST。核心拥有逐行人口、INNER／OUTER 及输出投影，不强制相关派生表形状；插件可以直接映射表函数或下标生成。序号从 1 开始，实际 NULL 元素仍有位置，OUTER 缺行则元素与序号均为 NULL。完整接口与原生映射范式见[连接器 API](../project/modules/kernel/connector-api/README.md)。一种原生常量展开成功，不代表同一后端已支持真实输入行或聚合结果的相关展开。
+`expandCollection(outputType,tableAlias)` 返回原生展开的放置计划：`CollectionExpansion.Relation` 提供 FROM 生成器，`InputProjection` 提供完整输入上的单个 SELECT-list SRF；取值回调只接收当前作用域的数组和生成值引用，返回完整元素与序号表达式。核心构造输入透传、逐行人口、INNER／OUTER 及输出投影，不向插件开放任意关系改写。FROM 计划用核心 LEFT JOIN 兑现 OUTER；输入投影的 OUTER 要求明确的 `COLLECTION_PROJECTION_OUTER`，由核心绑定存在标记、用 typed singleton NULL 数组保留空／NULL 输入，再补整个元素和序号 NULL。该原生类型与方言组合未兑现时，编译以 `NATIVE_COMPILATION_CAPABILITY_MISSING` 和 `EXPAND_COLLECTION_OUTER` 明确拒绝。实际 NULL 元素仍有从 1 开始的位置，重复度、完整 ROW 和求值作用域不变。完整接口与原生映射范式见[连接器 API](../project/modules/kernel/connector-api/README.md)。常量数组或其他后端的成功不替代真实表行、聚合结果及目标后端正式 Query 的验收。
 
 `textIdentityEquals(builder,left,right)` 接收两个保留真实类型的操作数，为文本身份 EQ、NE、IN 提供完整的 BOOLEAN 比较表达式，遵循 SQL 三值逻辑，不能隐式忽略大小写、尾空格或做 Unicode 归一。原生文本等号是否等价取决于实际类型、编码与 collation；样本相等和估算成本下降都不足以证明普遍等价。插件直接映射完整比较，不必将文本冒充二进制，也不必在 SQL 字符串中寻找操作数。数据库、列或比较策略中影响该保证的条件属于身份与来源保证，不能放入运行参数。这个合同不重新定义所有 CHAR、GROUP BY 或 ORDER BY 行为。
+
+插件的原生 Rex 函数还须诚实声明 NULL 传播，供 Calcite 分析真实过滤条件。返回类型可空不等于严格 NULL 传播；仅当函数严格传播 NULL 且非 NULL 输入不产生 NULL 时，才可用正式 `SqlOperator.getStrongPolicyInference()` 声明 `Strong.Policy.ANY`。内置 DuckDB `ENCODE` 和 H2 `RAWTOHEX/STRINGTOUTF8` 使用这一声明，原生 SQL 与身份比较语义不变。无法证明时，核心仍保留运行关系检查，不据插件函数名或可空类型免除 NULL、人口、重复度与数量边界。
 
 连接器若能保证受支持操作数的原生相等与精确身份相等一致，可以在核验实际类型后返回 `builder.equals(left,right)`。该保证需要覆盖列、参数与表达式的比较行为，包括 NULL、大小写、尾空格和 Unicode；不能仅根据数据库默认 collation 推定。类型或条件超出保证范围时明确拒绝。CHAR 等可能改变空格含义的类型必须单独处理，不能通过类型标签或有损 CAST 冒充等价。
 

@@ -56,6 +56,13 @@ internal class CandidateHandler(private val connectors: ConnectorRegistry, priva
     private data class CandidatePage(val values: List<Any>, val scope: String)
 
     fun execute(command: CandidateWorkerCommand, control: WarehouseExecutionControl): CandidateWorkerResult = when (command) {
+        is CandidateWorkerCommand.Lookup -> {
+            control.checkCancellation()
+            val id = command.identity
+            val loaded = publications[id.coordinate]
+            loaded?.let { requireIdentity(it, id.catalogHash, id.capabilityHash, id.semanticCatalogHash) }
+            CandidateWorkerResult.Present(loaded != null)
+        }
         is CandidateWorkerCommand.Load -> load(command, control)
         is CandidateWorkerCommand.Unload -> unload(command.identity)
         is CandidateWorkerCommand.Resolve -> {

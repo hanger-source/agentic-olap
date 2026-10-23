@@ -1,6 +1,7 @@
 package com.olap.prototype.member
 
 import com.olap.prototype.calculation.MetricDefinition
+import com.olap.prototype.contract.InputContractException
 import com.olap.prototype.metric.MetricValueContract
 import com.olap.prototype.query.ScalarValueType
 import com.olap.prototype.query.ScopedInputContract
@@ -22,10 +23,15 @@ class MemberResult(val entity: String, val role: String, val shape: MemberShape,
         require(this.identitySlots.distinct().size == this.identitySlots.size && this.outputs.keys.containsAll(this.identitySlots) && this.outputs.keys.containsAll(this.filterOperators.keys)) { "member identity and filters require distinct declared output slots" }
         (this.identitySlots + this.filterOperators.keys).forEach { MemberSourceDefinition.scalar(requireNotNull(this.outputs[it])) }
         if (timeSlot != null) require(this.outputs[timeSlot]?.let { MemberSourceDefinition.scalar(it).valueType } in setOf(ScalarValueType.DATE, ScalarValueType.LOCAL_TIMESTAMP, ScalarValueType.OFFSET_TIMESTAMP)) { "member time slot must be an explicitly approved temporal output" }
-        this.outputs.values.forEach { output ->
+        this.outputs.forEach { (name, output) ->
             val value = MemberSourceDefinition.rootValueContract(output)
             if (value != null) {
-                require(MemberSourceDefinition.scalar(output).valueType == ScalarValueType.NUMBER && value.unitEquations.isEmpty()) { "member quantities declare numeric facts, not calculation unit equations" }
+                val type = MemberSourceDefinition.scalar(output).valueType
+                if (type != ScalarValueType.NUMBER) throw InputContractException.violation(InputContractException.Rule.MEMBER_QUANTITY_TYPE,
+                    listOf("outputs", name, "valueType"), "member quantity outputs require NUMBER", "NUMBER", type.name)
+                if (value.unitEquations.isNotEmpty()) throw InputContractException.violation(InputContractException.Rule.MEMBER_QUANTITY_UNIT_EQUATIONS,
+                    listOf("outputs", name, "valueContract", "unitEquations"),
+                    "member outputs declare quantity facts; unit equations belong to the calculation body", "EMPTY_MAP", "NONEMPTY_MAP")
                 when (val unit = value.unit) {
                     is MetricValueContract.Fixed -> kotlin.Unit
                     is MetricValueContract.SlotDimension -> {
@@ -41,6 +47,16 @@ class MemberResult(val entity: String, val role: String, val shape: MemberShape,
                 }
             }
         }
+    }
+    companion object {
+        fun contract(): Map<String, Any> = mapOf("outputRules" to mapOf("quantity" to mapOf(
+            "when" to "VALUE_CONTRACT_PRESENT",
+            "valueType" to ScalarValueType.NUMBER.name,
+            "unitEquations" to "EMPTY_MAP",
+            "unitEquationOwner" to "CALCULATION_BODY",
+            "meaning" to "OUTPUT_DECLARES_QUANTITY_FACTS_NOT_CALCULATION_UNIT_AUTHORIZATION",
+            "violationCodes" to mapOf("valueType" to InputContractException.Rule.MEMBER_QUANTITY_TYPE.code,
+                "unitEquations" to InputContractException.Rule.MEMBER_QUANTITY_UNIT_EQUATIONS.code))))
     }
     override fun equals(other: Any?): Boolean = other is MemberResult && entity == other.entity && role == other.role && shape == other.shape && identitySlots == other.identitySlots && outputs == other.outputs && filterOperators == other.filterOperators && timeSlot == other.timeSlot && clockSlots == other.clockSlots && description == other.description
     override fun hashCode(): Int = listOf(entity, role, shape, identitySlots, outputs, filterOperators, timeSlot, clockSlots, description).hashCode()

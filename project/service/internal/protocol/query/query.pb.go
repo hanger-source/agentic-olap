@@ -4737,15 +4737,16 @@ func (x *RegisteredReply) GetContent() *anypb.Any {
 
 // 所有解释均来自实际绑定、阶段分析或来源计划；不会把未知统计包装为已观测。
 type QueryExplanationView struct {
-	state            protoimpl.MessageState       `protogen:"open.v1"`
-	RequestId        string                       `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
-	Summary          *ExplanationSummary          `protobuf:"bytes,2,opt,name=summary,proto3" json:"summary,omitempty"`
-	Scopes           []*ExplanationScope          `protobuf:"bytes,3,rep,name=scopes,proto3" json:"scopes,omitempty"`
-	Sources          []*ExplanationSource         `protobuf:"bytes,4,rep,name=sources,proto3" json:"sources,omitempty"`
-	Plan             []*ExplanationPlanNode       `protobuf:"bytes,5,rep,name=plan,proto3" json:"plan,omitempty"`
-	CompilationScale *ExplanationCompilationScale `protobuf:"bytes,6,opt,name=compilation_scale,json=compilationScale,proto3" json:"compilation_scale,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	state                 protoimpl.MessageState            `protogen:"open.v1"`
+	RequestId             string                            `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	Summary               *ExplanationSummary               `protobuf:"bytes,2,opt,name=summary,proto3" json:"summary,omitempty"`
+	Scopes                []*ExplanationScope               `protobuf:"bytes,3,rep,name=scopes,proto3" json:"scopes,omitempty"`
+	Sources               []*ExplanationSource              `protobuf:"bytes,4,rep,name=sources,proto3" json:"sources,omitempty"`
+	Plan                  []*ExplanationPlanNode            `protobuf:"bytes,5,rep,name=plan,proto3" json:"plan,omitempty"`
+	CompilationScale      *ExplanationCompilationScale      `protobuf:"bytes,6,opt,name=compilation_scale,json=compilationScale,proto3" json:"compilation_scale,omitempty"`
+	ExecutionRequirements *ExplanationExecutionRequirements `protobuf:"bytes,7,opt,name=execution_requirements,json=executionRequirements,proto3" json:"execution_requirements,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *QueryExplanationView) Reset() {
@@ -4820,6 +4821,13 @@ func (x *QueryExplanationView) GetCompilationScale() *ExplanationCompilationScal
 	return nil
 }
 
+func (x *QueryExplanationView) GetExecutionRequirements() *ExplanationExecutionRequirements {
+	if x != nil {
+		return x.ExecutionRequirements
+	}
+	return nil
+}
+
 type QueryExplanationContent struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to Kind:
@@ -4829,6 +4837,7 @@ type QueryExplanationContent struct {
 	//	*QueryExplanationContent_Sources
 	//	*QueryExplanationContent_Plan
 	//	*QueryExplanationContent_Scale
+	//	*QueryExplanationContent_ExecutionRequirements
 	Kind          isQueryExplanationContent_Kind `protobuf_oneof:"kind"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -4916,6 +4925,15 @@ func (x *QueryExplanationContent) GetScale() *ExplanationScale {
 	return nil
 }
 
+func (x *QueryExplanationContent) GetExecutionRequirements() *ExplanationRequirementSection {
+	if x != nil {
+		if x, ok := x.Kind.(*QueryExplanationContent_ExecutionRequirements); ok {
+			return x.ExecutionRequirements
+		}
+	}
+	return nil
+}
+
 type isQueryExplanationContent_Kind interface {
 	isQueryExplanationContent_Kind()
 }
@@ -4940,6 +4958,10 @@ type QueryExplanationContent_Scale struct {
 	Scale *ExplanationScale `protobuf:"bytes,5,opt,name=scale,proto3,oneof"`
 }
 
+type QueryExplanationContent_ExecutionRequirements struct {
+	ExecutionRequirements *ExplanationRequirementSection `protobuf:"bytes,6,opt,name=execution_requirements,json=executionRequirements,proto3,oneof"`
+}
+
 func (*QueryExplanationContent_Summary) isQueryExplanationContent_Kind() {}
 
 func (*QueryExplanationContent_Scopes) isQueryExplanationContent_Kind() {}
@@ -4949,6 +4971,188 @@ func (*QueryExplanationContent_Sources) isQueryExplanationContent_Kind() {}
 func (*QueryExplanationContent_Plan) isQueryExplanationContent_Kind() {}
 
 func (*QueryExplanationContent_Scale) isQueryExplanationContent_Kind() {}
+
+func (*QueryExplanationContent_ExecutionRequirements) isQueryExplanationContent_Kind() {}
+
+type ExplanationRequirementSection struct {
+	state         protoimpl.MessageState            `protogen:"open.v1"`
+	Value         *ExplanationExecutionRequirements `protobuf:"bytes,1,opt,name=value,proto3" json:"value,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ExplanationRequirementSection) Reset() {
+	*x = ExplanationRequirementSection{}
+	mi := &file_query_proto_msgTypes[66]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExplanationRequirementSection) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExplanationRequirementSection) ProtoMessage() {}
+
+func (x *ExplanationRequirementSection) ProtoReflect() protoreflect.Message {
+	mi := &file_query_proto_msgTypes[66]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExplanationRequirementSection.ProtoReflect.Descriptor instead.
+func (*ExplanationRequirementSection) Descriptor() ([]byte, []int) {
+	return file_query_proto_rawDescGZIP(), []int{66}
+}
+
+func (x *ExplanationRequirementSection) GetValue() *ExplanationExecutionRequirements {
+	if x != nil {
+		return x.Value
+	}
+	return nil
+}
+
+type ExplanationExecutionRequirements struct {
+	state                     protoimpl.MessageState      `protogen:"open.v1"`
+	Capabilities              []string                    `protobuf:"bytes,1,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
+	RelationChecks            []*ExplanationRelationCheck `protobuf:"bytes,2,rep,name=relation_checks,json=relationChecks,proto3" json:"relation_checks,omitempty"`
+	ConstraintKinds           []string                    `protobuf:"bytes,3,rep,name=constraint_kinds,json=constraintKinds,proto3" json:"constraint_kinds,omitempty"`
+	SourceCapabilitiesChecked bool                        `protobuf:"varint,4,opt,name=source_capabilities_checked,json=sourceCapabilitiesChecked,proto3" json:"source_capabilities_checked,omitempty"`
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
+}
+
+func (x *ExplanationExecutionRequirements) Reset() {
+	*x = ExplanationExecutionRequirements{}
+	mi := &file_query_proto_msgTypes[67]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExplanationExecutionRequirements) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExplanationExecutionRequirements) ProtoMessage() {}
+
+func (x *ExplanationExecutionRequirements) ProtoReflect() protoreflect.Message {
+	mi := &file_query_proto_msgTypes[67]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExplanationExecutionRequirements.ProtoReflect.Descriptor instead.
+func (*ExplanationExecutionRequirements) Descriptor() ([]byte, []int) {
+	return file_query_proto_rawDescGZIP(), []int{67}
+}
+
+func (x *ExplanationExecutionRequirements) GetCapabilities() []string {
+	if x != nil {
+		return x.Capabilities
+	}
+	return nil
+}
+
+func (x *ExplanationExecutionRequirements) GetRelationChecks() []*ExplanationRelationCheck {
+	if x != nil {
+		return x.RelationChecks
+	}
+	return nil
+}
+
+func (x *ExplanationExecutionRequirements) GetConstraintKinds() []string {
+	if x != nil {
+		return x.ConstraintKinds
+	}
+	return nil
+}
+
+func (x *ExplanationExecutionRequirements) GetSourceCapabilitiesChecked() bool {
+	if x != nil {
+		return x.SourceCapabilitiesChecked
+	}
+	return false
+}
+
+type ExplanationRelationCheck struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Code          string                 `protobuf:"bytes,1,opt,name=code,proto3" json:"code,omitempty"`
+	Scope         *semantic.ScopeId      `protobuf:"bytes,2,opt,name=scope,proto3" json:"scope,omitempty"`
+	Keys          []string               `protobuf:"bytes,3,rep,name=keys,proto3" json:"keys,omitempty"`
+	Reason        *string                `protobuf:"bytes,4,opt,name=reason,proto3,oneof" json:"reason,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ExplanationRelationCheck) Reset() {
+	*x = ExplanationRelationCheck{}
+	mi := &file_query_proto_msgTypes[68]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExplanationRelationCheck) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExplanationRelationCheck) ProtoMessage() {}
+
+func (x *ExplanationRelationCheck) ProtoReflect() protoreflect.Message {
+	mi := &file_query_proto_msgTypes[68]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExplanationRelationCheck.ProtoReflect.Descriptor instead.
+func (*ExplanationRelationCheck) Descriptor() ([]byte, []int) {
+	return file_query_proto_rawDescGZIP(), []int{68}
+}
+
+func (x *ExplanationRelationCheck) GetCode() string {
+	if x != nil {
+		return x.Code
+	}
+	return ""
+}
+
+func (x *ExplanationRelationCheck) GetScope() *semantic.ScopeId {
+	if x != nil {
+		return x.Scope
+	}
+	return nil
+}
+
+func (x *ExplanationRelationCheck) GetKeys() []string {
+	if x != nil {
+		return x.Keys
+	}
+	return nil
+}
+
+func (x *ExplanationRelationCheck) GetReason() string {
+	if x != nil && x.Reason != nil {
+		return *x.Reason
+	}
+	return ""
+}
 
 type ExplanationScopes struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -4961,7 +5165,7 @@ type ExplanationScopes struct {
 
 func (x *ExplanationScopes) Reset() {
 	*x = ExplanationScopes{}
-	mi := &file_query_proto_msgTypes[66]
+	mi := &file_query_proto_msgTypes[69]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4973,7 +5177,7 @@ func (x *ExplanationScopes) String() string {
 func (*ExplanationScopes) ProtoMessage() {}
 
 func (x *ExplanationScopes) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[66]
+	mi := &file_query_proto_msgTypes[69]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4986,7 +5190,7 @@ func (x *ExplanationScopes) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExplanationScopes.ProtoReflect.Descriptor instead.
 func (*ExplanationScopes) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{66}
+	return file_query_proto_rawDescGZIP(), []int{69}
 }
 
 func (x *ExplanationScopes) GetItems() []*ExplanationScope {
@@ -5021,7 +5225,7 @@ type ExplanationSources struct {
 
 func (x *ExplanationSources) Reset() {
 	*x = ExplanationSources{}
-	mi := &file_query_proto_msgTypes[67]
+	mi := &file_query_proto_msgTypes[70]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5033,7 +5237,7 @@ func (x *ExplanationSources) String() string {
 func (*ExplanationSources) ProtoMessage() {}
 
 func (x *ExplanationSources) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[67]
+	mi := &file_query_proto_msgTypes[70]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5046,7 +5250,7 @@ func (x *ExplanationSources) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExplanationSources.ProtoReflect.Descriptor instead.
 func (*ExplanationSources) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{67}
+	return file_query_proto_rawDescGZIP(), []int{70}
 }
 
 func (x *ExplanationSources) GetItems() []*ExplanationSource {
@@ -5081,7 +5285,7 @@ type ExplanationPlan struct {
 
 func (x *ExplanationPlan) Reset() {
 	*x = ExplanationPlan{}
-	mi := &file_query_proto_msgTypes[68]
+	mi := &file_query_proto_msgTypes[71]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5093,7 +5297,7 @@ func (x *ExplanationPlan) String() string {
 func (*ExplanationPlan) ProtoMessage() {}
 
 func (x *ExplanationPlan) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[68]
+	mi := &file_query_proto_msgTypes[71]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5106,7 +5310,7 @@ func (x *ExplanationPlan) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExplanationPlan.ProtoReflect.Descriptor instead.
 func (*ExplanationPlan) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{68}
+	return file_query_proto_rawDescGZIP(), []int{71}
 }
 
 func (x *ExplanationPlan) GetItems() []*ExplanationPlanNode {
@@ -5139,7 +5343,7 @@ type ExplanationScale struct {
 
 func (x *ExplanationScale) Reset() {
 	*x = ExplanationScale{}
-	mi := &file_query_proto_msgTypes[69]
+	mi := &file_query_proto_msgTypes[72]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5151,7 +5355,7 @@ func (x *ExplanationScale) String() string {
 func (*ExplanationScale) ProtoMessage() {}
 
 func (x *ExplanationScale) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[69]
+	mi := &file_query_proto_msgTypes[72]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5164,7 +5368,7 @@ func (x *ExplanationScale) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExplanationScale.ProtoReflect.Descriptor instead.
 func (*ExplanationScale) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{69}
+	return file_query_proto_rawDescGZIP(), []int{72}
 }
 
 func (x *ExplanationScale) GetValue() *ExplanationCompilationScale {
@@ -5188,7 +5392,7 @@ type ExplanationSummary struct {
 
 func (x *ExplanationSummary) Reset() {
 	*x = ExplanationSummary{}
-	mi := &file_query_proto_msgTypes[70]
+	mi := &file_query_proto_msgTypes[73]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5200,7 +5404,7 @@ func (x *ExplanationSummary) String() string {
 func (*ExplanationSummary) ProtoMessage() {}
 
 func (x *ExplanationSummary) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[70]
+	mi := &file_query_proto_msgTypes[73]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5213,7 +5417,7 @@ func (x *ExplanationSummary) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExplanationSummary.ProtoReflect.Descriptor instead.
 func (*ExplanationSummary) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{70}
+	return file_query_proto_rawDescGZIP(), []int{73}
 }
 
 func (x *ExplanationSummary) GetScopeCount() int32 {
@@ -5270,7 +5474,7 @@ type PopulationMode struct {
 
 func (x *PopulationMode) Reset() {
 	*x = PopulationMode{}
-	mi := &file_query_proto_msgTypes[71]
+	mi := &file_query_proto_msgTypes[74]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5282,7 +5486,7 @@ func (x *PopulationMode) String() string {
 func (*PopulationMode) ProtoMessage() {}
 
 func (x *PopulationMode) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[71]
+	mi := &file_query_proto_msgTypes[74]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5295,7 +5499,7 @@ func (x *PopulationMode) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PopulationMode.ProtoReflect.Descriptor instead.
 func (*PopulationMode) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{71}
+	return file_query_proto_rawDescGZIP(), []int{74}
 }
 
 func (x *PopulationMode) GetMode() string {
@@ -5343,7 +5547,7 @@ type PopulationContract struct {
 
 func (x *PopulationContract) Reset() {
 	*x = PopulationContract{}
-	mi := &file_query_proto_msgTypes[72]
+	mi := &file_query_proto_msgTypes[75]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5355,7 +5559,7 @@ func (x *PopulationContract) String() string {
 func (*PopulationContract) ProtoMessage() {}
 
 func (x *PopulationContract) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[72]
+	mi := &file_query_proto_msgTypes[75]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5368,7 +5572,7 @@ func (x *PopulationContract) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PopulationContract.ProtoReflect.Descriptor instead.
 func (*PopulationContract) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{72}
+	return file_query_proto_rawDescGZIP(), []int{75}
 }
 
 func (x *PopulationContract) GetFormatVersion() string {
@@ -5444,7 +5648,7 @@ type ExplanationKey struct {
 
 func (x *ExplanationKey) Reset() {
 	*x = ExplanationKey{}
-	mi := &file_query_proto_msgTypes[73]
+	mi := &file_query_proto_msgTypes[76]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5456,7 +5660,7 @@ func (x *ExplanationKey) String() string {
 func (*ExplanationKey) ProtoMessage() {}
 
 func (x *ExplanationKey) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[73]
+	mi := &file_query_proto_msgTypes[76]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5469,7 +5673,7 @@ func (x *ExplanationKey) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExplanationKey.ProtoReflect.Descriptor instead.
 func (*ExplanationKey) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{73}
+	return file_query_proto_rawDescGZIP(), []int{76}
 }
 
 func (x *ExplanationKey) GetProvenUnique() bool {
@@ -5500,7 +5704,7 @@ type ExplanationQualification struct {
 
 func (x *ExplanationQualification) Reset() {
 	*x = ExplanationQualification{}
-	mi := &file_query_proto_msgTypes[74]
+	mi := &file_query_proto_msgTypes[77]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5512,7 +5716,7 @@ func (x *ExplanationQualification) String() string {
 func (*ExplanationQualification) ProtoMessage() {}
 
 func (x *ExplanationQualification) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[74]
+	mi := &file_query_proto_msgTypes[77]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5525,7 +5729,7 @@ func (x *ExplanationQualification) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExplanationQualification.ProtoReflect.Descriptor instead.
 func (*ExplanationQualification) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{74}
+	return file_query_proto_rawDescGZIP(), []int{77}
 }
 
 func (x *ExplanationQualification) GetObjectsScope() *semantic.ScopeId {
@@ -5581,7 +5785,7 @@ type ExplanationChild struct {
 
 func (x *ExplanationChild) Reset() {
 	*x = ExplanationChild{}
-	mi := &file_query_proto_msgTypes[75]
+	mi := &file_query_proto_msgTypes[78]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5593,7 +5797,7 @@ func (x *ExplanationChild) String() string {
 func (*ExplanationChild) ProtoMessage() {}
 
 func (x *ExplanationChild) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[75]
+	mi := &file_query_proto_msgTypes[78]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5606,7 +5810,7 @@ func (x *ExplanationChild) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExplanationChild.ProtoReflect.Descriptor instead.
 func (*ExplanationChild) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{75}
+	return file_query_proto_rawDescGZIP(), []int{78}
 }
 
 func (x *ExplanationChild) GetKind() string {
@@ -5645,7 +5849,7 @@ type ExplanationStage struct {
 
 func (x *ExplanationStage) Reset() {
 	*x = ExplanationStage{}
-	mi := &file_query_proto_msgTypes[76]
+	mi := &file_query_proto_msgTypes[79]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5657,7 +5861,7 @@ func (x *ExplanationStage) String() string {
 func (*ExplanationStage) ProtoMessage() {}
 
 func (x *ExplanationStage) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[76]
+	mi := &file_query_proto_msgTypes[79]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5670,7 +5874,7 @@ func (x *ExplanationStage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExplanationStage.ProtoReflect.Descriptor instead.
 func (*ExplanationStage) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{76}
+	return file_query_proto_rawDescGZIP(), []int{79}
 }
 
 func (x *ExplanationStage) GetIndex() int32 {
@@ -5740,7 +5944,7 @@ type ExplanationScope struct {
 
 func (x *ExplanationScope) Reset() {
 	*x = ExplanationScope{}
-	mi := &file_query_proto_msgTypes[77]
+	mi := &file_query_proto_msgTypes[80]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5752,7 +5956,7 @@ func (x *ExplanationScope) String() string {
 func (*ExplanationScope) ProtoMessage() {}
 
 func (x *ExplanationScope) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[77]
+	mi := &file_query_proto_msgTypes[80]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5765,7 +5969,7 @@ func (x *ExplanationScope) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExplanationScope.ProtoReflect.Descriptor instead.
 func (*ExplanationScope) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{77}
+	return file_query_proto_rawDescGZIP(), []int{80}
 }
 
 func (x *ExplanationScope) GetScope() *semantic.ScopeId {
@@ -5849,7 +6053,7 @@ type RelationRequirement struct {
 
 func (x *RelationRequirement) Reset() {
 	*x = RelationRequirement{}
-	mi := &file_query_proto_msgTypes[78]
+	mi := &file_query_proto_msgTypes[81]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5861,7 +6065,7 @@ func (x *RelationRequirement) String() string {
 func (*RelationRequirement) ProtoMessage() {}
 
 func (x *RelationRequirement) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[78]
+	mi := &file_query_proto_msgTypes[81]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5874,7 +6078,7 @@ func (x *RelationRequirement) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RelationRequirement.ProtoReflect.Descriptor instead.
 func (*RelationRequirement) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{78}
+	return file_query_proto_rawDescGZIP(), []int{81}
 }
 
 func (x *RelationRequirement) GetOutputSlots() map[string]string {
@@ -5914,7 +6118,7 @@ type RelationInputMatch struct {
 
 func (x *RelationInputMatch) Reset() {
 	*x = RelationInputMatch{}
-	mi := &file_query_proto_msgTypes[79]
+	mi := &file_query_proto_msgTypes[82]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5926,7 +6130,7 @@ func (x *RelationInputMatch) String() string {
 func (*RelationInputMatch) ProtoMessage() {}
 
 func (x *RelationInputMatch) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[79]
+	mi := &file_query_proto_msgTypes[82]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5939,7 +6143,7 @@ func (x *RelationInputMatch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RelationInputMatch.ProtoReflect.Descriptor instead.
 func (*RelationInputMatch) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{79}
+	return file_query_proto_rawDescGZIP(), []int{82}
 }
 
 func (x *RelationInputMatch) GetStatus() string {
@@ -6017,7 +6221,7 @@ type ExplanationRoot struct {
 
 func (x *ExplanationRoot) Reset() {
 	*x = ExplanationRoot{}
-	mi := &file_query_proto_msgTypes[80]
+	mi := &file_query_proto_msgTypes[83]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6029,7 +6233,7 @@ func (x *ExplanationRoot) String() string {
 func (*ExplanationRoot) ProtoMessage() {}
 
 func (x *ExplanationRoot) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[80]
+	mi := &file_query_proto_msgTypes[83]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6042,7 +6246,7 @@ func (x *ExplanationRoot) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExplanationRoot.ProtoReflect.Descriptor instead.
 func (*ExplanationRoot) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{80}
+	return file_query_proto_rawDescGZIP(), []int{83}
 }
 
 func (x *ExplanationRoot) GetKind() isExplanationRoot_Kind {
@@ -6189,7 +6393,7 @@ type ExplanationMeasures struct {
 
 func (x *ExplanationMeasures) Reset() {
 	*x = ExplanationMeasures{}
-	mi := &file_query_proto_msgTypes[81]
+	mi := &file_query_proto_msgTypes[84]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6201,7 +6405,7 @@ func (x *ExplanationMeasures) String() string {
 func (*ExplanationMeasures) ProtoMessage() {}
 
 func (x *ExplanationMeasures) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[81]
+	mi := &file_query_proto_msgTypes[84]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6214,7 +6418,7 @@ func (x *ExplanationMeasures) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExplanationMeasures.ProtoReflect.Descriptor instead.
 func (*ExplanationMeasures) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{81}
+	return file_query_proto_rawDescGZIP(), []int{84}
 }
 
 func (x *ExplanationMeasures) GetRowPopulation() *semantic.RowPopulation {
@@ -6264,7 +6468,7 @@ type ExplanationMembers struct {
 
 func (x *ExplanationMembers) Reset() {
 	*x = ExplanationMembers{}
-	mi := &file_query_proto_msgTypes[82]
+	mi := &file_query_proto_msgTypes[85]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6276,7 +6480,7 @@ func (x *ExplanationMembers) String() string {
 func (*ExplanationMembers) ProtoMessage() {}
 
 func (x *ExplanationMembers) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[82]
+	mi := &file_query_proto_msgTypes[85]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6289,7 +6493,7 @@ func (x *ExplanationMembers) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExplanationMembers.ProtoReflect.Descriptor instead.
 func (*ExplanationMembers) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{82}
+	return file_query_proto_rawDescGZIP(), []int{85}
 }
 
 func (x *ExplanationMembers) GetOrigin() *ExplanationMemberOrigin {
@@ -6334,7 +6538,7 @@ type ExplanationMemberOrigin struct {
 
 func (x *ExplanationMemberOrigin) Reset() {
 	*x = ExplanationMemberOrigin{}
-	mi := &file_query_proto_msgTypes[83]
+	mi := &file_query_proto_msgTypes[86]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6346,7 +6550,7 @@ func (x *ExplanationMemberOrigin) String() string {
 func (*ExplanationMemberOrigin) ProtoMessage() {}
 
 func (x *ExplanationMemberOrigin) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[83]
+	mi := &file_query_proto_msgTypes[86]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6359,7 +6563,7 @@ func (x *ExplanationMemberOrigin) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExplanationMemberOrigin.ProtoReflect.Descriptor instead.
 func (*ExplanationMemberOrigin) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{83}
+	return file_query_proto_rawDescGZIP(), []int{86}
 }
 
 func (x *ExplanationMemberOrigin) GetKind() isExplanationMemberOrigin_Kind {
@@ -6428,7 +6632,7 @@ type ExplanationMemberRef struct {
 
 func (x *ExplanationMemberRef) Reset() {
 	*x = ExplanationMemberRef{}
-	mi := &file_query_proto_msgTypes[84]
+	mi := &file_query_proto_msgTypes[87]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6440,7 +6644,7 @@ func (x *ExplanationMemberRef) String() string {
 func (*ExplanationMemberRef) ProtoMessage() {}
 
 func (x *ExplanationMemberRef) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[84]
+	mi := &file_query_proto_msgTypes[87]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6453,7 +6657,7 @@ func (x *ExplanationMemberRef) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExplanationMemberRef.ProtoReflect.Descriptor instead.
 func (*ExplanationMemberRef) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{84}
+	return file_query_proto_rawDescGZIP(), []int{87}
 }
 
 func (x *ExplanationMemberRef) GetId() string {
@@ -6481,7 +6685,7 @@ type ExplanationComputedMember struct {
 
 func (x *ExplanationComputedMember) Reset() {
 	*x = ExplanationComputedMember{}
-	mi := &file_query_proto_msgTypes[85]
+	mi := &file_query_proto_msgTypes[88]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6493,7 +6697,7 @@ func (x *ExplanationComputedMember) String() string {
 func (*ExplanationComputedMember) ProtoMessage() {}
 
 func (x *ExplanationComputedMember) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[85]
+	mi := &file_query_proto_msgTypes[88]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6506,7 +6710,7 @@ func (x *ExplanationComputedMember) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExplanationComputedMember.ProtoReflect.Descriptor instead.
 func (*ExplanationComputedMember) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{85}
+	return file_query_proto_rawDescGZIP(), []int{88}
 }
 
 func (x *ExplanationComputedMember) GetId() string {
@@ -6542,7 +6746,7 @@ type ExplanationRelation struct {
 
 func (x *ExplanationRelation) Reset() {
 	*x = ExplanationRelation{}
-	mi := &file_query_proto_msgTypes[86]
+	mi := &file_query_proto_msgTypes[89]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6554,7 +6758,7 @@ func (x *ExplanationRelation) String() string {
 func (*ExplanationRelation) ProtoMessage() {}
 
 func (x *ExplanationRelation) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[86]
+	mi := &file_query_proto_msgTypes[89]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6567,7 +6771,7 @@ func (x *ExplanationRelation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExplanationRelation.ProtoReflect.Descriptor instead.
 func (*ExplanationRelation) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{86}
+	return file_query_proto_rawDescGZIP(), []int{89}
 }
 
 func (x *ExplanationRelation) GetInputScope() *semantic.ScopeId {
@@ -6607,7 +6811,7 @@ type ExplanationObjectMeasure struct {
 
 func (x *ExplanationObjectMeasure) Reset() {
 	*x = ExplanationObjectMeasure{}
-	mi := &file_query_proto_msgTypes[87]
+	mi := &file_query_proto_msgTypes[90]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6619,7 +6823,7 @@ func (x *ExplanationObjectMeasure) String() string {
 func (*ExplanationObjectMeasure) ProtoMessage() {}
 
 func (x *ExplanationObjectMeasure) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[87]
+	mi := &file_query_proto_msgTypes[90]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6632,7 +6836,7 @@ func (x *ExplanationObjectMeasure) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExplanationObjectMeasure.ProtoReflect.Descriptor instead.
 func (*ExplanationObjectMeasure) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{87}
+	return file_query_proto_rawDescGZIP(), []int{90}
 }
 
 func (x *ExplanationObjectMeasure) GetRoles() []*semantic.ObjectRole {
@@ -6651,7 +6855,7 @@ type StringMap struct {
 
 func (x *StringMap) Reset() {
 	*x = StringMap{}
-	mi := &file_query_proto_msgTypes[88]
+	mi := &file_query_proto_msgTypes[91]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6663,7 +6867,7 @@ func (x *StringMap) String() string {
 func (*StringMap) ProtoMessage() {}
 
 func (x *StringMap) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[88]
+	mi := &file_query_proto_msgTypes[91]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6676,7 +6880,7 @@ func (x *StringMap) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StringMap.ProtoReflect.Descriptor instead.
 func (*StringMap) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{88}
+	return file_query_proto_rawDescGZIP(), []int{91}
 }
 
 func (x *StringMap) GetValues() map[string]string {
@@ -6697,7 +6901,7 @@ type ExplanationAlignment struct {
 
 func (x *ExplanationAlignment) Reset() {
 	*x = ExplanationAlignment{}
-	mi := &file_query_proto_msgTypes[89]
+	mi := &file_query_proto_msgTypes[92]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6709,7 +6913,7 @@ func (x *ExplanationAlignment) String() string {
 func (*ExplanationAlignment) ProtoMessage() {}
 
 func (x *ExplanationAlignment) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[89]
+	mi := &file_query_proto_msgTypes[92]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6722,7 +6926,7 @@ func (x *ExplanationAlignment) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExplanationAlignment.ProtoReflect.Descriptor instead.
 func (*ExplanationAlignment) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{89}
+	return file_query_proto_rawDescGZIP(), []int{92}
 }
 
 func (x *ExplanationAlignment) GetKeys() map[string]*StringMap {
@@ -6756,7 +6960,7 @@ type ExplanationObservation struct {
 
 func (x *ExplanationObservation) Reset() {
 	*x = ExplanationObservation{}
-	mi := &file_query_proto_msgTypes[90]
+	mi := &file_query_proto_msgTypes[93]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6768,7 +6972,7 @@ func (x *ExplanationObservation) String() string {
 func (*ExplanationObservation) ProtoMessage() {}
 
 func (x *ExplanationObservation) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[90]
+	mi := &file_query_proto_msgTypes[93]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6781,7 +6985,7 @@ func (x *ExplanationObservation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExplanationObservation.ProtoReflect.Descriptor instead.
 func (*ExplanationObservation) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{90}
+	return file_query_proto_rawDescGZIP(), []int{93}
 }
 
 func (x *ExplanationObservation) GetUnit() *semantic.ObservationUnit {
@@ -6809,7 +7013,7 @@ type ExplanationSet struct {
 
 func (x *ExplanationSet) Reset() {
 	*x = ExplanationSet{}
-	mi := &file_query_proto_msgTypes[91]
+	mi := &file_query_proto_msgTypes[94]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6821,7 +7025,7 @@ func (x *ExplanationSet) String() string {
 func (*ExplanationSet) ProtoMessage() {}
 
 func (x *ExplanationSet) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[91]
+	mi := &file_query_proto_msgTypes[94]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6834,7 +7038,7 @@ func (x *ExplanationSet) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExplanationSet.ProtoReflect.Descriptor instead.
 func (*ExplanationSet) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{91}
+	return file_query_proto_rawDescGZIP(), []int{94}
 }
 
 func (x *ExplanationSet) GetOperation() string {
@@ -6871,7 +7075,7 @@ type ExplanationSourceIdentity struct {
 
 func (x *ExplanationSourceIdentity) Reset() {
 	*x = ExplanationSourceIdentity{}
-	mi := &file_query_proto_msgTypes[92]
+	mi := &file_query_proto_msgTypes[95]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6883,7 +7087,7 @@ func (x *ExplanationSourceIdentity) String() string {
 func (*ExplanationSourceIdentity) ProtoMessage() {}
 
 func (x *ExplanationSourceIdentity) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[92]
+	mi := &file_query_proto_msgTypes[95]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6896,7 +7100,7 @@ func (x *ExplanationSourceIdentity) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExplanationSourceIdentity.ProtoReflect.Descriptor instead.
 func (*ExplanationSourceIdentity) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{92}
+	return file_query_proto_rawDescGZIP(), []int{95}
 }
 
 func (x *ExplanationSourceIdentity) GetKind() isExplanationSourceIdentity_Kind {
@@ -6953,7 +7157,7 @@ type ExplanationFactIdentity struct {
 
 func (x *ExplanationFactIdentity) Reset() {
 	*x = ExplanationFactIdentity{}
-	mi := &file_query_proto_msgTypes[93]
+	mi := &file_query_proto_msgTypes[96]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6965,7 +7169,7 @@ func (x *ExplanationFactIdentity) String() string {
 func (*ExplanationFactIdentity) ProtoMessage() {}
 
 func (x *ExplanationFactIdentity) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[93]
+	mi := &file_query_proto_msgTypes[96]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6978,7 +7182,7 @@ func (x *ExplanationFactIdentity) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExplanationFactIdentity.ProtoReflect.Descriptor instead.
 func (*ExplanationFactIdentity) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{93}
+	return file_query_proto_rawDescGZIP(), []int{96}
 }
 
 func (x *ExplanationFactIdentity) GetCallId() string {
@@ -7029,7 +7233,7 @@ type ExplanationMemberIdentity struct {
 
 func (x *ExplanationMemberIdentity) Reset() {
 	*x = ExplanationMemberIdentity{}
-	mi := &file_query_proto_msgTypes[94]
+	mi := &file_query_proto_msgTypes[97]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7041,7 +7245,7 @@ func (x *ExplanationMemberIdentity) String() string {
 func (*ExplanationMemberIdentity) ProtoMessage() {}
 
 func (x *ExplanationMemberIdentity) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[94]
+	mi := &file_query_proto_msgTypes[97]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7054,7 +7258,7 @@ func (x *ExplanationMemberIdentity) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExplanationMemberIdentity.ProtoReflect.Descriptor instead.
 func (*ExplanationMemberIdentity) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{94}
+	return file_query_proto_rawDescGZIP(), []int{97}
 }
 
 func (x *ExplanationMemberIdentity) GetSourceId() string {
@@ -7103,7 +7307,7 @@ type RelationPosition struct {
 
 func (x *RelationPosition) Reset() {
 	*x = RelationPosition{}
-	mi := &file_query_proto_msgTypes[95]
+	mi := &file_query_proto_msgTypes[98]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7115,7 +7319,7 @@ func (x *RelationPosition) String() string {
 func (*RelationPosition) ProtoMessage() {}
 
 func (x *RelationPosition) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[95]
+	mi := &file_query_proto_msgTypes[98]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7128,7 +7332,7 @@ func (x *RelationPosition) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RelationPosition.ProtoReflect.Descriptor instead.
 func (*RelationPosition) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{95}
+	return file_query_proto_rawDescGZIP(), []int{98}
 }
 
 func (x *RelationPosition) GetScope() []string {
@@ -7163,7 +7367,7 @@ type ExplanationPosition struct {
 
 func (x *ExplanationPosition) Reset() {
 	*x = ExplanationPosition{}
-	mi := &file_query_proto_msgTypes[96]
+	mi := &file_query_proto_msgTypes[99]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7175,7 +7379,7 @@ func (x *ExplanationPosition) String() string {
 func (*ExplanationPosition) ProtoMessage() {}
 
 func (x *ExplanationPosition) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[96]
+	mi := &file_query_proto_msgTypes[99]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7188,7 +7392,7 @@ func (x *ExplanationPosition) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExplanationPosition.ProtoReflect.Descriptor instead.
 func (*ExplanationPosition) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{96}
+	return file_query_proto_rawDescGZIP(), []int{99}
 }
 
 func (x *ExplanationPosition) GetPosition() *RelationPosition {
@@ -7227,7 +7431,7 @@ type ExplanationJoin struct {
 
 func (x *ExplanationJoin) Reset() {
 	*x = ExplanationJoin{}
-	mi := &file_query_proto_msgTypes[97]
+	mi := &file_query_proto_msgTypes[100]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7239,7 +7443,7 @@ func (x *ExplanationJoin) String() string {
 func (*ExplanationJoin) ProtoMessage() {}
 
 func (x *ExplanationJoin) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[97]
+	mi := &file_query_proto_msgTypes[100]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7252,7 +7456,7 @@ func (x *ExplanationJoin) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExplanationJoin.ProtoReflect.Descriptor instead.
 func (*ExplanationJoin) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{97}
+	return file_query_proto_rawDescGZIP(), []int{100}
 }
 
 func (x *ExplanationJoin) GetJoinPathId() string {
@@ -7318,7 +7522,7 @@ type ExplanationQuantified struct {
 
 func (x *ExplanationQuantified) Reset() {
 	*x = ExplanationQuantified{}
-	mi := &file_query_proto_msgTypes[98]
+	mi := &file_query_proto_msgTypes[101]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7330,7 +7534,7 @@ func (x *ExplanationQuantified) String() string {
 func (*ExplanationQuantified) ProtoMessage() {}
 
 func (x *ExplanationQuantified) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[98]
+	mi := &file_query_proto_msgTypes[101]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7343,7 +7547,7 @@ func (x *ExplanationQuantified) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExplanationQuantified.ProtoReflect.Descriptor instead.
 func (*ExplanationQuantified) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{98}
+	return file_query_proto_rawDescGZIP(), []int{101}
 }
 
 func (x *ExplanationQuantified) GetOccurrence() []string {
@@ -7399,7 +7603,7 @@ type ExplanationRelationSource struct {
 
 func (x *ExplanationRelationSource) Reset() {
 	*x = ExplanationRelationSource{}
-	mi := &file_query_proto_msgTypes[99]
+	mi := &file_query_proto_msgTypes[102]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7411,7 +7615,7 @@ func (x *ExplanationRelationSource) String() string {
 func (*ExplanationRelationSource) ProtoMessage() {}
 
 func (x *ExplanationRelationSource) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[99]
+	mi := &file_query_proto_msgTypes[102]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7424,7 +7628,7 @@ func (x *ExplanationRelationSource) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExplanationRelationSource.ProtoReflect.Descriptor instead.
 func (*ExplanationRelationSource) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{99}
+	return file_query_proto_rawDescGZIP(), []int{102}
 }
 
 func (x *ExplanationRelationSource) GetInstanceId() string {
@@ -7467,7 +7671,7 @@ type ExplanationSource struct {
 
 func (x *ExplanationSource) Reset() {
 	*x = ExplanationSource{}
-	mi := &file_query_proto_msgTypes[100]
+	mi := &file_query_proto_msgTypes[103]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7479,7 +7683,7 @@ func (x *ExplanationSource) String() string {
 func (*ExplanationSource) ProtoMessage() {}
 
 func (x *ExplanationSource) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[100]
+	mi := &file_query_proto_msgTypes[103]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7492,7 +7696,7 @@ func (x *ExplanationSource) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExplanationSource.ProtoReflect.Descriptor instead.
 func (*ExplanationSource) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{100}
+	return file_query_proto_rawDescGZIP(), []int{103}
 }
 
 func (x *ExplanationSource) GetScope() *semantic.ScopeId {
@@ -7587,7 +7791,7 @@ type ExplanationPlanNode struct {
 
 func (x *ExplanationPlanNode) Reset() {
 	*x = ExplanationPlanNode{}
-	mi := &file_query_proto_msgTypes[101]
+	mi := &file_query_proto_msgTypes[104]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7599,7 +7803,7 @@ func (x *ExplanationPlanNode) String() string {
 func (*ExplanationPlanNode) ProtoMessage() {}
 
 func (x *ExplanationPlanNode) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[101]
+	mi := &file_query_proto_msgTypes[104]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7612,7 +7816,7 @@ func (x *ExplanationPlanNode) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExplanationPlanNode.ProtoReflect.Descriptor instead.
 func (*ExplanationPlanNode) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{101}
+	return file_query_proto_rawDescGZIP(), []int{104}
 }
 
 func (x *ExplanationPlanNode) GetId() string {
@@ -7673,7 +7877,7 @@ type IntList struct {
 
 func (x *IntList) Reset() {
 	*x = IntList{}
-	mi := &file_query_proto_msgTypes[102]
+	mi := &file_query_proto_msgTypes[105]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7685,7 +7889,7 @@ func (x *IntList) String() string {
 func (*IntList) ProtoMessage() {}
 
 func (x *IntList) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[102]
+	mi := &file_query_proto_msgTypes[105]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7698,7 +7902,7 @@ func (x *IntList) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use IntList.ProtoReflect.Descriptor instead.
 func (*IntList) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{102}
+	return file_query_proto_rawDescGZIP(), []int{105}
 }
 
 func (x *IntList) GetValues() []int32 {
@@ -7721,7 +7925,7 @@ type ExplanationRelationSize struct {
 
 func (x *ExplanationRelationSize) Reset() {
 	*x = ExplanationRelationSize{}
-	mi := &file_query_proto_msgTypes[103]
+	mi := &file_query_proto_msgTypes[106]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7733,7 +7937,7 @@ func (x *ExplanationRelationSize) String() string {
 func (*ExplanationRelationSize) ProtoMessage() {}
 
 func (x *ExplanationRelationSize) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[103]
+	mi := &file_query_proto_msgTypes[106]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7746,7 +7950,7 @@ func (x *ExplanationRelationSize) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExplanationRelationSize.ProtoReflect.Descriptor instead.
 func (*ExplanationRelationSize) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{103}
+	return file_query_proto_rawDescGZIP(), []int{106}
 }
 
 func (x *ExplanationRelationSize) GetNodes() int32 {
@@ -7800,7 +8004,7 @@ type ExplanationCompilationScale struct {
 
 func (x *ExplanationCompilationScale) Reset() {
 	*x = ExplanationCompilationScale{}
-	mi := &file_query_proto_msgTypes[104]
+	mi := &file_query_proto_msgTypes[107]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7812,7 +8016,7 @@ func (x *ExplanationCompilationScale) String() string {
 func (*ExplanationCompilationScale) ProtoMessage() {}
 
 func (x *ExplanationCompilationScale) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[104]
+	mi := &file_query_proto_msgTypes[107]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7825,7 +8029,7 @@ func (x *ExplanationCompilationScale) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExplanationCompilationScale.ProtoReflect.Descriptor instead.
 func (*ExplanationCompilationScale) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{104}
+	return file_query_proto_rawDescGZIP(), []int{107}
 }
 
 func (x *ExplanationCompilationScale) GetRaw() *ExplanationRelationSize {
@@ -7895,7 +8099,7 @@ type QueryExecutionDiagnostics struct {
 
 func (x *QueryExecutionDiagnostics) Reset() {
 	*x = QueryExecutionDiagnostics{}
-	mi := &file_query_proto_msgTypes[105]
+	mi := &file_query_proto_msgTypes[108]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7907,7 +8111,7 @@ func (x *QueryExecutionDiagnostics) String() string {
 func (*QueryExecutionDiagnostics) ProtoMessage() {}
 
 func (x *QueryExecutionDiagnostics) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[105]
+	mi := &file_query_proto_msgTypes[108]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7920,7 +8124,7 @@ func (x *QueryExecutionDiagnostics) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryExecutionDiagnostics.ProtoReflect.Descriptor instead.
 func (*QueryExecutionDiagnostics) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{105}
+	return file_query_proto_rawDescGZIP(), []int{108}
 }
 
 func (x *QueryExecutionDiagnostics) GetSql() string {
@@ -7965,7 +8169,7 @@ type SavedQueryResultRecord struct {
 
 func (x *SavedQueryResultRecord) Reset() {
 	*x = SavedQueryResultRecord{}
-	mi := &file_query_proto_msgTypes[106]
+	mi := &file_query_proto_msgTypes[109]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7977,7 +8181,7 @@ func (x *SavedQueryResultRecord) String() string {
 func (*SavedQueryResultRecord) ProtoMessage() {}
 
 func (x *SavedQueryResultRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[106]
+	mi := &file_query_proto_msgTypes[109]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7990,7 +8194,7 @@ func (x *SavedQueryResultRecord) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SavedQueryResultRecord.ProtoReflect.Descriptor instead.
 func (*SavedQueryResultRecord) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{106}
+	return file_query_proto_rawDescGZIP(), []int{109}
 }
 
 func (x *SavedQueryResultRecord) GetFormatVersion() string {
@@ -8095,7 +8299,7 @@ type SavedQueryResultArtifact struct {
 
 func (x *SavedQueryResultArtifact) Reset() {
 	*x = SavedQueryResultArtifact{}
-	mi := &file_query_proto_msgTypes[107]
+	mi := &file_query_proto_msgTypes[110]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8107,7 +8311,7 @@ func (x *SavedQueryResultArtifact) String() string {
 func (*SavedQueryResultArtifact) ProtoMessage() {}
 
 func (x *SavedQueryResultArtifact) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[107]
+	mi := &file_query_proto_msgTypes[110]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8120,7 +8324,7 @@ func (x *SavedQueryResultArtifact) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SavedQueryResultArtifact.ProtoReflect.Descriptor instead.
 func (*SavedQueryResultArtifact) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{107}
+	return file_query_proto_rawDescGZIP(), []int{110}
 }
 
 func (x *SavedQueryResultArtifact) GetFormatVersion() string {
@@ -8161,7 +8365,7 @@ type ResultRunSummary struct {
 
 func (x *ResultRunSummary) Reset() {
 	*x = ResultRunSummary{}
-	mi := &file_query_proto_msgTypes[108]
+	mi := &file_query_proto_msgTypes[111]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8173,7 +8377,7 @@ func (x *ResultRunSummary) String() string {
 func (*ResultRunSummary) ProtoMessage() {}
 
 func (x *ResultRunSummary) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[108]
+	mi := &file_query_proto_msgTypes[111]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8186,7 +8390,7 @@ func (x *ResultRunSummary) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResultRunSummary.ProtoReflect.Descriptor instead.
 func (*ResultRunSummary) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{108}
+	return file_query_proto_rawDescGZIP(), []int{111}
 }
 
 func (x *ResultRunSummary) GetRunId() string {
@@ -8265,7 +8469,7 @@ type ResultPublication struct {
 
 func (x *ResultPublication) Reset() {
 	*x = ResultPublication{}
-	mi := &file_query_proto_msgTypes[109]
+	mi := &file_query_proto_msgTypes[112]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8277,7 +8481,7 @@ func (x *ResultPublication) String() string {
 func (*ResultPublication) ProtoMessage() {}
 
 func (x *ResultPublication) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[109]
+	mi := &file_query_proto_msgTypes[112]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8290,7 +8494,7 @@ func (x *ResultPublication) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResultPublication.ProtoReflect.Descriptor instead.
 func (*ResultPublication) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{109}
+	return file_query_proto_rawDescGZIP(), []int{112}
 }
 
 func (x *ResultPublication) GetPublication() *QueryCapabilityCoordinate {
@@ -8339,7 +8543,7 @@ type ResultSourceEvidence struct {
 
 func (x *ResultSourceEvidence) Reset() {
 	*x = ResultSourceEvidence{}
-	mi := &file_query_proto_msgTypes[110]
+	mi := &file_query_proto_msgTypes[113]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8351,7 +8555,7 @@ func (x *ResultSourceEvidence) String() string {
 func (*ResultSourceEvidence) ProtoMessage() {}
 
 func (x *ResultSourceEvidence) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[110]
+	mi := &file_query_proto_msgTypes[113]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8364,7 +8568,7 @@ func (x *ResultSourceEvidence) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResultSourceEvidence.ProtoReflect.Descriptor instead.
 func (*ResultSourceEvidence) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{110}
+	return file_query_proto_rawDescGZIP(), []int{113}
 }
 
 func (x *ResultSourceEvidence) GetState() string {
@@ -8398,7 +8602,7 @@ type ResultScopeColumns struct {
 
 func (x *ResultScopeColumns) Reset() {
 	*x = ResultScopeColumns{}
-	mi := &file_query_proto_msgTypes[111]
+	mi := &file_query_proto_msgTypes[114]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8410,7 +8614,7 @@ func (x *ResultScopeColumns) String() string {
 func (*ResultScopeColumns) ProtoMessage() {}
 
 func (x *ResultScopeColumns) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[111]
+	mi := &file_query_proto_msgTypes[114]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8423,7 +8627,7 @@ func (x *ResultScopeColumns) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResultScopeColumns.ProtoReflect.Descriptor instead.
 func (*ResultScopeColumns) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{111}
+	return file_query_proto_rawDescGZIP(), []int{114}
 }
 
 func (x *ResultScopeColumns) GetScopePath() string {
@@ -8449,7 +8653,7 @@ type ResultScopeIndex struct {
 
 func (x *ResultScopeIndex) Reset() {
 	*x = ResultScopeIndex{}
-	mi := &file_query_proto_msgTypes[112]
+	mi := &file_query_proto_msgTypes[115]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8461,7 +8665,7 @@ func (x *ResultScopeIndex) String() string {
 func (*ResultScopeIndex) ProtoMessage() {}
 
 func (x *ResultScopeIndex) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[112]
+	mi := &file_query_proto_msgTypes[115]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8474,7 +8678,7 @@ func (x *ResultScopeIndex) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResultScopeIndex.ProtoReflect.Descriptor instead.
 func (*ResultScopeIndex) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{112}
+	return file_query_proto_rawDescGZIP(), []int{115}
 }
 
 func (x *ResultScopeIndex) GetValues() []*ResultScopeColumns {
@@ -8493,7 +8697,7 @@ type ResultSymbols struct {
 
 func (x *ResultSymbols) Reset() {
 	*x = ResultSymbols{}
-	mi := &file_query_proto_msgTypes[113]
+	mi := &file_query_proto_msgTypes[116]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8505,7 +8709,7 @@ func (x *ResultSymbols) String() string {
 func (*ResultSymbols) ProtoMessage() {}
 
 func (x *ResultSymbols) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[113]
+	mi := &file_query_proto_msgTypes[116]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8518,7 +8722,7 @@ func (x *ResultSymbols) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResultSymbols.ProtoReflect.Descriptor instead.
 func (*ResultSymbols) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{113}
+	return file_query_proto_rawDescGZIP(), []int{116}
 }
 
 func (x *ResultSymbols) GetValues() []*semantic.Symbol {
@@ -8547,7 +8751,7 @@ type ResultMetadataContent struct {
 
 func (x *ResultMetadataContent) Reset() {
 	*x = ResultMetadataContent{}
-	mi := &file_query_proto_msgTypes[114]
+	mi := &file_query_proto_msgTypes[117]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8559,7 +8763,7 @@ func (x *ResultMetadataContent) String() string {
 func (*ResultMetadataContent) ProtoMessage() {}
 
 func (x *ResultMetadataContent) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[114]
+	mi := &file_query_proto_msgTypes[117]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8572,7 +8776,7 @@ func (x *ResultMetadataContent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResultMetadataContent.ProtoReflect.Descriptor instead.
 func (*ResultMetadataContent) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{114}
+	return file_query_proto_rawDescGZIP(), []int{117}
 }
 
 func (x *ResultMetadataContent) GetKind() isResultMetadataContent_Kind {
@@ -8720,7 +8924,7 @@ type ResultMetadataPage struct {
 
 func (x *ResultMetadataPage) Reset() {
 	*x = ResultMetadataPage{}
-	mi := &file_query_proto_msgTypes[115]
+	mi := &file_query_proto_msgTypes[118]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8732,7 +8936,7 @@ func (x *ResultMetadataPage) String() string {
 func (*ResultMetadataPage) ProtoMessage() {}
 
 func (x *ResultMetadataPage) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[115]
+	mi := &file_query_proto_msgTypes[118]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8745,7 +8949,7 @@ func (x *ResultMetadataPage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResultMetadataPage.ProtoReflect.Descriptor instead.
 func (*ResultMetadataPage) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{115}
+	return file_query_proto_rawDescGZIP(), []int{118}
 }
 
 func (x *ResultMetadataPage) GetResultReference() *QueryResultReference {
@@ -8803,7 +9007,7 @@ type ResultValueView struct {
 
 func (x *ResultValueView) Reset() {
 	*x = ResultValueView{}
-	mi := &file_query_proto_msgTypes[116]
+	mi := &file_query_proto_msgTypes[119]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8815,7 +9019,7 @@ func (x *ResultValueView) String() string {
 func (*ResultValueView) ProtoMessage() {}
 
 func (x *ResultValueView) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[116]
+	mi := &file_query_proto_msgTypes[119]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8828,7 +9032,7 @@ func (x *ResultValueView) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResultValueView.ProtoReflect.Descriptor instead.
 func (*ResultValueView) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{116}
+	return file_query_proto_rawDescGZIP(), []int{119}
 }
 
 func (x *ResultValueView) GetKind() isResultValueView_Kind {
@@ -8884,7 +9088,7 @@ type ResultValueReferenceView struct {
 
 func (x *ResultValueReferenceView) Reset() {
 	*x = ResultValueReferenceView{}
-	mi := &file_query_proto_msgTypes[117]
+	mi := &file_query_proto_msgTypes[120]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8896,7 +9100,7 @@ func (x *ResultValueReferenceView) String() string {
 func (*ResultValueReferenceView) ProtoMessage() {}
 
 func (x *ResultValueReferenceView) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[117]
+	mi := &file_query_proto_msgTypes[120]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8909,7 +9113,7 @@ func (x *ResultValueReferenceView) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResultValueReferenceView.ProtoReflect.Descriptor instead.
 func (*ResultValueReferenceView) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{117}
+	return file_query_proto_rawDescGZIP(), []int{120}
 }
 
 func (x *ResultValueReferenceView) GetReference() *ResultValueReference {
@@ -8949,7 +9153,7 @@ type ResultValueViews struct {
 
 func (x *ResultValueViews) Reset() {
 	*x = ResultValueViews{}
-	mi := &file_query_proto_msgTypes[118]
+	mi := &file_query_proto_msgTypes[121]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8961,7 +9165,7 @@ func (x *ResultValueViews) String() string {
 func (*ResultValueViews) ProtoMessage() {}
 
 func (x *ResultValueViews) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[118]
+	mi := &file_query_proto_msgTypes[121]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8974,7 +9178,7 @@ func (x *ResultValueViews) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResultValueViews.ProtoReflect.Descriptor instead.
 func (*ResultValueViews) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{118}
+	return file_query_proto_rawDescGZIP(), []int{121}
 }
 
 func (x *ResultValueViews) GetValues() []*ResultValueView {
@@ -9000,7 +9204,7 @@ type ResultPage struct {
 
 func (x *ResultPage) Reset() {
 	*x = ResultPage{}
-	mi := &file_query_proto_msgTypes[119]
+	mi := &file_query_proto_msgTypes[122]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9012,7 +9216,7 @@ func (x *ResultPage) String() string {
 func (*ResultPage) ProtoMessage() {}
 
 func (x *ResultPage) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[119]
+	mi := &file_query_proto_msgTypes[122]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9025,7 +9229,7 @@ func (x *ResultPage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResultPage.ProtoReflect.Descriptor instead.
 func (*ResultPage) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{119}
+	return file_query_proto_rawDescGZIP(), []int{122}
 }
 
 func (x *ResultPage) GetResultReference() *QueryResultReference {
@@ -9104,7 +9308,7 @@ type ResultValuePage struct {
 
 func (x *ResultValuePage) Reset() {
 	*x = ResultValuePage{}
-	mi := &file_query_proto_msgTypes[120]
+	mi := &file_query_proto_msgTypes[123]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9116,7 +9320,7 @@ func (x *ResultValuePage) String() string {
 func (*ResultValuePage) ProtoMessage() {}
 
 func (x *ResultValuePage) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[120]
+	mi := &file_query_proto_msgTypes[123]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9129,7 +9333,7 @@ func (x *ResultValuePage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResultValuePage.ProtoReflect.Descriptor instead.
 func (*ResultValuePage) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{120}
+	return file_query_proto_rawDescGZIP(), []int{123}
 }
 
 func (x *ResultValuePage) GetResultReference() *QueryResultReference {
@@ -9232,7 +9436,7 @@ type ResultValueCount struct {
 
 func (x *ResultValueCount) Reset() {
 	*x = ResultValueCount{}
-	mi := &file_query_proto_msgTypes[121]
+	mi := &file_query_proto_msgTypes[124]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9244,7 +9448,7 @@ func (x *ResultValueCount) String() string {
 func (*ResultValueCount) ProtoMessage() {}
 
 func (x *ResultValueCount) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[121]
+	mi := &file_query_proto_msgTypes[124]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9257,7 +9461,7 @@ func (x *ResultValueCount) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResultValueCount.ProtoReflect.Descriptor instead.
 func (*ResultValueCount) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{121}
+	return file_query_proto_rawDescGZIP(), []int{124}
 }
 
 func (x *ResultValueCount) GetValue() *ResultValueView {
@@ -9283,7 +9487,7 @@ type ResultValueCounts struct {
 
 func (x *ResultValueCounts) Reset() {
 	*x = ResultValueCounts{}
-	mi := &file_query_proto_msgTypes[122]
+	mi := &file_query_proto_msgTypes[125]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9295,7 +9499,7 @@ func (x *ResultValueCounts) String() string {
 func (*ResultValueCounts) ProtoMessage() {}
 
 func (x *ResultValueCounts) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[122]
+	mi := &file_query_proto_msgTypes[125]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9308,7 +9512,7 @@ func (x *ResultValueCounts) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResultValueCounts.ProtoReflect.Descriptor instead.
 func (*ResultValueCounts) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{122}
+	return file_query_proto_rawDescGZIP(), []int{125}
 }
 
 func (x *ResultValueCounts) GetValues() []*ResultValueCount {
@@ -9328,7 +9532,7 @@ type ResultNumericExtrema struct {
 
 func (x *ResultNumericExtrema) Reset() {
 	*x = ResultNumericExtrema{}
-	mi := &file_query_proto_msgTypes[123]
+	mi := &file_query_proto_msgTypes[126]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9340,7 +9544,7 @@ func (x *ResultNumericExtrema) String() string {
 func (*ResultNumericExtrema) ProtoMessage() {}
 
 func (x *ResultNumericExtrema) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[123]
+	mi := &file_query_proto_msgTypes[126]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9353,7 +9557,7 @@ func (x *ResultNumericExtrema) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResultNumericExtrema.ProtoReflect.Descriptor instead.
 func (*ResultNumericExtrema) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{123}
+	return file_query_proto_rawDescGZIP(), []int{126}
 }
 
 func (x *ResultNumericExtrema) GetMinimum() *ResultValueView {
@@ -9384,7 +9588,7 @@ type ResultColumnProfile struct {
 
 func (x *ResultColumnProfile) Reset() {
 	*x = ResultColumnProfile{}
-	mi := &file_query_proto_msgTypes[124]
+	mi := &file_query_proto_msgTypes[127]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9396,7 +9600,7 @@ func (x *ResultColumnProfile) String() string {
 func (*ResultColumnProfile) ProtoMessage() {}
 
 func (x *ResultColumnProfile) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[124]
+	mi := &file_query_proto_msgTypes[127]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9409,7 +9613,7 @@ func (x *ResultColumnProfile) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResultColumnProfile.ProtoReflect.Descriptor instead.
 func (*ResultColumnProfile) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{124}
+	return file_query_proto_rawDescGZIP(), []int{127}
 }
 
 func (x *ResultColumnProfile) GetColumn() *BusinessColumn {
@@ -9467,7 +9671,7 @@ type ResultProfile struct {
 
 func (x *ResultProfile) Reset() {
 	*x = ResultProfile{}
-	mi := &file_query_proto_msgTypes[125]
+	mi := &file_query_proto_msgTypes[128]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9479,7 +9683,7 @@ func (x *ResultProfile) String() string {
 func (*ResultProfile) ProtoMessage() {}
 
 func (x *ResultProfile) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[125]
+	mi := &file_query_proto_msgTypes[128]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9492,7 +9696,7 @@ func (x *ResultProfile) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResultProfile.ProtoReflect.Descriptor instead.
 func (*ResultProfile) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{125}
+	return file_query_proto_rawDescGZIP(), []int{128}
 }
 
 func (x *ResultProfile) GetResultReference() *QueryResultReference {
@@ -9543,7 +9747,7 @@ type QueryResultManifest struct {
 
 func (x *QueryResultManifest) Reset() {
 	*x = QueryResultManifest{}
-	mi := &file_query_proto_msgTypes[126]
+	mi := &file_query_proto_msgTypes[129]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9555,7 +9759,7 @@ func (x *QueryResultManifest) String() string {
 func (*QueryResultManifest) ProtoMessage() {}
 
 func (x *QueryResultManifest) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[126]
+	mi := &file_query_proto_msgTypes[129]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9568,7 +9772,7 @@ func (x *QueryResultManifest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryResultManifest.ProtoReflect.Descriptor instead.
 func (*QueryResultManifest) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{126}
+	return file_query_proto_rawDescGZIP(), []int{129}
 }
 
 func (x *QueryResultManifest) GetRunId() string {
@@ -9636,7 +9840,7 @@ type QueryRunView struct {
 
 func (x *QueryRunView) Reset() {
 	*x = QueryRunView{}
-	mi := &file_query_proto_msgTypes[127]
+	mi := &file_query_proto_msgTypes[130]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9648,7 +9852,7 @@ func (x *QueryRunView) String() string {
 func (*QueryRunView) ProtoMessage() {}
 
 func (x *QueryRunView) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[127]
+	mi := &file_query_proto_msgTypes[130]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9661,7 +9865,7 @@ func (x *QueryRunView) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryRunView.ProtoReflect.Descriptor instead.
 func (*QueryRunView) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{127}
+	return file_query_proto_rawDescGZIP(), []int{130}
 }
 
 func (x *QueryRunView) GetRunId() string {
@@ -9830,7 +10034,7 @@ type QueryWorkerAcquisition struct {
 
 func (x *QueryWorkerAcquisition) Reset() {
 	*x = QueryWorkerAcquisition{}
-	mi := &file_query_proto_msgTypes[128]
+	mi := &file_query_proto_msgTypes[131]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9842,7 +10046,7 @@ func (x *QueryWorkerAcquisition) String() string {
 func (*QueryWorkerAcquisition) ProtoMessage() {}
 
 func (x *QueryWorkerAcquisition) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[128]
+	mi := &file_query_proto_msgTypes[131]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9855,7 +10059,7 @@ func (x *QueryWorkerAcquisition) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryWorkerAcquisition.ProtoReflect.Descriptor instead.
 func (*QueryWorkerAcquisition) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{128}
+	return file_query_proto_rawDescGZIP(), []int{131}
 }
 
 func (x *QueryWorkerAcquisition) GetKind() string {
@@ -9897,7 +10101,7 @@ type QueryServiceObservation struct {
 
 func (x *QueryServiceObservation) Reset() {
 	*x = QueryServiceObservation{}
-	mi := &file_query_proto_msgTypes[129]
+	mi := &file_query_proto_msgTypes[132]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9909,7 +10113,7 @@ func (x *QueryServiceObservation) String() string {
 func (*QueryServiceObservation) ProtoMessage() {}
 
 func (x *QueryServiceObservation) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[129]
+	mi := &file_query_proto_msgTypes[132]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9922,7 +10126,7 @@ func (x *QueryServiceObservation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryServiceObservation.ProtoReflect.Descriptor instead.
 func (*QueryServiceObservation) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{129}
+	return file_query_proto_rawDescGZIP(), []int{132}
 }
 
 func (x *QueryServiceObservation) GetScope() string {
@@ -9959,7 +10163,7 @@ type QueryUsageNote struct {
 
 func (x *QueryUsageNote) Reset() {
 	*x = QueryUsageNote{}
-	mi := &file_query_proto_msgTypes[130]
+	mi := &file_query_proto_msgTypes[133]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9971,7 +10175,7 @@ func (x *QueryUsageNote) String() string {
 func (*QueryUsageNote) ProtoMessage() {}
 
 func (x *QueryUsageNote) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[130]
+	mi := &file_query_proto_msgTypes[133]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9984,7 +10188,7 @@ func (x *QueryUsageNote) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryUsageNote.ProtoReflect.Descriptor instead.
 func (*QueryUsageNote) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{130}
+	return file_query_proto_rawDescGZIP(), []int{133}
 }
 
 func (x *QueryUsageNote) GetId() string {
@@ -10033,7 +10237,7 @@ type QuerySemanticReference struct {
 
 func (x *QuerySemanticReference) Reset() {
 	*x = QuerySemanticReference{}
-	mi := &file_query_proto_msgTypes[131]
+	mi := &file_query_proto_msgTypes[134]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10045,7 +10249,7 @@ func (x *QuerySemanticReference) String() string {
 func (*QuerySemanticReference) ProtoMessage() {}
 
 func (x *QuerySemanticReference) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[131]
+	mi := &file_query_proto_msgTypes[134]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10058,7 +10262,7 @@ func (x *QuerySemanticReference) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QuerySemanticReference.ProtoReflect.Descriptor instead.
 func (*QuerySemanticReference) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{131}
+	return file_query_proto_rawDescGZIP(), []int{134}
 }
 
 func (x *QuerySemanticReference) GetAssetType() string {
@@ -10094,7 +10298,7 @@ type QueryUsageView struct {
 
 func (x *QueryUsageView) Reset() {
 	*x = QueryUsageView{}
-	mi := &file_query_proto_msgTypes[132]
+	mi := &file_query_proto_msgTypes[135]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10106,7 +10310,7 @@ func (x *QueryUsageView) String() string {
 func (*QueryUsageView) ProtoMessage() {}
 
 func (x *QueryUsageView) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[132]
+	mi := &file_query_proto_msgTypes[135]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10119,7 +10323,7 @@ func (x *QueryUsageView) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryUsageView.ProtoReflect.Descriptor instead.
 func (*QueryUsageView) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{132}
+	return file_query_proto_rawDescGZIP(), []int{135}
 }
 
 func (x *QueryUsageView) GetRun() *QueryRunView {
@@ -10160,7 +10364,7 @@ type QueryUsagePage struct {
 
 func (x *QueryUsagePage) Reset() {
 	*x = QueryUsagePage{}
-	mi := &file_query_proto_msgTypes[133]
+	mi := &file_query_proto_msgTypes[136]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10172,7 +10376,7 @@ func (x *QueryUsagePage) String() string {
 func (*QueryUsagePage) ProtoMessage() {}
 
 func (x *QueryUsagePage) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[133]
+	mi := &file_query_proto_msgTypes[136]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10185,7 +10389,7 @@ func (x *QueryUsagePage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryUsagePage.ProtoReflect.Descriptor instead.
 func (*QueryUsagePage) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{133}
+	return file_query_proto_rawDescGZIP(), []int{136}
 }
 
 func (x *QueryUsagePage) GetItems() []*QueryRunView {
@@ -10620,7 +10824,7 @@ const file_query_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\v2\".agentic.olap.query.v1.ScriptValueR\x05value:\x028\x01\"d\n" +
 	"\x0fRegisteredReply\x12!\n" +
 	"\foperation_id\x18\x01 \x01(\tR\voperationId\x12.\n" +
-	"\acontent\x18\x02 \x01(\v2\x14.google.protobuf.AnyR\acontent\"\xa0\x03\n" +
+	"\acontent\x18\x02 \x01(\v2\x14.google.protobuf.AnyR\acontent\"\x90\x04\n" +
 	"\x14QueryExplanationView\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12C\n" +
@@ -10628,14 +10832,29 @@ const file_query_proto_rawDesc = "" +
 	"\x06scopes\x18\x03 \x03(\v2'.agentic.olap.query.v1.ExplanationScopeR\x06scopes\x12B\n" +
 	"\asources\x18\x04 \x03(\v2(.agentic.olap.query.v1.ExplanationSourceR\asources\x12>\n" +
 	"\x04plan\x18\x05 \x03(\v2*.agentic.olap.query.v1.ExplanationPlanNodeR\x04plan\x12_\n" +
-	"\x11compilation_scale\x18\x06 \x01(\v22.agentic.olap.query.v1.ExplanationCompilationScaleR\x10compilationScale\"\xf2\x02\n" +
+	"\x11compilation_scale\x18\x06 \x01(\v22.agentic.olap.query.v1.ExplanationCompilationScaleR\x10compilationScale\x12n\n" +
+	"\x16execution_requirements\x18\a \x01(\v27.agentic.olap.query.v1.ExplanationExecutionRequirementsR\x15executionRequirements\"\xe1\x03\n" +
 	"\x17QueryExplanationContent\x12E\n" +
 	"\asummary\x18\x01 \x01(\v2).agentic.olap.query.v1.ExplanationSummaryH\x00R\asummary\x12B\n" +
 	"\x06scopes\x18\x02 \x01(\v2(.agentic.olap.query.v1.ExplanationScopesH\x00R\x06scopes\x12E\n" +
 	"\asources\x18\x03 \x01(\v2).agentic.olap.query.v1.ExplanationSourcesH\x00R\asources\x12<\n" +
 	"\x04plan\x18\x04 \x01(\v2&.agentic.olap.query.v1.ExplanationPlanH\x00R\x04plan\x12?\n" +
-	"\x05scale\x18\x05 \x01(\v2'.agentic.olap.query.v1.ExplanationScaleH\x00R\x05scaleB\x06\n" +
-	"\x04kind\"\xa9\x01\n" +
+	"\x05scale\x18\x05 \x01(\v2'.agentic.olap.query.v1.ExplanationScaleH\x00R\x05scale\x12m\n" +
+	"\x16execution_requirements\x18\x06 \x01(\v24.agentic.olap.query.v1.ExplanationRequirementSectionH\x00R\x15executionRequirementsB\x06\n" +
+	"\x04kind\"n\n" +
+	"\x1dExplanationRequirementSection\x12M\n" +
+	"\x05value\x18\x01 \x01(\v27.agentic.olap.query.v1.ExplanationExecutionRequirementsR\x05value\"\x8b\x02\n" +
+	" ExplanationExecutionRequirements\x12\"\n" +
+	"\fcapabilities\x18\x01 \x03(\tR\fcapabilities\x12X\n" +
+	"\x0frelation_checks\x18\x02 \x03(\v2/.agentic.olap.query.v1.ExplanationRelationCheckR\x0erelationChecks\x12)\n" +
+	"\x10constraint_kinds\x18\x03 \x03(\tR\x0fconstraintKinds\x12>\n" +
+	"\x1bsource_capabilities_checked\x18\x04 \x01(\bR\x19sourceCapabilitiesChecked\"\xa3\x01\n" +
+	"\x18ExplanationRelationCheck\x12\x12\n" +
+	"\x04code\x18\x01 \x01(\tR\x04code\x127\n" +
+	"\x05scope\x18\x02 \x01(\v2!.agentic.olap.semantic.v1.ScopeIdR\x05scope\x12\x12\n" +
+	"\x04keys\x18\x03 \x03(\tR\x04keys\x12\x1b\n" +
+	"\x06reason\x18\x04 \x01(\tH\x00R\x06reason\x88\x01\x01B\t\n" +
+	"\a_reason\"\xa9\x01\n" +
 	"\x11ExplanationScopes\x12=\n" +
 	"\x05items\x18\x01 \x03(\v2'.agentic.olap.query.v1.ExplanationScopeR\x05items\x12\x1f\n" +
 	"\vtotal_items\x18\x02 \x01(\x05R\n" +
@@ -11170,221 +11389,224 @@ func file_query_proto_rawDescGZIP() []byte {
 	return file_query_proto_rawDescData
 }
 
-var file_query_proto_msgTypes = make([]protoimpl.MessageInfo, 157)
+var file_query_proto_msgTypes = make([]protoimpl.MessageInfo, 160)
 var file_query_proto_goTypes = []any{
-	(*QueryCapabilityCoordinate)(nil),    // 0: agentic.olap.query.v1.QueryCapabilityCoordinate
-	(*CandidateTarget)(nil),              // 1: agentic.olap.query.v1.CandidateTarget
-	(*CandidateDimensionProvider)(nil),   // 2: agentic.olap.query.v1.CandidateDimensionProvider
-	(*CandidateRequest)(nil),             // 3: agentic.olap.query.v1.CandidateRequest
-	(*CandidateSource)(nil),              // 4: agentic.olap.query.v1.CandidateSource
-	(*CandidateResolution)(nil),          // 5: agentic.olap.query.v1.CandidateResolution
-	(*CandidateValues)(nil),              // 6: agentic.olap.query.v1.CandidateValues
-	(*QueryIntent)(nil),                  // 7: agentic.olap.query.v1.QueryIntent
-	(*QueryReference)(nil),               // 8: agentic.olap.query.v1.QueryReference
-	(*QuerySelection)(nil),               // 9: agentic.olap.query.v1.QuerySelection
-	(*QueryResultReference)(nil),         // 10: agentic.olap.query.v1.QueryResultReference
-	(*SourceBinding)(nil),                // 11: agentic.olap.query.v1.SourceBinding
-	(*SourceVersion)(nil),                // 12: agentic.olap.query.v1.SourceVersion
-	(*SourceReadBasis)(nil),              // 13: agentic.olap.query.v1.SourceReadBasis
-	(*SourceRequestEvidence)(nil),        // 14: agentic.olap.query.v1.SourceRequestEvidence
-	(*SourceReadEvidence)(nil),           // 15: agentic.olap.query.v1.SourceReadEvidence
-	(*SourceCancellationEvidence)(nil),   // 16: agentic.olap.query.v1.SourceCancellationEvidence
-	(*SourceCancellationConfirmed)(nil),  // 17: agentic.olap.query.v1.SourceCancellationConfirmed
-	(*SourceCancellationFailed)(nil),     // 18: agentic.olap.query.v1.SourceCancellationFailed
-	(*SourceFailureEvidence)(nil),        // 19: agentic.olap.query.v1.SourceFailureEvidence
-	(*SourceInspectionFailure)(nil),      // 20: agentic.olap.query.v1.SourceInspectionFailure
-	(*SourceCapabilityUnavailable)(nil),  // 21: agentic.olap.query.v1.SourceCapabilityUnavailable
-	(*SourceInspectionFailed)(nil),       // 22: agentic.olap.query.v1.SourceInspectionFailed
-	(*SourceGuaranteeFailed)(nil),        // 23: agentic.olap.query.v1.SourceGuaranteeFailed
-	(*WorkerFailureFacts)(nil),           // 24: agentic.olap.query.v1.WorkerFailureFacts
-	(*QueryExecutionRequest)(nil),        // 25: agentic.olap.query.v1.QueryExecutionRequest
-	(*QueryValidationRequest)(nil),       // 26: agentic.olap.query.v1.QueryValidationRequest
-	(*QueryValidationResult)(nil),        // 27: agentic.olap.query.v1.QueryValidationResult
-	(*QueryExplanationRequest)(nil),      // 28: agentic.olap.query.v1.QueryExplanationRequest
-	(*QueryExplanationResult)(nil),       // 29: agentic.olap.query.v1.QueryExplanationResult
-	(*QueryExecutionFailure)(nil),        // 30: agentic.olap.query.v1.QueryExecutionFailure
-	(*QueryExecutionReceipt)(nil),        // 31: agentic.olap.query.v1.QueryExecutionReceipt
-	(*QuerySource)(nil),                  // 32: agentic.olap.query.v1.QuerySource
-	(*QueryDefinitionCommand)(nil),       // 33: agentic.olap.query.v1.QueryDefinitionCommand
-	(*QueryDefinitionView)(nil),          // 34: agentic.olap.query.v1.QueryDefinitionView
-	(*QueryVersionRequest)(nil),          // 35: agentic.olap.query.v1.QueryVersionRequest
-	(*QueryListRequest)(nil),             // 36: agentic.olap.query.v1.QueryListRequest
-	(*QueryDefinitionResult)(nil),        // 37: agentic.olap.query.v1.QueryDefinitionResult
-	(*QueryDefinitionPage)(nil),          // 38: agentic.olap.query.v1.QueryDefinitionPage
-	(*QueryDefinitionArtifact)(nil),      // 39: agentic.olap.query.v1.QueryDefinitionArtifact
-	(*ResultValueType)(nil),              // 40: agentic.olap.query.v1.ResultValueType
-	(*ResultScalarType)(nil),             // 41: agentic.olap.query.v1.ResultScalarType
-	(*ResultArrayType)(nil),              // 42: agentic.olap.query.v1.ResultArrayType
-	(*ResultRowType)(nil),                // 43: agentic.olap.query.v1.ResultRowType
-	(*ResultField)(nil),                  // 44: agentic.olap.query.v1.ResultField
-	(*BusinessColumn)(nil),               // 45: agentic.olap.query.v1.BusinessColumn
-	(*BusinessColumns)(nil),              // 46: agentic.olap.query.v1.BusinessColumns
-	(*BusinessValue)(nil),                // 47: agentic.olap.query.v1.BusinessValue
-	(*BusinessScalar)(nil),               // 48: agentic.olap.query.v1.BusinessScalar
-	(*BusinessValues)(nil),               // 49: agentic.olap.query.v1.BusinessValues
-	(*BusinessResult)(nil),               // 50: agentic.olap.query.v1.BusinessResult
-	(*ResultReadRequest)(nil),            // 51: agentic.olap.query.v1.ResultReadRequest
-	(*ResultMetadataRequest)(nil),        // 52: agentic.olap.query.v1.ResultMetadataRequest
-	(*ResultValueReference)(nil),         // 53: agentic.olap.query.v1.ResultValueReference
-	(*ResultValueRequest)(nil),           // 54: agentic.olap.query.v1.ResultValueRequest
-	(*ResultProfileRequest)(nil),         // 55: agentic.olap.query.v1.ResultProfileRequest
-	(*QueryRunRequest)(nil),              // 56: agentic.olap.query.v1.QueryRunRequest
-	(*QueryRunListRequest)(nil),          // 57: agentic.olap.query.v1.QueryRunListRequest
-	(*QueryUsageNoteRequest)(nil),        // 58: agentic.olap.query.v1.QueryUsageNoteRequest
-	(*ScriptValue)(nil),                  // 59: agentic.olap.query.v1.ScriptValue
-	(*ScriptReference)(nil),              // 60: agentic.olap.query.v1.ScriptReference
-	(*ScriptValues)(nil),                 // 61: agentic.olap.query.v1.ScriptValues
-	(*ScriptObject)(nil),                 // 62: agentic.olap.query.v1.ScriptObject
-	(*RegisteredReply)(nil),              // 63: agentic.olap.query.v1.RegisteredReply
-	(*QueryExplanationView)(nil),         // 64: agentic.olap.query.v1.QueryExplanationView
-	(*QueryExplanationContent)(nil),      // 65: agentic.olap.query.v1.QueryExplanationContent
-	(*ExplanationScopes)(nil),            // 66: agentic.olap.query.v1.ExplanationScopes
-	(*ExplanationSources)(nil),           // 67: agentic.olap.query.v1.ExplanationSources
-	(*ExplanationPlan)(nil),              // 68: agentic.olap.query.v1.ExplanationPlan
-	(*ExplanationScale)(nil),             // 69: agentic.olap.query.v1.ExplanationScale
-	(*ExplanationSummary)(nil),           // 70: agentic.olap.query.v1.ExplanationSummary
-	(*PopulationMode)(nil),               // 71: agentic.olap.query.v1.PopulationMode
-	(*PopulationContract)(nil),           // 72: agentic.olap.query.v1.PopulationContract
-	(*ExplanationKey)(nil),               // 73: agentic.olap.query.v1.ExplanationKey
-	(*ExplanationQualification)(nil),     // 74: agentic.olap.query.v1.ExplanationQualification
-	(*ExplanationChild)(nil),             // 75: agentic.olap.query.v1.ExplanationChild
-	(*ExplanationStage)(nil),             // 76: agentic.olap.query.v1.ExplanationStage
-	(*ExplanationScope)(nil),             // 77: agentic.olap.query.v1.ExplanationScope
-	(*RelationRequirement)(nil),          // 78: agentic.olap.query.v1.RelationRequirement
-	(*RelationInputMatch)(nil),           // 79: agentic.olap.query.v1.RelationInputMatch
-	(*ExplanationRoot)(nil),              // 80: agentic.olap.query.v1.ExplanationRoot
-	(*ExplanationMeasures)(nil),          // 81: agentic.olap.query.v1.ExplanationMeasures
-	(*ExplanationMembers)(nil),           // 82: agentic.olap.query.v1.ExplanationMembers
-	(*ExplanationMemberOrigin)(nil),      // 83: agentic.olap.query.v1.ExplanationMemberOrigin
-	(*ExplanationMemberRef)(nil),         // 84: agentic.olap.query.v1.ExplanationMemberRef
-	(*ExplanationComputedMember)(nil),    // 85: agentic.olap.query.v1.ExplanationComputedMember
-	(*ExplanationRelation)(nil),          // 86: agentic.olap.query.v1.ExplanationRelation
-	(*ExplanationObjectMeasure)(nil),     // 87: agentic.olap.query.v1.ExplanationObjectMeasure
-	(*StringMap)(nil),                    // 88: agentic.olap.query.v1.StringMap
-	(*ExplanationAlignment)(nil),         // 89: agentic.olap.query.v1.ExplanationAlignment
-	(*ExplanationObservation)(nil),       // 90: agentic.olap.query.v1.ExplanationObservation
-	(*ExplanationSet)(nil),               // 91: agentic.olap.query.v1.ExplanationSet
-	(*ExplanationSourceIdentity)(nil),    // 92: agentic.olap.query.v1.ExplanationSourceIdentity
-	(*ExplanationFactIdentity)(nil),      // 93: agentic.olap.query.v1.ExplanationFactIdentity
-	(*ExplanationMemberIdentity)(nil),    // 94: agentic.olap.query.v1.ExplanationMemberIdentity
-	(*RelationPosition)(nil),             // 95: agentic.olap.query.v1.RelationPosition
-	(*ExplanationPosition)(nil),          // 96: agentic.olap.query.v1.ExplanationPosition
-	(*ExplanationJoin)(nil),              // 97: agentic.olap.query.v1.ExplanationJoin
-	(*ExplanationQuantified)(nil),        // 98: agentic.olap.query.v1.ExplanationQuantified
-	(*ExplanationRelationSource)(nil),    // 99: agentic.olap.query.v1.ExplanationRelationSource
-	(*ExplanationSource)(nil),            // 100: agentic.olap.query.v1.ExplanationSource
-	(*ExplanationPlanNode)(nil),          // 101: agentic.olap.query.v1.ExplanationPlanNode
-	(*IntList)(nil),                      // 102: agentic.olap.query.v1.IntList
-	(*ExplanationRelationSize)(nil),      // 103: agentic.olap.query.v1.ExplanationRelationSize
-	(*ExplanationCompilationScale)(nil),  // 104: agentic.olap.query.v1.ExplanationCompilationScale
-	(*QueryExecutionDiagnostics)(nil),    // 105: agentic.olap.query.v1.QueryExecutionDiagnostics
-	(*SavedQueryResultRecord)(nil),       // 106: agentic.olap.query.v1.SavedQueryResultRecord
-	(*SavedQueryResultArtifact)(nil),     // 107: agentic.olap.query.v1.SavedQueryResultArtifact
-	(*ResultRunSummary)(nil),             // 108: agentic.olap.query.v1.ResultRunSummary
-	(*ResultPublication)(nil),            // 109: agentic.olap.query.v1.ResultPublication
-	(*ResultSourceEvidence)(nil),         // 110: agentic.olap.query.v1.ResultSourceEvidence
-	(*ResultScopeColumns)(nil),           // 111: agentic.olap.query.v1.ResultScopeColumns
-	(*ResultScopeIndex)(nil),             // 112: agentic.olap.query.v1.ResultScopeIndex
-	(*ResultSymbols)(nil),                // 113: agentic.olap.query.v1.ResultSymbols
-	(*ResultMetadataContent)(nil),        // 114: agentic.olap.query.v1.ResultMetadataContent
-	(*ResultMetadataPage)(nil),           // 115: agentic.olap.query.v1.ResultMetadataPage
-	(*ResultValueView)(nil),              // 116: agentic.olap.query.v1.ResultValueView
-	(*ResultValueReferenceView)(nil),     // 117: agentic.olap.query.v1.ResultValueReferenceView
-	(*ResultValueViews)(nil),             // 118: agentic.olap.query.v1.ResultValueViews
-	(*ResultPage)(nil),                   // 119: agentic.olap.query.v1.ResultPage
-	(*ResultValuePage)(nil),              // 120: agentic.olap.query.v1.ResultValuePage
-	(*ResultValueCount)(nil),             // 121: agentic.olap.query.v1.ResultValueCount
-	(*ResultValueCounts)(nil),            // 122: agentic.olap.query.v1.ResultValueCounts
-	(*ResultNumericExtrema)(nil),         // 123: agentic.olap.query.v1.ResultNumericExtrema
-	(*ResultColumnProfile)(nil),          // 124: agentic.olap.query.v1.ResultColumnProfile
-	(*ResultProfile)(nil),                // 125: agentic.olap.query.v1.ResultProfile
-	(*QueryResultManifest)(nil),          // 126: agentic.olap.query.v1.QueryResultManifest
-	(*QueryRunView)(nil),                 // 127: agentic.olap.query.v1.QueryRunView
-	(*QueryWorkerAcquisition)(nil),       // 128: agentic.olap.query.v1.QueryWorkerAcquisition
-	(*QueryServiceObservation)(nil),      // 129: agentic.olap.query.v1.QueryServiceObservation
-	(*QueryUsageNote)(nil),               // 130: agentic.olap.query.v1.QueryUsageNote
-	(*QuerySemanticReference)(nil),       // 131: agentic.olap.query.v1.QuerySemanticReference
-	(*QueryUsageView)(nil),               // 132: agentic.olap.query.v1.QueryUsageView
-	(*QueryUsagePage)(nil),               // 133: agentic.olap.query.v1.QueryUsagePage
-	nil,                                  // 134: agentic.olap.query.v1.SourceVersion.PartitionsEntry
-	nil,                                  // 135: agentic.olap.query.v1.WorkerFailureFacts.StageNanosEntry
-	nil,                                  // 136: agentic.olap.query.v1.QueryExecutionReceipt.TimingNanosEntry
-	nil,                                  // 137: agentic.olap.query.v1.BusinessResult.ScopeInputColumnsEntry
-	nil,                                  // 138: agentic.olap.query.v1.ScriptObject.ValuesEntry
-	nil,                                  // 139: agentic.olap.query.v1.ExplanationQualification.RecordMeaningsEntry
-	nil,                                  // 140: agentic.olap.query.v1.RelationRequirement.OutputSlotsEntry
-	nil,                                  // 141: agentic.olap.query.v1.RelationInputMatch.ProjectionEntry
-	nil,                                  // 142: agentic.olap.query.v1.ExplanationMeasures.ClocksEntry
-	nil,                                  // 143: agentic.olap.query.v1.ExplanationMembers.OutputsEntry
-	nil,                                  // 144: agentic.olap.query.v1.ExplanationRelation.OutputsEntry
-	nil,                                  // 145: agentic.olap.query.v1.StringMap.ValuesEntry
-	nil,                                  // 146: agentic.olap.query.v1.ExplanationAlignment.KeysEntry
-	nil,                                  // 147: agentic.olap.query.v1.ExplanationFactIdentity.GroupingEntry
-	nil,                                  // 148: agentic.olap.query.v1.ExplanationMemberIdentity.OutputsEntry
-	nil,                                  // 149: agentic.olap.query.v1.ExplanationMemberIdentity.MeaningsEntry
-	nil,                                  // 150: agentic.olap.query.v1.ExplanationJoin.SourceTimesEntry
-	nil,                                  // 151: agentic.olap.query.v1.ExplanationJoin.ClockSlotsEntry
-	nil,                                  // 152: agentic.olap.query.v1.ExplanationQuantified.ClocksEntry
-	nil,                                  // 153: agentic.olap.query.v1.ExplanationSource.ClocksEntry
-	nil,                                  // 154: agentic.olap.query.v1.QueryExecutionDiagnostics.AliasMappingEntry
-	nil,                                  // 155: agentic.olap.query.v1.ResultRunSummary.TimingNanosEntry
-	nil,                                  // 156: agentic.olap.query.v1.QueryServiceObservation.TimingNanosEntry
-	(*semantic.QueryMembers)(nil),        // 157: agentic.olap.semantic.v1.QueryMembers
-	(*semantic.ConnectorRef)(nil),        // 158: agentic.olap.semantic.v1.ConnectorRef
-	(*semantic.CalculationScalar)(nil),   // 159: agentic.olap.semantic.v1.CalculationScalar
-	(*semantic.QueryScope)(nil),          // 160: agentic.olap.semantic.v1.QueryScope
-	(*semantic.Empty)(nil),               // 161: agentic.olap.semantic.v1.Empty
-	(*semantic.Symbol)(nil),              // 162: agentic.olap.semantic.v1.Symbol
-	(*semantic.StringList)(nil),          // 163: agentic.olap.semantic.v1.StringList
-	(*semantic.MetricRef)(nil),           // 164: agentic.olap.semantic.v1.MetricRef
-	(*semantic.MetricInstanceRef)(nil),   // 165: agentic.olap.semantic.v1.MetricInstanceRef
-	(*semantic.MemberRef)(nil),           // 166: agentic.olap.semantic.v1.MemberRef
-	(*semantic.EventRef)(nil),            // 167: agentic.olap.semantic.v1.EventRef
-	(*semantic.DimensionRef)(nil),        // 168: agentic.olap.semantic.v1.DimensionRef
-	(*anypb.Any)(nil),                    // 169: google.protobuf.Any
-	(*semantic.SymbolId)(nil),            // 170: agentic.olap.semantic.v1.SymbolId
-	(*semantic.ScopeId)(nil),             // 171: agentic.olap.semantic.v1.ScopeId
-	(*semantic.ObjectTarget)(nil),        // 172: agentic.olap.semantic.v1.ObjectTarget
-	(*semantic.Stage)(nil),               // 173: agentic.olap.semantic.v1.Stage
-	(*semantic.SelectedObservation)(nil), // 174: agentic.olap.semantic.v1.SelectedObservation
-	(*semantic.SetOutput)(nil),           // 175: agentic.olap.semantic.v1.SetOutput
-	(*semantic.RowPopulation)(nil),       // 176: agentic.olap.semantic.v1.RowPopulation
-	(*semantic.QueryTimeRange)(nil),      // 177: agentic.olap.semantic.v1.QueryTimeRange
-	(*semantic.DimensionCondition)(nil),  // 178: agentic.olap.semantic.v1.DimensionCondition
-	(*semantic.MemberCondition)(nil),     // 179: agentic.olap.semantic.v1.MemberCondition
-	(*semantic.TemporalWindow)(nil),      // 180: agentic.olap.semantic.v1.TemporalWindow
-	(*semantic.ObjectRole)(nil),          // 181: agentic.olap.semantic.v1.ObjectRole
-	(*semantic.AlignmentPopulation)(nil), // 182: agentic.olap.semantic.v1.AlignmentPopulation
-	(*semantic.ObservationUnit)(nil),     // 183: agentic.olap.semantic.v1.ObservationUnit
-	(*semantic.SetProjection)(nil),       // 184: agentic.olap.semantic.v1.SetProjection
-	(*semantic.CalculationOwner)(nil),    // 185: agentic.olap.semantic.v1.CalculationOwner
-	(*semantic.JoinRef)(nil),             // 186: agentic.olap.semantic.v1.JoinRef
-	(*semantic.EventIdentity)(nil),       // 187: agentic.olap.semantic.v1.EventIdentity
-	(*semantic.MemberMeaning)(nil),       // 188: agentic.olap.semantic.v1.MemberMeaning
-	(*semantic.TemporalClock)(nil),       // 189: agentic.olap.semantic.v1.TemporalClock
+	(*QueryCapabilityCoordinate)(nil),        // 0: agentic.olap.query.v1.QueryCapabilityCoordinate
+	(*CandidateTarget)(nil),                  // 1: agentic.olap.query.v1.CandidateTarget
+	(*CandidateDimensionProvider)(nil),       // 2: agentic.olap.query.v1.CandidateDimensionProvider
+	(*CandidateRequest)(nil),                 // 3: agentic.olap.query.v1.CandidateRequest
+	(*CandidateSource)(nil),                  // 4: agentic.olap.query.v1.CandidateSource
+	(*CandidateResolution)(nil),              // 5: agentic.olap.query.v1.CandidateResolution
+	(*CandidateValues)(nil),                  // 6: agentic.olap.query.v1.CandidateValues
+	(*QueryIntent)(nil),                      // 7: agentic.olap.query.v1.QueryIntent
+	(*QueryReference)(nil),                   // 8: agentic.olap.query.v1.QueryReference
+	(*QuerySelection)(nil),                   // 9: agentic.olap.query.v1.QuerySelection
+	(*QueryResultReference)(nil),             // 10: agentic.olap.query.v1.QueryResultReference
+	(*SourceBinding)(nil),                    // 11: agentic.olap.query.v1.SourceBinding
+	(*SourceVersion)(nil),                    // 12: agentic.olap.query.v1.SourceVersion
+	(*SourceReadBasis)(nil),                  // 13: agentic.olap.query.v1.SourceReadBasis
+	(*SourceRequestEvidence)(nil),            // 14: agentic.olap.query.v1.SourceRequestEvidence
+	(*SourceReadEvidence)(nil),               // 15: agentic.olap.query.v1.SourceReadEvidence
+	(*SourceCancellationEvidence)(nil),       // 16: agentic.olap.query.v1.SourceCancellationEvidence
+	(*SourceCancellationConfirmed)(nil),      // 17: agentic.olap.query.v1.SourceCancellationConfirmed
+	(*SourceCancellationFailed)(nil),         // 18: agentic.olap.query.v1.SourceCancellationFailed
+	(*SourceFailureEvidence)(nil),            // 19: agentic.olap.query.v1.SourceFailureEvidence
+	(*SourceInspectionFailure)(nil),          // 20: agentic.olap.query.v1.SourceInspectionFailure
+	(*SourceCapabilityUnavailable)(nil),      // 21: agentic.olap.query.v1.SourceCapabilityUnavailable
+	(*SourceInspectionFailed)(nil),           // 22: agentic.olap.query.v1.SourceInspectionFailed
+	(*SourceGuaranteeFailed)(nil),            // 23: agentic.olap.query.v1.SourceGuaranteeFailed
+	(*WorkerFailureFacts)(nil),               // 24: agentic.olap.query.v1.WorkerFailureFacts
+	(*QueryExecutionRequest)(nil),            // 25: agentic.olap.query.v1.QueryExecutionRequest
+	(*QueryValidationRequest)(nil),           // 26: agentic.olap.query.v1.QueryValidationRequest
+	(*QueryValidationResult)(nil),            // 27: agentic.olap.query.v1.QueryValidationResult
+	(*QueryExplanationRequest)(nil),          // 28: agentic.olap.query.v1.QueryExplanationRequest
+	(*QueryExplanationResult)(nil),           // 29: agentic.olap.query.v1.QueryExplanationResult
+	(*QueryExecutionFailure)(nil),            // 30: agentic.olap.query.v1.QueryExecutionFailure
+	(*QueryExecutionReceipt)(nil),            // 31: agentic.olap.query.v1.QueryExecutionReceipt
+	(*QuerySource)(nil),                      // 32: agentic.olap.query.v1.QuerySource
+	(*QueryDefinitionCommand)(nil),           // 33: agentic.olap.query.v1.QueryDefinitionCommand
+	(*QueryDefinitionView)(nil),              // 34: agentic.olap.query.v1.QueryDefinitionView
+	(*QueryVersionRequest)(nil),              // 35: agentic.olap.query.v1.QueryVersionRequest
+	(*QueryListRequest)(nil),                 // 36: agentic.olap.query.v1.QueryListRequest
+	(*QueryDefinitionResult)(nil),            // 37: agentic.olap.query.v1.QueryDefinitionResult
+	(*QueryDefinitionPage)(nil),              // 38: agentic.olap.query.v1.QueryDefinitionPage
+	(*QueryDefinitionArtifact)(nil),          // 39: agentic.olap.query.v1.QueryDefinitionArtifact
+	(*ResultValueType)(nil),                  // 40: agentic.olap.query.v1.ResultValueType
+	(*ResultScalarType)(nil),                 // 41: agentic.olap.query.v1.ResultScalarType
+	(*ResultArrayType)(nil),                  // 42: agentic.olap.query.v1.ResultArrayType
+	(*ResultRowType)(nil),                    // 43: agentic.olap.query.v1.ResultRowType
+	(*ResultField)(nil),                      // 44: agentic.olap.query.v1.ResultField
+	(*BusinessColumn)(nil),                   // 45: agentic.olap.query.v1.BusinessColumn
+	(*BusinessColumns)(nil),                  // 46: agentic.olap.query.v1.BusinessColumns
+	(*BusinessValue)(nil),                    // 47: agentic.olap.query.v1.BusinessValue
+	(*BusinessScalar)(nil),                   // 48: agentic.olap.query.v1.BusinessScalar
+	(*BusinessValues)(nil),                   // 49: agentic.olap.query.v1.BusinessValues
+	(*BusinessResult)(nil),                   // 50: agentic.olap.query.v1.BusinessResult
+	(*ResultReadRequest)(nil),                // 51: agentic.olap.query.v1.ResultReadRequest
+	(*ResultMetadataRequest)(nil),            // 52: agentic.olap.query.v1.ResultMetadataRequest
+	(*ResultValueReference)(nil),             // 53: agentic.olap.query.v1.ResultValueReference
+	(*ResultValueRequest)(nil),               // 54: agentic.olap.query.v1.ResultValueRequest
+	(*ResultProfileRequest)(nil),             // 55: agentic.olap.query.v1.ResultProfileRequest
+	(*QueryRunRequest)(nil),                  // 56: agentic.olap.query.v1.QueryRunRequest
+	(*QueryRunListRequest)(nil),              // 57: agentic.olap.query.v1.QueryRunListRequest
+	(*QueryUsageNoteRequest)(nil),            // 58: agentic.olap.query.v1.QueryUsageNoteRequest
+	(*ScriptValue)(nil),                      // 59: agentic.olap.query.v1.ScriptValue
+	(*ScriptReference)(nil),                  // 60: agentic.olap.query.v1.ScriptReference
+	(*ScriptValues)(nil),                     // 61: agentic.olap.query.v1.ScriptValues
+	(*ScriptObject)(nil),                     // 62: agentic.olap.query.v1.ScriptObject
+	(*RegisteredReply)(nil),                  // 63: agentic.olap.query.v1.RegisteredReply
+	(*QueryExplanationView)(nil),             // 64: agentic.olap.query.v1.QueryExplanationView
+	(*QueryExplanationContent)(nil),          // 65: agentic.olap.query.v1.QueryExplanationContent
+	(*ExplanationRequirementSection)(nil),    // 66: agentic.olap.query.v1.ExplanationRequirementSection
+	(*ExplanationExecutionRequirements)(nil), // 67: agentic.olap.query.v1.ExplanationExecutionRequirements
+	(*ExplanationRelationCheck)(nil),         // 68: agentic.olap.query.v1.ExplanationRelationCheck
+	(*ExplanationScopes)(nil),                // 69: agentic.olap.query.v1.ExplanationScopes
+	(*ExplanationSources)(nil),               // 70: agentic.olap.query.v1.ExplanationSources
+	(*ExplanationPlan)(nil),                  // 71: agentic.olap.query.v1.ExplanationPlan
+	(*ExplanationScale)(nil),                 // 72: agentic.olap.query.v1.ExplanationScale
+	(*ExplanationSummary)(nil),               // 73: agentic.olap.query.v1.ExplanationSummary
+	(*PopulationMode)(nil),                   // 74: agentic.olap.query.v1.PopulationMode
+	(*PopulationContract)(nil),               // 75: agentic.olap.query.v1.PopulationContract
+	(*ExplanationKey)(nil),                   // 76: agentic.olap.query.v1.ExplanationKey
+	(*ExplanationQualification)(nil),         // 77: agentic.olap.query.v1.ExplanationQualification
+	(*ExplanationChild)(nil),                 // 78: agentic.olap.query.v1.ExplanationChild
+	(*ExplanationStage)(nil),                 // 79: agentic.olap.query.v1.ExplanationStage
+	(*ExplanationScope)(nil),                 // 80: agentic.olap.query.v1.ExplanationScope
+	(*RelationRequirement)(nil),              // 81: agentic.olap.query.v1.RelationRequirement
+	(*RelationInputMatch)(nil),               // 82: agentic.olap.query.v1.RelationInputMatch
+	(*ExplanationRoot)(nil),                  // 83: agentic.olap.query.v1.ExplanationRoot
+	(*ExplanationMeasures)(nil),              // 84: agentic.olap.query.v1.ExplanationMeasures
+	(*ExplanationMembers)(nil),               // 85: agentic.olap.query.v1.ExplanationMembers
+	(*ExplanationMemberOrigin)(nil),          // 86: agentic.olap.query.v1.ExplanationMemberOrigin
+	(*ExplanationMemberRef)(nil),             // 87: agentic.olap.query.v1.ExplanationMemberRef
+	(*ExplanationComputedMember)(nil),        // 88: agentic.olap.query.v1.ExplanationComputedMember
+	(*ExplanationRelation)(nil),              // 89: agentic.olap.query.v1.ExplanationRelation
+	(*ExplanationObjectMeasure)(nil),         // 90: agentic.olap.query.v1.ExplanationObjectMeasure
+	(*StringMap)(nil),                        // 91: agentic.olap.query.v1.StringMap
+	(*ExplanationAlignment)(nil),             // 92: agentic.olap.query.v1.ExplanationAlignment
+	(*ExplanationObservation)(nil),           // 93: agentic.olap.query.v1.ExplanationObservation
+	(*ExplanationSet)(nil),                   // 94: agentic.olap.query.v1.ExplanationSet
+	(*ExplanationSourceIdentity)(nil),        // 95: agentic.olap.query.v1.ExplanationSourceIdentity
+	(*ExplanationFactIdentity)(nil),          // 96: agentic.olap.query.v1.ExplanationFactIdentity
+	(*ExplanationMemberIdentity)(nil),        // 97: agentic.olap.query.v1.ExplanationMemberIdentity
+	(*RelationPosition)(nil),                 // 98: agentic.olap.query.v1.RelationPosition
+	(*ExplanationPosition)(nil),              // 99: agentic.olap.query.v1.ExplanationPosition
+	(*ExplanationJoin)(nil),                  // 100: agentic.olap.query.v1.ExplanationJoin
+	(*ExplanationQuantified)(nil),            // 101: agentic.olap.query.v1.ExplanationQuantified
+	(*ExplanationRelationSource)(nil),        // 102: agentic.olap.query.v1.ExplanationRelationSource
+	(*ExplanationSource)(nil),                // 103: agentic.olap.query.v1.ExplanationSource
+	(*ExplanationPlanNode)(nil),              // 104: agentic.olap.query.v1.ExplanationPlanNode
+	(*IntList)(nil),                          // 105: agentic.olap.query.v1.IntList
+	(*ExplanationRelationSize)(nil),          // 106: agentic.olap.query.v1.ExplanationRelationSize
+	(*ExplanationCompilationScale)(nil),      // 107: agentic.olap.query.v1.ExplanationCompilationScale
+	(*QueryExecutionDiagnostics)(nil),        // 108: agentic.olap.query.v1.QueryExecutionDiagnostics
+	(*SavedQueryResultRecord)(nil),           // 109: agentic.olap.query.v1.SavedQueryResultRecord
+	(*SavedQueryResultArtifact)(nil),         // 110: agentic.olap.query.v1.SavedQueryResultArtifact
+	(*ResultRunSummary)(nil),                 // 111: agentic.olap.query.v1.ResultRunSummary
+	(*ResultPublication)(nil),                // 112: agentic.olap.query.v1.ResultPublication
+	(*ResultSourceEvidence)(nil),             // 113: agentic.olap.query.v1.ResultSourceEvidence
+	(*ResultScopeColumns)(nil),               // 114: agentic.olap.query.v1.ResultScopeColumns
+	(*ResultScopeIndex)(nil),                 // 115: agentic.olap.query.v1.ResultScopeIndex
+	(*ResultSymbols)(nil),                    // 116: agentic.olap.query.v1.ResultSymbols
+	(*ResultMetadataContent)(nil),            // 117: agentic.olap.query.v1.ResultMetadataContent
+	(*ResultMetadataPage)(nil),               // 118: agentic.olap.query.v1.ResultMetadataPage
+	(*ResultValueView)(nil),                  // 119: agentic.olap.query.v1.ResultValueView
+	(*ResultValueReferenceView)(nil),         // 120: agentic.olap.query.v1.ResultValueReferenceView
+	(*ResultValueViews)(nil),                 // 121: agentic.olap.query.v1.ResultValueViews
+	(*ResultPage)(nil),                       // 122: agentic.olap.query.v1.ResultPage
+	(*ResultValuePage)(nil),                  // 123: agentic.olap.query.v1.ResultValuePage
+	(*ResultValueCount)(nil),                 // 124: agentic.olap.query.v1.ResultValueCount
+	(*ResultValueCounts)(nil),                // 125: agentic.olap.query.v1.ResultValueCounts
+	(*ResultNumericExtrema)(nil),             // 126: agentic.olap.query.v1.ResultNumericExtrema
+	(*ResultColumnProfile)(nil),              // 127: agentic.olap.query.v1.ResultColumnProfile
+	(*ResultProfile)(nil),                    // 128: agentic.olap.query.v1.ResultProfile
+	(*QueryResultManifest)(nil),              // 129: agentic.olap.query.v1.QueryResultManifest
+	(*QueryRunView)(nil),                     // 130: agentic.olap.query.v1.QueryRunView
+	(*QueryWorkerAcquisition)(nil),           // 131: agentic.olap.query.v1.QueryWorkerAcquisition
+	(*QueryServiceObservation)(nil),          // 132: agentic.olap.query.v1.QueryServiceObservation
+	(*QueryUsageNote)(nil),                   // 133: agentic.olap.query.v1.QueryUsageNote
+	(*QuerySemanticReference)(nil),           // 134: agentic.olap.query.v1.QuerySemanticReference
+	(*QueryUsageView)(nil),                   // 135: agentic.olap.query.v1.QueryUsageView
+	(*QueryUsagePage)(nil),                   // 136: agentic.olap.query.v1.QueryUsagePage
+	nil,                                      // 137: agentic.olap.query.v1.SourceVersion.PartitionsEntry
+	nil,                                      // 138: agentic.olap.query.v1.WorkerFailureFacts.StageNanosEntry
+	nil,                                      // 139: agentic.olap.query.v1.QueryExecutionReceipt.TimingNanosEntry
+	nil,                                      // 140: agentic.olap.query.v1.BusinessResult.ScopeInputColumnsEntry
+	nil,                                      // 141: agentic.olap.query.v1.ScriptObject.ValuesEntry
+	nil,                                      // 142: agentic.olap.query.v1.ExplanationQualification.RecordMeaningsEntry
+	nil,                                      // 143: agentic.olap.query.v1.RelationRequirement.OutputSlotsEntry
+	nil,                                      // 144: agentic.olap.query.v1.RelationInputMatch.ProjectionEntry
+	nil,                                      // 145: agentic.olap.query.v1.ExplanationMeasures.ClocksEntry
+	nil,                                      // 146: agentic.olap.query.v1.ExplanationMembers.OutputsEntry
+	nil,                                      // 147: agentic.olap.query.v1.ExplanationRelation.OutputsEntry
+	nil,                                      // 148: agentic.olap.query.v1.StringMap.ValuesEntry
+	nil,                                      // 149: agentic.olap.query.v1.ExplanationAlignment.KeysEntry
+	nil,                                      // 150: agentic.olap.query.v1.ExplanationFactIdentity.GroupingEntry
+	nil,                                      // 151: agentic.olap.query.v1.ExplanationMemberIdentity.OutputsEntry
+	nil,                                      // 152: agentic.olap.query.v1.ExplanationMemberIdentity.MeaningsEntry
+	nil,                                      // 153: agentic.olap.query.v1.ExplanationJoin.SourceTimesEntry
+	nil,                                      // 154: agentic.olap.query.v1.ExplanationJoin.ClockSlotsEntry
+	nil,                                      // 155: agentic.olap.query.v1.ExplanationQuantified.ClocksEntry
+	nil,                                      // 156: agentic.olap.query.v1.ExplanationSource.ClocksEntry
+	nil,                                      // 157: agentic.olap.query.v1.QueryExecutionDiagnostics.AliasMappingEntry
+	nil,                                      // 158: agentic.olap.query.v1.ResultRunSummary.TimingNanosEntry
+	nil,                                      // 159: agentic.olap.query.v1.QueryServiceObservation.TimingNanosEntry
+	(*semantic.QueryMembers)(nil),            // 160: agentic.olap.semantic.v1.QueryMembers
+	(*semantic.ConnectorRef)(nil),            // 161: agentic.olap.semantic.v1.ConnectorRef
+	(*semantic.CalculationScalar)(nil),       // 162: agentic.olap.semantic.v1.CalculationScalar
+	(*semantic.QueryScope)(nil),              // 163: agentic.olap.semantic.v1.QueryScope
+	(*semantic.Empty)(nil),                   // 164: agentic.olap.semantic.v1.Empty
+	(*semantic.Symbol)(nil),                  // 165: agentic.olap.semantic.v1.Symbol
+	(*semantic.StringList)(nil),              // 166: agentic.olap.semantic.v1.StringList
+	(*semantic.MetricRef)(nil),               // 167: agentic.olap.semantic.v1.MetricRef
+	(*semantic.MetricInstanceRef)(nil),       // 168: agentic.olap.semantic.v1.MetricInstanceRef
+	(*semantic.MemberRef)(nil),               // 169: agentic.olap.semantic.v1.MemberRef
+	(*semantic.EventRef)(nil),                // 170: agentic.olap.semantic.v1.EventRef
+	(*semantic.DimensionRef)(nil),            // 171: agentic.olap.semantic.v1.DimensionRef
+	(*anypb.Any)(nil),                        // 172: google.protobuf.Any
+	(*semantic.ScopeId)(nil),                 // 173: agentic.olap.semantic.v1.ScopeId
+	(*semantic.SymbolId)(nil),                // 174: agentic.olap.semantic.v1.SymbolId
+	(*semantic.ObjectTarget)(nil),            // 175: agentic.olap.semantic.v1.ObjectTarget
+	(*semantic.Stage)(nil),                   // 176: agentic.olap.semantic.v1.Stage
+	(*semantic.SelectedObservation)(nil),     // 177: agentic.olap.semantic.v1.SelectedObservation
+	(*semantic.SetOutput)(nil),               // 178: agentic.olap.semantic.v1.SetOutput
+	(*semantic.RowPopulation)(nil),           // 179: agentic.olap.semantic.v1.RowPopulation
+	(*semantic.QueryTimeRange)(nil),          // 180: agentic.olap.semantic.v1.QueryTimeRange
+	(*semantic.DimensionCondition)(nil),      // 181: agentic.olap.semantic.v1.DimensionCondition
+	(*semantic.MemberCondition)(nil),         // 182: agentic.olap.semantic.v1.MemberCondition
+	(*semantic.TemporalWindow)(nil),          // 183: agentic.olap.semantic.v1.TemporalWindow
+	(*semantic.ObjectRole)(nil),              // 184: agentic.olap.semantic.v1.ObjectRole
+	(*semantic.AlignmentPopulation)(nil),     // 185: agentic.olap.semantic.v1.AlignmentPopulation
+	(*semantic.ObservationUnit)(nil),         // 186: agentic.olap.semantic.v1.ObservationUnit
+	(*semantic.SetProjection)(nil),           // 187: agentic.olap.semantic.v1.SetProjection
+	(*semantic.CalculationOwner)(nil),        // 188: agentic.olap.semantic.v1.CalculationOwner
+	(*semantic.JoinRef)(nil),                 // 189: agentic.olap.semantic.v1.JoinRef
+	(*semantic.EventIdentity)(nil),           // 190: agentic.olap.semantic.v1.EventIdentity
+	(*semantic.MemberMeaning)(nil),           // 191: agentic.olap.semantic.v1.MemberMeaning
+	(*semantic.TemporalClock)(nil),           // 192: agentic.olap.semantic.v1.TemporalClock
 }
 var file_query_proto_depIdxs = []int32{
 	2,   // 0: agentic.olap.query.v1.CandidateTarget.dimension_provider:type_name -> agentic.olap.query.v1.CandidateDimensionProvider
-	157, // 1: agentic.olap.query.v1.CandidateTarget.member_output:type_name -> agentic.olap.semantic.v1.QueryMembers
+	160, // 1: agentic.olap.query.v1.CandidateTarget.member_output:type_name -> agentic.olap.semantic.v1.QueryMembers
 	0,   // 2: agentic.olap.query.v1.CandidateRequest.publication:type_name -> agentic.olap.query.v1.QueryCapabilityCoordinate
 	1,   // 3: agentic.olap.query.v1.CandidateRequest.target:type_name -> agentic.olap.query.v1.CandidateTarget
 	11,  // 4: agentic.olap.query.v1.CandidateSource.binding:type_name -> agentic.olap.query.v1.SourceBinding
-	158, // 5: agentic.olap.query.v1.CandidateSource.connector_ref:type_name -> agentic.olap.semantic.v1.ConnectorRef
+	161, // 5: agentic.olap.query.v1.CandidateSource.connector_ref:type_name -> agentic.olap.semantic.v1.ConnectorRef
 	0,   // 6: agentic.olap.query.v1.CandidateResolution.coordinate:type_name -> agentic.olap.query.v1.QueryCapabilityCoordinate
 	4,   // 7: agentic.olap.query.v1.CandidateResolution.sources:type_name -> agentic.olap.query.v1.CandidateSource
 	0,   // 8: agentic.olap.query.v1.CandidateValues.coordinate:type_name -> agentic.olap.query.v1.QueryCapabilityCoordinate
 	1,   // 9: agentic.olap.query.v1.CandidateValues.target:type_name -> agentic.olap.query.v1.CandidateTarget
-	159, // 10: agentic.olap.query.v1.CandidateValues.values:type_name -> agentic.olap.semantic.v1.CalculationScalar
+	162, // 10: agentic.olap.query.v1.CandidateValues.values:type_name -> agentic.olap.semantic.v1.CalculationScalar
 	0,   // 11: agentic.olap.query.v1.QueryIntent.publication:type_name -> agentic.olap.query.v1.QueryCapabilityCoordinate
-	160, // 12: agentic.olap.query.v1.QueryIntent.computation:type_name -> agentic.olap.semantic.v1.QueryScope
+	163, // 12: agentic.olap.query.v1.QueryIntent.computation:type_name -> agentic.olap.semantic.v1.QueryScope
 	7,   // 13: agentic.olap.query.v1.QuerySelection.inline:type_name -> agentic.olap.query.v1.QueryIntent
 	8,   // 14: agentic.olap.query.v1.QuerySelection.saved:type_name -> agentic.olap.query.v1.QueryReference
-	134, // 15: agentic.olap.query.v1.SourceVersion.partitions:type_name -> agentic.olap.query.v1.SourceVersion.PartitionsEntry
+	137, // 15: agentic.olap.query.v1.SourceVersion.partitions:type_name -> agentic.olap.query.v1.SourceVersion.PartitionsEntry
 	12,  // 16: agentic.olap.query.v1.SourceReadBasis.versioned:type_name -> agentic.olap.query.v1.SourceVersion
 	11,  // 17: agentic.olap.query.v1.SourceReadEvidence.binding:type_name -> agentic.olap.query.v1.SourceBinding
 	13,  // 18: agentic.olap.query.v1.SourceReadEvidence.basis:type_name -> agentic.olap.query.v1.SourceReadBasis
 	14,  // 19: agentic.olap.query.v1.SourceReadEvidence.request:type_name -> agentic.olap.query.v1.SourceRequestEvidence
-	161, // 20: agentic.olap.query.v1.SourceCancellationEvidence.not_requested:type_name -> agentic.olap.semantic.v1.Empty
+	164, // 20: agentic.olap.query.v1.SourceCancellationEvidence.not_requested:type_name -> agentic.olap.semantic.v1.Empty
 	17,  // 21: agentic.olap.query.v1.SourceCancellationEvidence.confirmed:type_name -> agentic.olap.query.v1.SourceCancellationConfirmed
 	18,  // 22: agentic.olap.query.v1.SourceCancellationEvidence.failed:type_name -> agentic.olap.query.v1.SourceCancellationFailed
 	11,  // 23: agentic.olap.query.v1.SourceFailureEvidence.binding:type_name -> agentic.olap.query.v1.SourceBinding
@@ -11393,10 +11615,10 @@ var file_query_proto_depIdxs = []int32{
 	21,  // 26: agentic.olap.query.v1.SourceInspectionFailure.capability:type_name -> agentic.olap.query.v1.SourceCapabilityUnavailable
 	22,  // 27: agentic.olap.query.v1.SourceInspectionFailure.inspection:type_name -> agentic.olap.query.v1.SourceInspectionFailed
 	23,  // 28: agentic.olap.query.v1.SourceInspectionFailure.guarantee:type_name -> agentic.olap.query.v1.SourceGuaranteeFailed
-	161, // 29: agentic.olap.query.v1.SourceInspectionFailure.cancelled:type_name -> agentic.olap.semantic.v1.Empty
+	164, // 29: agentic.olap.query.v1.SourceInspectionFailure.cancelled:type_name -> agentic.olap.semantic.v1.Empty
 	15,  // 30: agentic.olap.query.v1.WorkerFailureFacts.source_read_evidence:type_name -> agentic.olap.query.v1.SourceReadEvidence
 	19,  // 31: agentic.olap.query.v1.WorkerFailureFacts.source_failure:type_name -> agentic.olap.query.v1.SourceFailureEvidence
-	135, // 32: agentic.olap.query.v1.WorkerFailureFacts.stage_nanos:type_name -> agentic.olap.query.v1.WorkerFailureFacts.StageNanosEntry
+	138, // 32: agentic.olap.query.v1.WorkerFailureFacts.stage_nanos:type_name -> agentic.olap.query.v1.WorkerFailureFacts.StageNanosEntry
 	20,  // 33: agentic.olap.query.v1.WorkerFailureFacts.inspection_failure:type_name -> agentic.olap.query.v1.SourceInspectionFailure
 	9,   // 34: agentic.olap.query.v1.QueryExecutionRequest.query:type_name -> agentic.olap.query.v1.QuerySelection
 	12,  // 35: agentic.olap.query.v1.QueryExecutionRequest.read_basis:type_name -> agentic.olap.query.v1.SourceVersion
@@ -11407,7 +11629,7 @@ var file_query_proto_depIdxs = []int32{
 	50,  // 40: agentic.olap.query.v1.QueryExecutionReceipt.result:type_name -> agentic.olap.query.v1.BusinessResult
 	14,  // 41: agentic.olap.query.v1.QueryExecutionReceipt.source_request:type_name -> agentic.olap.query.v1.SourceRequestEvidence
 	15,  // 42: agentic.olap.query.v1.QueryExecutionReceipt.source_read_evidence:type_name -> agentic.olap.query.v1.SourceReadEvidence
-	136, // 43: agentic.olap.query.v1.QueryExecutionReceipt.timing_nanos:type_name -> agentic.olap.query.v1.QueryExecutionReceipt.TimingNanosEntry
+	139, // 43: agentic.olap.query.v1.QueryExecutionReceipt.timing_nanos:type_name -> agentic.olap.query.v1.QueryExecutionReceipt.TimingNanosEntry
 	30,  // 44: agentic.olap.query.v1.QueryExecutionReceipt.error:type_name -> agentic.olap.query.v1.QueryExecutionFailure
 	7,   // 45: agentic.olap.query.v1.QueryDefinitionCommand.intent:type_name -> agentic.olap.query.v1.QueryIntent
 	32,  // 46: agentic.olap.query.v1.QueryDefinitionCommand.source:type_name -> agentic.olap.query.v1.QuerySource
@@ -11424,225 +11646,230 @@ var file_query_proto_depIdxs = []int32{
 	40,  // 57: agentic.olap.query.v1.ResultArrayType.element:type_name -> agentic.olap.query.v1.ResultValueType
 	44,  // 58: agentic.olap.query.v1.ResultRowType.fields:type_name -> agentic.olap.query.v1.ResultField
 	40,  // 59: agentic.olap.query.v1.ResultField.type:type_name -> agentic.olap.query.v1.ResultValueType
-	162, // 60: agentic.olap.query.v1.BusinessColumn.symbol:type_name -> agentic.olap.semantic.v1.Symbol
+	165, // 60: agentic.olap.query.v1.BusinessColumn.symbol:type_name -> agentic.olap.semantic.v1.Symbol
 	40,  // 61: agentic.olap.query.v1.BusinessColumn.type:type_name -> agentic.olap.query.v1.ResultValueType
 	45,  // 62: agentic.olap.query.v1.BusinessColumns.values:type_name -> agentic.olap.query.v1.BusinessColumn
-	161, // 63: agentic.olap.query.v1.BusinessValue.null_value:type_name -> agentic.olap.semantic.v1.Empty
+	164, // 63: agentic.olap.query.v1.BusinessValue.null_value:type_name -> agentic.olap.semantic.v1.Empty
 	48,  // 64: agentic.olap.query.v1.BusinessValue.scalar:type_name -> agentic.olap.query.v1.BusinessScalar
 	49,  // 65: agentic.olap.query.v1.BusinessValue.array:type_name -> agentic.olap.query.v1.BusinessValues
 	49,  // 66: agentic.olap.query.v1.BusinessValue.row:type_name -> agentic.olap.query.v1.BusinessValues
 	47,  // 67: agentic.olap.query.v1.BusinessValues.values:type_name -> agentic.olap.query.v1.BusinessValue
 	45,  // 68: agentic.olap.query.v1.BusinessResult.input_columns:type_name -> agentic.olap.query.v1.BusinessColumn
-	137, // 69: agentic.olap.query.v1.BusinessResult.scope_input_columns:type_name -> agentic.olap.query.v1.BusinessResult.ScopeInputColumnsEntry
+	140, // 69: agentic.olap.query.v1.BusinessResult.scope_input_columns:type_name -> agentic.olap.query.v1.BusinessResult.ScopeInputColumnsEntry
 	45,  // 70: agentic.olap.query.v1.BusinessResult.columns:type_name -> agentic.olap.query.v1.BusinessColumn
-	162, // 71: agentic.olap.query.v1.BusinessResult.source_symbols:type_name -> agentic.olap.semantic.v1.Symbol
+	165, // 71: agentic.olap.query.v1.BusinessResult.source_symbols:type_name -> agentic.olap.semantic.v1.Symbol
 	49,  // 72: agentic.olap.query.v1.BusinessResult.rows:type_name -> agentic.olap.query.v1.BusinessValues
 	10,  // 73: agentic.olap.query.v1.ResultReadRequest.result_reference:type_name -> agentic.olap.query.v1.QueryResultReference
-	163, // 74: agentic.olap.query.v1.ResultReadRequest.column_ids:type_name -> agentic.olap.semantic.v1.StringList
+	166, // 74: agentic.olap.query.v1.ResultReadRequest.column_ids:type_name -> agentic.olap.semantic.v1.StringList
 	10,  // 75: agentic.olap.query.v1.ResultMetadataRequest.result_reference:type_name -> agentic.olap.query.v1.QueryResultReference
 	10,  // 76: agentic.olap.query.v1.ResultValueRequest.result_reference:type_name -> agentic.olap.query.v1.QueryResultReference
 	53,  // 77: agentic.olap.query.v1.ResultValueRequest.value_reference:type_name -> agentic.olap.query.v1.ResultValueReference
 	10,  // 78: agentic.olap.query.v1.ResultProfileRequest.result_reference:type_name -> agentic.olap.query.v1.QueryResultReference
 	0,   // 79: agentic.olap.query.v1.QueryRunListRequest.coordinate:type_name -> agentic.olap.query.v1.QueryCapabilityCoordinate
-	161, // 80: agentic.olap.query.v1.ScriptValue.null_value:type_name -> agentic.olap.semantic.v1.Empty
+	164, // 80: agentic.olap.query.v1.ScriptValue.null_value:type_name -> agentic.olap.semantic.v1.Empty
 	61,  // 81: agentic.olap.query.v1.ScriptValue.array:type_name -> agentic.olap.query.v1.ScriptValues
 	62,  // 82: agentic.olap.query.v1.ScriptValue.object:type_name -> agentic.olap.query.v1.ScriptObject
 	63,  // 83: agentic.olap.query.v1.ScriptValue.registered_reply:type_name -> agentic.olap.query.v1.RegisteredReply
 	60,  // 84: agentic.olap.query.v1.ScriptValue.reference:type_name -> agentic.olap.query.v1.ScriptReference
 	8,   // 85: agentic.olap.query.v1.ScriptReference.query:type_name -> agentic.olap.query.v1.QueryReference
 	10,  // 86: agentic.olap.query.v1.ScriptReference.result:type_name -> agentic.olap.query.v1.QueryResultReference
-	164, // 87: agentic.olap.query.v1.ScriptReference.metric:type_name -> agentic.olap.semantic.v1.MetricRef
-	165, // 88: agentic.olap.query.v1.ScriptReference.metric_instance:type_name -> agentic.olap.semantic.v1.MetricInstanceRef
-	166, // 89: agentic.olap.query.v1.ScriptReference.member:type_name -> agentic.olap.semantic.v1.MemberRef
-	167, // 90: agentic.olap.query.v1.ScriptReference.event:type_name -> agentic.olap.semantic.v1.EventRef
-	168, // 91: agentic.olap.query.v1.ScriptReference.dimension:type_name -> agentic.olap.semantic.v1.DimensionRef
+	167, // 87: agentic.olap.query.v1.ScriptReference.metric:type_name -> agentic.olap.semantic.v1.MetricRef
+	168, // 88: agentic.olap.query.v1.ScriptReference.metric_instance:type_name -> agentic.olap.semantic.v1.MetricInstanceRef
+	169, // 89: agentic.olap.query.v1.ScriptReference.member:type_name -> agentic.olap.semantic.v1.MemberRef
+	170, // 90: agentic.olap.query.v1.ScriptReference.event:type_name -> agentic.olap.semantic.v1.EventRef
+	171, // 91: agentic.olap.query.v1.ScriptReference.dimension:type_name -> agentic.olap.semantic.v1.DimensionRef
 	11,  // 92: agentic.olap.query.v1.ScriptReference.source:type_name -> agentic.olap.query.v1.SourceBinding
-	158, // 93: agentic.olap.query.v1.ScriptReference.connector:type_name -> agentic.olap.semantic.v1.ConnectorRef
+	161, // 93: agentic.olap.query.v1.ScriptReference.connector:type_name -> agentic.olap.semantic.v1.ConnectorRef
 	59,  // 94: agentic.olap.query.v1.ScriptValues.values:type_name -> agentic.olap.query.v1.ScriptValue
-	138, // 95: agentic.olap.query.v1.ScriptObject.values:type_name -> agentic.olap.query.v1.ScriptObject.ValuesEntry
-	169, // 96: agentic.olap.query.v1.RegisteredReply.content:type_name -> google.protobuf.Any
-	70,  // 97: agentic.olap.query.v1.QueryExplanationView.summary:type_name -> agentic.olap.query.v1.ExplanationSummary
-	77,  // 98: agentic.olap.query.v1.QueryExplanationView.scopes:type_name -> agentic.olap.query.v1.ExplanationScope
-	100, // 99: agentic.olap.query.v1.QueryExplanationView.sources:type_name -> agentic.olap.query.v1.ExplanationSource
-	101, // 100: agentic.olap.query.v1.QueryExplanationView.plan:type_name -> agentic.olap.query.v1.ExplanationPlanNode
-	104, // 101: agentic.olap.query.v1.QueryExplanationView.compilation_scale:type_name -> agentic.olap.query.v1.ExplanationCompilationScale
-	70,  // 102: agentic.olap.query.v1.QueryExplanationContent.summary:type_name -> agentic.olap.query.v1.ExplanationSummary
-	66,  // 103: agentic.olap.query.v1.QueryExplanationContent.scopes:type_name -> agentic.olap.query.v1.ExplanationScopes
-	67,  // 104: agentic.olap.query.v1.QueryExplanationContent.sources:type_name -> agentic.olap.query.v1.ExplanationSources
-	68,  // 105: agentic.olap.query.v1.QueryExplanationContent.plan:type_name -> agentic.olap.query.v1.ExplanationPlan
-	69,  // 106: agentic.olap.query.v1.QueryExplanationContent.scale:type_name -> agentic.olap.query.v1.ExplanationScale
-	77,  // 107: agentic.olap.query.v1.ExplanationScopes.items:type_name -> agentic.olap.query.v1.ExplanationScope
-	100, // 108: agentic.olap.query.v1.ExplanationSources.items:type_name -> agentic.olap.query.v1.ExplanationSource
-	101, // 109: agentic.olap.query.v1.ExplanationPlan.items:type_name -> agentic.olap.query.v1.ExplanationPlanNode
-	104, // 110: agentic.olap.query.v1.ExplanationScale.value:type_name -> agentic.olap.query.v1.ExplanationCompilationScale
-	72,  // 111: agentic.olap.query.v1.ExplanationSummary.population_contract:type_name -> agentic.olap.query.v1.PopulationContract
-	71,  // 112: agentic.olap.query.v1.PopulationContract.modes:type_name -> agentic.olap.query.v1.PopulationMode
-	170, // 113: agentic.olap.query.v1.ExplanationKey.columns:type_name -> agentic.olap.semantic.v1.SymbolId
-	171, // 114: agentic.olap.query.v1.ExplanationQualification.objects_scope:type_name -> agentic.olap.semantic.v1.ScopeId
-	172, // 115: agentic.olap.query.v1.ExplanationQualification.target:type_name -> agentic.olap.semantic.v1.ObjectTarget
-	139, // 116: agentic.olap.query.v1.ExplanationQualification.record_meanings:type_name -> agentic.olap.query.v1.ExplanationQualification.RecordMeaningsEntry
-	171, // 117: agentic.olap.query.v1.ExplanationChild.scope:type_name -> agentic.olap.semantic.v1.ScopeId
-	173, // 118: agentic.olap.query.v1.ExplanationStage.contract:type_name -> agentic.olap.semantic.v1.Stage
-	170, // 119: agentic.olap.query.v1.ExplanationStage.inputs:type_name -> agentic.olap.semantic.v1.SymbolId
-	170, // 120: agentic.olap.query.v1.ExplanationStage.imports:type_name -> agentic.olap.semantic.v1.SymbolId
-	162, // 121: agentic.olap.query.v1.ExplanationStage.outputs:type_name -> agentic.olap.semantic.v1.Symbol
-	73,  // 122: agentic.olap.query.v1.ExplanationStage.grain:type_name -> agentic.olap.query.v1.ExplanationKey
-	171, // 123: agentic.olap.query.v1.ExplanationScope.scope:type_name -> agentic.olap.semantic.v1.ScopeId
-	80,  // 124: agentic.olap.query.v1.ExplanationScope.root:type_name -> agentic.olap.query.v1.ExplanationRoot
-	74,  // 125: agentic.olap.query.v1.ExplanationScope.qualifications:type_name -> agentic.olap.query.v1.ExplanationQualification
-	75,  // 126: agentic.olap.query.v1.ExplanationScope.children:type_name -> agentic.olap.query.v1.ExplanationChild
-	73,  // 127: agentic.olap.query.v1.ExplanationScope.final_grain:type_name -> agentic.olap.query.v1.ExplanationKey
-	79,  // 128: agentic.olap.query.v1.ExplanationScope.relation_input_match:type_name -> agentic.olap.query.v1.RelationInputMatch
-	162, // 129: agentic.olap.query.v1.ExplanationScope.outputs:type_name -> agentic.olap.semantic.v1.Symbol
-	174, // 130: agentic.olap.query.v1.ExplanationScope.selected_observations:type_name -> agentic.olap.semantic.v1.SelectedObservation
-	76,  // 131: agentic.olap.query.v1.ExplanationScope.stages:type_name -> agentic.olap.query.v1.ExplanationStage
-	140, // 132: agentic.olap.query.v1.RelationRequirement.output_slots:type_name -> agentic.olap.query.v1.RelationRequirement.OutputSlotsEntry
-	175, // 133: agentic.olap.query.v1.RelationRequirement.outputs:type_name -> agentic.olap.semantic.v1.SetOutput
-	163, // 134: agentic.olap.query.v1.RelationRequirement.keys:type_name -> agentic.olap.semantic.v1.StringList
-	171, // 135: agentic.olap.query.v1.RelationInputMatch.input_scope:type_name -> agentic.olap.semantic.v1.ScopeId
-	162, // 136: agentic.olap.query.v1.RelationInputMatch.actual_outputs:type_name -> agentic.olap.semantic.v1.Symbol
-	73,  // 137: agentic.olap.query.v1.RelationInputMatch.actual_grain:type_name -> agentic.olap.query.v1.ExplanationKey
-	78,  // 138: agentic.olap.query.v1.RelationInputMatch.requirements:type_name -> agentic.olap.query.v1.RelationRequirement
-	141, // 139: agentic.olap.query.v1.RelationInputMatch.projection:type_name -> agentic.olap.query.v1.RelationInputMatch.ProjectionEntry
-	81,  // 140: agentic.olap.query.v1.ExplanationRoot.measures:type_name -> agentic.olap.query.v1.ExplanationMeasures
-	82,  // 141: agentic.olap.query.v1.ExplanationRoot.members:type_name -> agentic.olap.query.v1.ExplanationMembers
-	86,  // 142: agentic.olap.query.v1.ExplanationRoot.relation:type_name -> agentic.olap.query.v1.ExplanationRelation
-	87,  // 143: agentic.olap.query.v1.ExplanationRoot.object_measure:type_name -> agentic.olap.query.v1.ExplanationObjectMeasure
-	89,  // 144: agentic.olap.query.v1.ExplanationRoot.align_measurements:type_name -> agentic.olap.query.v1.ExplanationAlignment
-	90,  // 145: agentic.olap.query.v1.ExplanationRoot.observation_statistics:type_name -> agentic.olap.query.v1.ExplanationObservation
-	91,  // 146: agentic.olap.query.v1.ExplanationRoot.set_inputs:type_name -> agentic.olap.query.v1.ExplanationSet
-	176, // 147: agentic.olap.query.v1.ExplanationMeasures.row_population:type_name -> agentic.olap.semantic.v1.RowPopulation
-	177, // 148: agentic.olap.query.v1.ExplanationMeasures.time_range:type_name -> agentic.olap.semantic.v1.QueryTimeRange
-	142, // 149: agentic.olap.query.v1.ExplanationMeasures.clocks:type_name -> agentic.olap.query.v1.ExplanationMeasures.ClocksEntry
-	178, // 150: agentic.olap.query.v1.ExplanationMeasures.output_condition:type_name -> agentic.olap.semantic.v1.DimensionCondition
-	83,  // 151: agentic.olap.query.v1.ExplanationMembers.origin:type_name -> agentic.olap.query.v1.ExplanationMemberOrigin
-	143, // 152: agentic.olap.query.v1.ExplanationMembers.outputs:type_name -> agentic.olap.query.v1.ExplanationMembers.OutputsEntry
-	179, // 153: agentic.olap.query.v1.ExplanationMembers.condition:type_name -> agentic.olap.semantic.v1.MemberCondition
-	180, // 154: agentic.olap.query.v1.ExplanationMembers.range:type_name -> agentic.olap.semantic.v1.TemporalWindow
-	84,  // 155: agentic.olap.query.v1.ExplanationMemberOrigin.projection:type_name -> agentic.olap.query.v1.ExplanationMemberRef
-	85,  // 156: agentic.olap.query.v1.ExplanationMemberOrigin.computed:type_name -> agentic.olap.query.v1.ExplanationComputedMember
-	171, // 157: agentic.olap.query.v1.ExplanationMemberOrigin.local:type_name -> agentic.olap.semantic.v1.ScopeId
-	171, // 158: agentic.olap.query.v1.ExplanationComputedMember.computation_scope:type_name -> agentic.olap.semantic.v1.ScopeId
-	171, // 159: agentic.olap.query.v1.ExplanationRelation.input_scope:type_name -> agentic.olap.semantic.v1.ScopeId
-	144, // 160: agentic.olap.query.v1.ExplanationRelation.outputs:type_name -> agentic.olap.query.v1.ExplanationRelation.OutputsEntry
-	163, // 161: agentic.olap.query.v1.ExplanationRelation.keys:type_name -> agentic.olap.semantic.v1.StringList
-	78,  // 162: agentic.olap.query.v1.ExplanationRelation.requirements:type_name -> agentic.olap.query.v1.RelationRequirement
-	181, // 163: agentic.olap.query.v1.ExplanationObjectMeasure.roles:type_name -> agentic.olap.semantic.v1.ObjectRole
-	145, // 164: agentic.olap.query.v1.StringMap.values:type_name -> agentic.olap.query.v1.StringMap.ValuesEntry
-	146, // 165: agentic.olap.query.v1.ExplanationAlignment.keys:type_name -> agentic.olap.query.v1.ExplanationAlignment.KeysEntry
-	182, // 166: agentic.olap.query.v1.ExplanationAlignment.population:type_name -> agentic.olap.semantic.v1.AlignmentPopulation
-	183, // 167: agentic.olap.query.v1.ExplanationObservation.unit:type_name -> agentic.olap.semantic.v1.ObservationUnit
-	184, // 168: agentic.olap.query.v1.ExplanationSet.inputs:type_name -> agentic.olap.semantic.v1.SetProjection
-	93,  // 169: agentic.olap.query.v1.ExplanationSourceIdentity.fact:type_name -> agentic.olap.query.v1.ExplanationFactIdentity
-	94,  // 170: agentic.olap.query.v1.ExplanationSourceIdentity.member:type_name -> agentic.olap.query.v1.ExplanationMemberIdentity
-	185, // 171: agentic.olap.query.v1.ExplanationFactIdentity.owner:type_name -> agentic.olap.semantic.v1.CalculationOwner
-	164, // 172: agentic.olap.query.v1.ExplanationFactIdentity.metric:type_name -> agentic.olap.semantic.v1.MetricRef
-	147, // 173: agentic.olap.query.v1.ExplanationFactIdentity.grouping:type_name -> agentic.olap.query.v1.ExplanationFactIdentity.GroupingEntry
-	178, // 174: agentic.olap.query.v1.ExplanationFactIdentity.filter:type_name -> agentic.olap.semantic.v1.DimensionCondition
-	148, // 175: agentic.olap.query.v1.ExplanationMemberIdentity.outputs:type_name -> agentic.olap.query.v1.ExplanationMemberIdentity.OutputsEntry
-	149, // 176: agentic.olap.query.v1.ExplanationMemberIdentity.meanings:type_name -> agentic.olap.query.v1.ExplanationMemberIdentity.MeaningsEntry
-	179, // 177: agentic.olap.query.v1.ExplanationMemberIdentity.condition:type_name -> agentic.olap.semantic.v1.MemberCondition
-	186, // 178: agentic.olap.query.v1.RelationPosition.path:type_name -> agentic.olap.semantic.v1.JoinRef
-	95,  // 179: agentic.olap.query.v1.ExplanationPosition.position:type_name -> agentic.olap.query.v1.RelationPosition
-	95,  // 180: agentic.olap.query.v1.ExplanationJoin.source_position:type_name -> agentic.olap.query.v1.RelationPosition
-	95,  // 181: agentic.olap.query.v1.ExplanationJoin.target_position:type_name -> agentic.olap.query.v1.RelationPosition
-	150, // 182: agentic.olap.query.v1.ExplanationJoin.source_times:type_name -> agentic.olap.query.v1.ExplanationJoin.SourceTimesEntry
-	151, // 183: agentic.olap.query.v1.ExplanationJoin.clock_slots:type_name -> agentic.olap.query.v1.ExplanationJoin.ClockSlotsEntry
-	95,  // 184: agentic.olap.query.v1.ExplanationQuantified.parent_position:type_name -> agentic.olap.query.v1.RelationPosition
-	96,  // 185: agentic.olap.query.v1.ExplanationQuantified.positions:type_name -> agentic.olap.query.v1.ExplanationPosition
-	97,  // 186: agentic.olap.query.v1.ExplanationQuantified.joins:type_name -> agentic.olap.query.v1.ExplanationJoin
-	152, // 187: agentic.olap.query.v1.ExplanationQuantified.clocks:type_name -> agentic.olap.query.v1.ExplanationQuantified.ClocksEntry
-	98,  // 188: agentic.olap.query.v1.ExplanationQuantified.quantifiers:type_name -> agentic.olap.query.v1.ExplanationQuantified
-	100, // 189: agentic.olap.query.v1.ExplanationRelationSource.source:type_name -> agentic.olap.query.v1.ExplanationSource
-	171, // 190: agentic.olap.query.v1.ExplanationSource.scope:type_name -> agentic.olap.semantic.v1.ScopeId
-	92,  // 191: agentic.olap.query.v1.ExplanationSource.identity:type_name -> agentic.olap.query.v1.ExplanationSourceIdentity
-	187, // 192: agentic.olap.query.v1.ExplanationSource.record_identity:type_name -> agentic.olap.semantic.v1.EventIdentity
-	180, // 193: agentic.olap.query.v1.ExplanationSource.range:type_name -> agentic.olap.semantic.v1.TemporalWindow
-	153, // 194: agentic.olap.query.v1.ExplanationSource.clocks:type_name -> agentic.olap.query.v1.ExplanationSource.ClocksEntry
-	96,  // 195: agentic.olap.query.v1.ExplanationSource.positions:type_name -> agentic.olap.query.v1.ExplanationPosition
-	97,  // 196: agentic.olap.query.v1.ExplanationSource.joins:type_name -> agentic.olap.query.v1.ExplanationJoin
-	98,  // 197: agentic.olap.query.v1.ExplanationSource.quantifiers:type_name -> agentic.olap.query.v1.ExplanationQuantified
-	99,  // 198: agentic.olap.query.v1.ExplanationSource.relations:type_name -> agentic.olap.query.v1.ExplanationRelationSource
-	102, // 199: agentic.olap.query.v1.ExplanationPlanNode.group_columns:type_name -> agentic.olap.query.v1.IntList
-	163, // 200: agentic.olap.query.v1.ExplanationPlanNode.aggregations:type_name -> agentic.olap.semantic.v1.StringList
-	103, // 201: agentic.olap.query.v1.ExplanationCompilationScale.raw:type_name -> agentic.olap.query.v1.ExplanationRelationSize
-	103, // 202: agentic.olap.query.v1.ExplanationCompilationScale.optimized:type_name -> agentic.olap.query.v1.ExplanationRelationSize
-	103, // 203: agentic.olap.query.v1.ExplanationCompilationScale.sql_relation:type_name -> agentic.olap.query.v1.ExplanationRelationSize
-	154, // 204: agentic.olap.query.v1.QueryExecutionDiagnostics.alias_mapping:type_name -> agentic.olap.query.v1.QueryExecutionDiagnostics.AliasMappingEntry
-	0,   // 205: agentic.olap.query.v1.SavedQueryResultRecord.publication:type_name -> agentic.olap.query.v1.QueryCapabilityCoordinate
-	7,   // 206: agentic.olap.query.v1.SavedQueryResultRecord.intent:type_name -> agentic.olap.query.v1.QueryIntent
-	8,   // 207: agentic.olap.query.v1.SavedQueryResultRecord.query_reference:type_name -> agentic.olap.query.v1.QueryReference
-	31,  // 208: agentic.olap.query.v1.SavedQueryResultRecord.receipt:type_name -> agentic.olap.query.v1.QueryExecutionReceipt
-	64,  // 209: agentic.olap.query.v1.SavedQueryResultRecord.explanation:type_name -> agentic.olap.query.v1.QueryExplanationView
-	105, // 210: agentic.olap.query.v1.SavedQueryResultRecord.diagnostics:type_name -> agentic.olap.query.v1.QueryExecutionDiagnostics
-	155, // 211: agentic.olap.query.v1.ResultRunSummary.timing_nanos:type_name -> agentic.olap.query.v1.ResultRunSummary.TimingNanosEntry
-	30,  // 212: agentic.olap.query.v1.ResultRunSummary.error:type_name -> agentic.olap.query.v1.QueryExecutionFailure
-	0,   // 213: agentic.olap.query.v1.ResultPublication.publication:type_name -> agentic.olap.query.v1.QueryCapabilityCoordinate
-	8,   // 214: agentic.olap.query.v1.ResultPublication.query_reference:type_name -> agentic.olap.query.v1.QueryReference
-	14,  // 215: agentic.olap.query.v1.ResultSourceEvidence.request:type_name -> agentic.olap.query.v1.SourceRequestEvidence
-	15,  // 216: agentic.olap.query.v1.ResultSourceEvidence.read_evidence:type_name -> agentic.olap.query.v1.SourceReadEvidence
-	111, // 217: agentic.olap.query.v1.ResultScopeIndex.values:type_name -> agentic.olap.query.v1.ResultScopeColumns
-	162, // 218: agentic.olap.query.v1.ResultSymbols.values:type_name -> agentic.olap.semantic.v1.Symbol
-	108, // 219: agentic.olap.query.v1.ResultMetadataContent.run:type_name -> agentic.olap.query.v1.ResultRunSummary
-	110, // 220: agentic.olap.query.v1.ResultMetadataContent.source:type_name -> agentic.olap.query.v1.ResultSourceEvidence
-	109, // 221: agentic.olap.query.v1.ResultMetadataContent.publication:type_name -> agentic.olap.query.v1.ResultPublication
-	46,  // 222: agentic.olap.query.v1.ResultMetadataContent.columns:type_name -> agentic.olap.query.v1.BusinessColumns
-	112, // 223: agentic.olap.query.v1.ResultMetadataContent.scope_index:type_name -> agentic.olap.query.v1.ResultScopeIndex
-	113, // 224: agentic.olap.query.v1.ResultMetadataContent.symbols:type_name -> agentic.olap.query.v1.ResultSymbols
-	7,   // 225: agentic.olap.query.v1.ResultMetadataContent.intent:type_name -> agentic.olap.query.v1.QueryIntent
-	65,  // 226: agentic.olap.query.v1.ResultMetadataContent.explanation:type_name -> agentic.olap.query.v1.QueryExplanationContent
-	10,  // 227: agentic.olap.query.v1.ResultMetadataPage.result_reference:type_name -> agentic.olap.query.v1.QueryResultReference
-	114, // 228: agentic.olap.query.v1.ResultMetadataPage.content:type_name -> agentic.olap.query.v1.ResultMetadataContent
-	47,  // 229: agentic.olap.query.v1.ResultValueView.complete:type_name -> agentic.olap.query.v1.BusinessValue
-	117, // 230: agentic.olap.query.v1.ResultValueView.reference:type_name -> agentic.olap.query.v1.ResultValueReferenceView
-	53,  // 231: agentic.olap.query.v1.ResultValueReferenceView.reference:type_name -> agentic.olap.query.v1.ResultValueReference
-	116, // 232: agentic.olap.query.v1.ResultValueViews.values:type_name -> agentic.olap.query.v1.ResultValueView
-	10,  // 233: agentic.olap.query.v1.ResultPage.result_reference:type_name -> agentic.olap.query.v1.QueryResultReference
-	108, // 234: agentic.olap.query.v1.ResultPage.run:type_name -> agentic.olap.query.v1.ResultRunSummary
-	109, // 235: agentic.olap.query.v1.ResultPage.publication:type_name -> agentic.olap.query.v1.ResultPublication
-	45,  // 236: agentic.olap.query.v1.ResultPage.columns:type_name -> agentic.olap.query.v1.BusinessColumn
-	118, // 237: agentic.olap.query.v1.ResultPage.rows:type_name -> agentic.olap.query.v1.ResultValueViews
-	10,  // 238: agentic.olap.query.v1.ResultValuePage.result_reference:type_name -> agentic.olap.query.v1.QueryResultReference
-	53,  // 239: agentic.olap.query.v1.ResultValuePage.value_reference:type_name -> agentic.olap.query.v1.ResultValueReference
-	118, // 240: agentic.olap.query.v1.ResultValuePage.members:type_name -> agentic.olap.query.v1.ResultValueViews
-	116, // 241: agentic.olap.query.v1.ResultValueCount.value:type_name -> agentic.olap.query.v1.ResultValueView
-	121, // 242: agentic.olap.query.v1.ResultValueCounts.values:type_name -> agentic.olap.query.v1.ResultValueCount
-	116, // 243: agentic.olap.query.v1.ResultNumericExtrema.minimum:type_name -> agentic.olap.query.v1.ResultValueView
-	116, // 244: agentic.olap.query.v1.ResultNumericExtrema.maximum:type_name -> agentic.olap.query.v1.ResultValueView
-	45,  // 245: agentic.olap.query.v1.ResultColumnProfile.column:type_name -> agentic.olap.query.v1.BusinessColumn
-	122, // 246: agentic.olap.query.v1.ResultColumnProfile.value_counts:type_name -> agentic.olap.query.v1.ResultValueCounts
-	123, // 247: agentic.olap.query.v1.ResultColumnProfile.numeric_extrema:type_name -> agentic.olap.query.v1.ResultNumericExtrema
-	10,  // 248: agentic.olap.query.v1.ResultProfile.result_reference:type_name -> agentic.olap.query.v1.QueryResultReference
-	109, // 249: agentic.olap.query.v1.ResultProfile.publication:type_name -> agentic.olap.query.v1.ResultPublication
-	108, // 250: agentic.olap.query.v1.ResultProfile.run:type_name -> agentic.olap.query.v1.ResultRunSummary
-	124, // 251: agentic.olap.query.v1.ResultProfile.columns:type_name -> agentic.olap.query.v1.ResultColumnProfile
-	0,   // 252: agentic.olap.query.v1.QueryRunView.publication:type_name -> agentic.olap.query.v1.QueryCapabilityCoordinate
-	7,   // 253: agentic.olap.query.v1.QueryRunView.intent:type_name -> agentic.olap.query.v1.QueryIntent
-	8,   // 254: agentic.olap.query.v1.QueryRunView.definition:type_name -> agentic.olap.query.v1.QueryReference
-	126, // 255: agentic.olap.query.v1.QueryRunView.result:type_name -> agentic.olap.query.v1.QueryResultManifest
-	31,  // 256: agentic.olap.query.v1.QueryRunView.receipt:type_name -> agentic.olap.query.v1.QueryExecutionReceipt
-	129, // 257: agentic.olap.query.v1.QueryRunView.service_observation:type_name -> agentic.olap.query.v1.QueryServiceObservation
-	156, // 258: agentic.olap.query.v1.QueryServiceObservation.timing_nanos:type_name -> agentic.olap.query.v1.QueryServiceObservation.TimingNanosEntry
-	128, // 259: agentic.olap.query.v1.QueryServiceObservation.workers:type_name -> agentic.olap.query.v1.QueryWorkerAcquisition
-	127, // 260: agentic.olap.query.v1.QueryUsageView.run:type_name -> agentic.olap.query.v1.QueryRunView
-	130, // 261: agentic.olap.query.v1.QueryUsageView.notes:type_name -> agentic.olap.query.v1.QueryUsageNote
-	131, // 262: agentic.olap.query.v1.QueryUsageView.references:type_name -> agentic.olap.query.v1.QuerySemanticReference
-	127, // 263: agentic.olap.query.v1.QueryUsagePage.items:type_name -> agentic.olap.query.v1.QueryRunView
-	46,  // 264: agentic.olap.query.v1.BusinessResult.ScopeInputColumnsEntry.value:type_name -> agentic.olap.query.v1.BusinessColumns
-	59,  // 265: agentic.olap.query.v1.ScriptObject.ValuesEntry.value:type_name -> agentic.olap.query.v1.ScriptValue
-	188, // 266: agentic.olap.query.v1.ExplanationQualification.RecordMeaningsEntry.value:type_name -> agentic.olap.semantic.v1.MemberMeaning
-	189, // 267: agentic.olap.query.v1.ExplanationMeasures.ClocksEntry.value:type_name -> agentic.olap.semantic.v1.TemporalClock
-	88,  // 268: agentic.olap.query.v1.ExplanationAlignment.KeysEntry.value:type_name -> agentic.olap.query.v1.StringMap
-	168, // 269: agentic.olap.query.v1.ExplanationFactIdentity.GroupingEntry.value:type_name -> agentic.olap.semantic.v1.DimensionRef
-	188, // 270: agentic.olap.query.v1.ExplanationMemberIdentity.MeaningsEntry.value:type_name -> agentic.olap.semantic.v1.MemberMeaning
-	95,  // 271: agentic.olap.query.v1.ExplanationJoin.SourceTimesEntry.value:type_name -> agentic.olap.query.v1.RelationPosition
-	189, // 272: agentic.olap.query.v1.ExplanationQuantified.ClocksEntry.value:type_name -> agentic.olap.semantic.v1.TemporalClock
-	189, // 273: agentic.olap.query.v1.ExplanationSource.ClocksEntry.value:type_name -> agentic.olap.semantic.v1.TemporalClock
-	274, // [274:274] is the sub-list for method output_type
-	274, // [274:274] is the sub-list for method input_type
-	274, // [274:274] is the sub-list for extension type_name
-	274, // [274:274] is the sub-list for extension extendee
-	0,   // [0:274] is the sub-list for field type_name
+	141, // 95: agentic.olap.query.v1.ScriptObject.values:type_name -> agentic.olap.query.v1.ScriptObject.ValuesEntry
+	172, // 96: agentic.olap.query.v1.RegisteredReply.content:type_name -> google.protobuf.Any
+	73,  // 97: agentic.olap.query.v1.QueryExplanationView.summary:type_name -> agentic.olap.query.v1.ExplanationSummary
+	80,  // 98: agentic.olap.query.v1.QueryExplanationView.scopes:type_name -> agentic.olap.query.v1.ExplanationScope
+	103, // 99: agentic.olap.query.v1.QueryExplanationView.sources:type_name -> agentic.olap.query.v1.ExplanationSource
+	104, // 100: agentic.olap.query.v1.QueryExplanationView.plan:type_name -> agentic.olap.query.v1.ExplanationPlanNode
+	107, // 101: agentic.olap.query.v1.QueryExplanationView.compilation_scale:type_name -> agentic.olap.query.v1.ExplanationCompilationScale
+	67,  // 102: agentic.olap.query.v1.QueryExplanationView.execution_requirements:type_name -> agentic.olap.query.v1.ExplanationExecutionRequirements
+	73,  // 103: agentic.olap.query.v1.QueryExplanationContent.summary:type_name -> agentic.olap.query.v1.ExplanationSummary
+	69,  // 104: agentic.olap.query.v1.QueryExplanationContent.scopes:type_name -> agentic.olap.query.v1.ExplanationScopes
+	70,  // 105: agentic.olap.query.v1.QueryExplanationContent.sources:type_name -> agentic.olap.query.v1.ExplanationSources
+	71,  // 106: agentic.olap.query.v1.QueryExplanationContent.plan:type_name -> agentic.olap.query.v1.ExplanationPlan
+	72,  // 107: agentic.olap.query.v1.QueryExplanationContent.scale:type_name -> agentic.olap.query.v1.ExplanationScale
+	66,  // 108: agentic.olap.query.v1.QueryExplanationContent.execution_requirements:type_name -> agentic.olap.query.v1.ExplanationRequirementSection
+	67,  // 109: agentic.olap.query.v1.ExplanationRequirementSection.value:type_name -> agentic.olap.query.v1.ExplanationExecutionRequirements
+	68,  // 110: agentic.olap.query.v1.ExplanationExecutionRequirements.relation_checks:type_name -> agentic.olap.query.v1.ExplanationRelationCheck
+	173, // 111: agentic.olap.query.v1.ExplanationRelationCheck.scope:type_name -> agentic.olap.semantic.v1.ScopeId
+	80,  // 112: agentic.olap.query.v1.ExplanationScopes.items:type_name -> agentic.olap.query.v1.ExplanationScope
+	103, // 113: agentic.olap.query.v1.ExplanationSources.items:type_name -> agentic.olap.query.v1.ExplanationSource
+	104, // 114: agentic.olap.query.v1.ExplanationPlan.items:type_name -> agentic.olap.query.v1.ExplanationPlanNode
+	107, // 115: agentic.olap.query.v1.ExplanationScale.value:type_name -> agentic.olap.query.v1.ExplanationCompilationScale
+	75,  // 116: agentic.olap.query.v1.ExplanationSummary.population_contract:type_name -> agentic.olap.query.v1.PopulationContract
+	74,  // 117: agentic.olap.query.v1.PopulationContract.modes:type_name -> agentic.olap.query.v1.PopulationMode
+	174, // 118: agentic.olap.query.v1.ExplanationKey.columns:type_name -> agentic.olap.semantic.v1.SymbolId
+	173, // 119: agentic.olap.query.v1.ExplanationQualification.objects_scope:type_name -> agentic.olap.semantic.v1.ScopeId
+	175, // 120: agentic.olap.query.v1.ExplanationQualification.target:type_name -> agentic.olap.semantic.v1.ObjectTarget
+	142, // 121: agentic.olap.query.v1.ExplanationQualification.record_meanings:type_name -> agentic.olap.query.v1.ExplanationQualification.RecordMeaningsEntry
+	173, // 122: agentic.olap.query.v1.ExplanationChild.scope:type_name -> agentic.olap.semantic.v1.ScopeId
+	176, // 123: agentic.olap.query.v1.ExplanationStage.contract:type_name -> agentic.olap.semantic.v1.Stage
+	174, // 124: agentic.olap.query.v1.ExplanationStage.inputs:type_name -> agentic.olap.semantic.v1.SymbolId
+	174, // 125: agentic.olap.query.v1.ExplanationStage.imports:type_name -> agentic.olap.semantic.v1.SymbolId
+	165, // 126: agentic.olap.query.v1.ExplanationStage.outputs:type_name -> agentic.olap.semantic.v1.Symbol
+	76,  // 127: agentic.olap.query.v1.ExplanationStage.grain:type_name -> agentic.olap.query.v1.ExplanationKey
+	173, // 128: agentic.olap.query.v1.ExplanationScope.scope:type_name -> agentic.olap.semantic.v1.ScopeId
+	83,  // 129: agentic.olap.query.v1.ExplanationScope.root:type_name -> agentic.olap.query.v1.ExplanationRoot
+	77,  // 130: agentic.olap.query.v1.ExplanationScope.qualifications:type_name -> agentic.olap.query.v1.ExplanationQualification
+	78,  // 131: agentic.olap.query.v1.ExplanationScope.children:type_name -> agentic.olap.query.v1.ExplanationChild
+	76,  // 132: agentic.olap.query.v1.ExplanationScope.final_grain:type_name -> agentic.olap.query.v1.ExplanationKey
+	82,  // 133: agentic.olap.query.v1.ExplanationScope.relation_input_match:type_name -> agentic.olap.query.v1.RelationInputMatch
+	165, // 134: agentic.olap.query.v1.ExplanationScope.outputs:type_name -> agentic.olap.semantic.v1.Symbol
+	177, // 135: agentic.olap.query.v1.ExplanationScope.selected_observations:type_name -> agentic.olap.semantic.v1.SelectedObservation
+	79,  // 136: agentic.olap.query.v1.ExplanationScope.stages:type_name -> agentic.olap.query.v1.ExplanationStage
+	143, // 137: agentic.olap.query.v1.RelationRequirement.output_slots:type_name -> agentic.olap.query.v1.RelationRequirement.OutputSlotsEntry
+	178, // 138: agentic.olap.query.v1.RelationRequirement.outputs:type_name -> agentic.olap.semantic.v1.SetOutput
+	166, // 139: agentic.olap.query.v1.RelationRequirement.keys:type_name -> agentic.olap.semantic.v1.StringList
+	173, // 140: agentic.olap.query.v1.RelationInputMatch.input_scope:type_name -> agentic.olap.semantic.v1.ScopeId
+	165, // 141: agentic.olap.query.v1.RelationInputMatch.actual_outputs:type_name -> agentic.olap.semantic.v1.Symbol
+	76,  // 142: agentic.olap.query.v1.RelationInputMatch.actual_grain:type_name -> agentic.olap.query.v1.ExplanationKey
+	81,  // 143: agentic.olap.query.v1.RelationInputMatch.requirements:type_name -> agentic.olap.query.v1.RelationRequirement
+	144, // 144: agentic.olap.query.v1.RelationInputMatch.projection:type_name -> agentic.olap.query.v1.RelationInputMatch.ProjectionEntry
+	84,  // 145: agentic.olap.query.v1.ExplanationRoot.measures:type_name -> agentic.olap.query.v1.ExplanationMeasures
+	85,  // 146: agentic.olap.query.v1.ExplanationRoot.members:type_name -> agentic.olap.query.v1.ExplanationMembers
+	89,  // 147: agentic.olap.query.v1.ExplanationRoot.relation:type_name -> agentic.olap.query.v1.ExplanationRelation
+	90,  // 148: agentic.olap.query.v1.ExplanationRoot.object_measure:type_name -> agentic.olap.query.v1.ExplanationObjectMeasure
+	92,  // 149: agentic.olap.query.v1.ExplanationRoot.align_measurements:type_name -> agentic.olap.query.v1.ExplanationAlignment
+	93,  // 150: agentic.olap.query.v1.ExplanationRoot.observation_statistics:type_name -> agentic.olap.query.v1.ExplanationObservation
+	94,  // 151: agentic.olap.query.v1.ExplanationRoot.set_inputs:type_name -> agentic.olap.query.v1.ExplanationSet
+	179, // 152: agentic.olap.query.v1.ExplanationMeasures.row_population:type_name -> agentic.olap.semantic.v1.RowPopulation
+	180, // 153: agentic.olap.query.v1.ExplanationMeasures.time_range:type_name -> agentic.olap.semantic.v1.QueryTimeRange
+	145, // 154: agentic.olap.query.v1.ExplanationMeasures.clocks:type_name -> agentic.olap.query.v1.ExplanationMeasures.ClocksEntry
+	181, // 155: agentic.olap.query.v1.ExplanationMeasures.output_condition:type_name -> agentic.olap.semantic.v1.DimensionCondition
+	86,  // 156: agentic.olap.query.v1.ExplanationMembers.origin:type_name -> agentic.olap.query.v1.ExplanationMemberOrigin
+	146, // 157: agentic.olap.query.v1.ExplanationMembers.outputs:type_name -> agentic.olap.query.v1.ExplanationMembers.OutputsEntry
+	182, // 158: agentic.olap.query.v1.ExplanationMembers.condition:type_name -> agentic.olap.semantic.v1.MemberCondition
+	183, // 159: agentic.olap.query.v1.ExplanationMembers.range:type_name -> agentic.olap.semantic.v1.TemporalWindow
+	87,  // 160: agentic.olap.query.v1.ExplanationMemberOrigin.projection:type_name -> agentic.olap.query.v1.ExplanationMemberRef
+	88,  // 161: agentic.olap.query.v1.ExplanationMemberOrigin.computed:type_name -> agentic.olap.query.v1.ExplanationComputedMember
+	173, // 162: agentic.olap.query.v1.ExplanationMemberOrigin.local:type_name -> agentic.olap.semantic.v1.ScopeId
+	173, // 163: agentic.olap.query.v1.ExplanationComputedMember.computation_scope:type_name -> agentic.olap.semantic.v1.ScopeId
+	173, // 164: agentic.olap.query.v1.ExplanationRelation.input_scope:type_name -> agentic.olap.semantic.v1.ScopeId
+	147, // 165: agentic.olap.query.v1.ExplanationRelation.outputs:type_name -> agentic.olap.query.v1.ExplanationRelation.OutputsEntry
+	166, // 166: agentic.olap.query.v1.ExplanationRelation.keys:type_name -> agentic.olap.semantic.v1.StringList
+	81,  // 167: agentic.olap.query.v1.ExplanationRelation.requirements:type_name -> agentic.olap.query.v1.RelationRequirement
+	184, // 168: agentic.olap.query.v1.ExplanationObjectMeasure.roles:type_name -> agentic.olap.semantic.v1.ObjectRole
+	148, // 169: agentic.olap.query.v1.StringMap.values:type_name -> agentic.olap.query.v1.StringMap.ValuesEntry
+	149, // 170: agentic.olap.query.v1.ExplanationAlignment.keys:type_name -> agentic.olap.query.v1.ExplanationAlignment.KeysEntry
+	185, // 171: agentic.olap.query.v1.ExplanationAlignment.population:type_name -> agentic.olap.semantic.v1.AlignmentPopulation
+	186, // 172: agentic.olap.query.v1.ExplanationObservation.unit:type_name -> agentic.olap.semantic.v1.ObservationUnit
+	187, // 173: agentic.olap.query.v1.ExplanationSet.inputs:type_name -> agentic.olap.semantic.v1.SetProjection
+	96,  // 174: agentic.olap.query.v1.ExplanationSourceIdentity.fact:type_name -> agentic.olap.query.v1.ExplanationFactIdentity
+	97,  // 175: agentic.olap.query.v1.ExplanationSourceIdentity.member:type_name -> agentic.olap.query.v1.ExplanationMemberIdentity
+	188, // 176: agentic.olap.query.v1.ExplanationFactIdentity.owner:type_name -> agentic.olap.semantic.v1.CalculationOwner
+	167, // 177: agentic.olap.query.v1.ExplanationFactIdentity.metric:type_name -> agentic.olap.semantic.v1.MetricRef
+	150, // 178: agentic.olap.query.v1.ExplanationFactIdentity.grouping:type_name -> agentic.olap.query.v1.ExplanationFactIdentity.GroupingEntry
+	181, // 179: agentic.olap.query.v1.ExplanationFactIdentity.filter:type_name -> agentic.olap.semantic.v1.DimensionCondition
+	151, // 180: agentic.olap.query.v1.ExplanationMemberIdentity.outputs:type_name -> agentic.olap.query.v1.ExplanationMemberIdentity.OutputsEntry
+	152, // 181: agentic.olap.query.v1.ExplanationMemberIdentity.meanings:type_name -> agentic.olap.query.v1.ExplanationMemberIdentity.MeaningsEntry
+	182, // 182: agentic.olap.query.v1.ExplanationMemberIdentity.condition:type_name -> agentic.olap.semantic.v1.MemberCondition
+	189, // 183: agentic.olap.query.v1.RelationPosition.path:type_name -> agentic.olap.semantic.v1.JoinRef
+	98,  // 184: agentic.olap.query.v1.ExplanationPosition.position:type_name -> agentic.olap.query.v1.RelationPosition
+	98,  // 185: agentic.olap.query.v1.ExplanationJoin.source_position:type_name -> agentic.olap.query.v1.RelationPosition
+	98,  // 186: agentic.olap.query.v1.ExplanationJoin.target_position:type_name -> agentic.olap.query.v1.RelationPosition
+	153, // 187: agentic.olap.query.v1.ExplanationJoin.source_times:type_name -> agentic.olap.query.v1.ExplanationJoin.SourceTimesEntry
+	154, // 188: agentic.olap.query.v1.ExplanationJoin.clock_slots:type_name -> agentic.olap.query.v1.ExplanationJoin.ClockSlotsEntry
+	98,  // 189: agentic.olap.query.v1.ExplanationQuantified.parent_position:type_name -> agentic.olap.query.v1.RelationPosition
+	99,  // 190: agentic.olap.query.v1.ExplanationQuantified.positions:type_name -> agentic.olap.query.v1.ExplanationPosition
+	100, // 191: agentic.olap.query.v1.ExplanationQuantified.joins:type_name -> agentic.olap.query.v1.ExplanationJoin
+	155, // 192: agentic.olap.query.v1.ExplanationQuantified.clocks:type_name -> agentic.olap.query.v1.ExplanationQuantified.ClocksEntry
+	101, // 193: agentic.olap.query.v1.ExplanationQuantified.quantifiers:type_name -> agentic.olap.query.v1.ExplanationQuantified
+	103, // 194: agentic.olap.query.v1.ExplanationRelationSource.source:type_name -> agentic.olap.query.v1.ExplanationSource
+	173, // 195: agentic.olap.query.v1.ExplanationSource.scope:type_name -> agentic.olap.semantic.v1.ScopeId
+	95,  // 196: agentic.olap.query.v1.ExplanationSource.identity:type_name -> agentic.olap.query.v1.ExplanationSourceIdentity
+	190, // 197: agentic.olap.query.v1.ExplanationSource.record_identity:type_name -> agentic.olap.semantic.v1.EventIdentity
+	183, // 198: agentic.olap.query.v1.ExplanationSource.range:type_name -> agentic.olap.semantic.v1.TemporalWindow
+	156, // 199: agentic.olap.query.v1.ExplanationSource.clocks:type_name -> agentic.olap.query.v1.ExplanationSource.ClocksEntry
+	99,  // 200: agentic.olap.query.v1.ExplanationSource.positions:type_name -> agentic.olap.query.v1.ExplanationPosition
+	100, // 201: agentic.olap.query.v1.ExplanationSource.joins:type_name -> agentic.olap.query.v1.ExplanationJoin
+	101, // 202: agentic.olap.query.v1.ExplanationSource.quantifiers:type_name -> agentic.olap.query.v1.ExplanationQuantified
+	102, // 203: agentic.olap.query.v1.ExplanationSource.relations:type_name -> agentic.olap.query.v1.ExplanationRelationSource
+	105, // 204: agentic.olap.query.v1.ExplanationPlanNode.group_columns:type_name -> agentic.olap.query.v1.IntList
+	166, // 205: agentic.olap.query.v1.ExplanationPlanNode.aggregations:type_name -> agentic.olap.semantic.v1.StringList
+	106, // 206: agentic.olap.query.v1.ExplanationCompilationScale.raw:type_name -> agentic.olap.query.v1.ExplanationRelationSize
+	106, // 207: agentic.olap.query.v1.ExplanationCompilationScale.optimized:type_name -> agentic.olap.query.v1.ExplanationRelationSize
+	106, // 208: agentic.olap.query.v1.ExplanationCompilationScale.sql_relation:type_name -> agentic.olap.query.v1.ExplanationRelationSize
+	157, // 209: agentic.olap.query.v1.QueryExecutionDiagnostics.alias_mapping:type_name -> agentic.olap.query.v1.QueryExecutionDiagnostics.AliasMappingEntry
+	0,   // 210: agentic.olap.query.v1.SavedQueryResultRecord.publication:type_name -> agentic.olap.query.v1.QueryCapabilityCoordinate
+	7,   // 211: agentic.olap.query.v1.SavedQueryResultRecord.intent:type_name -> agentic.olap.query.v1.QueryIntent
+	8,   // 212: agentic.olap.query.v1.SavedQueryResultRecord.query_reference:type_name -> agentic.olap.query.v1.QueryReference
+	31,  // 213: agentic.olap.query.v1.SavedQueryResultRecord.receipt:type_name -> agentic.olap.query.v1.QueryExecutionReceipt
+	64,  // 214: agentic.olap.query.v1.SavedQueryResultRecord.explanation:type_name -> agentic.olap.query.v1.QueryExplanationView
+	108, // 215: agentic.olap.query.v1.SavedQueryResultRecord.diagnostics:type_name -> agentic.olap.query.v1.QueryExecutionDiagnostics
+	158, // 216: agentic.olap.query.v1.ResultRunSummary.timing_nanos:type_name -> agentic.olap.query.v1.ResultRunSummary.TimingNanosEntry
+	30,  // 217: agentic.olap.query.v1.ResultRunSummary.error:type_name -> agentic.olap.query.v1.QueryExecutionFailure
+	0,   // 218: agentic.olap.query.v1.ResultPublication.publication:type_name -> agentic.olap.query.v1.QueryCapabilityCoordinate
+	8,   // 219: agentic.olap.query.v1.ResultPublication.query_reference:type_name -> agentic.olap.query.v1.QueryReference
+	14,  // 220: agentic.olap.query.v1.ResultSourceEvidence.request:type_name -> agentic.olap.query.v1.SourceRequestEvidence
+	15,  // 221: agentic.olap.query.v1.ResultSourceEvidence.read_evidence:type_name -> agentic.olap.query.v1.SourceReadEvidence
+	114, // 222: agentic.olap.query.v1.ResultScopeIndex.values:type_name -> agentic.olap.query.v1.ResultScopeColumns
+	165, // 223: agentic.olap.query.v1.ResultSymbols.values:type_name -> agentic.olap.semantic.v1.Symbol
+	111, // 224: agentic.olap.query.v1.ResultMetadataContent.run:type_name -> agentic.olap.query.v1.ResultRunSummary
+	113, // 225: agentic.olap.query.v1.ResultMetadataContent.source:type_name -> agentic.olap.query.v1.ResultSourceEvidence
+	112, // 226: agentic.olap.query.v1.ResultMetadataContent.publication:type_name -> agentic.olap.query.v1.ResultPublication
+	46,  // 227: agentic.olap.query.v1.ResultMetadataContent.columns:type_name -> agentic.olap.query.v1.BusinessColumns
+	115, // 228: agentic.olap.query.v1.ResultMetadataContent.scope_index:type_name -> agentic.olap.query.v1.ResultScopeIndex
+	116, // 229: agentic.olap.query.v1.ResultMetadataContent.symbols:type_name -> agentic.olap.query.v1.ResultSymbols
+	7,   // 230: agentic.olap.query.v1.ResultMetadataContent.intent:type_name -> agentic.olap.query.v1.QueryIntent
+	65,  // 231: agentic.olap.query.v1.ResultMetadataContent.explanation:type_name -> agentic.olap.query.v1.QueryExplanationContent
+	10,  // 232: agentic.olap.query.v1.ResultMetadataPage.result_reference:type_name -> agentic.olap.query.v1.QueryResultReference
+	117, // 233: agentic.olap.query.v1.ResultMetadataPage.content:type_name -> agentic.olap.query.v1.ResultMetadataContent
+	47,  // 234: agentic.olap.query.v1.ResultValueView.complete:type_name -> agentic.olap.query.v1.BusinessValue
+	120, // 235: agentic.olap.query.v1.ResultValueView.reference:type_name -> agentic.olap.query.v1.ResultValueReferenceView
+	53,  // 236: agentic.olap.query.v1.ResultValueReferenceView.reference:type_name -> agentic.olap.query.v1.ResultValueReference
+	119, // 237: agentic.olap.query.v1.ResultValueViews.values:type_name -> agentic.olap.query.v1.ResultValueView
+	10,  // 238: agentic.olap.query.v1.ResultPage.result_reference:type_name -> agentic.olap.query.v1.QueryResultReference
+	111, // 239: agentic.olap.query.v1.ResultPage.run:type_name -> agentic.olap.query.v1.ResultRunSummary
+	112, // 240: agentic.olap.query.v1.ResultPage.publication:type_name -> agentic.olap.query.v1.ResultPublication
+	45,  // 241: agentic.olap.query.v1.ResultPage.columns:type_name -> agentic.olap.query.v1.BusinessColumn
+	121, // 242: agentic.olap.query.v1.ResultPage.rows:type_name -> agentic.olap.query.v1.ResultValueViews
+	10,  // 243: agentic.olap.query.v1.ResultValuePage.result_reference:type_name -> agentic.olap.query.v1.QueryResultReference
+	53,  // 244: agentic.olap.query.v1.ResultValuePage.value_reference:type_name -> agentic.olap.query.v1.ResultValueReference
+	121, // 245: agentic.olap.query.v1.ResultValuePage.members:type_name -> agentic.olap.query.v1.ResultValueViews
+	119, // 246: agentic.olap.query.v1.ResultValueCount.value:type_name -> agentic.olap.query.v1.ResultValueView
+	124, // 247: agentic.olap.query.v1.ResultValueCounts.values:type_name -> agentic.olap.query.v1.ResultValueCount
+	119, // 248: agentic.olap.query.v1.ResultNumericExtrema.minimum:type_name -> agentic.olap.query.v1.ResultValueView
+	119, // 249: agentic.olap.query.v1.ResultNumericExtrema.maximum:type_name -> agentic.olap.query.v1.ResultValueView
+	45,  // 250: agentic.olap.query.v1.ResultColumnProfile.column:type_name -> agentic.olap.query.v1.BusinessColumn
+	125, // 251: agentic.olap.query.v1.ResultColumnProfile.value_counts:type_name -> agentic.olap.query.v1.ResultValueCounts
+	126, // 252: agentic.olap.query.v1.ResultColumnProfile.numeric_extrema:type_name -> agentic.olap.query.v1.ResultNumericExtrema
+	10,  // 253: agentic.olap.query.v1.ResultProfile.result_reference:type_name -> agentic.olap.query.v1.QueryResultReference
+	112, // 254: agentic.olap.query.v1.ResultProfile.publication:type_name -> agentic.olap.query.v1.ResultPublication
+	111, // 255: agentic.olap.query.v1.ResultProfile.run:type_name -> agentic.olap.query.v1.ResultRunSummary
+	127, // 256: agentic.olap.query.v1.ResultProfile.columns:type_name -> agentic.olap.query.v1.ResultColumnProfile
+	0,   // 257: agentic.olap.query.v1.QueryRunView.publication:type_name -> agentic.olap.query.v1.QueryCapabilityCoordinate
+	7,   // 258: agentic.olap.query.v1.QueryRunView.intent:type_name -> agentic.olap.query.v1.QueryIntent
+	8,   // 259: agentic.olap.query.v1.QueryRunView.definition:type_name -> agentic.olap.query.v1.QueryReference
+	129, // 260: agentic.olap.query.v1.QueryRunView.result:type_name -> agentic.olap.query.v1.QueryResultManifest
+	31,  // 261: agentic.olap.query.v1.QueryRunView.receipt:type_name -> agentic.olap.query.v1.QueryExecutionReceipt
+	132, // 262: agentic.olap.query.v1.QueryRunView.service_observation:type_name -> agentic.olap.query.v1.QueryServiceObservation
+	159, // 263: agentic.olap.query.v1.QueryServiceObservation.timing_nanos:type_name -> agentic.olap.query.v1.QueryServiceObservation.TimingNanosEntry
+	131, // 264: agentic.olap.query.v1.QueryServiceObservation.workers:type_name -> agentic.olap.query.v1.QueryWorkerAcquisition
+	130, // 265: agentic.olap.query.v1.QueryUsageView.run:type_name -> agentic.olap.query.v1.QueryRunView
+	133, // 266: agentic.olap.query.v1.QueryUsageView.notes:type_name -> agentic.olap.query.v1.QueryUsageNote
+	134, // 267: agentic.olap.query.v1.QueryUsageView.references:type_name -> agentic.olap.query.v1.QuerySemanticReference
+	130, // 268: agentic.olap.query.v1.QueryUsagePage.items:type_name -> agentic.olap.query.v1.QueryRunView
+	46,  // 269: agentic.olap.query.v1.BusinessResult.ScopeInputColumnsEntry.value:type_name -> agentic.olap.query.v1.BusinessColumns
+	59,  // 270: agentic.olap.query.v1.ScriptObject.ValuesEntry.value:type_name -> agentic.olap.query.v1.ScriptValue
+	191, // 271: agentic.olap.query.v1.ExplanationQualification.RecordMeaningsEntry.value:type_name -> agentic.olap.semantic.v1.MemberMeaning
+	192, // 272: agentic.olap.query.v1.ExplanationMeasures.ClocksEntry.value:type_name -> agentic.olap.semantic.v1.TemporalClock
+	91,  // 273: agentic.olap.query.v1.ExplanationAlignment.KeysEntry.value:type_name -> agentic.olap.query.v1.StringMap
+	171, // 274: agentic.olap.query.v1.ExplanationFactIdentity.GroupingEntry.value:type_name -> agentic.olap.semantic.v1.DimensionRef
+	191, // 275: agentic.olap.query.v1.ExplanationMemberIdentity.MeaningsEntry.value:type_name -> agentic.olap.semantic.v1.MemberMeaning
+	98,  // 276: agentic.olap.query.v1.ExplanationJoin.SourceTimesEntry.value:type_name -> agentic.olap.query.v1.RelationPosition
+	192, // 277: agentic.olap.query.v1.ExplanationQuantified.ClocksEntry.value:type_name -> agentic.olap.semantic.v1.TemporalClock
+	192, // 278: agentic.olap.query.v1.ExplanationSource.ClocksEntry.value:type_name -> agentic.olap.semantic.v1.TemporalClock
+	279, // [279:279] is the sub-list for method output_type
+	279, // [279:279] is the sub-list for method input_type
+	279, // [279:279] is the sub-list for extension type_name
+	279, // [279:279] is the sub-list for extension extendee
+	0,   // [0:279] is the sub-list for field type_name
 }
 
 func init() { file_query_proto_init() }
@@ -11727,13 +11954,15 @@ func file_query_proto_init() {
 		(*QueryExplanationContent_Sources)(nil),
 		(*QueryExplanationContent_Plan)(nil),
 		(*QueryExplanationContent_Scale)(nil),
+		(*QueryExplanationContent_ExecutionRequirements)(nil),
 	}
-	file_query_proto_msgTypes[66].OneofWrappers = []any{}
-	file_query_proto_msgTypes[67].OneofWrappers = []any{}
 	file_query_proto_msgTypes[68].OneofWrappers = []any{}
+	file_query_proto_msgTypes[69].OneofWrappers = []any{}
+	file_query_proto_msgTypes[70].OneofWrappers = []any{}
 	file_query_proto_msgTypes[71].OneofWrappers = []any{}
-	file_query_proto_msgTypes[77].OneofWrappers = []any{}
-	file_query_proto_msgTypes[80].OneofWrappers = []any{
+	file_query_proto_msgTypes[74].OneofWrappers = []any{}
+	file_query_proto_msgTypes[80].OneofWrappers = []any{}
+	file_query_proto_msgTypes[83].OneofWrappers = []any{
 		(*ExplanationRoot_Measures)(nil),
 		(*ExplanationRoot_Members)(nil),
 		(*ExplanationRoot_InputId)(nil),
@@ -11743,18 +11972,18 @@ func file_query_proto_init() {
 		(*ExplanationRoot_ObservationStatistics)(nil),
 		(*ExplanationRoot_SetInputs)(nil),
 	}
-	file_query_proto_msgTypes[83].OneofWrappers = []any{
+	file_query_proto_msgTypes[86].OneofWrappers = []any{
 		(*ExplanationMemberOrigin_Projection)(nil),
 		(*ExplanationMemberOrigin_Computed)(nil),
 		(*ExplanationMemberOrigin_Local)(nil),
 	}
-	file_query_proto_msgTypes[92].OneofWrappers = []any{
+	file_query_proto_msgTypes[95].OneofWrappers = []any{
 		(*ExplanationSourceIdentity_Fact)(nil),
 		(*ExplanationSourceIdentity_Member)(nil),
 	}
-	file_query_proto_msgTypes[101].OneofWrappers = []any{}
-	file_query_proto_msgTypes[105].OneofWrappers = []any{}
-	file_query_proto_msgTypes[114].OneofWrappers = []any{
+	file_query_proto_msgTypes[104].OneofWrappers = []any{}
+	file_query_proto_msgTypes[108].OneofWrappers = []any{}
+	file_query_proto_msgTypes[117].OneofWrappers = []any{
 		(*ResultMetadataContent_Run)(nil),
 		(*ResultMetadataContent_Source)(nil),
 		(*ResultMetadataContent_Publication)(nil),
@@ -11764,26 +11993,26 @@ func file_query_proto_init() {
 		(*ResultMetadataContent_Intent)(nil),
 		(*ResultMetadataContent_Explanation)(nil),
 	}
-	file_query_proto_msgTypes[115].OneofWrappers = []any{}
-	file_query_proto_msgTypes[116].OneofWrappers = []any{
+	file_query_proto_msgTypes[118].OneofWrappers = []any{}
+	file_query_proto_msgTypes[119].OneofWrappers = []any{
 		(*ResultValueView_Complete)(nil),
 		(*ResultValueView_Reference)(nil),
 	}
-	file_query_proto_msgTypes[119].OneofWrappers = []any{}
-	file_query_proto_msgTypes[120].OneofWrappers = []any{
+	file_query_proto_msgTypes[122].OneofWrappers = []any{}
+	file_query_proto_msgTypes[123].OneofWrappers = []any{
 		(*ResultValuePage_Text)(nil),
 		(*ResultValuePage_Members)(nil),
 	}
-	file_query_proto_msgTypes[127].OneofWrappers = []any{}
-	file_query_proto_msgTypes[132].OneofWrappers = []any{}
-	file_query_proto_msgTypes[133].OneofWrappers = []any{}
+	file_query_proto_msgTypes[130].OneofWrappers = []any{}
+	file_query_proto_msgTypes[135].OneofWrappers = []any{}
+	file_query_proto_msgTypes[136].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_query_proto_rawDesc), len(file_query_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   157,
+			NumMessages:   160,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

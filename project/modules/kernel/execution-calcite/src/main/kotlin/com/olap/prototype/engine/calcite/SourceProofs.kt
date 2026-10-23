@@ -9,7 +9,9 @@ internal class SourceProofs(private val sources: FrozenSourceTables) {
     fun adopt(path: List<String>, proof: ConstraintUse) { adopted.getValue(path).add(proof) }
     fun adopt(path: List<String>, proofs: List<ConstraintUse>) { adopted.getValue(path).addAll(proofs) }
     fun requirements(): List<JdbcSourceRequirement> = sources.sources.map { source ->
-        val constraints = if (source.readsRows()) adopted.getValue(sources.connector.compilation.tablePath(source.table.catalog, source.table.schema, source.table.table)) else emptySet()
+        val constraints = if (source.readsRows()) adopted.getValue(sources.connector.compilation.tablePath(source.table.catalog, source.table.schema, source.table.table))
+            .filterTo(linkedSetOf()) { it.kind != JdbcSourceRequirement.ConstraintKind.NOT_NULL || it.name in source.columns }
+        else emptySet()
         JdbcSourceRequirement(source.dataSourceId, source.connectorRef, source.dialect, source.physicalTableId, source.physicalTableVersion,
             source.table, source.evidence, source.columns, source.uses, source.snapshotUniqueKeys, constraints)
     }

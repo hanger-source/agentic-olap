@@ -66,22 +66,10 @@ class ParameterizedRelToSqlConverter(private val support: CompilationSupport, pr
         val input = visitInput(expansion, 0).resetAlias()
         val context = input.qualifiedContext()
         val alias = SqlValidatorUtil.uniquify("__collection", aliasSet, SqlValidatorUtil.EXPR_SUGGESTER)
-        val type = expansion.cluster.typeFactory.builder().apply {
-            expansion.rowType.fieldList.takeLast(2).forEach { add(it.name, it.type) }
-        }.build()
-        val native = support.expandCollection(context.field(expansion.column), type, alias)
-        val from = SqlJoin(POS, input.asFrom(), SqlLiteral.createBoolean(false, POS),
-            (if (expansion.outer) JoinType.LEFT else JoinType.CROSS).symbol(POS), native.relation,
-            (if (expansion.outer) JoinConditionType.ON else JoinConditionType.NONE).symbol(POS),
-            if (expansion.outer) SqlLiteral.createBoolean(true, POS) else null)
-        val element = if (expansion.outer) SqlCase(POS, null,
-            SqlNodeList(listOf(Ops.IS_NULL.createCall(POS, native.ordinal)), POS),
-            SqlNodeList(listOf(SqlLiteral.createNull(POS)), POS), native.element) else native.element
-        val columns = mutableListOf<SqlNode>()
-        repeat(expansion.input.rowType.fieldCount) { addSelect(columns, context.field(it), expansion.rowType) }
-        addSelect(columns, element, expansion.rowType)
-        addSelect(columns, native.ordinal, expansion.rowType)
-        val selected = SqlSelect(POS, null, SqlNodeList(columns, POS), from, null, null, null, null, null, null, null, null, null)
+        val fields = expansion.input.rowType.fieldList.indices.map { context.field(it) }
+        val selected = CollectionExpansionSql.select(support, expansion, input.asFrom(), fields, alias) { suggested ->
+            SqlValidatorUtil.uniquify(suggested, aliasSet, SqlValidatorUtil.EXPR_SUGGESTER)
+        }
         // 完成元素先成为有名列，后续 ROW_FIELD 不能把 CASE 或原生下标表达式当成字段标识符。
         val completed = result(selected, listOf(Clause.FROM, Clause.SELECT), expansion, null).resetAlias()
         return result(completed.asFrom(), listOf(Clause.FROM), expansion, null)

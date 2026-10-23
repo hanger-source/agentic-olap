@@ -25,7 +25,7 @@ sealed interface QuerySelection {
 data class QueryExecutionRequest(val query: QuerySelection, val saveResult: Boolean, val question: String?, val readBasis: SourceReadBasis.Versioned?)
 data class QueryValidationRequest(val query: QuerySelection)
 data class QueryValidationResult(val valid: Boolean, val capabilityHash: String)
-enum class QueryExplanationSection { SUMMARY, SCOPES, SOURCES, PLAN, COMPILATION_SCALE }
+enum class QueryExplanationSection { SUMMARY, SCOPES, SOURCES, PLAN, COMPILATION_SCALE, EXECUTION_REQUIREMENTS }
 data class QueryExplanationRequest(val query: QuerySelection, val section: QueryExplanationSection, val offset: Int, val limit: Int) {
     init { require(offset >= 0 && limit in 1..200) }
 }

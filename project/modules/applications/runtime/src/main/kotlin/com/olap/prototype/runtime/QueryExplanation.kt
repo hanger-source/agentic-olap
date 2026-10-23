@@ -32,8 +32,14 @@ internal object QueryExplanation {
             fun size(s: com.olap.prototype.engine.compiler.CompilationScale.RelationSize) = View.RelationSize(s.nodes, s.edges, s.scalarCalls, s.numericChecks, s.repeatedNumericChecks)
             View.CompilationScale(size(v.raw), size(v.optimized), size(v.sqlRelation), v.sqlBytes, v.sqlCaseExpressions, v.sqlNumericChecks, v.numericBindings, v.reusedNumericChecks)
         }
+        val requirements = query.executableLoweringResult?.let { lowered ->
+            val request = lowered.toSourceRequest("execute-query", null)
+            View.ExecutionRequirements(request.requiredCapabilities.map { it.name }, request.relationChecks.map { check ->
+                View.RelationCheck(check.code, check.origin?.scope, check.origin?.keys ?: emptyList(), check.origin?.reason)
+            }, request.sourceRequirements.flatMap { it.constraintUses }.map { it.kind.name }.distinct().sorted(), false)
+        }
         return View(query.requestId, View.Summary(scopes.size, query.resolvedSources.size, "ONE_EXACT_SOURCE_BINDING", RowPopulationContract.contract(),
-            "NOT_OBSERVED", "NOT_OBSERVED"), scopes, query.resolvedSources.map(::source), query.sqlPlan, scale)
+            "NOT_OBSERVED", "NOT_OBSERVED"), scopes, query.resolvedSources.map(::source), query.sqlPlan, scale, requirements)
     }
     private fun requirement(v: ExecutableRelationInput.Requirement) = View.RelationRequirement(v.outputSlots, v.outputs, v.keys)
     private fun root(v: CompiledScopeExplanation.Root): View.Root = when (v) {

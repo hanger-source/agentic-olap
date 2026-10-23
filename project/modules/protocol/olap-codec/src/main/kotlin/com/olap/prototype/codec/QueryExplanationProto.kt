@@ -10,15 +10,17 @@ import com.olap.prototype.wire.query.*
 object QueryExplanationProto {
     fun toProto(v: View): QueryExplanationView = QueryExplanationView.newBuilder().setRequestId(v.requestId).setSummary(toProto(v.summary))
         .addAllScopes(v.scopes.map(::toProto)).addAllSources(v.sources.map(::toProto)).addAllPlan(v.plan.map(::toProto))
-        .apply { v.compilationScale?.let { setCompilationScale(toProto(it)) } }.build()
+        .apply { v.compilationScale?.let { setCompilationScale(toProto(it)) }; v.executionRequirements?.let { setExecutionRequirements(toProto(it)) } }.build()
     fun fromProto(v: QueryExplanationView): View { require(v.hasSummary()); return View(v.requestId, fromProto(v.summary), v.scopesList.map(::fromProto),
-        v.sourcesList.map(::fromProto), v.planList.map(::fromProto), if (v.hasCompilationScale()) fromProto(v.compilationScale) else null) }
+        v.sourcesList.map(::fromProto), v.planList.map(::fromProto), if (v.hasCompilationScale()) fromProto(v.compilationScale) else null,
+        if (v.hasExecutionRequirements()) fromProto(v.executionRequirements) else null) }
     fun toProto(v: Content): QueryExplanationContent = QueryExplanationContent.newBuilder().apply { when (v) {
         is Content.Summary -> summary = toProto(v.value)
         is Content.Scopes -> scopes = ExplanationScopes.newBuilder().addAllItems(v.items.map(::toProto)).setTotalItems(v.totalItems).apply { v.nextOffset?.let(::setNextOffset) }.build()
         is Content.Sources -> sources = ExplanationSources.newBuilder().addAllItems(v.items.map(::toProto)).setTotalItems(v.totalItems).apply { v.nextOffset?.let(::setNextOffset) }.build()
         is Content.Plan -> plan = ExplanationPlan.newBuilder().addAllItems(v.items.map(::toProto)).setTotalItems(v.totalItems).apply { v.nextOffset?.let(::setNextOffset) }.build()
         is Content.CompilationScale -> scale = ExplanationScale.newBuilder().apply { v.value?.let { setValue(toProto(it)) } }.build()
+        is Content.ExecutionRequirements -> executionRequirements = ExplanationRequirementSection.newBuilder().apply { v.value?.let { setValue(toProto(it)) } }.build()
     } }.build()
     fun fromProto(v: QueryExplanationContent): Content = when (v.kindCase) {
         QueryExplanationContent.KindCase.SUMMARY -> Content.Summary(fromProto(v.summary))
@@ -26,8 +28,16 @@ object QueryExplanationProto {
         QueryExplanationContent.KindCase.SOURCES -> v.sources.let { Content.Sources(it.itemsList.map(::fromProto), it.totalItems, if (it.hasNextOffset()) it.nextOffset else null) }
         QueryExplanationContent.KindCase.PLAN -> v.plan.let { Content.Plan(it.itemsList.map(::fromProto), it.totalItems, if (it.hasNextOffset()) it.nextOffset else null) }
         QueryExplanationContent.KindCase.SCALE -> Content.CompilationScale(if (v.scale.hasValue()) fromProto(v.scale.value) else null)
+        QueryExplanationContent.KindCase.EXECUTION_REQUIREMENTS -> Content.ExecutionRequirements(if (v.executionRequirements.hasValue()) fromProto(v.executionRequirements.value) else null)
         else -> error("query explanation content requires one explicit section")
     }
+    fun toProto(v: View.ExecutionRequirements): ExplanationExecutionRequirements = ExplanationExecutionRequirements.newBuilder()
+        .addAllCapabilities(v.capabilities).addAllConstraintKinds(v.constraintKinds).setSourceCapabilitiesChecked(v.sourceCapabilitiesChecked)
+        .addAllRelationChecks(v.relationChecks.map { check -> ExplanationRelationCheck.newBuilder().setCode(check.code).addAllKeys(check.keys)
+            .apply { check.scope?.let { setScope(SemanticProto.toProto(it)) }; check.reason?.let(::setReason) }.build() }).build()
+    fun fromProto(v: ExplanationExecutionRequirements) = View.ExecutionRequirements(v.capabilitiesList.toList(), v.relationChecksList.map { check ->
+        View.RelationCheck(check.code, if (check.hasScope()) SemanticProto.fromProto(check.scope) else null, check.keysList.toList(), if (check.hasReason()) check.reason else null)
+    }, v.constraintKindsList.toList(), v.sourceCapabilitiesChecked)
     fun toProto(v: View.PopulationContract): PopulationContract = PopulationContract.newBuilder().setFormatVersion(v.formatVersion).setRequired(v.required)
         .addAllModes(v.modes.map { PopulationMode.newBuilder().setMode(it.mode).addAllFields(it.fields).setGroups(it.groups).apply { it.inputs?.let(::setInputs) }.build() })
         .setScope(v.scope).setGrain(v.grain).setUnmatchedMetrics(v.unmatchedMetrics).setCalculationMetric(v.calculationMetric).setEmptyPopulation(v.emptyPopulation).setCoverage(v.coverage).build()

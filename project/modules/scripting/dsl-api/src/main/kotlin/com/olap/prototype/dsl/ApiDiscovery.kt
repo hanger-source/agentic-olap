@@ -4,6 +4,7 @@ import com.olap.prototype.dsl.transport.CapabilityRegistry
 import com.olap.prototype.dsl.transport.CapabilityContract
 import com.olap.prototype.query.QueryComputation
 import com.olap.prototype.calculation.Calculation
+import com.olap.prototype.member.MemberResult
 import java.lang.reflect.Type
 import kotlin.reflect.KClass
 import kotlin.reflect.KFunction
@@ -25,12 +26,12 @@ data class ApiFunction(val name: String, val access: String, val parameters: Lis
     val typeParameters: Map<String, List<String>>)
 data class ApiCompanion(val name: String, val access: String, val properties: List<ApiProperty>, val functions: List<ApiFunction>)
 data class ApiType(val name: String, val kotlinName: String, val kind: String, val enclosingType: String?, val constructors: List<ApiConstructor>, val properties: List<ApiProperty>,
-    val functions: List<ApiFunction>, val companion: ApiCompanion?, val variants: List<String>, val enumValues: List<String>)
+    val functions: List<ApiFunction>, val companion: ApiCompanion?, val variants: List<String>, val enumValues: List<String>, val rules: Map<String, Any>)
 data class ApiExample(val name: String, val purpose: String, val source: String)
 data class ApiOverview(val formatVersion: String, val dslApiVersion: String, val properties: Map<String, String>, val imports: List<String>,
     val operations: List<ApiOperation>, val examples: List<ApiExample>)
 
-/** 从真实公开声明读取构造器、对象与伴生对象成员及封闭变体，不执行 getter 或工厂。 */
+/** 结构来自真实公开声明；局部语义规则只读取已知模型自身合同，不执行任意 getter 或工厂。 */
 object ApiDiscovery {
     const val VERSION = "agentic-olap-kotlin-dsl/v1"
     val imports: List<String> = listOf("com.olap.prototype.dsl.*", "com.olap.prototype.governance.contract.*",
@@ -123,7 +124,12 @@ object ApiDiscovery {
             ApiCompanion(requireNotNull(companion.qualifiedName), access, properties(companion, access), functions(companion, access))
         },
         type.sealedSubclasses.mapNotNull { it.qualifiedName }.sorted(),
-        type.java.enumConstants?.map { (it as Enum<*>).name } ?: emptyList())
+        type.java.enumConstants?.map { (it as Enum<*>).name } ?: emptyList(),
+        when (type) {
+            Calculation.Call::class -> Calculation.Call.contract()
+            MemberResult::class -> MemberResult.contract()
+            else -> emptyMap()
+        })
 
     private fun parameter(value: KParameter) = ApiParameter(requireNotNull(value.name), value.type.toString(), value.isOptional, value.isVararg)
 

@@ -47,6 +47,12 @@ func explanation(view *q.QueryExplanationView, section string, offset, limit int
 		}
 		content.Kind = &q.QueryExplanationContent_Scale{Scale: &q.ExplanationScale{Value: view.CompilationScale}}
 		return content, 1, nil, nil
+	case "EXECUTION_REQUIREMENTS":
+		if offset != 0 {
+			return nil, 0, nil, errors.New("execution requirements do not accept an offset")
+		}
+		content.Kind = &q.QueryExplanationContent_ExecutionRequirements{ExecutionRequirements: &q.ExplanationRequirementSection{Value: view.ExecutionRequirements}}
+		return content, 1, nil, nil
 	default:
 		return nil, 0, nil, errors.New("exact saved explanation section is required")
 	}

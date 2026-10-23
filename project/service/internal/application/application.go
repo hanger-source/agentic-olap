@@ -254,7 +254,9 @@ func (a *Application) deliver(ctx context.Context, p runtime.Principal, reply ru
 	}
 	storeStarted := time.Now()
 	if artifact.Save {
-		_, err = a.Results.Save(ctx, ref, artifact.Content)
+		_, err = a.Results.Save(ctx, ref, artifact.Content, func(stage string, elapsed time.Duration) {
+			confirmation.TimingNanos[stage] = uint64(elapsed.Nanoseconds())
+		})
 	}
 	if err != nil {
 		return failed(err)

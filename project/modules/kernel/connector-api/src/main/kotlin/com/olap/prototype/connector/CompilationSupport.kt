@@ -55,6 +55,8 @@ interface CompilationSupport {
         TIMESTAMP_PARAMETER_NATIVE_CAST, ROUND_KEEPS_INPUT_PRECISION,
         /** 派生关系中的投影可以引用外层查询值；不等同于普通 EXISTS 条件相关。 */
         CORRELATED_DERIVED_PROJECTION,
+        /** 输入投影 SRF 支持核心的 CARDINALITY、typed singleton ARRAY 和整元素 NULL 补空。 */
+        COLLECTION_PROJECTION_OUTER,
     }
 
     val typeSystem: RelDataTypeSystem
@@ -66,13 +68,24 @@ interface CompilationSupport {
     /** SQL 三值逻辑的精确文本身份相等；NULL 不匹配，不能折叠大小写、空白或 Unicode 差异。 */
     fun textIdentityEquals(builder: RelBuilder, left: RexNode, right: RexNode): RexNode
     /**
-     * collection 是当前输入行中已限定来源的 ARRAY 表达式，不是读取该值的子查询。
      * outputType 依次声明完整元素与从 1 开始的位置，保留有序 ROW 和递归 NULL 类型。
-     * 返回原生 FROM 关系及两列的取值表达式；关系使用给定别名，必要的表函数 LATERAL 语法由插件映射。
-     * 内核拥有关联、输出投影和 INNER/OUTER 补空；ordinal 在真实元素上非 NULL，缺行时保持 NULL。
+     * 原生放置计划只映射生成与取值；完整输入、透传列、INNER/OUTER 和缺行标记由核心构造。
+     * 回调只取得当前作用域的 ARRAY/生成值表达式，不取得输入关系或 SQL 改写权限。
      */
-    fun expandCollection(collection: SqlNode, outputType: RelDataType, tableAlias: String): CollectionExpansion
-    data class CollectionExpansion(val relation: SqlNode, val element: SqlNode, val ordinal: SqlNode)
+    fun expandCollection(outputType: RelDataType, tableAlias: String): CollectionExpansion
+    sealed interface CollectionExpansion {
+        /** 生成使用给定 tableAlias 的 FROM 关系；核心用 CROSS/LEFT JOIN 保留声明的人口。 */
+        class Relation(val generate: (SqlNode) -> CollectionRows) : CollectionExpansion
+        /**
+         * generate 返回恰好一个 SELECT-list SRF；核心绑定其生成值后再调用 values。
+         * 两个回调的 ARRAY 均为各自作用域中同一已绑定的数组，不能捕获另一层的字段引用。
+         * OUTER 另需 COLLECTION_PROJECTION_OUTER；生成器仍只展开核心提供的真实/哨兵数组。
+         */
+        class InputProjection(val generate: (SqlNode) -> SqlNode,
+            val values: (collection: SqlNode, generated: SqlNode) -> CollectionValues) : CollectionExpansion
+    }
+    data class CollectionRows(val relation: SqlNode, val element: SqlNode, val ordinal: SqlNode)
+    data class CollectionValues(val element: SqlNode, val ordinal: SqlNode)
     fun sortCollection(builder: RelBuilder, value: RexNode, descending: Boolean, nullsFirst: Boolean): RexNode
     fun collectionText(builder: RelBuilder, value: RexNode, delimiter: String, nullReplacement: String?): RexNode
     val decimalAverageRounding: MetricValueContract.Rounding

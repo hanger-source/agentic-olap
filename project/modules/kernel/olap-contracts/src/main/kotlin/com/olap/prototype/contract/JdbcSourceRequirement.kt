@@ -24,9 +24,10 @@ class JdbcSourceRequirement(
     val constraintUses: Set<ConstraintUse> = java.util.Set.copyOf(constraintUses)
 
     enum class Use { ROWS, NATIVE_TABLE }
-    enum class ConstraintKind { PRIMARY_KEY, UNIQUE_KEY, FOREIGN_KEY, TEMPORAL_KEY, SNAPSHOT_UNIQUE_KEY }
+    enum class ConstraintKind { PRIMARY_KEY, UNIQUE_KEY, FOREIGN_KEY, TEMPORAL_KEY, SNAPSHOT_UNIQUE_KEY, NOT_NULL }
+    /** NOT_NULL 的 name 是精确列名；PRIMARY_KEY 无名称，其余项引用精确冻结约束名。 */
     data class ConstraintUse(val kind: ConstraintKind, val name: String?) {
-        init { require(if (kind == ConstraintKind.PRIMARY_KEY) name == null else !name.isNullOrBlank()) { "constraint reference must identify its exact frozen constraint" } }
+        init { require(if (kind == ConstraintKind.PRIMARY_KEY) name == null else !name.isNullOrBlank()) { "source guarantee must identify its exact frozen column or constraint" } }
     }
 
     init {
@@ -51,6 +52,7 @@ class JdbcSourceRequirement(
                 ConstraintKind.FOREIGN_KEY -> constraints.importedKeys.any { it.name == use.name }
                 ConstraintKind.TEMPORAL_KEY -> constraints.temporalKeys.any { it.rule.name == use.name }
                 ConstraintKind.SNAPSHOT_UNIQUE_KEY -> this.snapshotUniqueKeys.any { it.rule.name == use.name }
+                ConstraintKind.NOT_NULL -> use.name != null && this.columns[use.name]?.nullable == false
             }
             require(exists) { "adopted constraint is outside frozen evidence" }
         }

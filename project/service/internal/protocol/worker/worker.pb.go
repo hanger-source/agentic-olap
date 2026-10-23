@@ -32,6 +32,7 @@ type EngineWorkerCommand struct {
 	//	*EngineWorkerCommand_Unload
 	//	*EngineWorkerCommand_Inspect
 	//	*EngineWorkerCommand_Execute
+	//	*EngineWorkerCommand_Lookup
 	Kind          isEngineWorkerCommand_Kind `protobuf_oneof:"kind"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -83,7 +84,7 @@ func (x *EngineWorkerCommand) GetLoad() *governance.PublishedExecutableCatalog {
 	return nil
 }
 
-func (x *EngineWorkerCommand) GetUnload() *EngineUnload {
+func (x *EngineWorkerCommand) GetUnload() *EngineCatalogReference {
 	if x != nil {
 		if x, ok := x.Kind.(*EngineWorkerCommand_Unload); ok {
 			return x.Unload
@@ -110,6 +111,15 @@ func (x *EngineWorkerCommand) GetExecute() *EngineExecute {
 	return nil
 }
 
+func (x *EngineWorkerCommand) GetLookup() *EngineCatalogReference {
+	if x != nil {
+		if x, ok := x.Kind.(*EngineWorkerCommand_Lookup); ok {
+			return x.Lookup
+		}
+	}
+	return nil
+}
+
 type isEngineWorkerCommand_Kind interface {
 	isEngineWorkerCommand_Kind()
 }
@@ -119,7 +129,7 @@ type EngineWorkerCommand_Load struct {
 }
 
 type EngineWorkerCommand_Unload struct {
-	Unload *EngineUnload `protobuf:"bytes,2,opt,name=unload,proto3,oneof"`
+	Unload *EngineCatalogReference `protobuf:"bytes,2,opt,name=unload,proto3,oneof"`
 }
 
 type EngineWorkerCommand_Inspect struct {
@@ -130,6 +140,10 @@ type EngineWorkerCommand_Execute struct {
 	Execute *EngineExecute `protobuf:"bytes,4,opt,name=execute,proto3,oneof"`
 }
 
+type EngineWorkerCommand_Lookup struct {
+	Lookup *EngineCatalogReference `protobuf:"bytes,5,opt,name=lookup,proto3,oneof"`
+}
+
 func (*EngineWorkerCommand_Load) isEngineWorkerCommand_Kind() {}
 
 func (*EngineWorkerCommand_Unload) isEngineWorkerCommand_Kind() {}
@@ -138,7 +152,9 @@ func (*EngineWorkerCommand_Inspect) isEngineWorkerCommand_Kind() {}
 
 func (*EngineWorkerCommand_Execute) isEngineWorkerCommand_Kind() {}
 
-type EngineUnload struct {
+func (*EngineWorkerCommand_Lookup) isEngineWorkerCommand_Kind() {}
+
+type EngineCatalogReference struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	CatalogId     string                 `protobuf:"bytes,1,opt,name=catalog_id,json=catalogId,proto3" json:"catalog_id,omitempty"`
 	ContentHash   string                 `protobuf:"bytes,2,opt,name=content_hash,json=contentHash,proto3" json:"content_hash,omitempty"`
@@ -146,20 +162,20 @@ type EngineUnload struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *EngineUnload) Reset() {
-	*x = EngineUnload{}
+func (x *EngineCatalogReference) Reset() {
+	*x = EngineCatalogReference{}
 	mi := &file_worker_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *EngineUnload) String() string {
+func (x *EngineCatalogReference) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*EngineUnload) ProtoMessage() {}
+func (*EngineCatalogReference) ProtoMessage() {}
 
-func (x *EngineUnload) ProtoReflect() protoreflect.Message {
+func (x *EngineCatalogReference) ProtoReflect() protoreflect.Message {
 	mi := &file_worker_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -171,19 +187,19 @@ func (x *EngineUnload) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use EngineUnload.ProtoReflect.Descriptor instead.
-func (*EngineUnload) Descriptor() ([]byte, []int) {
+// Deprecated: Use EngineCatalogReference.ProtoReflect.Descriptor instead.
+func (*EngineCatalogReference) Descriptor() ([]byte, []int) {
 	return file_worker_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *EngineUnload) GetCatalogId() string {
+func (x *EngineCatalogReference) GetCatalogId() string {
 	if x != nil {
 		return x.CatalogId
 	}
 	return ""
 }
 
-func (x *EngineUnload) GetContentHash() string {
+func (x *EngineCatalogReference) GetContentHash() string {
 	if x != nil {
 		return x.ContentHash
 	}
@@ -342,6 +358,7 @@ type EngineWorkerResult struct {
 	//	*EngineWorkerResult_Unloaded
 	//	*EngineWorkerResult_Resolved
 	//	*EngineWorkerResult_Executed
+	//	*EngineWorkerResult_Present
 	Kind          isEngineWorkerResult_Kind `protobuf_oneof:"kind"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -420,6 +437,15 @@ func (x *EngineWorkerResult) GetExecuted() *EngineExecutionPayload {
 	return nil
 }
 
+func (x *EngineWorkerResult) GetPresent() bool {
+	if x != nil {
+		if x, ok := x.Kind.(*EngineWorkerResult_Present); ok {
+			return x.Present
+		}
+	}
+	return false
+}
+
 type isEngineWorkerResult_Kind interface {
 	isEngineWorkerResult_Kind()
 }
@@ -440,6 +466,10 @@ type EngineWorkerResult_Executed struct {
 	Executed *EngineExecutionPayload `protobuf:"bytes,4,opt,name=executed,proto3,oneof"`
 }
 
+type EngineWorkerResult_Present struct {
+	Present bool `protobuf:"varint,5,opt,name=present,proto3,oneof"`
+}
+
 func (*EngineWorkerResult_Loaded) isEngineWorkerResult_Kind() {}
 
 func (*EngineWorkerResult_Unloaded) isEngineWorkerResult_Kind() {}
@@ -447,6 +477,8 @@ func (*EngineWorkerResult_Unloaded) isEngineWorkerResult_Kind() {}
 func (*EngineWorkerResult_Resolved) isEngineWorkerResult_Kind() {}
 
 func (*EngineWorkerResult_Executed) isEngineWorkerResult_Kind() {}
+
+func (*EngineWorkerResult_Present) isEngineWorkerResult_Kind() {}
 
 type EngineCatalogReceipt struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -767,6 +799,7 @@ type QueryWorkerCommand struct {
 	//	*QueryWorkerCommand_Load
 	//	*QueryWorkerCommand_Unload
 	//	*QueryWorkerCommand_Validate
+	//	*QueryWorkerCommand_Lookup
 	Kind          isQueryWorkerCommand_Kind `protobuf_oneof:"kind"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -836,6 +869,15 @@ func (x *QueryWorkerCommand) GetValidate() *query.QueryIntent {
 	return nil
 }
 
+func (x *QueryWorkerCommand) GetLookup() *WorkerPublicationIdentity {
+	if x != nil {
+		if x, ok := x.Kind.(*QueryWorkerCommand_Lookup); ok {
+			return x.Lookup
+		}
+	}
+	return nil
+}
+
 type isQueryWorkerCommand_Kind interface {
 	isQueryWorkerCommand_Kind()
 }
@@ -852,11 +894,17 @@ type QueryWorkerCommand_Validate struct {
 	Validate *query.QueryIntent `protobuf:"bytes,3,opt,name=validate,proto3,oneof"`
 }
 
+type QueryWorkerCommand_Lookup struct {
+	Lookup *WorkerPublicationIdentity `protobuf:"bytes,4,opt,name=lookup,proto3,oneof"`
+}
+
 func (*QueryWorkerCommand_Load) isQueryWorkerCommand_Kind() {}
 
 func (*QueryWorkerCommand_Unload) isQueryWorkerCommand_Kind() {}
 
 func (*QueryWorkerCommand_Validate) isQueryWorkerCommand_Kind() {}
+
+func (*QueryWorkerCommand_Lookup) isQueryWorkerCommand_Kind() {}
 
 type QueryUnload struct {
 	state          protoimpl.MessageState           `protogen:"open.v1"`
@@ -925,6 +973,7 @@ type QueryWorkerResult struct {
 	//	*QueryWorkerResult_Loaded
 	//	*QueryWorkerResult_Unloaded
 	//	*QueryWorkerResult_ValidatedCapabilityHash
+	//	*QueryWorkerResult_Present
 	Kind          isQueryWorkerResult_Kind `protobuf_oneof:"kind"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -994,6 +1043,15 @@ func (x *QueryWorkerResult) GetValidatedCapabilityHash() string {
 	return ""
 }
 
+func (x *QueryWorkerResult) GetPresent() bool {
+	if x != nil {
+		if x, ok := x.Kind.(*QueryWorkerResult_Present); ok {
+			return x.Present
+		}
+	}
+	return false
+}
+
 type isQueryWorkerResult_Kind interface {
 	isQueryWorkerResult_Kind()
 }
@@ -1010,11 +1068,17 @@ type QueryWorkerResult_ValidatedCapabilityHash struct {
 	ValidatedCapabilityHash string `protobuf:"bytes,3,opt,name=validated_capability_hash,json=validatedCapabilityHash,proto3,oneof"`
 }
 
+type QueryWorkerResult_Present struct {
+	Present bool `protobuf:"varint,4,opt,name=present,proto3,oneof"`
+}
+
 func (*QueryWorkerResult_Loaded) isQueryWorkerResult_Kind() {}
 
 func (*QueryWorkerResult_Unloaded) isQueryWorkerResult_Kind() {}
 
 func (*QueryWorkerResult_ValidatedCapabilityHash) isQueryWorkerResult_Kind() {}
+
+func (*QueryWorkerResult_Present) isQueryWorkerResult_Kind() {}
 
 type QueryCapabilityReceipt struct {
 	state          protoimpl.MessageState           `protogen:"open.v1"`
@@ -1600,6 +1664,7 @@ type CandidateWorkerCommand struct {
 	//	*CandidateWorkerCommand_Unload
 	//	*CandidateWorkerCommand_Resolve
 	//	*CandidateWorkerCommand_Values
+	//	*CandidateWorkerCommand_Lookup
 	Kind          isCandidateWorkerCommand_Kind `protobuf_oneof:"kind"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1651,7 +1716,7 @@ func (x *CandidateWorkerCommand) GetLoad() *CandidatePublication {
 	return nil
 }
 
-func (x *CandidateWorkerCommand) GetUnload() *CandidatePublicationIdentity {
+func (x *CandidateWorkerCommand) GetUnload() *WorkerPublicationIdentity {
 	if x != nil {
 		if x, ok := x.Kind.(*CandidateWorkerCommand_Unload); ok {
 			return x.Unload
@@ -1678,6 +1743,15 @@ func (x *CandidateWorkerCommand) GetValues() *query.CandidateRequest {
 	return nil
 }
 
+func (x *CandidateWorkerCommand) GetLookup() *WorkerPublicationIdentity {
+	if x != nil {
+		if x, ok := x.Kind.(*CandidateWorkerCommand_Lookup); ok {
+			return x.Lookup
+		}
+	}
+	return nil
+}
+
 type isCandidateWorkerCommand_Kind interface {
 	isCandidateWorkerCommand_Kind()
 }
@@ -1687,7 +1761,7 @@ type CandidateWorkerCommand_Load struct {
 }
 
 type CandidateWorkerCommand_Unload struct {
-	Unload *CandidatePublicationIdentity `protobuf:"bytes,2,opt,name=unload,proto3,oneof"`
+	Unload *WorkerPublicationIdentity `protobuf:"bytes,2,opt,name=unload,proto3,oneof"`
 }
 
 type CandidateWorkerCommand_Resolve struct {
@@ -1698,6 +1772,10 @@ type CandidateWorkerCommand_Values struct {
 	Values *query.CandidateRequest `protobuf:"bytes,4,opt,name=values,proto3,oneof"`
 }
 
+type CandidateWorkerCommand_Lookup struct {
+	Lookup *WorkerPublicationIdentity `protobuf:"bytes,5,opt,name=lookup,proto3,oneof"`
+}
+
 func (*CandidateWorkerCommand_Load) isCandidateWorkerCommand_Kind() {}
 
 func (*CandidateWorkerCommand_Unload) isCandidateWorkerCommand_Kind() {}
@@ -1705,6 +1783,8 @@ func (*CandidateWorkerCommand_Unload) isCandidateWorkerCommand_Kind() {}
 func (*CandidateWorkerCommand_Resolve) isCandidateWorkerCommand_Kind() {}
 
 func (*CandidateWorkerCommand_Values) isCandidateWorkerCommand_Kind() {}
+
+func (*CandidateWorkerCommand_Lookup) isCandidateWorkerCommand_Kind() {}
 
 type CandidatePublication struct {
 	state         protoimpl.MessageState                 `protogen:"open.v1"`
@@ -1758,7 +1838,7 @@ func (x *CandidatePublication) GetExecutable() *governance.PublishedExecutableCa
 	return nil
 }
 
-type CandidatePublicationIdentity struct {
+type WorkerPublicationIdentity struct {
 	state               protoimpl.MessageState           `protogen:"open.v1"`
 	Coordinate          *query.QueryCapabilityCoordinate `protobuf:"bytes,1,opt,name=coordinate,proto3" json:"coordinate,omitempty"`
 	CatalogHash         string                           `protobuf:"bytes,2,opt,name=catalog_hash,json=catalogHash,proto3" json:"catalog_hash,omitempty"`
@@ -1768,20 +1848,20 @@ type CandidatePublicationIdentity struct {
 	sizeCache           protoimpl.SizeCache
 }
 
-func (x *CandidatePublicationIdentity) Reset() {
-	*x = CandidatePublicationIdentity{}
+func (x *WorkerPublicationIdentity) Reset() {
+	*x = WorkerPublicationIdentity{}
 	mi := &file_worker_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *CandidatePublicationIdentity) String() string {
+func (x *WorkerPublicationIdentity) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*CandidatePublicationIdentity) ProtoMessage() {}
+func (*WorkerPublicationIdentity) ProtoMessage() {}
 
-func (x *CandidatePublicationIdentity) ProtoReflect() protoreflect.Message {
+func (x *WorkerPublicationIdentity) ProtoReflect() protoreflect.Message {
 	mi := &file_worker_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1793,33 +1873,33 @@ func (x *CandidatePublicationIdentity) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use CandidatePublicationIdentity.ProtoReflect.Descriptor instead.
-func (*CandidatePublicationIdentity) Descriptor() ([]byte, []int) {
+// Deprecated: Use WorkerPublicationIdentity.ProtoReflect.Descriptor instead.
+func (*WorkerPublicationIdentity) Descriptor() ([]byte, []int) {
 	return file_worker_proto_rawDescGZIP(), []int{23}
 }
 
-func (x *CandidatePublicationIdentity) GetCoordinate() *query.QueryCapabilityCoordinate {
+func (x *WorkerPublicationIdentity) GetCoordinate() *query.QueryCapabilityCoordinate {
 	if x != nil {
 		return x.Coordinate
 	}
 	return nil
 }
 
-func (x *CandidatePublicationIdentity) GetCatalogHash() string {
+func (x *WorkerPublicationIdentity) GetCatalogHash() string {
 	if x != nil {
 		return x.CatalogHash
 	}
 	return ""
 }
 
-func (x *CandidatePublicationIdentity) GetCapabilityHash() string {
+func (x *WorkerPublicationIdentity) GetCapabilityHash() string {
 	if x != nil {
 		return x.CapabilityHash
 	}
 	return ""
 }
 
-func (x *CandidatePublicationIdentity) GetSemanticCatalogHash() string {
+func (x *WorkerPublicationIdentity) GetSemanticCatalogHash() string {
 	if x != nil {
 		return x.SemanticCatalogHash
 	}
@@ -1834,6 +1914,7 @@ type CandidateWorkerResult struct {
 	//	*CandidateWorkerResult_Unloaded
 	//	*CandidateWorkerResult_Resolved
 	//	*CandidateWorkerResult_Values
+	//	*CandidateWorkerResult_Present
 	Kind          isCandidateWorkerResult_Kind `protobuf_oneof:"kind"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1876,7 +1957,7 @@ func (x *CandidateWorkerResult) GetKind() isCandidateWorkerResult_Kind {
 	return nil
 }
 
-func (x *CandidateWorkerResult) GetLoaded() *CandidatePublicationIdentity {
+func (x *CandidateWorkerResult) GetLoaded() *WorkerPublicationIdentity {
 	if x != nil {
 		if x, ok := x.Kind.(*CandidateWorkerResult_Loaded); ok {
 			return x.Loaded
@@ -1885,7 +1966,7 @@ func (x *CandidateWorkerResult) GetLoaded() *CandidatePublicationIdentity {
 	return nil
 }
 
-func (x *CandidateWorkerResult) GetUnloaded() *CandidatePublicationIdentity {
+func (x *CandidateWorkerResult) GetUnloaded() *WorkerPublicationIdentity {
 	if x != nil {
 		if x, ok := x.Kind.(*CandidateWorkerResult_Unloaded); ok {
 			return x.Unloaded
@@ -1912,16 +1993,25 @@ func (x *CandidateWorkerResult) GetValues() *query.CandidateValues {
 	return nil
 }
 
+func (x *CandidateWorkerResult) GetPresent() bool {
+	if x != nil {
+		if x, ok := x.Kind.(*CandidateWorkerResult_Present); ok {
+			return x.Present
+		}
+	}
+	return false
+}
+
 type isCandidateWorkerResult_Kind interface {
 	isCandidateWorkerResult_Kind()
 }
 
 type CandidateWorkerResult_Loaded struct {
-	Loaded *CandidatePublicationIdentity `protobuf:"bytes,1,opt,name=loaded,proto3,oneof"`
+	Loaded *WorkerPublicationIdentity `protobuf:"bytes,1,opt,name=loaded,proto3,oneof"`
 }
 
 type CandidateWorkerResult_Unloaded struct {
-	Unloaded *CandidatePublicationIdentity `protobuf:"bytes,2,opt,name=unloaded,proto3,oneof"`
+	Unloaded *WorkerPublicationIdentity `protobuf:"bytes,2,opt,name=unloaded,proto3,oneof"`
 }
 
 type CandidateWorkerResult_Resolved struct {
@@ -1932,6 +2022,10 @@ type CandidateWorkerResult_Values struct {
 	Values *query.CandidateValues `protobuf:"bytes,4,opt,name=values,proto3,oneof"`
 }
 
+type CandidateWorkerResult_Present struct {
+	Present bool `protobuf:"varint,5,opt,name=present,proto3,oneof"`
+}
+
 func (*CandidateWorkerResult_Loaded) isCandidateWorkerResult_Kind() {}
 
 func (*CandidateWorkerResult_Unloaded) isCandidateWorkerResult_Kind() {}
@@ -1940,18 +2034,21 @@ func (*CandidateWorkerResult_Resolved) isCandidateWorkerResult_Kind() {}
 
 func (*CandidateWorkerResult_Values) isCandidateWorkerResult_Kind() {}
 
+func (*CandidateWorkerResult_Present) isCandidateWorkerResult_Kind() {}
+
 var File_worker_proto protoreflect.FileDescriptor
 
 const file_worker_proto_rawDesc = "" +
 	"\n" +
-	"\fworker.proto\x12\x15agentic.olap.query.v1\x1a\vquery.proto\x1a\x0esemantic.proto\x1a\x10governance.proto\"\xae\x02\n" +
+	"\fworker.proto\x12\x15agentic.olap.query.v1\x1a\vquery.proto\x1a\x0esemantic.proto\x1a\x10governance.proto\"\x81\x03\n" +
 	"\x13EngineWorkerCommand\x12L\n" +
-	"\x04load\x18\x01 \x01(\v26.agentic.olap.governance.v1.PublishedExecutableCatalogH\x00R\x04load\x12=\n" +
-	"\x06unload\x18\x02 \x01(\v2#.agentic.olap.query.v1.EngineUnloadH\x00R\x06unload\x12@\n" +
+	"\x04load\x18\x01 \x01(\v26.agentic.olap.governance.v1.PublishedExecutableCatalogH\x00R\x04load\x12G\n" +
+	"\x06unload\x18\x02 \x01(\v2-.agentic.olap.query.v1.EngineCatalogReferenceH\x00R\x06unload\x12@\n" +
 	"\ainspect\x18\x03 \x01(\v2$.agentic.olap.query.v1.EngineInspectH\x00R\ainspect\x12@\n" +
-	"\aexecute\x18\x04 \x01(\v2$.agentic.olap.query.v1.EngineExecuteH\x00R\aexecuteB\x06\n" +
-	"\x04kind\"P\n" +
-	"\fEngineUnload\x12\x1d\n" +
+	"\aexecute\x18\x04 \x01(\v2$.agentic.olap.query.v1.EngineExecuteH\x00R\aexecute\x12G\n" +
+	"\x06lookup\x18\x05 \x01(\v2-.agentic.olap.query.v1.EngineCatalogReferenceH\x00R\x06lookupB\x06\n" +
+	"\x04kind\"Z\n" +
+	"\x16EngineCatalogReference\x12\x1d\n" +
 	"\n" +
 	"catalog_id\x18\x01 \x01(\tR\tcatalogId\x12!\n" +
 	"\fcontent_hash\x18\x02 \x01(\tR\vcontentHash\"\x9d\x01\n" +
@@ -1970,12 +2067,13 @@ const file_worker_proto_rawDesc = "" +
 	"\x06intent\x18\x03 \x01(\v2\".agentic.olap.query.v1.QueryIntentR\x06intent\x12@\n" +
 	"\bbindings\x18\x04 \x03(\v2$.agentic.olap.query.v1.SourceBindingR\bbindings\x12C\n" +
 	"\n" +
-	"read_basis\x18\x05 \x01(\v2$.agentic.olap.query.v1.SourceVersionR\treadBasis\"\xc7\x02\n" +
+	"read_basis\x18\x05 \x01(\v2$.agentic.olap.query.v1.SourceVersionR\treadBasis\"\xe3\x02\n" +
 	"\x12EngineWorkerResult\x12E\n" +
 	"\x06loaded\x18\x01 \x01(\v2+.agentic.olap.query.v1.EngineCatalogReceiptH\x00R\x06loaded\x12I\n" +
 	"\bunloaded\x18\x02 \x01(\v2+.agentic.olap.query.v1.EngineCatalogReceiptH\x00R\bunloaded\x12J\n" +
 	"\bresolved\x18\x03 \x01(\v2,.agentic.olap.query.v1.EngineInputResolutionH\x00R\bresolved\x12K\n" +
-	"\bexecuted\x18\x04 \x01(\v2-.agentic.olap.query.v1.EngineExecutionPayloadH\x00R\bexecutedB\x06\n" +
+	"\bexecuted\x18\x04 \x01(\v2-.agentic.olap.query.v1.EngineExecutionPayloadH\x00R\bexecuted\x12\x1a\n" +
+	"\apresent\x18\x05 \x01(\bH\x00R\apresentB\x06\n" +
 	"\x04kind\"X\n" +
 	"\x14EngineCatalogReceipt\x12\x1d\n" +
 	"\n" +
@@ -2017,22 +2115,24 @@ const file_worker_proto_rawDesc = "" +
 	"\vexplanation\x18\a \x01(\v2+.agentic.olap.query.v1.QueryExplanationViewR\vexplanation\x1a=\n" +
 	"\x0fStageNanosEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01\"\xe3\x01\n" +
+	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01\"\xaf\x02\n" +
 	"\x12QueryWorkerCommand\x12E\n" +
 	"\x04load\x18\x01 \x01(\v2/.agentic.olap.governance.v1.PublishedQueryEntryH\x00R\x04load\x12<\n" +
 	"\x06unload\x18\x02 \x01(\v2\".agentic.olap.query.v1.QueryUnloadH\x00R\x06unload\x12@\n" +
-	"\bvalidate\x18\x03 \x01(\v2\".agentic.olap.query.v1.QueryIntentH\x00R\bvalidateB\x06\n" +
+	"\bvalidate\x18\x03 \x01(\v2\".agentic.olap.query.v1.QueryIntentH\x00R\bvalidate\x12J\n" +
+	"\x06lookup\x18\x04 \x01(\v20.agentic.olap.query.v1.WorkerPublicationIdentityH\x00R\x06lookupB\x06\n" +
 	"\x04kind\"\xab\x01\n" +
 	"\vQueryUnload\x12P\n" +
 	"\n" +
 	"coordinate\x18\x01 \x01(\v20.agentic.olap.query.v1.QueryCapabilityCoordinateR\n" +
 	"coordinate\x12!\n" +
 	"\fcatalog_hash\x18\x02 \x01(\tR\vcatalogHash\x12'\n" +
-	"\x0fcapability_hash\x18\x03 \x01(\tR\x0ecapabilityHash\"\xf2\x01\n" +
+	"\x0fcapability_hash\x18\x03 \x01(\tR\x0ecapabilityHash\"\x8e\x02\n" +
 	"\x11QueryWorkerResult\x12G\n" +
 	"\x06loaded\x18\x01 \x01(\v2-.agentic.olap.query.v1.QueryCapabilityReceiptH\x00R\x06loaded\x12N\n" +
 	"\bunloaded\x18\x02 \x01(\v20.agentic.olap.query.v1.QueryCapabilityCoordinateH\x00R\bunloaded\x12<\n" +
-	"\x19validated_capability_hash\x18\x03 \x01(\tH\x00R\x17validatedCapabilityHashB\x06\n" +
+	"\x19validated_capability_hash\x18\x03 \x01(\tH\x00R\x17validatedCapabilityHash\x12\x1a\n" +
+	"\apresent\x18\x04 \x01(\bH\x00R\apresentB\x06\n" +
 	"\x04kind\"\xb6\x01\n" +
 	"\x16QueryCapabilityReceipt\x12P\n" +
 	"\n" +
@@ -2071,30 +2171,32 @@ const file_worker_proto_rawDesc = "" +
 	"uniqueKeys\"m\n" +
 	"\x12SourceSnapshotKeys\x12\x14\n" +
 	"\x05table\x18\x01 \x01(\tR\x05table\x12A\n" +
-	"\x04keys\x18\x02 \x03(\v2-.agentic.olap.governance.v1.SnapshotUniqueKeyR\x04keys\"\xba\x02\n" +
+	"\x04keys\x18\x02 \x03(\v2-.agentic.olap.governance.v1.SnapshotUniqueKeyR\x04keys\"\x83\x03\n" +
 	"\x16CandidateWorkerCommand\x12A\n" +
-	"\x04load\x18\x01 \x01(\v2+.agentic.olap.query.v1.CandidatePublicationH\x00R\x04load\x12M\n" +
-	"\x06unload\x18\x02 \x01(\v23.agentic.olap.query.v1.CandidatePublicationIdentityH\x00R\x06unload\x12C\n" +
+	"\x04load\x18\x01 \x01(\v2+.agentic.olap.query.v1.CandidatePublicationH\x00R\x04load\x12J\n" +
+	"\x06unload\x18\x02 \x01(\v20.agentic.olap.query.v1.WorkerPublicationIdentityH\x00R\x06unload\x12C\n" +
 	"\aresolve\x18\x03 \x01(\v2'.agentic.olap.query.v1.CandidateRequestH\x00R\aresolve\x12A\n" +
-	"\x06values\x18\x04 \x01(\v2'.agentic.olap.query.v1.CandidateRequestH\x00R\x06valuesB\x06\n" +
+	"\x06values\x18\x04 \x01(\v2'.agentic.olap.query.v1.CandidateRequestH\x00R\x06values\x12J\n" +
+	"\x06lookup\x18\x05 \x01(\v20.agentic.olap.query.v1.WorkerPublicationIdentityH\x00R\x06lookupB\x06\n" +
 	"\x04kind\"\xb5\x01\n" +
 	"\x14CandidatePublication\x12E\n" +
 	"\x05entry\x18\x01 \x01(\v2/.agentic.olap.governance.v1.PublishedQueryEntryR\x05entry\x12V\n" +
 	"\n" +
 	"executable\x18\x02 \x01(\v26.agentic.olap.governance.v1.PublishedExecutableCatalogR\n" +
-	"executable\"\xf0\x01\n" +
-	"\x1cCandidatePublicationIdentity\x12P\n" +
+	"executable\"\xed\x01\n" +
+	"\x19WorkerPublicationIdentity\x12P\n" +
 	"\n" +
 	"coordinate\x18\x01 \x01(\v20.agentic.olap.query.v1.QueryCapabilityCoordinateR\n" +
 	"coordinate\x12!\n" +
 	"\fcatalog_hash\x18\x02 \x01(\tR\vcatalogHash\x12'\n" +
 	"\x0fcapability_hash\x18\x03 \x01(\tR\x0ecapabilityHash\x122\n" +
-	"\x15semantic_catalog_hash\x18\x04 \x01(\tR\x13semanticCatalogHash\"\xcd\x02\n" +
-	"\x15CandidateWorkerResult\x12M\n" +
-	"\x06loaded\x18\x01 \x01(\v23.agentic.olap.query.v1.CandidatePublicationIdentityH\x00R\x06loaded\x12Q\n" +
-	"\bunloaded\x18\x02 \x01(\v23.agentic.olap.query.v1.CandidatePublicationIdentityH\x00R\bunloaded\x12H\n" +
+	"\x15semantic_catalog_hash\x18\x04 \x01(\tR\x13semanticCatalogHash\"\xe3\x02\n" +
+	"\x15CandidateWorkerResult\x12J\n" +
+	"\x06loaded\x18\x01 \x01(\v20.agentic.olap.query.v1.WorkerPublicationIdentityH\x00R\x06loaded\x12N\n" +
+	"\bunloaded\x18\x02 \x01(\v20.agentic.olap.query.v1.WorkerPublicationIdentityH\x00R\bunloaded\x12H\n" +
 	"\bresolved\x18\x03 \x01(\v2*.agentic.olap.query.v1.CandidateResolutionH\x00R\bresolved\x12@\n" +
-	"\x06values\x18\x04 \x01(\v2&.agentic.olap.query.v1.CandidateValuesH\x00R\x06valuesB\x06\n" +
+	"\x06values\x18\x04 \x01(\v2&.agentic.olap.query.v1.CandidateValuesH\x00R\x06values\x12\x1a\n" +
+	"\apresent\x18\x05 \x01(\bH\x00R\apresentB\x06\n" +
 	"\x04kindBp\n" +
 	"\x1dcom.olap.prototype.wire.queryP\x01ZMgithub.com/hanger-source/agentic-olap/service/internal/protocol/worker;workerb\x06proto3"
 
@@ -2113,7 +2215,7 @@ func file_worker_proto_rawDescGZIP() []byte {
 var file_worker_proto_msgTypes = make([]protoimpl.MessageInfo, 28)
 var file_worker_proto_goTypes = []any{
 	(*EngineWorkerCommand)(nil),                         // 0: agentic.olap.query.v1.EngineWorkerCommand
-	(*EngineUnload)(nil),                                // 1: agentic.olap.query.v1.EngineUnload
+	(*EngineCatalogReference)(nil),                      // 1: agentic.olap.query.v1.EngineCatalogReference
 	(*EngineInspect)(nil),                               // 2: agentic.olap.query.v1.EngineInspect
 	(*EngineExecute)(nil),                               // 3: agentic.olap.query.v1.EngineExecute
 	(*EngineWorkerResult)(nil),                          // 4: agentic.olap.query.v1.EngineWorkerResult
@@ -2135,7 +2237,7 @@ var file_worker_proto_goTypes = []any{
 	(*SourceSnapshotKeys)(nil),                          // 20: agentic.olap.query.v1.SourceSnapshotKeys
 	(*CandidateWorkerCommand)(nil),                      // 21: agentic.olap.query.v1.CandidateWorkerCommand
 	(*CandidatePublication)(nil),                        // 22: agentic.olap.query.v1.CandidatePublication
-	(*CandidatePublicationIdentity)(nil),                // 23: agentic.olap.query.v1.CandidatePublicationIdentity
+	(*WorkerPublicationIdentity)(nil),                   // 23: agentic.olap.query.v1.WorkerPublicationIdentity
 	(*CandidateWorkerResult)(nil),                       // 24: agentic.olap.query.v1.CandidateWorkerResult
 	nil,                                                 // 25: agentic.olap.query.v1.EngineInputResolution.TimingNanosEntry
 	nil,                                                 // 26: agentic.olap.query.v1.EngineExecutionDiagnostics.AliasMappingEntry
@@ -2164,67 +2266,70 @@ var file_worker_proto_goTypes = []any{
 }
 var file_worker_proto_depIdxs = []int32{
 	28, // 0: agentic.olap.query.v1.EngineWorkerCommand.load:type_name -> agentic.olap.governance.v1.PublishedExecutableCatalog
-	1,  // 1: agentic.olap.query.v1.EngineWorkerCommand.unload:type_name -> agentic.olap.query.v1.EngineUnload
+	1,  // 1: agentic.olap.query.v1.EngineWorkerCommand.unload:type_name -> agentic.olap.query.v1.EngineCatalogReference
 	2,  // 2: agentic.olap.query.v1.EngineWorkerCommand.inspect:type_name -> agentic.olap.query.v1.EngineInspect
 	3,  // 3: agentic.olap.query.v1.EngineWorkerCommand.execute:type_name -> agentic.olap.query.v1.EngineExecute
-	29, // 4: agentic.olap.query.v1.EngineInspect.intent:type_name -> agentic.olap.query.v1.QueryIntent
-	29, // 5: agentic.olap.query.v1.EngineExecute.intent:type_name -> agentic.olap.query.v1.QueryIntent
-	30, // 6: agentic.olap.query.v1.EngineExecute.bindings:type_name -> agentic.olap.query.v1.SourceBinding
-	31, // 7: agentic.olap.query.v1.EngineExecute.read_basis:type_name -> agentic.olap.query.v1.SourceVersion
-	5,  // 8: agentic.olap.query.v1.EngineWorkerResult.loaded:type_name -> agentic.olap.query.v1.EngineCatalogReceipt
-	5,  // 9: agentic.olap.query.v1.EngineWorkerResult.unloaded:type_name -> agentic.olap.query.v1.EngineCatalogReceipt
-	6,  // 10: agentic.olap.query.v1.EngineWorkerResult.resolved:type_name -> agentic.olap.query.v1.EngineInputResolution
-	8,  // 11: agentic.olap.query.v1.EngineWorkerResult.executed:type_name -> agentic.olap.query.v1.EngineExecutionPayload
-	32, // 12: agentic.olap.query.v1.EngineInputResolution.publication:type_name -> agentic.olap.query.v1.QueryCapabilityCoordinate
-	30, // 13: agentic.olap.query.v1.EngineInputResolution.binding:type_name -> agentic.olap.query.v1.SourceBinding
-	33, // 14: agentic.olap.query.v1.EngineInputResolution.connector_ref:type_name -> agentic.olap.semantic.v1.ConnectorRef
-	25, // 15: agentic.olap.query.v1.EngineInputResolution.timing_nanos:type_name -> agentic.olap.query.v1.EngineInputResolution.TimingNanosEntry
-	34, // 16: agentic.olap.query.v1.EngineInputResolution.explanation:type_name -> agentic.olap.query.v1.QueryExplanationView
-	26, // 17: agentic.olap.query.v1.EngineExecutionDiagnostics.alias_mapping:type_name -> agentic.olap.query.v1.EngineExecutionDiagnostics.AliasMappingEntry
-	32, // 18: agentic.olap.query.v1.EngineExecutionPayload.publication:type_name -> agentic.olap.query.v1.QueryCapabilityCoordinate
-	35, // 19: agentic.olap.query.v1.EngineExecutionPayload.result:type_name -> agentic.olap.query.v1.BusinessResult
-	36, // 20: agentic.olap.query.v1.EngineExecutionPayload.source_read_evidence:type_name -> agentic.olap.query.v1.SourceReadEvidence
-	27, // 21: agentic.olap.query.v1.EngineExecutionPayload.stage_nanos:type_name -> agentic.olap.query.v1.EngineExecutionPayload.StageNanosEntry
-	7,  // 22: agentic.olap.query.v1.EngineExecutionPayload.diagnostics:type_name -> agentic.olap.query.v1.EngineExecutionDiagnostics
-	34, // 23: agentic.olap.query.v1.EngineExecutionPayload.explanation:type_name -> agentic.olap.query.v1.QueryExplanationView
-	37, // 24: agentic.olap.query.v1.QueryWorkerCommand.load:type_name -> agentic.olap.governance.v1.PublishedQueryEntry
-	10, // 25: agentic.olap.query.v1.QueryWorkerCommand.unload:type_name -> agentic.olap.query.v1.QueryUnload
-	29, // 26: agentic.olap.query.v1.QueryWorkerCommand.validate:type_name -> agentic.olap.query.v1.QueryIntent
-	32, // 27: agentic.olap.query.v1.QueryUnload.coordinate:type_name -> agentic.olap.query.v1.QueryCapabilityCoordinate
-	12, // 28: agentic.olap.query.v1.QueryWorkerResult.loaded:type_name -> agentic.olap.query.v1.QueryCapabilityReceipt
-	32, // 29: agentic.olap.query.v1.QueryWorkerResult.unloaded:type_name -> agentic.olap.query.v1.QueryCapabilityCoordinate
-	32, // 30: agentic.olap.query.v1.QueryCapabilityReceipt.coordinate:type_name -> agentic.olap.query.v1.QueryCapabilityCoordinate
-	14, // 31: agentic.olap.query.v1.SourceWorkerCommand.discover:type_name -> agentic.olap.query.v1.SourceWorkerDiscover
-	38, // 32: agentic.olap.query.v1.SourceWorkerCommand.preview:type_name -> agentic.olap.governance.v1.SourceInspectionPreview
-	17, // 33: agentic.olap.query.v1.SourceWorkerCommand.verify:type_name -> agentic.olap.query.v1.SourceWorkerVerify
-	39, // 34: agentic.olap.query.v1.SourceWorkerDiscover.inspection:type_name -> agentic.olap.governance.v1.SourceInspectionSnapshot
-	15, // 35: agentic.olap.query.v1.SourceWorkerDiscover.temporal_keys:type_name -> agentic.olap.query.v1.SourceTemporalRules
-	16, // 36: agentic.olap.query.v1.SourceWorkerDiscover.snapshot_unique_keys:type_name -> agentic.olap.query.v1.SourceSnapshotRules
-	40, // 37: agentic.olap.query.v1.SourceTemporalRules.rules:type_name -> agentic.olap.governance.v1.JdbcTableConstraintsTemporalRule
-	41, // 38: agentic.olap.query.v1.SourceSnapshotRules.rules:type_name -> agentic.olap.governance.v1.SnapshotUniqueKeyRule
-	30, // 39: agentic.olap.query.v1.SourceWorkerVerify.binding:type_name -> agentic.olap.query.v1.SourceBinding
-	42, // 40: agentic.olap.query.v1.SourceWorkerVerify.declaration:type_name -> agentic.olap.governance.v1.SealedSourceDataset
-	19, // 41: agentic.olap.query.v1.SourceWorkerResult.discovery:type_name -> agentic.olap.query.v1.SourceWorkerDiscovery
-	43, // 42: agentic.olap.query.v1.SourceWorkerResult.preview:type_name -> agentic.olap.governance.v1.WarehousePreview
-	44, // 43: agentic.olap.query.v1.SourceWorkerDiscovery.snapshot:type_name -> agentic.olap.governance.v1.WarehouseSchemaSnapshot
-	20, // 44: agentic.olap.query.v1.SourceWorkerDiscovery.unique_keys:type_name -> agentic.olap.query.v1.SourceSnapshotKeys
-	45, // 45: agentic.olap.query.v1.SourceSnapshotKeys.keys:type_name -> agentic.olap.governance.v1.SnapshotUniqueKey
-	22, // 46: agentic.olap.query.v1.CandidateWorkerCommand.load:type_name -> agentic.olap.query.v1.CandidatePublication
-	23, // 47: agentic.olap.query.v1.CandidateWorkerCommand.unload:type_name -> agentic.olap.query.v1.CandidatePublicationIdentity
-	46, // 48: agentic.olap.query.v1.CandidateWorkerCommand.resolve:type_name -> agentic.olap.query.v1.CandidateRequest
-	46, // 49: agentic.olap.query.v1.CandidateWorkerCommand.values:type_name -> agentic.olap.query.v1.CandidateRequest
-	37, // 50: agentic.olap.query.v1.CandidatePublication.entry:type_name -> agentic.olap.governance.v1.PublishedQueryEntry
-	28, // 51: agentic.olap.query.v1.CandidatePublication.executable:type_name -> agentic.olap.governance.v1.PublishedExecutableCatalog
-	32, // 52: agentic.olap.query.v1.CandidatePublicationIdentity.coordinate:type_name -> agentic.olap.query.v1.QueryCapabilityCoordinate
-	23, // 53: agentic.olap.query.v1.CandidateWorkerResult.loaded:type_name -> agentic.olap.query.v1.CandidatePublicationIdentity
-	23, // 54: agentic.olap.query.v1.CandidateWorkerResult.unloaded:type_name -> agentic.olap.query.v1.CandidatePublicationIdentity
-	47, // 55: agentic.olap.query.v1.CandidateWorkerResult.resolved:type_name -> agentic.olap.query.v1.CandidateResolution
-	48, // 56: agentic.olap.query.v1.CandidateWorkerResult.values:type_name -> agentic.olap.query.v1.CandidateValues
-	57, // [57:57] is the sub-list for method output_type
-	57, // [57:57] is the sub-list for method input_type
-	57, // [57:57] is the sub-list for extension type_name
-	57, // [57:57] is the sub-list for extension extendee
-	0,  // [0:57] is the sub-list for field type_name
+	1,  // 4: agentic.olap.query.v1.EngineWorkerCommand.lookup:type_name -> agentic.olap.query.v1.EngineCatalogReference
+	29, // 5: agentic.olap.query.v1.EngineInspect.intent:type_name -> agentic.olap.query.v1.QueryIntent
+	29, // 6: agentic.olap.query.v1.EngineExecute.intent:type_name -> agentic.olap.query.v1.QueryIntent
+	30, // 7: agentic.olap.query.v1.EngineExecute.bindings:type_name -> agentic.olap.query.v1.SourceBinding
+	31, // 8: agentic.olap.query.v1.EngineExecute.read_basis:type_name -> agentic.olap.query.v1.SourceVersion
+	5,  // 9: agentic.olap.query.v1.EngineWorkerResult.loaded:type_name -> agentic.olap.query.v1.EngineCatalogReceipt
+	5,  // 10: agentic.olap.query.v1.EngineWorkerResult.unloaded:type_name -> agentic.olap.query.v1.EngineCatalogReceipt
+	6,  // 11: agentic.olap.query.v1.EngineWorkerResult.resolved:type_name -> agentic.olap.query.v1.EngineInputResolution
+	8,  // 12: agentic.olap.query.v1.EngineWorkerResult.executed:type_name -> agentic.olap.query.v1.EngineExecutionPayload
+	32, // 13: agentic.olap.query.v1.EngineInputResolution.publication:type_name -> agentic.olap.query.v1.QueryCapabilityCoordinate
+	30, // 14: agentic.olap.query.v1.EngineInputResolution.binding:type_name -> agentic.olap.query.v1.SourceBinding
+	33, // 15: agentic.olap.query.v1.EngineInputResolution.connector_ref:type_name -> agentic.olap.semantic.v1.ConnectorRef
+	25, // 16: agentic.olap.query.v1.EngineInputResolution.timing_nanos:type_name -> agentic.olap.query.v1.EngineInputResolution.TimingNanosEntry
+	34, // 17: agentic.olap.query.v1.EngineInputResolution.explanation:type_name -> agentic.olap.query.v1.QueryExplanationView
+	26, // 18: agentic.olap.query.v1.EngineExecutionDiagnostics.alias_mapping:type_name -> agentic.olap.query.v1.EngineExecutionDiagnostics.AliasMappingEntry
+	32, // 19: agentic.olap.query.v1.EngineExecutionPayload.publication:type_name -> agentic.olap.query.v1.QueryCapabilityCoordinate
+	35, // 20: agentic.olap.query.v1.EngineExecutionPayload.result:type_name -> agentic.olap.query.v1.BusinessResult
+	36, // 21: agentic.olap.query.v1.EngineExecutionPayload.source_read_evidence:type_name -> agentic.olap.query.v1.SourceReadEvidence
+	27, // 22: agentic.olap.query.v1.EngineExecutionPayload.stage_nanos:type_name -> agentic.olap.query.v1.EngineExecutionPayload.StageNanosEntry
+	7,  // 23: agentic.olap.query.v1.EngineExecutionPayload.diagnostics:type_name -> agentic.olap.query.v1.EngineExecutionDiagnostics
+	34, // 24: agentic.olap.query.v1.EngineExecutionPayload.explanation:type_name -> agentic.olap.query.v1.QueryExplanationView
+	37, // 25: agentic.olap.query.v1.QueryWorkerCommand.load:type_name -> agentic.olap.governance.v1.PublishedQueryEntry
+	10, // 26: agentic.olap.query.v1.QueryWorkerCommand.unload:type_name -> agentic.olap.query.v1.QueryUnload
+	29, // 27: agentic.olap.query.v1.QueryWorkerCommand.validate:type_name -> agentic.olap.query.v1.QueryIntent
+	23, // 28: agentic.olap.query.v1.QueryWorkerCommand.lookup:type_name -> agentic.olap.query.v1.WorkerPublicationIdentity
+	32, // 29: agentic.olap.query.v1.QueryUnload.coordinate:type_name -> agentic.olap.query.v1.QueryCapabilityCoordinate
+	12, // 30: agentic.olap.query.v1.QueryWorkerResult.loaded:type_name -> agentic.olap.query.v1.QueryCapabilityReceipt
+	32, // 31: agentic.olap.query.v1.QueryWorkerResult.unloaded:type_name -> agentic.olap.query.v1.QueryCapabilityCoordinate
+	32, // 32: agentic.olap.query.v1.QueryCapabilityReceipt.coordinate:type_name -> agentic.olap.query.v1.QueryCapabilityCoordinate
+	14, // 33: agentic.olap.query.v1.SourceWorkerCommand.discover:type_name -> agentic.olap.query.v1.SourceWorkerDiscover
+	38, // 34: agentic.olap.query.v1.SourceWorkerCommand.preview:type_name -> agentic.olap.governance.v1.SourceInspectionPreview
+	17, // 35: agentic.olap.query.v1.SourceWorkerCommand.verify:type_name -> agentic.olap.query.v1.SourceWorkerVerify
+	39, // 36: agentic.olap.query.v1.SourceWorkerDiscover.inspection:type_name -> agentic.olap.governance.v1.SourceInspectionSnapshot
+	15, // 37: agentic.olap.query.v1.SourceWorkerDiscover.temporal_keys:type_name -> agentic.olap.query.v1.SourceTemporalRules
+	16, // 38: agentic.olap.query.v1.SourceWorkerDiscover.snapshot_unique_keys:type_name -> agentic.olap.query.v1.SourceSnapshotRules
+	40, // 39: agentic.olap.query.v1.SourceTemporalRules.rules:type_name -> agentic.olap.governance.v1.JdbcTableConstraintsTemporalRule
+	41, // 40: agentic.olap.query.v1.SourceSnapshotRules.rules:type_name -> agentic.olap.governance.v1.SnapshotUniqueKeyRule
+	30, // 41: agentic.olap.query.v1.SourceWorkerVerify.binding:type_name -> agentic.olap.query.v1.SourceBinding
+	42, // 42: agentic.olap.query.v1.SourceWorkerVerify.declaration:type_name -> agentic.olap.governance.v1.SealedSourceDataset
+	19, // 43: agentic.olap.query.v1.SourceWorkerResult.discovery:type_name -> agentic.olap.query.v1.SourceWorkerDiscovery
+	43, // 44: agentic.olap.query.v1.SourceWorkerResult.preview:type_name -> agentic.olap.governance.v1.WarehousePreview
+	44, // 45: agentic.olap.query.v1.SourceWorkerDiscovery.snapshot:type_name -> agentic.olap.governance.v1.WarehouseSchemaSnapshot
+	20, // 46: agentic.olap.query.v1.SourceWorkerDiscovery.unique_keys:type_name -> agentic.olap.query.v1.SourceSnapshotKeys
+	45, // 47: agentic.olap.query.v1.SourceSnapshotKeys.keys:type_name -> agentic.olap.governance.v1.SnapshotUniqueKey
+	22, // 48: agentic.olap.query.v1.CandidateWorkerCommand.load:type_name -> agentic.olap.query.v1.CandidatePublication
+	23, // 49: agentic.olap.query.v1.CandidateWorkerCommand.unload:type_name -> agentic.olap.query.v1.WorkerPublicationIdentity
+	46, // 50: agentic.olap.query.v1.CandidateWorkerCommand.resolve:type_name -> agentic.olap.query.v1.CandidateRequest
+	46, // 51: agentic.olap.query.v1.CandidateWorkerCommand.values:type_name -> agentic.olap.query.v1.CandidateRequest
+	23, // 52: agentic.olap.query.v1.CandidateWorkerCommand.lookup:type_name -> agentic.olap.query.v1.WorkerPublicationIdentity
+	37, // 53: agentic.olap.query.v1.CandidatePublication.entry:type_name -> agentic.olap.governance.v1.PublishedQueryEntry
+	28, // 54: agentic.olap.query.v1.CandidatePublication.executable:type_name -> agentic.olap.governance.v1.PublishedExecutableCatalog
+	32, // 55: agentic.olap.query.v1.WorkerPublicationIdentity.coordinate:type_name -> agentic.olap.query.v1.QueryCapabilityCoordinate
+	23, // 56: agentic.olap.query.v1.CandidateWorkerResult.loaded:type_name -> agentic.olap.query.v1.WorkerPublicationIdentity
+	23, // 57: agentic.olap.query.v1.CandidateWorkerResult.unloaded:type_name -> agentic.olap.query.v1.WorkerPublicationIdentity
+	47, // 58: agentic.olap.query.v1.CandidateWorkerResult.resolved:type_name -> agentic.olap.query.v1.CandidateResolution
+	48, // 59: agentic.olap.query.v1.CandidateWorkerResult.values:type_name -> agentic.olap.query.v1.CandidateValues
+	60, // [60:60] is the sub-list for method output_type
+	60, // [60:60] is the sub-list for method input_type
+	60, // [60:60] is the sub-list for extension type_name
+	60, // [60:60] is the sub-list for extension extendee
+	0,  // [0:60] is the sub-list for field type_name
 }
 
 func init() { file_worker_proto_init() }
@@ -2237,23 +2342,27 @@ func file_worker_proto_init() {
 		(*EngineWorkerCommand_Unload)(nil),
 		(*EngineWorkerCommand_Inspect)(nil),
 		(*EngineWorkerCommand_Execute)(nil),
+		(*EngineWorkerCommand_Lookup)(nil),
 	}
 	file_worker_proto_msgTypes[4].OneofWrappers = []any{
 		(*EngineWorkerResult_Loaded)(nil),
 		(*EngineWorkerResult_Unloaded)(nil),
 		(*EngineWorkerResult_Resolved)(nil),
 		(*EngineWorkerResult_Executed)(nil),
+		(*EngineWorkerResult_Present)(nil),
 	}
 	file_worker_proto_msgTypes[7].OneofWrappers = []any{}
 	file_worker_proto_msgTypes[9].OneofWrappers = []any{
 		(*QueryWorkerCommand_Load)(nil),
 		(*QueryWorkerCommand_Unload)(nil),
 		(*QueryWorkerCommand_Validate)(nil),
+		(*QueryWorkerCommand_Lookup)(nil),
 	}
 	file_worker_proto_msgTypes[11].OneofWrappers = []any{
 		(*QueryWorkerResult_Loaded)(nil),
 		(*QueryWorkerResult_Unloaded)(nil),
 		(*QueryWorkerResult_ValidatedCapabilityHash)(nil),
+		(*QueryWorkerResult_Present)(nil),
 	}
 	file_worker_proto_msgTypes[13].OneofWrappers = []any{
 		(*SourceWorkerCommand_Discover)(nil),
@@ -2270,12 +2379,14 @@ func file_worker_proto_init() {
 		(*CandidateWorkerCommand_Unload)(nil),
 		(*CandidateWorkerCommand_Resolve)(nil),
 		(*CandidateWorkerCommand_Values)(nil),
+		(*CandidateWorkerCommand_Lookup)(nil),
 	}
 	file_worker_proto_msgTypes[24].OneofWrappers = []any{
 		(*CandidateWorkerResult_Loaded)(nil),
 		(*CandidateWorkerResult_Unloaded)(nil),
 		(*CandidateWorkerResult_Resolved)(nil),
 		(*CandidateWorkerResult_Values)(nil),
+		(*CandidateWorkerResult_Present)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
