@@ -36,15 +36,8 @@ object QueryScriptProto {
         } }.build()
     }
 
-    private fun unicode(text: String, path: List<String>): String = text.also {
-        var index = 0
-        while (index < text.length) {
-            val character = text[index++]
-            if (character.isHighSurrogate()) {
-                if (index == text.length || !text[index++].isLowSurrogate()) throw ScriptOutputRepresentationException(path)
-            } else if (character.isLowSurrogate()) throw ScriptOutputRepresentationException(path)
-        }
-    }
+    private fun unicode(text: String, path: List<String>): String = try { ProtoUnicode.requireText(text, path) }
+        catch (failure: ProtoStringRepresentationException) { throw ScriptOutputRepresentationException(failure.fieldPath) }
     private fun reference(v: ScriptValue.ReferenceValue): ScriptReference = ScriptReference.newBuilder().apply { when(v) {
         is ScriptValue.QueryReferenceValue -> setQuery(QueryProto.toProto(v.reference))
         is ScriptValue.ResultReferenceValue -> setResult(QueryProto.toProto(v.reference))

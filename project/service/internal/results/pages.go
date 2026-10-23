@@ -215,7 +215,7 @@ func (s Store) rows(ctx context.Context, ref Reference, record *q.SavedQueryResu
 	return page, nil
 }
 func savedValue(record *q.SavedQueryResultRecord, reference *q.ResultValueReference) (*q.BusinessValue, error) {
-	if reference == nil || reference.RowIndex < 0 || len(reference.Path) > 256 || !hashPattern.MatchString(reference.Sha256) {
+	if reference == nil || reference.RowIndex < 0 || !hashPattern.MatchString(reference.Sha256) {
 		return nil, errors.New("exact result value reference is required")
 	}
 	result := record.Receipt.Result

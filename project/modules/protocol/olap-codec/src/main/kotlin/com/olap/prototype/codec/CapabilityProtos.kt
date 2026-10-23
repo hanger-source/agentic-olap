@@ -1,15 +1,19 @@
 package com.olap.prototype.codec
 
 import com.google.protobuf.Any as ProtoAny
+import com.olap.prototype.contract.InputContractException
 import com.olap.prototype.dsl.transport.CapabilityCodec
 
 /** 每次调用只接受操作注册的正式消息；此处只路由，不解释领域规则。 */
 class CapabilityProtos(private val maximumRequestBytes: Int, private val maximumInputDepth: Int) : CapabilityCodec {
     init { require(maximumRequestBytes > 0 && maximumInputDepth > 0) }
-    override fun encodeRequest(operationId: String, request: Any): ByteArray = when {
+    override fun encodeRequest(operationId: String, request: Any): ByteArray = try { when {
         GovernanceCapabilityCodec.supports(operationId) -> GovernanceCapabilityCodec.encodeRequest(operationId, request, maximumRequestBytes)
         QueryCapabilityCodec.supports(operationId) -> QueryCapabilityCodec.encodeRequest(operationId, request, maximumRequestBytes)
         else -> throw IllegalArgumentException("unregistered capability: $operationId")
+    } } catch (failure: ProtoStringRepresentationException) {
+        throw InputContractException.violation(InputContractException.Rule.DECODE_INPUT, failure.fieldPath,
+            requireNotNull(failure.message), "WELL_FORMED_UNICODE_TEXT", "UNPAIRED_UTF16_SURROGATE")
     }
     override fun decodeResult(operationId: String, bytes: ByteArray): Any = when {
         GovernanceCapabilityCodec.supports(operationId) -> GovernanceCapabilityCodec.decodeResult(operationId, bytes)

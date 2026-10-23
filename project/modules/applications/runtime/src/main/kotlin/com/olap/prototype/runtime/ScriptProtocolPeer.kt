@@ -34,10 +34,28 @@ internal class ScriptProtocolPeer(
     }
     private class Running(val requestId: String, remainingMillis: Long) {
         val deadline = System.nanoTime() + Math.multiplyExact(remainingMillis, 1_000_000L)
-        @Volatile var thread: Thread? = null
+        private var thread: Thread? = null
         @Volatile var cancelled = false
         @Volatile var evaluating = false
-        fun cancel() { cancelled = true; thread?.interrupt() }
+
+        @Synchronized fun bindThread() {
+            check(thread == null) { "script request already owns an evaluation thread" }
+            thread = Thread.currentThread()
+            if (cancelled) thread?.interrupt()
+        }
+
+        @Synchronized fun ownsCurrentThread(): Boolean = thread === Thread.currentThread()
+
+        @Synchronized fun cancel() { cancelled = true; thread?.interrupt() }
+
+        @Synchronized fun releaseThread() {
+            check(thread == null || thread === Thread.currentThread()) { "script request must release its own evaluation thread" }
+            thread = null
+            evaluating = false
+            // 与cancel处于同一临界区，旧请求不能在这里清理后再中断长期会话线程。
+            Thread.interrupted()
+        }
+
         fun remainingMillis(): Long = TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime()).also {
             if (it <= 0 || cancelled) throw java.util.concurrent.CancellationException("script request deadline ended or request was cancelled")
         }
@@ -63,7 +81,7 @@ internal class ScriptProtocolPeer(
 
     fun beginEvaluation() {
         val running = checkNotNull(active.get()) { "session has no active execution" }
-        check(Thread.currentThread() === running.thread && !running.evaluating) { "evaluation must begin on its active execution thread" }
+        check(running.ownsCurrentThread() && !running.evaluating) { "evaluation must begin on its active execution thread" }
         running.remainingMillis()
         running.evaluating = true
     }
@@ -79,7 +97,7 @@ internal class ScriptProtocolPeer(
 
     private fun evaluation(): Running {
         val running = active.get()
-        if (running == null || !running.evaluating || Thread.currentThread() !== running.thread) {
+        if (running == null || !running.evaluating || !running.ownsCurrentThread()) {
             workerFault(outputScope.get()?.requestId.orEmpty(), "SCRIPT_CAPABILITY_OUTSIDE_ACTIVE_EXECUTION")
             throw IllegalStateException("formal calls and explicit output require the active session evaluation thread")
         }
@@ -156,7 +174,7 @@ internal class ScriptProtocolPeer(
 
     private fun execute(next: Inbound.Call, handler: (ScriptRequest, () -> Unit) -> ScriptResponse) {
         val running = next.running
-        running.thread = Thread.currentThread()
+        running.bindThread()
         val scope = OutputScope(running.requestId)
         outputScope.set(scope)
         try {
@@ -167,18 +185,15 @@ internal class ScriptProtocolPeer(
                 synchronized(writeLock) { scope.open = false }
                 outputScope.remove()
             }
-            Thread.interrupted()
-            running.thread = null
+            running.releaseThread()
             active.compareAndSet(running, null)
             if (!response.sessionUsable) retiring.set(true)
             send(Frame.newBuilder().setScriptResponse(response.toBuilder().setSessionUsable(!retiring.get())).build())
         } finally {
             synchronized(writeLock) { scope.open = false }
             outputScope.remove()
-            running.thread = null
-            running.evaluating = false
+            running.releaseThread()
             active.compareAndSet(running, null)
-            Thread.interrupted()
         }
     }
 

@@ -15,6 +15,7 @@ object ProtoBytes {
     fun digest(bytes: ByteArray): String = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
     fun digest(message: Message): String = digest(encode(message, message.serializedSize))
     fun encode(message: Message, maximumBytes: Int = message.serializedSize): ByteArray {
+        ProtoUnicode.requireMessage(message)
         val size = message.serializedSize
         require(size >= 0 && maximumBytes >= 0 && size <= maximumBytes) { "protobuf message exceeds byte budget" }
         val bytes = ByteArray(size)
@@ -26,6 +27,7 @@ object ProtoBytes {
         return bytes
     }
     fun pack(message: Message, maximumBytes: Int = message.serializedSize): Any {
+        ProtoUnicode.requireMessage(message)
         val size = message.serializedSize
         require(size >= 0 && maximumBytes >= 0 && size <= maximumBytes) { "protobuf message exceeds byte budget" }
         val output = ByteString.newOutput(size)

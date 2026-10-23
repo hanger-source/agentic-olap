@@ -36,7 +36,7 @@ sealed interface ResultMetadataContent {
 data class ResultMetadataPage(val resultReference: QueryResultReference, val section: ResultMetadataSection, val content: ResultMetadataContent,
     val offset: Int, val totalItems: Int, val nextOffset: Int?)
 data class ResultValueReference(val rowIndex: Int, val columnId: String, val path: List<Int>, val sha256: String) {
-    init { require(rowIndex >= 0 && columnId.isNotBlank() && path.size <= 256 && path.all { it >= 0 } && sha256.matches(Regex("[0-9a-f]{64}"))) }
+    init { require(rowIndex >= 0 && columnId.isNotBlank() && path.all { it >= 0 } && sha256.matches(Regex("[0-9a-f]{64}"))) }
 }
 sealed interface ResultValueView {
     data class Complete(val value: ExecutableBusinessResult.Value) : ResultValueView

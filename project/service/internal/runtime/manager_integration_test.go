@@ -3,9 +3,11 @@
 package runtime
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +18,7 @@ import (
 	pb "github.com/hanger-source/agentic-olap/service/internal/protocol"
 	gov "github.com/hanger-source/agentic-olap/service/internal/protocol/governance"
 	query "github.com/hanger-source/agentic-olap/service/internal/protocol/query"
+	"google.golang.org/protobuf/encoding/protodelim"
 	"google.golang.org/protobuf/types/known/anypb"
 )
 
@@ -266,6 +269,69 @@ func TestActualWorkerCancellationReclaimsAdmissionAndProcess(t *testing.T) {
 	if actualWorker(t, m).cmd.Process.Pid == pid {
 		t.Fatal("subsequent request reused terminated worker")
 	}
+}
+
+func TestActualMetadataCancellationKeepsSharedChannelUsable(t *testing.T) {
+	m := actualRuntime(t, 1)
+	p := m.metadata
+	pid := p.cmd.Process.Pid
+	var outgoing bytes.Buffer
+	responses := make([]chan *pb.Response, 64)
+	for index := range responses {
+		id := fmt.Sprintf("metadata-cancel-%d", index)
+		responses[index] = p.register(id)
+		request := &pb.Request{RequestId: id, RemainingMillis: 10000, Operation: "list-data-sources", PayloadJson: []byte(`{}`),
+			Principal: &pb.Principal{Subject: trialPrincipal.Subject, Scopes: trialPrincipal.Scopes}}
+		for _, frame := range []*pb.Frame{
+			{Body: &pb.Frame_Request{Request: request}},
+			{Body: &pb.Frame_Cancel{Cancel: &pb.Cancel{RequestId: id}}},
+		} {
+			if _, err := protodelim.MarshalTo(&outgoing, frame); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	// 连续提交正式帧，使实际 reader 与虚拟任务调度竞争；不替换 JVM 或插入生产时序钩子。
+	func() {
+		<-p.write
+		defer func() { p.write <- struct{}{} }()
+		written, err := p.input.Write(outgoing.Bytes())
+		if err != nil || written != outgoing.Len() {
+			t.Fatalf("actual metadata request/cancel transfer failed: bytes=%d/%d error=%v", written, outgoing.Len(), err)
+		}
+	}()
+	beforeHandling := 0
+	deadline := time.NewTimer(15 * time.Second)
+	defer deadline.Stop()
+	for index, pending := range responses {
+		select {
+		case response := <-pending:
+			if response.RequestId != fmt.Sprintf("metadata-cancel-%d", index) {
+				t.Fatalf("cancellation response changed request ownership: %+v", response)
+			}
+			if !response.Success {
+				var failure struct{ Code, Message string }
+				if err := json.Unmarshal(response.ErrorJson, &failure); err != nil || failure.Code == "" {
+					t.Fatalf("metadata cancellation omitted its formal failure: %s; %v", response.ErrorJson, err)
+				}
+				if failure.Code == "CANCELLED" && failure.Message == "request cancelled before application handling began" {
+					beforeHandling++
+				}
+			}
+		case <-p.done:
+			t.Fatalf("ordinary request cancellation terminated shared metadata: %v", p.err())
+		case <-deadline.C:
+			t.Fatal("actual metadata did not finish its accepted request/cancel frames")
+		}
+	}
+	if beforeHandling == 0 {
+		t.Fatal("actual scheduling did not expose a cancellation before handler entry; this run does not prove that boundary")
+	}
+	capabilityRequest(t, m)
+	if !p.alive() || m.metadata != p || m.metadata.cmd.Process.Pid != pid {
+		t.Fatal("subsequent formal reading did not retain the same shared metadata JVM")
+	}
+	t.Logf("actual metadata returned %d cancellations before handler entry and retained JVM %d", beforeHandling, pid)
 }
 
 func TestActualMetadataExitIsTerminalAndOwnedWorkersClose(t *testing.T) {

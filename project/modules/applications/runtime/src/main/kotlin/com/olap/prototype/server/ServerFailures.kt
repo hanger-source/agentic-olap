@@ -3,6 +3,7 @@ package com.olap.prototype.server
 import com.fasterxml.jackson.databind.JsonMappingException
 import com.fasterxml.jackson.databind.JsonNode
 import com.olap.prototype.connector.*
+import com.olap.prototype.codec.ProtoStringRepresentationException
 import com.olap.prototype.contract.ContractSelectionException
 import com.olap.prototype.contract.InputContractException
 import com.olap.prototype.contract.ProducerContractException
@@ -23,6 +24,8 @@ internal object ServerFailures {
 
     fun project(failure: Throwable, stage: String, unknownCode: String): Projection {
         if (failure is RemoteWorkers.WorkerFailure) return worker(failure, stage, unknownCode)
+        if (failure is ProtoStringRepresentationException) return Projection("ENCODE_MODEL", "CONTRACT_VIOLATION", requireNotNull(failure.message),
+            mapOf("fieldPath" to failure.fieldPath, "expectedKind" to "WELL_FORMED_UNICODE_TEXT", "actualKind" to "UNPAIRED_UTF16_SURROGATE"))
         if (failure is InputContractException) return Projection(failure.rule.stage, failure.rule.code, failure.message, failure.details)
         val actualStage = if (failure is EngineExecutionException) failure.stage else stage
         val code = if (failure is EngineExecutionException) failure.code else unknownCode
@@ -115,6 +118,10 @@ internal object ServerFailures {
         }
         val projected = when {
             code == "CANCELLED" -> Projection(actualStage, code, "operation was cancelled", emptyMap())
+            code == "CONTRACT_VIOLATION" && actualStage == "ENCODE_MODEL" -> Projection(actualStage, code, error.required("message").textValue(),
+                select(error.path("evidenceContext"), "fieldPath", "expectedKind", "actualKind"))
+            code == "WORKER_RESULT_ENCODING_FAILED" -> Projection(actualStage, code, "source execution succeeded but worker result encoding failed",
+                select(error.path("evidenceContext"), "fieldPath", "expectedKind", "actualKind"))
             code == "CONTRACT_VIOLATION" -> Projection(actualStage, code, error.required("message").textValue(), emptyMap())
             code == "RELATION_INPUT_CONTRACT_MISMATCH" -> Projection(actualStage, code, error.required("message").textValue(),
                 select(facts, "scope", "inputScope", "requirements", "actualKey", "actualOutputs"))

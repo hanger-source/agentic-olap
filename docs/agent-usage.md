@@ -101,7 +101,7 @@ page
 
 每次 MCP HTTP 请求承载一份 JSON-RPC 请求；多步业务可以在一个片段内组织，也可以在同一会话继续，不支持 JSON-RPC batch。工具调用的大响应保留原成功／失败封套并给出读取入口。协议初始化、工具发现等响应没有通用提示结果类型，超限时使用 JSON-RPC 交付提示 `-32001`，在 `error.data` 给出原 `originalSuccess` 及保存位置、读取入口；不会把工具列表替换为空列表。
 
-JSON 输入预算拒绝使用 `JSON_INPUT_RESOURCE_LIMIT`；诊断给出 `resource/limit/observed`、字段路径及期望与实际形态。`observed` 对节点与深度表示首次越界的观察值，不是完整树总量。普通十进制无法精确表示时使用 `SCRIPT_VALUE_DECIMAL_REPRESENTATION`，不解释为 precision 或 scale 额度不足。未配对的 UTF-16 代理项使用 `SCRIPT_OUTPUT_REPRESENTATION`，避免编码时替换文本或对象键。参数解码失败时脚本正文尚未执行，能力调用列表为空；后续失败不抹去已经完成的调用。
+JSON 输入预算拒绝使用 `JSON_INPUT_RESOURCE_LIMIT`；诊断给出 `resource/limit/observed`、字段路径及期望与实际形态。`observed` 对节点与深度表示首次越界的观察值，不是完整树总量。普通十进制无法精确表示时使用 `SCRIPT_VALUE_DECIMAL_REPRESENTATION`，不解释为 precision 或 scale 额度不足。JSON 输入中的未配对 Unicode 转义在解码时拒绝；正式请求模型中不可无损编码的字符串返回 `INVALID_REQUEST` 和字段路径，尚未发送该能力调用。显式输出中的未配对 UTF-16 代理项使用 `SCRIPT_OUTPUT_REPRESENTATION`。正式响应模型编码失败使用 `CONTRACT_VIOLATION/ENCODE_MODEL`；来源已执行时保留 `WORKER_RESULT_ENCODING_FAILED` 和来源事实。各边界均不替换文本或对象键。参数解码失败时脚本正文尚未执行，能力调用列表为空；后续失败不抹去已经完成的调用。
 
 合法返回只因完整消息较大时保持原程序结局，自动保存负责交付；实际不能无损表示或完成正式编码时才返回 OUTPUT 失败，分别保留 `SCRIPT_OUTPUT_REPRESENTATION` 或 `SCRIPT_OUTPUT_ENCODING_FAILED`，不返回成功但缺少结果的矛盾状态。已完成的正式调用及效果引用仍按实际保留，不重执行。
 

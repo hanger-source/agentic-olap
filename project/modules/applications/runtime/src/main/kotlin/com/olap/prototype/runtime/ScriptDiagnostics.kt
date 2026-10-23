@@ -2,6 +2,7 @@ package com.olap.prototype.runtime
 
 import com.olap.prototype.codec.JsonDocumentException
 import com.olap.prototype.codec.ScriptOutputRepresentationException
+import com.olap.prototype.codec.ProtoStringRepresentationException
 import com.olap.prototype.contract.InputContractException
 import com.olap.prototype.dsl.ScriptValueException
 import com.olap.prototype.dsl.transport.CapabilityFailureException
@@ -58,6 +59,10 @@ internal object ScriptDiagnostics {
         if (output != null) return result.setCode("SCRIPT_OUTPUT_REPRESENTATION").setStage("OUTPUT").setMessage(output.message)
             .addAllFieldPath(output.fieldPath).setExpected("WELL_FORMED_UNICODE_TEXT").setActual("UNPAIRED_UTF16_SURROGATE")
         val encoding = chain.filterIsInstance<ScriptEmissionEncodingException>().firstOrNull()
+        val representation = chain.filterIsInstance<ProtoStringRepresentationException>().firstOrNull()
+        if (encoding != null && representation != null) return result.setCode("SCRIPT_OUTPUT_REPRESENTATION").setStage("OUTPUT")
+            .setMessage(requireNotNull(representation.message)).addAllFieldPath(representation.fieldPath)
+            .setExpected("WELL_FORMED_UNICODE_TEXT").setActual("UNPAIRED_UTF16_SURROGATE")
         if (encoding != null) return result.setCode("SCRIPT_OUTPUT_ENCODING_FAILED").setStage("OUTPUT").setMessage(encoding.message)
         val value = chain.filterIsInstance<ScriptValueException>().firstOrNull()
         if (value != null) return result.setCode(value.code).setStage(stage).setMessage(value.message)

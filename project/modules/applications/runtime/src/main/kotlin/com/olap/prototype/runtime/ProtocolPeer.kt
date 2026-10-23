@@ -1,5 +1,6 @@
 package com.olap.prototype.runtime
 
+import com.google.protobuf.ByteString
 import com.olap.prototype.protocol.*
 import java.io.InputStream
 import java.io.OutputStream
@@ -26,9 +27,23 @@ class ProtocolPeer(
     private val writeLock = Any()
 
     private class Running {
-        @Volatile var thread: Thread? = null
-        @Volatile var cancelled: Boolean = false
-        fun cancel() { cancelled = true; thread?.interrupt() }
+        private var thread: Thread? = null
+        private var cancelled = false
+
+        @Synchronized fun begin(): Boolean {
+            check(thread == null) { "request already owns an execution thread" }
+            if (cancelled) return false
+            thread = Thread.currentThread()
+            return true
+        }
+
+        @Synchronized fun cancel() { cancelled = true; thread?.interrupt() }
+
+        @Synchronized fun finish() {
+            check(thread == null || thread === Thread.currentThread()) { "request must release its own execution thread" }
+            thread = null
+            Thread.interrupted()
+        }
     }
 
     fun serve(handler: (Request) -> Response) {
@@ -43,12 +58,17 @@ class ProtocolPeer(
                     val running = Running()
                     check(active.putIfAbsent(request.requestId, running) == null) { "duplicate request identity" }
                     executor.submit {
-                        running.thread = Thread.currentThread()
                         try {
-                            if (running.cancelled) throw java.util.concurrent.CancellationException()
-                            val response = handler(request)
+                            val response = try {
+                                if (running.begin()) handler(request)
+                                else Response.newBuilder().setRequestId(request.requestId).setSuccess(false)
+                                    .setErrorJson(ByteString.copyFromUtf8("""{"stage":"APPLICATION","code":"CANCELLED","message":"request cancelled before application handling began"}"""))
+                                    .build()
+                            } finally {
+                                // 取消与线程摘除互斥；已取得的线程引用不能在回执交付阶段再次中断它。
+                                running.finish()
+                            }
                             // 不在领域提交后再次核取消并伪造未执行结果。
-                            Thread.interrupted()
                             send(Frame.newBuilder().setResponse(response).build())
                         } catch (failure: Throwable) {
                             org.slf4j.LoggerFactory.getLogger(ProtocolPeer::class.java)

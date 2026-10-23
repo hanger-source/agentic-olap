@@ -2,8 +2,10 @@ package runtime
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"sync"
@@ -209,6 +211,7 @@ func (m *Manager) Script(ctx context.Context, principal Principal, submission Sc
 	}
 	var session *scriptSession
 	var selected *scriptSlot
+	newSessionID := ""
 	if submission.SessionID != "" {
 		session = p.sessions[submission.SessionID]
 		if session == nil || session.owner != owner {
@@ -245,6 +248,13 @@ func (m *Manager) Script(ctx context.Context, principal Principal, submission Sc
 			m.mu.Unlock()
 			return nil, scriptError("SCRIPT_SESSION_CAPACITY_EXHAUSTED", "all script worker slots belong to sessions; close a session before creating another", "", submission.ExecutionID, "")
 		}
+		identity := make([]byte, 16)
+		if _, err := rand.Read(identity); err != nil {
+			p.mu.Unlock()
+			m.mu.Unlock()
+			return nil, fmt.Errorf("script session identity could not be generated: %w", err)
+		}
+		newSessionID = "session-" + hex.EncodeToString(identity)
 	}
 	select {
 	case m.capacity <- struct{}{}:
@@ -254,7 +264,7 @@ func (m *Manager) Script(ctx context.Context, principal Principal, submission Sc
 		return nil, scriptError("SCRIPT_EXECUTION_CAPACITY_EXHAUSTED", "script execution admission is busy", submission.SessionID, submission.ExecutionID, "")
 	}
 	if session == nil {
-		session = &scriptSession{id: fmt.Sprintf("session-%d", m.sequence.Add(1)), owner: owner, state: "STARTING", slot: selected}
+		session = &scriptSession{id: newSessionID, owner: owner, state: "STARTING", slot: selected}
 		selected.session = session
 		p.sessions[session.id] = session
 	} else {

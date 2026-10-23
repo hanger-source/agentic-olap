@@ -32,6 +32,13 @@ func (e *InputError) Stage() string {
 	return "DECODE_INPUT"
 }
 func (e *InputError) Details() map[string]any {
+	var unicode *jsonUnicodeError
+	if errors.As(e.Cause, &unicode) {
+		return map[string]any{
+			"fieldPath": append([]any{}, unicode.fieldPath...),
+			"expected":  "WELL_FORMED_UNICODE_TEXT", "actual": "UNPAIRED_UNICODE_SURROGATE",
+		}
+	}
 	var budget *jsonInputResourceError
 	if !errors.As(e.Cause, &budget) {
 		return map[string]any{}
@@ -41,6 +48,12 @@ func (e *InputError) Details() map[string]any {
 		"fieldPath": append([]any{}, budget.fieldPath...),
 		"expected":  fmt.Sprintf("%s<=%d", budget.resource, budget.limit), "actual": strconv.FormatInt(budget.observed, 10),
 	}
+}
+
+type jsonUnicodeError struct{ fieldPath []any }
+
+func (e *jsonUnicodeError) Error() string {
+	return "JSON string contains an unpaired Unicode surrogate escape"
 }
 
 type jsonInputResourceError struct {
@@ -66,6 +79,16 @@ func Decode(raw []byte, depth, nodes int) (any, error) {
 	}
 	d := json.NewDecoder(bytes.NewReader(raw))
 	d.UseNumber()
+	token := func(path []any) (json.Token, error) {
+		start := d.InputOffset()
+		value, err := d.Token()
+		if err == nil {
+			if _, text := value.(string); text {
+				err = requirePairedSurrogates(raw[start:d.InputOffset()], path)
+			}
+		}
+		return value, err
+	}
 	observedNodes := int64(0)
 	var read func(int64, []any) (any, error)
 	read = func(level int64, path []any) (any, error) {
@@ -76,7 +99,7 @@ func Decode(raw []byte, depth, nodes int) (any, error) {
 		if observedNodes > int64(nodes) {
 			return nil, inputResourceError("JSON_INPUT_NODES", int64(nodes), observedNodes, path)
 		}
-		t, err := d.Token()
+		t, err := token(path)
 		if err != nil {
 			return nil, err
 		}
@@ -85,7 +108,7 @@ func Decode(raw []byte, depth, nodes int) (any, error) {
 			case '{':
 				m := map[string]any{}
 				for d.More() {
-					key, err := d.Token()
+					key, err := token(path)
 					if err != nil {
 						return nil, err
 					}
@@ -102,7 +125,7 @@ func Decode(raw []byte, depth, nodes int) (any, error) {
 					}
 					m[k] = v
 				}
-				if _, err = d.Token(); err != nil {
+				if _, err = token(path); err != nil {
 					return nil, err
 				}
 				return m, nil
@@ -115,7 +138,7 @@ func Decode(raw []byte, depth, nodes int) (any, error) {
 					}
 					a = append(a, v)
 				}
-				if _, err = d.Token(); err != nil {
+				if _, err = token(path); err != nil {
 					return nil, err
 				}
 				return a, nil
@@ -129,10 +152,45 @@ func Decode(raw []byte, depth, nodes int) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err = d.Token(); err != io.EOF {
+	if _, err = token(nil); err != io.EOF {
 		return nil, errors.New("JSON must contain one complete value")
 	}
 	return v, nil
+}
+
+// Decoder owns JSON syntax. Check each original string token before using its
+// decoded value, because encoding/json silently replaces unpaired surrogates.
+func requirePairedSurrogates(token []byte, path []any) error {
+	token = token[bytes.IndexByte(token, '"')+1 : len(token)-1]
+	for index := 0; index < len(token); index++ {
+		if token[index] != '\\' {
+			continue
+		}
+		index++
+		if token[index] != 'u' {
+			continue
+		}
+		code, err := strconv.ParseUint(string(token[index+1:index+5]), 16, 16)
+		if err != nil {
+			return err
+		}
+		index += 4
+		if code < 0xd800 || code > 0xdfff {
+			continue
+		}
+		if code >= 0xdc00 || index+6 >= len(token) || token[index+1] != '\\' || token[index+2] != 'u' {
+			return &jsonUnicodeError{fieldPath: append([]any{}, path...)}
+		}
+		low, err := strconv.ParseUint(string(token[index+3:index+7]), 16, 16)
+		if err != nil {
+			return err
+		}
+		if low < 0xdc00 || low > 0xdfff {
+			return &jsonUnicodeError{fieldPath: append([]any{}, path...)}
+		}
+		index += 6
+	}
+	return nil
 }
 
 func Object(raw []byte, depth, nodes int) (map[string]any, error) {

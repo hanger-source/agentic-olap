@@ -8,6 +8,7 @@ import com.olap.prototype.protocol.WorkerKind
 import com.olap.prototype.server.SourceInspectionFailure
 import com.olap.prototype.warehouse.SourceGuaranteeException
 import com.olap.prototype.codec.QuerySourceProto
+import com.olap.prototype.codec.ProtoStringRepresentationException
 import com.olap.prototype.wire.query.WorkerFailureFacts
 import java.util.Collections
 import java.util.IdentityHashMap
@@ -45,6 +46,7 @@ internal object WorkerFailures {
     }
 
     fun project(kind: WorkerKind, failure: Exception): Map<String, Any?> {
+        if (failure is ProtoStringRepresentationException) return representation(failure, null)
         if (kind == WorkerKind.SOURCE_INSPECTION || kind == WorkerKind.INSPECTION)
             return SourceInspectionFailure.project(failure)
         if (failure is InputContractException) return mapOf("stage" to failure.rule.stage, "code" to failure.rule.code,
@@ -52,6 +54,7 @@ internal object WorkerFailures {
         val mappingSeen = Collections.newSetFromMap(IdentityHashMap<Throwable, Boolean>())
         var mappingCause: Throwable? = failure
         while (mappingCause != null && mappingSeen.add(mappingCause)) {
+            if (mappingCause is ProtoStringRepresentationException) return representation(mappingCause, failure as? EngineExecutionException)
             if (mappingCause is NativeCompilationCapabilityException) return mapOf(
                 "stage" to if (failure is EngineExecutionException) failure.stage else "RENDER_SQL",
                 "code" to mappingCause.code, "message" to mappingCause.message,
@@ -96,6 +99,11 @@ internal object WorkerFailures {
         return mapOf("type" to failure.javaClass.name, "message" to failure.message,
             "code" to if (kind == WorkerKind.CANDIDATE_VALUES) "CANDIDATE_VALUE_REQUEST_FAILED" else "WORKER_OPERATION_FAILED")
     }
+    private fun representation(failure: ProtoStringRepresentationException, execution: EngineExecutionException?): Map<String, Any?> = mapOf(
+        "stage" to (execution?.stage ?: "ENCODE_MODEL"), "code" to (execution?.code ?: "CONTRACT_VIOLATION"),
+        "message" to (execution?.message ?: failure.message), "evidenceContext" to mapOf("fieldPath" to failure.fieldPath,
+            "expectedKind" to "WELL_FORMED_UNICODE_TEXT", "actualKind" to "UNPAIRED_UTF16_SURROGATE"))
+
     private fun controlledContext(context: Map<String, Any?>): Map<String, Any?> = context.filterKeys { it in setOf(
         "fieldPath", "expectedType", "actualType", "expectedKind", "actualKind", "scope", "inputScope", "requirements", "actualKey", "actualOutputs",
         "aggregate", "inputType", "capability", "operation", "inputs", "connectorRef", "dataSourceId", "sourceIdentityHash", "sourceSqlState", "sourceFailureType") }
