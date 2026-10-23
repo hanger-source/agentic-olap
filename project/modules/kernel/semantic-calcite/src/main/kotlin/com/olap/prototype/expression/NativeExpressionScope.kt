@@ -17,6 +17,11 @@ class NativeExpressionScope(val connector: ConnectorRef, val support: Compilatio
         }
     }
 
+    fun requireScalarCall(connectorRef: ConnectorRef, function: String, count: Int): NativeScalarFunction {
+        require(connector == connectorRef) { "native call connector is outside its exact source compilation scope" }
+        return support.requireNativeScalarFunction(function).also { it.requireScalarCall(function, count) }
+    }
+
     fun requireTable(table: SemanticExpression.TableArgument): NativeTableDependency {
         val dependency = requireNotNull(tables(table)) { "native table argument is outside the exact frozen dependency closure" }
         require(dependency.key() == table.key()) { "native table argument is outside the exact frozen dependency closure" }
@@ -26,4 +31,7 @@ class NativeExpressionScope(val connector: ConnectorRef, val support: Compilatio
 
     fun compile(builder: RelBuilder, call: SemanticExpression.NativeCall, operands: (SemanticExpression) -> RexNode): RexNode =
         NativeScalarOperator.compile(builder, this, call, operands)
+
+    fun compileScalar(builder: RelBuilder, connectorRef: ConnectorRef, function: String, arguments: List<RexNode>): RexNode =
+        NativeScalarOperator.compileScalar(builder, this, connectorRef, function, arguments)
 }

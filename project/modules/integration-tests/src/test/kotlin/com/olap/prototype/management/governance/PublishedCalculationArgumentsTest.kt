@@ -1,5 +1,14 @@
 package com.olap.prototype.management.governance
 
+import com.olap.fixtures.http.HttpSqlService
+import com.olap.prototype.codec.GovernanceProto
+import com.olap.prototype.codec.ProtoBytes
+import com.olap.prototype.codec.QueryProto
+import com.olap.prototype.connector.ConnectorRegistry
+import com.olap.prototype.connector.JdbcAccess
+import com.olap.prototype.connector.HttpSourceAccessTest
+import com.olap.prototype.connector.loader.ConnectorPlugins
+import com.olap.prototype.integration.TestConnectors
 import com.olap.prototype.metric.MetricAggregation
 import com.olap.prototype.calculation.*
 import com.olap.prototype.contract.ProducerContractException
@@ -13,13 +22,91 @@ import com.olap.prototype.query.*
 import com.olap.prototype.query.contract.MetricAdoption
 import com.olap.prototype.query.contract.FilterLeafOperator
 import com.olap.prototype.storage.PlatformDatabase
+import com.olap.prototype.warehouse.contract.JdbcConnectionSpec
+import com.olap.prototype.warehouse.contract.SourceConfiguration
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.math.BigDecimal
 import java.nio.file.Path
+import java.nio.file.Files
 
 class PublishedCalculationArgumentsTest {
+    @Test
+    fun publishesAndReusesPersistedNativeScalarCalculationsThroughTheActualHttpPlugin(@TempDir directory: Path) {
+        val spec = JdbcConnectionSpec("duckdb", TestConnectors.ref("duckdb"), "duckdb",
+            "jdbc:duckdb:${directory.resolve("warehouse.duckdb")}", null, null, "org.duckdb.DuckDBDriver")
+        val jdbc = (TestConnectors.registry.require(spec.connectorRef).access as JdbcAccess).jdbc
+        HttpSqlService(jdbc, spec).use { server ->
+            val pluginRoot = Files.createDirectory(directory.resolve("plugin"))
+            ConnectorPlugins.load(listOf(HttpSourceAccessTest.plugin(pluginRoot))).use { loaded ->
+                val ref = loaded.registry.references().single()
+                val registry = ConnectorRegistry(TestConnectors.registry.references().map(TestConnectors.registry::require) + loaded.registry.require(ref))
+                val source = SourceConfiguration("duckdb", ref, "duckdb", mapOf("endpoint" to server.endpoint, "consistentChecks" to true),
+                    mapOf("timeoutMillis" to 30000), mapOf("authorization" to "OLAP_TEST_HTTP_AUTH"))
+                val metadata = directory.resolve("platform")
+                val nativeQuantity = MetricValueContract(MetricValueContract.Fixed(MetricValueContract.ONE), MetricValueContract.NativeFloating(),
+                    MetricValueContract.BinaryFloat(64), emptyMap(), MetricValueContract.Overflow.FAIL)
+                val relation = Calculation.RelationSlot("completed", listOf(SetOutputContract("quantity", SetOutputContract.Quantity(GovernanceOrderFixture.records()))), emptyList())
+                val definition = MetricCalculation(Calculation(emptyList(), emptyList(), emptyList(), listOf(relation), emptyMap(),
+                    Calculation.Scope(Calculation.Relation("completed"), emptyMap(), listOf(PostOperationContract.Derive(
+                        ResultExpression.ResultNativeCall(ref, "native_float", listOf(ResultExpression.ResultSymbol("quantity"))), "value", "来源原生数量表示"),
+                        PostOperationContract.Project(listOf("value"))))), "value", emptyList(), nativeQuantity)
+                val nativeOrders = listOf("INSERT INTO main.orders VALUES ('1',100,'A','2026-07-21','c1'),('2',40,'B','2026-07-21','c2'),('3',100,'A','2026-07-22','c3'),('4',20,'B','2026-08-01','c1')")
+                PlatformDatabase.openSingleInstance(metadata).use { database ->
+                    val f = GovernanceOrderFixture(database, directory, nativeOrders, connectors = registry, deployedSource = source)
+                    f.seed()
+                    for ((code, distinct) in listOf("native_amount_records" to false, "native_amount_values" to true)) {
+                        val display = if (distinct) "去重金额值数" else "非空金额记录数"
+                        val count = f.metrics.createMetric(MetricCreateRequest(code, display, "trade", MetricDefinition.FactMeasure(
+                            com.olap.prototype.event.EventRef(GovernanceOrderFixture.EVENT, 1), GovernanceOrderFixture.ref("order_fact.pay_amount"), MetricAggregation.COUNT,
+                            distinct, null, emptyMap(), null, GovernanceOrderFixture.records(), MetricValueContract.Rounding.NONE),
+                            display, MetricBusinessMeaning(display, "个", if (distinct) "来源金额值" else "含金额的来源记录", emptyList()), "golden")).metric
+                        f.activate("METRIC", count.id); f.adopt(count.id); f.grantMetric(count.id, order = if (distinct) 3 else 2)
+                    }
+                    val request = MetricCalculationCreateRequest("native_completed_number", "完成数量的原生表示", "trade", definition,
+                        "复用完成输入的精确连接器标量变换", MetricBusinessMeaning("完成数量沿用已声明原生浮点表示", "个", "调用选择的人口", emptyList()), "golden")
+                    val encoded = ProtoBytes.encode(GovernanceProto.toProto(request))
+                    val decoded = GovernanceProto.fromProto(ProtoBytes.decode(encoded, com.olap.prototype.wire.governance.MetricCalculationCreateRequest.getDefaultInstance()))
+                    val calculation = f.metrics.createMetricCalculation(decoded).metric
+                    f.activate("METRIC", calculation.id)
+                    f.adopt(calculation.id, bindings = CalculationBindings(emptyMap(), emptyMap(), emptyMap(), emptyMap(), mapOf("completed" to CalculationBindings.RelationParameter())))
+                    f.grantMetric(calculation.id, order = 4)
+                    f.scenarios.createScenarioPipelineRule(ScenarioPipelineRuleCreateRequest(GovernanceOrderFixture.SCENARIO, 1, "DERIVE", 1))
+                    val restricted = f.scenarios.createScenario(ScenarioCreateRequest(GovernanceOrderFixture.SUBJECT, 1, "native_restricted", "不授权查询内变换", "analyst", "仅允许采用后的计数", "golden")).scenario
+                    val count = f.metrics.listMetrics().first { it.code == "native_amount_records" }
+                    f.grantMetric(count.id, scenario = restricted.id)
+                    f.activateSubjectGraph()
+                }
+                // 重开持久根后由正式发布读取定义；不能依赖创建响应中残留的原生节点。
+                PlatformDatabase.openSingleInstance(metadata).use { database ->
+                    val f = GovernanceOrderFixture(database, directory, connectors = registry, deployedSource = source)
+                    f.build("published_native_scalar")
+                    val publication = f.publication("published_native_scalar")
+                    fun complete(code: String) = measures(listOf(invocation("count", instance(f, code), "quantity")))
+                    fun transform(id: String, input: String) = QueryComputation.Invocation(id, instance(f, "native_completed_number"), id,
+                        emptyMap(), emptyMap(), mapOf("completed" to CalculationBindings.LocalRelation(input, mapOf("quantity" to "quantity"))), DimensionCondition.Unrestricted())
+                    val query = QueryComputation.Scope(measures(listOf(transform("records", "records"), transform("distinct_amounts", "amounts"))).root,
+                        mapOf("records" to QueryComputation.Input("ROOT", complete("native_amount_records")),
+                            "amounts" to QueryComputation.Input("ROOT", complete("native_amount_values"))), emptyList())
+                    val encoded = ProtoBytes.encode(QueryProto.toProto(f.intent(publication, query)))
+                    val decoded = QueryProto.fromProto(ProtoBytes.decode(encoded, com.olap.prototype.wire.query.QueryIntent.getDefaultInstance()))
+                    val row = f.execute(publication, decoded.computation).result.resultFrame.rows.single()
+                    assertEquals(4.0, (row["records"] as Number).toDouble())
+                    assertEquals(3.0, (row["distinct_amounts"] as Number).toDouble())
+                    val restricted = f.publication("published_native_scalar", scenario = "${GovernanceOrderFixture.SUBJECT}.native_restricted")
+                    val input = complete("native_amount_records")
+                    val denied = QueryComputation.Scope(input.root, input.inputs, listOf(PostOperationContract.Derive(
+                        ResultExpression.ResultNativeCall(ref, "native_float", listOf(ResultExpression.ResultSymbol("quantity"))), "unapproved", "未授权查询内变换")))
+                    val requests = server.queries
+                    val failure = assertThrows(EngineExecutionException::class.java) { f.execute(restricted, denied) }
+                    assertEquals("AUTHORIZE_INPUT", failure.stage)
+                    assertEquals(requests, server.queries, "发布未授权的阶段应在来源调用前拒绝")
+                }
+            }
+        }
+    }
+
     @Test
     fun publishesPersistedRelationParametersAndComputesFromCompletedFactInputs(@TempDir directory: Path) {
         val metadata = directory.resolve("platform")

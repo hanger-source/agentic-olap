@@ -65,7 +65,7 @@ class OlapSemanticCompiler(private val compiler: CalciteRelCompiler) {
         val (graph, analyses) = timed(context, "COMPILE_ANALYZE") {
             phase("ANALYZE_STAGES", "EXECUTABLE_STAGE_ANALYSIS_FAILED", "Stage analysis failed") {
                 val graph = ExecutableInputGraph.index(input)
-                graph to ExecutableStageAnalysis.analyze(graph)
+                graph to ExecutableStageAnalysis.analyze(graph, compiler.connectors)
             }
         }
         observer.stageAnalysisCompleted(analyses.values.toList())

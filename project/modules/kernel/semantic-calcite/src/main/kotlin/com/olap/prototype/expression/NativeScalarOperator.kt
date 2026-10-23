@@ -1,6 +1,7 @@
 package com.olap.prototype.expression
 
 import com.olap.prototype.connector.CompilationSupport
+import com.olap.prototype.connector.ConnectorRef
 import org.apache.calcite.rex.RexNode
 import org.apache.calcite.sql.*
 import org.apache.calcite.sql.type.OperandTypes
@@ -11,15 +12,15 @@ import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
 
 /** Rex中的精确原生身份；只有插件拥有SQL AST渲染。 */
-class NativeScalarOperator private constructor(expression: SemanticExpression.NativeCall,
+class NativeScalarOperator private constructor(connector: ConnectorRef,
     val declaration: NativeScalarFunction, private val support: CompilationSupport,
-    private val arguments: List<Argument>) : SqlFunction(identity(expression), SqlKind.OTHER_FUNCTION,
+    private val arguments: List<Argument>) : SqlFunction(identity(connector, declaration.id, arguments), SqlKind.OTHER_FUNCTION,
     { binding -> SemanticNativeTypes.resolve(binding.typeFactory, declaration.resultType) },
     null, OperandTypes.VARIADIC, SqlFunctionCategory.USER_DEFINED_FUNCTION) {
 
     private sealed interface Argument {
         data class Scalar(val index: Int) : Argument
-        data class Table(val value: CompilationSupport.TableArgument) : Argument
+        data class Table(val reference: SemanticExpression.TableArgument, val value: CompilationSupport.TableArgument) : Argument
     }
 
     override fun isDeterministic(): Boolean = declaration.stability == NativeScalarFunction.Stability.IMMUTABLE
@@ -36,12 +37,12 @@ class NativeScalarOperator private constructor(expression: SemanticExpression.Na
     }
 
     companion object {
-        private fun identity(expression: SemanticExpression.NativeCall): String {
+        private fun identity(connector: ConnectorRef, function: String, arguments: List<Argument>): String {
             // 标量是Rex调用操作数；原生操作符身份只拥有连接器、函数和不作为Rex列的表实参。
-            val fields = listOf(expression.connectorRef.id, expression.connectorRef.version, expression.connectorRef.sha256, expression.function) +
-                expression.arguments.flatMap { argument -> when (argument) {
-                    is SemanticExpression.ScalarArgument -> listOf("SCALAR")
-                    is SemanticExpression.TableArgument -> listOf("PHYSICAL_TABLE", argument.physicalTableId, argument.physicalTableVersion.toString())
+            val fields = listOf(connector.id, connector.version, connector.sha256, function) +
+                arguments.flatMap { argument -> when (argument) {
+                    is Argument.Scalar -> listOf("SCALAR")
+                    is Argument.Table -> listOf("PHYSICAL_TABLE", argument.reference.physicalTableId, argument.reference.physicalTableVersion.toString())
                 } }
             val bytes = ByteArrayOutputStream()
             DataOutputStream(bytes).use { output ->
@@ -64,12 +65,27 @@ class NativeScalarOperator private constructor(expression: SemanticExpression.Na
                     }
                     is SemanticExpression.TableArgument -> {
                         val table = scope.requireTable(argument).table
-                        Argument.Table(CompilationSupport.TableArgument(scope.support.tablePath(table.catalog, table.schema, table.table)))
+                        Argument.Table(argument, CompilationSupport.TableArgument(scope.support.tablePath(table.catalog, table.schema, table.table)))
                     }
                 }
             }
+            return emit(builder, scope, declaration, layout, values)
+        }
+
+        fun compileScalar(builder: RelBuilder, scope: NativeExpressionScope, connector: ConnectorRef,
+            function: String, values: List<RexNode>): RexNode {
+            val declaration = scope.requireScalarCall(connector, function, values.size)
+            values.forEachIndexed { index, value ->
+                SemanticNativeTypes.requireScalarType(value.type, requireNotNull(declaration.parameters[index].scalarType))
+            }
+            val result = emit(builder, scope, declaration, values.indices.map { Argument.Scalar(it) }, values)
+            return declaration.resultValueContract()?.let { SemanticNumericRex.output(builder, result, it) } ?: result
+        }
+
+        private fun emit(builder: RelBuilder, scope: NativeExpressionScope, declaration: NativeScalarFunction,
+            arguments: List<Argument>, values: List<RexNode>): RexNode {
             return builder.rexBuilder.makeCall(SemanticNativeTypes.resolve(builder.typeFactory, declaration.resultType),
-                NativeScalarOperator(call, declaration, scope.support, layout), values)
+                NativeScalarOperator(scope.connector, declaration, scope.support, arguments), values)
         }
     }
 }

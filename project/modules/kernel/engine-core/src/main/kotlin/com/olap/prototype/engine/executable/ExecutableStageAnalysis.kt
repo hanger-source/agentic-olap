@@ -1,6 +1,10 @@
 package com.olap.prototype.engine.executable
 
 import com.olap.prototype.engine.EngineExecutionException
+import com.olap.prototype.connector.ConnectorRegistry
+import com.olap.prototype.query.PostOperationTraversal
+import com.olap.prototype.query.ResultExpression
+import com.olap.prototype.query.ResultExpressionTree
 import com.olap.prototype.query.QueryStageAnalysis
 import com.olap.prototype.query.QueryStageAnalysis.Analysis
 import com.olap.prototype.query.QueryStageAnalysis.ScopeId
@@ -11,8 +15,8 @@ import java.util.IdentityHashMap
 
 /** 以绑定图的精确实例身份分析阶段；活动祖先和完成缓存仅属本次分析。 */
 object ExecutableStageAnalysis {
-    fun analyze(graph: ExecutableInputGraph): Map<ScopeId, Analysis> = Session(graph).analyze()
-    private class Session(private val graph: ExecutableInputGraph) {
+    fun analyze(graph: ExecutableInputGraph, connectors: ConnectorRegistry): Map<ScopeId, Analysis> = Session(graph, connectors).analyze()
+    private class Session(private val graph: ExecutableInputGraph, private val connectors: ConnectorRegistry) {
         private val result = linkedMapOf<ScopeId, Analysis>()
         private val ancestors = Collections.newSetFromMap(IdentityHashMap<ExecutableInputScope, Boolean>())
         fun analyze(): Map<ScopeId, Analysis> { analyze(graph.root, ScopeId.root()); return result.toMap() }
@@ -31,8 +35,14 @@ object ExecutableStageAnalysis {
                 ExecutableInputGraph.EdgeKind.MEMBER_BODY -> analyze(edge.input, edge.scope)
             } }
             val facts = ExecutableInputSymbols(graph, result, input, scope, children).facts()
+            val nativeFunctions = facts.operations.flatMap(PostOperationTraversal::expressions).flatMap(ResultExpressionTree::nodes)
+                .filterIsInstance<ResultExpression.ResultNativeCall>().associateWith { call ->
+                    connectors.require(call.connectorRef).compilation.requireNativeScalarFunction(call.function).also {
+                        it.requireScalarCall(call.function, call.arguments.size)
+                    }
+                }
             val analysis = QueryStageAnalysis.analyze(scope, facts.columns, facts.key, children, facts.operations, facts.population,
-                "input[${scope.path}].postOps", facts.observations)
+                "input[${scope.path}].postOps", facts.observations, nativeFunctions)
             result[scope] = analysis
             ancestors.remove(input)
             return analysis

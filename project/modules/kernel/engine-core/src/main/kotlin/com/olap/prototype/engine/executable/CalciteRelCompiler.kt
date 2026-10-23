@@ -33,7 +33,11 @@ class CalciteRelCompiler private constructor(val connectors: ConnectorRegistry, 
     fun compile(graph: ExecutableInputGraph, analyses: Map<ScopeId, Analysis>, resolvedSources: ResolvedInputSources, context: OlapQueryContext): Compilation {
         val frozen = timed(context, "COMPILE_SCHEMA") { frozenInputs(graph, resolvedSources) }
         val builder = frozen.nativeInputs.builder
-        val relations = Relations(graph, builder, analyses, resolvedSources)
+        val support = connectors.require(frozen.source.connectorRef).compilation
+        val native = NativeExpressionScope(frozen.source.connectorRef, support) {
+            throw IllegalArgumentException("completed native scalar calls cannot introduce physical tables; use SemanticExpression.NativeCall in an adopted source expression")
+        }
+        val relations = Relations(graph, builder, analyses, resolvedSources, native)
         val raw = timed(context, "COMPILE_BUILD_REL") { relations.compile(graph.root, ScopeId.root()).relation }
         val parameters = relations.parameters
         val optimized = timed(context, "COMPILE_OPTIMIZE_REL") {
@@ -43,7 +47,6 @@ class CalciteRelCompiler private constructor(val connectors: ConnectorRegistry, 
             }
         }
         if (log.isDebugEnabled) log.debug("原生关系优化：raw={} optimized={}", RelOptUtil.toString(raw), RelOptUtil.toString(optimized))
-        val support = connectors.require(frozen.source.connectorRef).compilation
         val (rendered, nativeChecks) = timed(context, "COMPILE_RENDER_SQL") {
             phase("RENDER_SQL", "EXECUTABLE_SQL_RENDERING_FAILED", "Native SQL conversion failed") {
                 val sql = CalciteSqlRendering.compile(optimized, support, parameters)
@@ -77,7 +80,7 @@ class CalciteRelCompiler private constructor(val connectors: ConnectorRegistry, 
 
     /** 一次lowering共享参数/检查，scope结果只按实际输入和分析作用域复用。 */
     private inner class Relations(private val graph: ExecutableInputGraph, private val builder: RelBuilder,
-        private val analyses: Map<ScopeId, Analysis>, resolved: ResolvedInputSources) {
+        private val analyses: Map<ScopeId, Analysis>, resolved: ResolvedInputSources, private val native: NativeExpressionScope) {
         val parameters = mutableListOf<JdbcParameter>()
         val relationChecks = mutableListOf<RelationalCheck>()
         private val facts = FactRelationCompiler(SourceRelationCompiler(resolved))
@@ -94,7 +97,7 @@ class CalciteRelCompiler private constructor(val connectors: ConnectorRegistry, 
             builder.push(imported.alignedRoot)
             (input.root as? ExecutableInputRoot.Measures)?.let(roots::filterOutputs)
             val inputType = builder.peek().rowType
-            CompletedRelationCompiler.compile(builder, analyses.getValue(scope), display, parameters, imported.relations, relationChecks)
+            CompletedRelationCompiler.compile(builder, analyses.getValue(scope), display, parameters, imported.relations, relationChecks, native)
             return ScopeOutput(input, builder.build(), display.toMap(), inputType).also { outputs[scope] = it }
         }
         private fun importInputs(input: ExecutableInputScope, scope: ScopeId, root: RelNode, display: MutableMap<String, String>): ImportedInputs {

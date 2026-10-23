@@ -83,6 +83,7 @@ internal object QuantityProvenance {
     fun rowWise(observed: Observed): Boolean = when (observed.nature) {
         Nature.ABSOLUTE -> observed.components.size == 1 && rawContribution(observed.components.single())
         Nature.PRODUCT -> observed.components.isNotEmpty() && observed.components.all(::rawContribution)
+        Nature.SCALAR_FUNCTION -> observed.components.all(::rawContribution)
         else -> false
     }
     fun commonSnapshotScope(values: List<Provenance>, retained: Set<ValuePosition>): Boolean {

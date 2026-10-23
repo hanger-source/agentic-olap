@@ -1,6 +1,7 @@
 package com.olap.prototype.query
 
 import com.olap.prototype.calculation.Calculation
+import com.olap.prototype.connector.ConnectorRef
 import com.olap.prototype.expression.SemanticExpression
 import com.olap.prototype.expression.ScalarFunction
 import com.olap.prototype.metric.MetricValueContract
@@ -8,6 +9,13 @@ import java.math.BigDecimal
 
 /** 结果表达式的封闭语言；定义与 Query 使用同一组值、类型和构造规则。 */
 sealed interface ResultExpression {
+    /** 在当前实际来源中变换已完成的标量值；不引入物理表实参或另选来源。 */
+    class ResultNativeCall(val connectorRef: ConnectorRef, val function: String, arguments: List<ResultExpression>) : ResultExpression {
+        val arguments: List<ResultExpression> = java.util.List.copyOf(arguments)
+        init { ScopedInputContract.requireId(function) }
+        override fun equals(other: Any?): Boolean = other is ResultNativeCall && connectorRef == other.connectorRef && function == other.function && arguments == other.arguments
+        override fun hashCode(): Int = listOf(connectorRef, function, arguments).hashCode()
+    }
     class ResultCall(val function: ScalarFunction, arguments: List<ResultExpression>) : ResultExpression {
         val arguments: List<ResultExpression> = java.util.List.copyOf(arguments)
         init {
@@ -137,7 +145,7 @@ sealed interface ResultExpression {
             }
             is ResultArgument -> expression.valueType == ScalarValueType.BOOLEAN
             is ResultCast -> expression.targetType == SemanticExpression.ValueType.BOOLEAN
-            is ResultSymbol, is ResultRowField -> true // 实际列/字段类型继续由编译器证明。
+            is ResultSymbol, is ResultRowField, is ResultNativeCall -> true // 实际列/字段/原生返回类型继续由编译器证明。
             is ResultLiteral -> expression.value is Boolean
             is ResultCaseWhen -> expression.branches.all { canProduceBooleanOrNull(it.then) } && canProduceBooleanOrNull(expression.otherwise)
             is ResultOperation -> expression.operator in setOf(ResultOperator.EQ, ResultOperator.NE, ResultOperator.GT,

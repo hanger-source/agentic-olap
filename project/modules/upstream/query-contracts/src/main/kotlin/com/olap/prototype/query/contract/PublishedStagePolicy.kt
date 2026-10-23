@@ -30,6 +30,7 @@ object PublishedStagePolicy {
                 is ResultLiteral -> if (value.value is BigDecimal) ExpressionAuthorization.Kind.EXACT_NUMBER else ExpressionAuthorization.Kind.LITERAL
                 is ResultTypedLiteral -> ExpressionAuthorization.Kind.TYPED_LITERAL
                 is ResultCall -> ExpressionAuthorization.Kind.CALL
+                is ResultNativeCall -> ExpressionAuthorization.Kind.NATIVE_CALL
                 is ResultOperation -> ExpressionAuthorization.Kind.OPERATION
                 is ResultCaseWhen -> ExpressionAuthorization.Kind.CASE
                 is ResultRow -> ExpressionAuthorization.Kind.ROW

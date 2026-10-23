@@ -27,7 +27,7 @@ repositories {
     }
 }
 dependencies {
-    compileOnly("com.github.hanger-source.agentic-olap:connector-api:v0.15.3")
+    compileOnly("com.github.hanger-source.agentic-olap:connector-api:v0.16.0")
 }
 ```
 

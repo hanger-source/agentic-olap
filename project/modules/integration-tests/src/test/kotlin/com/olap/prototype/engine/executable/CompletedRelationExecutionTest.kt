@@ -87,7 +87,7 @@ class CompletedRelationExecutionTest {
         ExecutableInputScope(input.inputMode, input.root, input.objectRestrictions, input.additionalInputs, operations)
     private fun compile(catalog: ExecutableCatalog, input: ExecutableInputScope): ExecutableLoweringResult {
         val graph = ExecutableInputGraph.index(input)
-        return CalciteRelCompiler(TestConnectors.registry).compile(graph, ExecutableStageAnalysis.analyze(graph), ExecutableSourceResolver().resolve(catalog, graph), OlapQueryContext("completed_relation")).lowering
+        return CalciteRelCompiler(TestConnectors.registry).compile(graph, ExecutableStageAnalysis.analyze(graph, TestConnectors.registry), ExecutableSourceResolver().resolve(catalog, graph), OlapQueryContext("completed_relation")).lowering
     }
     private fun symbol(name: String): ResultExpression = ResultSymbol(name)
     private fun comparison(operator: String, left: ResultExpression, right: ResultExpression): ResultExpression = ResultOperation(ResultOperator.valueOf(operator), listOf(left, right))

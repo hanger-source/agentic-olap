@@ -40,6 +40,33 @@ class NativeScalarFunction(
             }
         }
     }
+
+    /** 完成关系变换只消费已有标量值；新物理表依赖由来源定义和采用闭包拥有。 */
+    fun requireScalarCall(function: String, count: Int) {
+        require(id == function) { "native function differs from its declaration" }
+        require(parameters.size == count) { "native function $id requires ${parameters.size} arguments; received $count" }
+        require(parameters.all { it.kind == ParameterKind.SCALAR }) {
+            "completed native function $id requires SCALAR parameters; PHYSICAL_TABLE arguments belong to an adopted source expression"
+        }
+    }
+
+    /** 原生标量仅声明技术数值与算术，不替业务定义货币、天数等单位。 */
+    fun resultValueContract(): MetricValueContract? {
+        val guarantee = arithmetic ?: return null
+        val capacity = when (resultType.name) {
+            "TINYINT" -> MetricValueContract.Integer(8)
+            "SMALLINT" -> MetricValueContract.Integer(16)
+            "INTEGER" -> MetricValueContract.Integer(32)
+            "BIGINT" -> MetricValueContract.Integer(64)
+            "REAL" -> MetricValueContract.BinaryFloat(32)
+            "FLOAT", "DOUBLE" -> MetricValueContract.BinaryFloat(64)
+            "DECIMAL" -> MetricValueContract.Decimal(
+                requireNotNull(resultType.precision) { "completed native DECIMAL result for $id requires a declared precision" },
+                requireNotNull(resultType.scale) { "completed native DECIMAL result for $id requires a declared scale" }, MetricValueContract.Rounding.NONE)
+            else -> error("native numeric function has no supported result capacity: ${resultType.name}")
+        }
+        return MetricValueContract(MetricValueContract.Fixed(MetricValueContract.ONE), guarantee, capacity, emptyMap(), MetricValueContract.Overflow.FAIL)
+    }
     override fun equals(other: Any?): Boolean = other is NativeScalarFunction && id == other.id && parameters == other.parameters && resultType == other.resultType && arithmetic == other.arithmetic && stability == other.stability
     override fun hashCode(): Int = listOf(id, parameters, resultType, arithmetic, stability).hashCode()
 }

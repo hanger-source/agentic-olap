@@ -123,7 +123,7 @@ class PublishedTimeSemanticsTest {
             val instance = f.adoptions.metricAdoption(com.olap.prototype.query.contract.MetricAdoption.identity(GovernanceOrderFixture.SUBJECT, "snapshot_amount"), 1).instance
             val scope = GovernanceOrderFixture.measurementScope(instance, timeRange = period())
             val graph = ExecutableInputGraph.index(ExecutableSemanticBinder(f.connectors).bind(publication.catalog, f.kernelRequest(publication, scope)))
-            CalciteRelCompiler(f.connectors).compile(graph, ExecutableStageAnalysis.analyze(graph), ExecutableSourceResolver().resolve(publication.catalog, graph), OlapQueryContext("snapshot-freeze"))
+            CalciteRelCompiler(f.connectors).compile(graph, ExecutableStageAnalysis.analyze(graph, f.connectors), ExecutableSourceResolver().resolve(publication.catalog, graph), OlapQueryContext("snapshot-freeze"))
             val revised = MetricSnapshotRule(MetricSnapshotRule.Reduction.FIRST, "order", rule.entityKeys, rule.timeKey, rule.tieBreakKeys, rule.nullPolicy, null, MetricValueContract.Rounding.NONE)
             f.metrics.reviseMetric(GovernanceRevisionRequest(metric.id, 1, definition("snapshot_amount", revised)))
             assertEquals(revised, f.metrics.metricSnapshotRule(metric.id, 2))

@@ -139,6 +139,6 @@ class PublishedSourceBindingTest {
     private fun compile(publication: PublishedExecutableCatalog, scope: QueryComputation.Scope): ExecutableLoweringResult {
         val bound = ExecutableSemanticBinder(TestConnectors.registry).bind(publication.catalog, ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION, "binding", publication.catalog.manifest.catalogId, scope))
         val graph = ExecutableInputGraph.index(bound)
-        return CalciteRelCompiler(TestConnectors.registry).compile(graph, ExecutableStageAnalysis.analyze(graph), ExecutableSourceResolver().resolve(publication.catalog, graph), OlapQueryContext("binding")).lowering
+        return CalciteRelCompiler(TestConnectors.registry).compile(graph, ExecutableStageAnalysis.analyze(graph, TestConnectors.registry), ExecutableSourceResolver().resolve(publication.catalog, graph), OlapQueryContext("binding")).lowering
     }
 }

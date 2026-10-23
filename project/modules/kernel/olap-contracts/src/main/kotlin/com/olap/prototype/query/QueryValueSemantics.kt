@@ -2,52 +2,57 @@ package com.olap.prototype.query
 
 import com.olap.prototype.calculation.Calculation
 import com.olap.prototype.expression.ScalarFunction
+import com.olap.prototype.expression.NativeScalarFunction
 import com.olap.prototype.metric.MetricValueContract
 import com.olap.prototype.query.ResultExpression.*
 import java.math.BigDecimal
 
 /** 消费声明和实际位置的值算术；SQL类型和关系变换归Calcite。 */
 object QueryValueSemantics {
-    fun expression(expression: ResultExpression, symbols: Map<String, QueryStageAnalysis.Symbol>): QueryValue = expression(expression, symbols, null, null)
-    private fun expression(expression: ResultExpression, symbols: Map<String, QueryStageAnalysis.Symbol>, declaration: MetricValueContract?, equation: MetricValueContract.UnitEquation?): QueryValue = when (expression) {
-        is ResultCall -> functionValue(expression, symbols, declaration)
+    fun expression(expression: ResultExpression, symbols: Map<String, QueryStageAnalysis.Symbol>,
+        nativeFunctions: Map<ResultNativeCall, NativeScalarFunction> = emptyMap()): QueryValue = expression(expression, symbols, null, null, nativeFunctions)
+    private fun expression(expression: ResultExpression, symbols: Map<String, QueryStageAnalysis.Symbol>, declaration: MetricValueContract?,
+        equation: MetricValueContract.UnitEquation?, nativeFunctions: Map<ResultNativeCall, NativeScalarFunction>): QueryValue = when (expression) {
+        is ResultCall -> functionValue(expression, symbols, declaration, nativeFunctions)
+        is ResultNativeCall -> nativeValue(expression, symbols, nativeFunctions)
         is ResultSymbol -> requireNotNull(symbols[expression.symbol]) { "numeric symbol is unavailable" }.value
         is ResultQuantityLiteral -> QueryValue.Measure(QueryQuantity(expression.valueContract, QueryQuantity.Fixed((expression.valueContract.unit as MetricValueContract.Fixed).identity), QueryQuantity.Constant(expression.value.toPlainString())))
-        is ResultWeightedContribution -> weightedValue(expression, symbols)
-        is ResultUniformAllocation -> allocatedValue(expression, symbols)
-        is ResultNumeric -> declaredValue(expression, symbols)
-        is ResultCollectionSort -> expression(expression.expression, symbols).also { require(it is QueryValue.Array) { "collection sort requires a typed array" } }
+        is ResultWeightedContribution -> weightedValue(expression, symbols, nativeFunctions)
+        is ResultUniformAllocation -> allocatedValue(expression, symbols, nativeFunctions)
+        is ResultNumeric -> declaredValue(expression, symbols, nativeFunctions)
+        is ResultCollectionSort -> expression(expression.expression, symbols, nativeFunctions).also { require(it is QueryValue.Array) { "collection sort requires a typed array" } }
         is ResultCollectionText -> {
-            val input = expression(expression.expression, symbols)
+            val input = expression(expression.expression, symbols, nativeFunctions)
             require(input is QueryValue.Array && input.element is QueryValue.Plain) { "collection text requires categorical scalar elements; quantities need explicit business formatting" }
             QueryValue.anonymous()
         }
         is ResultRowField -> {
-            val input = expression(expression.expression, symbols)
+            val input = expression(expression.expression, symbols, nativeFunctions)
             require(input is QueryValue.Row && expression.index < input.fields.size) { "ROW_FIELD requires an existing ordinal field of a typed row" }
             input.fields[expression.index]
         }
-        is ResultRow -> QueryValue.Row(expression.operands.map { expression(it, symbols) })
+        is ResultRow -> QueryValue.Row(expression.operands.map { expression(it, symbols, nativeFunctions) })
         is ResultCast -> {
-            val value = expression(expression.expression, symbols, declaration, null)
+            val value = expression(expression.expression, symbols, declaration, null, nativeFunctions)
             require(value !is QueryValue.Measure || declaration != null) { "quantity casts require an explicit numeric output contract" }
             if (value is QueryValue.Plain) QueryValue.anonymous() else value
         }
         is ResultRound -> {
             val actual = requireNumericDeclaration(declaration)
-            expression(expression.expression, symbols, actual, null).also { requirePrecision(actual, listOf(measure(it))) }
+            expression(expression.expression, symbols, actual, null, nativeFunctions).also { requirePrecision(actual, listOf(measure(it))) }
         }
-        is ResultCaseWhen -> conditionalValue(expression, symbols, declaration)
+        is ResultCaseWhen -> conditionalValue(expression, symbols, declaration, nativeFunctions)
         is ResultLiteral -> if (declaration != null && expression.value is BigDecimal) numericConstant(expression.value) else QueryValue.anonymous()
         is ResultTypedLiteral -> if (declaration != null && expression.valueType == ScalarValueType.NUMBER && expression.value is BigDecimal) numericConstant(expression.value) else QueryValue.anonymous()
         is ResultArgument -> throw IllegalArgumentException("stage scalar argument must be bound before value analysis")
-        is ResultOperation -> operationValue(expression, symbols, declaration, equation)
+        is ResultOperation -> operationValue(expression, symbols, declaration, equation, nativeFunctions)
     }
 
-    private fun functionValue(call: ResultCall, symbols: Map<String, QueryStageAnalysis.Symbol>, declaration: MetricValueContract?): QueryValue {
-        if (call.function == ScalarFunction.ABS) return operationValue(ResultOperation(ResultOperator.ABS, call.arguments), symbols, declaration, null)
+    private fun functionValue(call: ResultCall, symbols: Map<String, QueryStageAnalysis.Symbol>, declaration: MetricValueContract?,
+        nativeFunctions: Map<ResultNativeCall, NativeScalarFunction>): QueryValue {
+        if (call.function == ScalarFunction.ABS) return operationValue(ResultOperation(ResultOperator.ABS, call.arguments), symbols, declaration, null, nativeFunctions)
         val values = call.arguments.map { argument ->
-            if (nullLiteral(argument)) null else expression(argument, symbols, declaration, null)
+            if (nullLiteral(argument)) null else expression(argument, symbols, declaration, null, nativeFunctions)
         }
         return when (call.function) {
             ScalarFunction.ABS -> error("absolute value handled before argument analysis")
@@ -66,24 +71,53 @@ object QueryValueSemantics {
         }
     }
 
-    private fun weightedValue(weighted: ResultWeightedContribution, symbols: Map<String, QueryStageAnalysis.Symbol>): QueryValue {
-        val value = expression(weighted.value, symbols)
-        val weight = expression(weighted.weight, symbols)
+    private fun nativeValue(call: ResultNativeCall, symbols: Map<String, QueryStageAnalysis.Symbol>,
+        nativeFunctions: Map<ResultNativeCall, NativeScalarFunction>): QueryValue {
+        val function = requireNotNull(nativeFunctions[call]) { "completed native call has no registered declaration in its analysis scope: ${call.function}" }
+        function.requireScalarCall(call.function, call.arguments.size)
+        val values = call.arguments.map { expression(it, symbols, nativeFunctions) }
+        values.forEachIndexed { index, value ->
+            when (value) {
+                is QueryValue.Plain -> Unit
+                is QueryValue.Measure -> {
+                    require(function.arithmetic != null) {
+                        "categorical native functions cannot erase quantity meaning; quantity arguments require a quantity-preserving numeric result"
+                    }
+                    require(function.parameters[index].scalarType == ScalarValueType.NUMBER &&
+                        QueryQuantity.fixedIdentity(value.quantity.unit) == MetricValueContract.ONE) {
+                        "native scalar arguments cannot erase a measurement unit; provide categorical or explicitly dimensionless values"
+                    }
+                    function.arithmetic?.let { MetricValueContract.requireArithmeticInput(it, value.quantity.declaration.arithmetic) }
+                }
+                is QueryValue.Row, is QueryValue.Array -> throw IllegalArgumentException("native scalar arguments cannot consume rows or collections")
+            }
+        }
+        val contract = function.resultValueContract() ?: return QueryValue.anonymous()
+        val provenance = QuantityProvenance.observed(QueryQuantity.Nature.SCALAR_FUNCTION, values.map(QuantityProvenance::provenance))
+        return QueryValue.Measure(QueryQuantity(contract, QueryQuantity.Fixed(MetricValueContract.ONE), provenance))
+    }
+
+    private fun weightedValue(weighted: ResultWeightedContribution, symbols: Map<String, QueryStageAnalysis.Symbol>,
+        nativeFunctions: Map<ResultNativeCall, NativeScalarFunction>): QueryValue {
+        val value = expression(weighted.value, symbols, nativeFunctions)
+        val weight = expression(weighted.weight, symbols, nativeFunctions)
         val numeric = ResultNumeric(if (weighted.component == WeightedComponent.VALUE) ResultOperation(ResultOperator.MULTIPLY, listOf(weighted.value, weighted.weight)) else weighted.weight, weighted.valueContract, weighted.unitEquation)
-        val actual = expression(numeric, symbols)
+        val actual = expression(numeric, symbols, nativeFunctions)
         val grain = (weighted.observationUnit as? Calculation.ObjectsBy)?.keys?.map { requireNotNull(symbols[it]) } ?: emptyList()
         return weightedContribution(actual, value, weight, grain, weighted.component)
     }
-    private fun allocatedValue(allocation: ResultUniformAllocation, symbols: Map<String, QueryStageAnalysis.Symbol>): QueryValue {
-        val quantity = measure(expression(ResultNumeric(allocation.value, allocation.valueContract, null), symbols))
+    private fun allocatedValue(allocation: ResultUniformAllocation, symbols: Map<String, QueryStageAnalysis.Symbol>,
+        nativeFunctions: Map<ResultNativeCall, NativeScalarFunction>): QueryValue {
+        val quantity = measure(expression(ResultNumeric(allocation.value, allocation.valueContract, null), symbols, nativeFunctions))
         val equation = allocation.unitEquation?.let { requireNotNull(allocation.valueContract.unitEquations[it]) { "uniform allocation requires its declared division unit equation" } }
         val unit = binaryUnit(ResultOperator.DIVIDE, quantity.unit, QueryQuantity.Fixed(MetricValueContract.ONE), equation, null)
         val divided = QueryQuantity(quantity.declaration, unit, quantity.provenance)
         requireDeclaration(allocation.valueContract, divided)
         return uniformAllocation(QueryValue.Measure(divided), allocation.sourceKeys.map { requireNotNull(symbols[it]) }, allocation.memberKeys.map { requireNotNull(symbols[it]) })
     }
-    private fun declaredValue(numeric: ResultNumeric, symbols: Map<String, QueryStageAnalysis.Symbol>): QueryValue {
-        val value = expression(numeric.expression, symbols, numeric.valueContract, numeric.unitEquation?.let { numeric.valueContract.unitEquations[it] })
+    private fun declaredValue(numeric: ResultNumeric, symbols: Map<String, QueryStageAnalysis.Symbol>,
+        nativeFunctions: Map<ResultNativeCall, NativeScalarFunction>): QueryValue {
+        val value = expression(numeric.expression, symbols, numeric.valueContract, numeric.unitEquation?.let { numeric.valueContract.unitEquations[it] }, nativeFunctions)
         if (value is QueryValue.Plain) {
             require((numeric.valueContract.unit as? MetricValueContract.Fixed)?.identity == MetricValueContract.ONE && numeric.unitEquation == null) { "categorical numeric magnitudes may only be explicitly interpreted as dimensionless values" }
             return QueryValue.Measure(QueryQuantity(numeric.valueContract, QueryQuantity.Fixed(MetricValueContract.ONE), QueryQuantity.Raw(value.source, emptyList())))
@@ -92,17 +126,19 @@ object QueryValueSemantics {
         requireDeclaration(numeric.valueContract, quantity)
         return QueryValue.Measure(QueryQuantity(numeric.valueContract, quantity.unit, quantity.provenance))
     }
-    private fun conditionalValue(conditional: ResultCaseWhen, symbols: Map<String, QueryStageAnalysis.Symbol>, declaration: MetricValueContract?): QueryValue {
+    private fun conditionalValue(conditional: ResultCaseWhen, symbols: Map<String, QueryStageAnalysis.Symbol>, declaration: MetricValueContract?,
+        nativeFunctions: Map<ResultNativeCall, NativeScalarFunction>): QueryValue {
         val values = mutableListOf<QueryValue>()
         conditional.branches.forEach { branch ->
-            expression(branch.`when`, symbols)
-            if (!nullLiteral(branch.then)) values.add(expression(branch.then, symbols, declaration, null))
+            expression(branch.`when`, symbols, nativeFunctions)
+            if (!nullLiteral(branch.then)) values.add(expression(branch.then, symbols, declaration, null, nativeFunctions))
         }
-        if (!nullLiteral(conditional.otherwise)) values.add(expression(conditional.otherwise, symbols, declaration, null))
+        if (!nullLiteral(conditional.otherwise)) values.add(expression(conditional.otherwise, symbols, declaration, null, nativeFunctions))
         return alternatives(values)
     }
-    private fun operationValue(operation: ResultOperation, symbols: Map<String, QueryStageAnalysis.Symbol>, declaration: MetricValueContract?, equation: MetricValueContract.UnitEquation?): QueryValue {
-        val values = operation.operands.map { expression(it, symbols, declaration, null) }
+    private fun operationValue(operation: ResultOperation, symbols: Map<String, QueryStageAnalysis.Symbol>, declaration: MetricValueContract?,
+        equation: MetricValueContract.UnitEquation?, nativeFunctions: Map<ResultNativeCall, NativeScalarFunction>): QueryValue {
+        val values = operation.operands.map { expression(it, symbols, declaration, null, nativeFunctions) }
         return when (operation.operator) {
             ResultOperator.ADD, ResultOperator.SUBTRACT -> {
                 val actual = requireNumericDeclaration(declaration)

@@ -49,7 +49,7 @@ class TemporalInputExecutionTest {
     }
     private fun compile(catalog: ExecutableCatalog, input: ExecutableInputScope): ExecutableLoweringResult {
         val graph = ExecutableInputGraph.index(input)
-        return CalciteRelCompiler(TestConnectors.registry).compile(graph, ExecutableStageAnalysis.analyze(graph), ExecutableSourceResolver().resolve(catalog, graph), OlapQueryContext("temporal")).lowering
+        return CalciteRelCompiler(TestConnectors.registry).compile(graph, ExecutableStageAnalysis.analyze(graph, TestConnectors.registry), ExecutableSourceResolver().resolve(catalog, graph), OlapQueryContext("temporal")).lowering
     }
     private fun historyWarehouse(directory: Path) = NativeWarehouse(directory, "duckdb", listOf(
         "CREATE TABLE facts(id INTEGER PRIMARY KEY, entity INTEGER, occurred DATE, amount DECIMAL(18,2))",

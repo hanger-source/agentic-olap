@@ -27,17 +27,17 @@ import java.math.BigDecimal
 object CompletedRelationCompiler {
     private val log = LoggerFactory.getLogger(CompletedRelationCompiler::class.java)
     fun compile(builder: RelBuilder, analysis: QueryStageAnalysis.Analysis, display: MutableMap<String, String>,
-        parameters: MutableList<JdbcParameter>, relations: Map<String, RelNode>, checks: MutableList<RelationalCheck>) {
-        Pipeline(builder, analysis, display, parameters, relations, checks).compile()
+        parameters: MutableList<JdbcParameter>, relations: Map<String, RelNode>, checks: MutableList<RelationalCheck>, native: NativeExpressionScope) {
+        Pipeline(builder, analysis, display, parameters, relations, checks, native).compile()
     }
 
     /** 列程序只跨越人口和字段身份均保持的阶段；观察边界拥有其独立核验。 */
     private class Pipeline(private val b: RelBuilder, private val analysis: QueryStageAnalysis.Analysis,
         private val display: MutableMap<String, String>, private val parameters: MutableList<JdbcParameter>,
-        private val relations: Map<String, RelNode>, private val checks: MutableList<RelationalCheck>) {
+        private val relations: Map<String, RelNode>, private val checks: MutableList<RelationalCheck>, private val native: NativeExpressionScope) {
         private val system = b.typeFactory.typeSystem as? SemanticCalciteTypeSystem ?: error("completed relation compilation requires its bound execution type system")
         private val columns = ColumnProgram(b)
-        private val observations = CompletedObservationCompiler(b, parameters, relations, checks)
+        private val observations = CompletedObservationCompiler(b, parameters, relations, checks, native)
 
         fun compile() {
             requireCapabilities(system, analysis)
@@ -53,7 +53,7 @@ object CompletedRelationCompiler {
             }
             when (op) {
                 is PostOperationContract.Derive -> appendColumn(op) { builder ->
-                    CompletedExpressionCompiler.compile(builder, op.expression, parameters)
+                    CompletedExpressionCompiler.compile(builder, op.expression, parameters, native)
                 }
                 is PostOperationContract.PartitionAggregate -> appendColumn(op) { builder ->
                     SemanticNumericRex.aggregateOutput(builder, CompletedWindows.partitionAggregate(builder, op), op.aggregation)
@@ -131,7 +131,7 @@ object CompletedRelationCompiler {
             if (join.joinType !in setOf("SEMI", "ANTI")) names.forEach { display[it] = it }
             b.push(left).push(right).join(JoinRelType.INNER, b.literal(true))
             requireWeightedObjects(join)
-            var condition = CompletedExpressionCompiler.compile(b, join.condition, parameters)
+            var condition = CompletedExpressionCompiler.compile(b, join.condition, parameters, native)
             require(condition.type.sqlTypeName == SqlTypeName.BOOLEAN) { "JOIN_INPUT condition requires a Calcite BOOLEAN expression" }
             val key = stage.key as? QueryStageAnalysis.UniqueKey
             if (join.joinType in setOf("INNER", "LEFT") && key != null) {
@@ -162,7 +162,7 @@ object CompletedRelationCompiler {
         }
 
         private fun filter(filter: PostOperationContract.PostFilter) {
-            val predicate = CompletedExpressionCompiler.compile(b, filter.expression, parameters)
+            val predicate = CompletedExpressionCompiler.compile(b, filter.expression, parameters, native)
             require(predicate.type.sqlTypeName == SqlTypeName.BOOLEAN) { "POST_FILTER requires a Calcite BOOLEAN expression" }
             if (!hasUniformAllocation(filter.expression)) { b.filter(predicate); return }
             val names = b.peek().rowType.fieldNames.toList()

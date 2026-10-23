@@ -121,6 +121,10 @@ AVG 仍须提供非空数量合同。事实度量的 `aggregationRounding`、完
 
 ## 使用已声明的原生函数
 
-需要后端原生标量能力时，先用 `olap.sources.connectorCapabilities` 读取实际 `nativeScalarFunctions`，再从 Kotlin 类型发现取得 `SemanticExpression.NativeCall` 及其参数变体。调用提交精确 `connectorRef`、函数 ID 和有序参数；Scalar 参数输入完整表达式，PhysicalTable 参数输入已采用的精确物理表身份和版本，不能传自由表名或 SQL。结果类型、算术保证和 `IMMUTABLE/STATEMENT/VOLATILE` 稳定性以该函数声明为准，不凭函数名或方言推测，也不把原生浮点结果升级为精确数量。
+需要后端原生标量能力时，先用 `olap.sources.connectorCapabilities` 读取实际 `nativeScalarFunctions`，再从 Kotlin 类型发现取得所需作者节点。来源定义使用 `SemanticExpression.NativeCall`：Scalar 参数输入完整来源表达式，PhysicalTable 参数输入已采用的精确物理表身份和版本，不能传自由表名或 SQL。完成关系使用 `ResultExpression.ResultNativeCall(connectorRef,function,arguments)`，实参为有序结果表达式，只允许精确来源插件声明的纯 SCALAR 签名，不新增物理表依赖。两者均核对精确 `connectorRef`、函数 ID、参数及原生返回类型，不凭方言猜函数支持。
+
+关联后的条件解析应将 `ResultNativeCall` 放在该 JOIN 后的 `ResultCaseWhen` 分支内，不能无证明地移到源定义预解析。所有 CASE 分支都做静态校验，发布授权还须允许 `NATIVE_CALL` 及实参树的节点。插件和真实后端负责格式、NULL、解析错误、CASE 求值及 `IMMUTABLE/STATEMENT/VOLATILE` 稳定性；普通 TEXT 非 NULL 不证明格式有效。见[条件原生调用作者示例](../../../examples/agent-client/conditional-native-call.olap.kts)，示例要求部署方已有真实解析声明，不代表内置插件或目标后端已验收。
+
+原生数值结果只有维数一、声明的原生容量与算术保证，不自动成为天、金额或其他业务单位。Measure 实参仅允许 NUMBER→NUMBER，且单位为维数一、原生结果保证可承接输入；非数值返回的原生调用只消费分类标量，不能用 NUMBER→TEXT→CAST 擦除数量合同。原始逐行输入可形成逐行贡献，完成量的观察及重复度来源继续保留。CAST 或 DECIMAL 结果不能把近似、原生浮点改为 Exact。后续贡献人口、日期差、SUM/有效 COUNT、单位和舍入仍由业务模型明确表达。
 
 有适用语义资产时直接复用；需要新增含义时，Agent 结合业务资料和来源调查，通过治理合同明确创建、组合、采用和发布定义。配置来源不要求研发指标代码。

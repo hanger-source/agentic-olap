@@ -95,6 +95,8 @@ agentic-olap call wait-script --payload '{"executionId":"sources-001","waitMilli
 
 一次完整计算限同一精确来源绑定、方言与连接器；不等于跨来源联邦。保存结果不能直接充当后续 Query 的关系输入。
 
+完成关系需要插件原生标量时，先读实际 `nativeScalarFunctions` 和 `ResultExpression.ResultNativeCall` 的正式类型及 rules，只调用该精确来源插件的纯 SCALAR 签名。关联后的条件解析放在 JOIN 后 CASE 分支内，所有分支仍静态核验；不无条件前移到源定义，不猜 CAST 等价。格式、NULL、解析错误和稳定性由插件及真实后端兑现，数值结果不自动取得业务单位或更强算术。来源层 PhysicalTable 参数与采用闭包另按[原生函数合同](references/connections.md#使用已声明的原生函数)处理。
+
 ## 执行、读取与继续积累
 
 `validate/explain/execute` 独立使用。解释按实际合同返回人口、资格、粒度、阶段和关系计划；未取得的来源统计保持未知。查询可直接执行，计算交给引擎，不在外围重算业务指标。

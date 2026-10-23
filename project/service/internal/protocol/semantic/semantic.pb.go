@@ -9101,6 +9101,7 @@ type ResultExpression struct {
 	//	*ResultExpression_RowField
 	//	*ResultExpression_WeightedContribution
 	//	*ResultExpression_UniformAllocation
+	//	*ResultExpression_NativeCall
 	Kind          isResultExpression_Kind `protobuf_oneof:"kind"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -9296,6 +9297,15 @@ func (x *ResultExpression) GetUniformAllocation() *UniformAllocation {
 	return nil
 }
 
+func (x *ResultExpression) GetNativeCall() *ResultNativeCall {
+	if x != nil {
+		if x, ok := x.Kind.(*ResultExpression_NativeCall); ok {
+			return x.NativeCall
+		}
+	}
+	return nil
+}
+
 type isResultExpression_Kind interface {
 	isResultExpression_Kind()
 }
@@ -9368,6 +9378,10 @@ type ResultExpression_UniformAllocation struct {
 	UniformAllocation *UniformAllocation `protobuf:"bytes,17,opt,name=uniform_allocation,json=uniformAllocation,proto3,oneof"`
 }
 
+type ResultExpression_NativeCall struct {
+	NativeCall *ResultNativeCall `protobuf:"bytes,18,opt,name=native_call,json=nativeCall,proto3,oneof"`
+}
+
 func (*ResultExpression_Call) isResultExpression_Kind() {}
 
 func (*ResultExpression_Argument) isResultExpression_Kind() {}
@@ -9401,6 +9415,8 @@ func (*ResultExpression_RowField) isResultExpression_Kind() {}
 func (*ResultExpression_WeightedContribution) isResultExpression_Kind() {}
 
 func (*ResultExpression_UniformAllocation) isResultExpression_Kind() {}
+
+func (*ResultExpression_NativeCall) isResultExpression_Kind() {}
 
 type ResultCall struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -9454,6 +9470,66 @@ func (x *ResultCall) GetArguments() []*ResultExpression {
 	return nil
 }
 
+type ResultNativeCall struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ConnectorRef  *ConnectorRef          `protobuf:"bytes,1,opt,name=connector_ref,json=connectorRef,proto3" json:"connector_ref,omitempty"`
+	Function      string                 `protobuf:"bytes,2,opt,name=function,proto3" json:"function,omitempty"`
+	Arguments     []*ResultExpression    `protobuf:"bytes,3,rep,name=arguments,proto3" json:"arguments,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ResultNativeCall) Reset() {
+	*x = ResultNativeCall{}
+	mi := &file_semantic_proto_msgTypes[128]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResultNativeCall) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResultNativeCall) ProtoMessage() {}
+
+func (x *ResultNativeCall) ProtoReflect() protoreflect.Message {
+	mi := &file_semantic_proto_msgTypes[128]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResultNativeCall.ProtoReflect.Descriptor instead.
+func (*ResultNativeCall) Descriptor() ([]byte, []int) {
+	return file_semantic_proto_rawDescGZIP(), []int{128}
+}
+
+func (x *ResultNativeCall) GetConnectorRef() *ConnectorRef {
+	if x != nil {
+		return x.ConnectorRef
+	}
+	return nil
+}
+
+func (x *ResultNativeCall) GetFunction() string {
+	if x != nil {
+		return x.Function
+	}
+	return ""
+}
+
+func (x *ResultNativeCall) GetArguments() []*ResultExpression {
+	if x != nil {
+		return x.Arguments
+	}
+	return nil
+}
+
 type ResultArgument struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
@@ -9464,7 +9540,7 @@ type ResultArgument struct {
 
 func (x *ResultArgument) Reset() {
 	*x = ResultArgument{}
-	mi := &file_semantic_proto_msgTypes[128]
+	mi := &file_semantic_proto_msgTypes[129]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9476,7 +9552,7 @@ func (x *ResultArgument) String() string {
 func (*ResultArgument) ProtoMessage() {}
 
 func (x *ResultArgument) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[128]
+	mi := &file_semantic_proto_msgTypes[129]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9489,7 +9565,7 @@ func (x *ResultArgument) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResultArgument.ProtoReflect.Descriptor instead.
 func (*ResultArgument) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{128}
+	return file_semantic_proto_rawDescGZIP(), []int{129}
 }
 
 func (x *ResultArgument) GetName() string {
@@ -9516,7 +9592,7 @@ type TypedLiteral struct {
 
 func (x *TypedLiteral) Reset() {
 	*x = TypedLiteral{}
-	mi := &file_semantic_proto_msgTypes[129]
+	mi := &file_semantic_proto_msgTypes[130]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9528,7 +9604,7 @@ func (x *TypedLiteral) String() string {
 func (*TypedLiteral) ProtoMessage() {}
 
 func (x *TypedLiteral) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[129]
+	mi := &file_semantic_proto_msgTypes[130]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9541,7 +9617,7 @@ func (x *TypedLiteral) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TypedLiteral.ProtoReflect.Descriptor instead.
 func (*TypedLiteral) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{129}
+	return file_semantic_proto_rawDescGZIP(), []int{130}
 }
 
 func (x *TypedLiteral) GetValueType() string {
@@ -9568,7 +9644,7 @@ type QuantityLiteral struct {
 
 func (x *QuantityLiteral) Reset() {
 	*x = QuantityLiteral{}
-	mi := &file_semantic_proto_msgTypes[130]
+	mi := &file_semantic_proto_msgTypes[131]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9580,7 +9656,7 @@ func (x *QuantityLiteral) String() string {
 func (*QuantityLiteral) ProtoMessage() {}
 
 func (x *QuantityLiteral) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[130]
+	mi := &file_semantic_proto_msgTypes[131]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9593,7 +9669,7 @@ func (x *QuantityLiteral) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QuantityLiteral.ProtoReflect.Descriptor instead.
 func (*QuantityLiteral) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{130}
+	return file_semantic_proto_rawDescGZIP(), []int{131}
 }
 
 func (x *QuantityLiteral) GetValue() string {
@@ -9620,7 +9696,7 @@ type ResultOperation struct {
 
 func (x *ResultOperation) Reset() {
 	*x = ResultOperation{}
-	mi := &file_semantic_proto_msgTypes[131]
+	mi := &file_semantic_proto_msgTypes[132]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9632,7 +9708,7 @@ func (x *ResultOperation) String() string {
 func (*ResultOperation) ProtoMessage() {}
 
 func (x *ResultOperation) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[131]
+	mi := &file_semantic_proto_msgTypes[132]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9645,7 +9721,7 @@ func (x *ResultOperation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResultOperation.ProtoReflect.Descriptor instead.
 func (*ResultOperation) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{131}
+	return file_semantic_proto_rawDescGZIP(), []int{132}
 }
 
 func (x *ResultOperation) GetOperator() string {
@@ -9671,7 +9747,7 @@ type ResultExpressions struct {
 
 func (x *ResultExpressions) Reset() {
 	*x = ResultExpressions{}
-	mi := &file_semantic_proto_msgTypes[132]
+	mi := &file_semantic_proto_msgTypes[133]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9683,7 +9759,7 @@ func (x *ResultExpressions) String() string {
 func (*ResultExpressions) ProtoMessage() {}
 
 func (x *ResultExpressions) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[132]
+	mi := &file_semantic_proto_msgTypes[133]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9696,7 +9772,7 @@ func (x *ResultExpressions) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResultExpressions.ProtoReflect.Descriptor instead.
 func (*ResultExpressions) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{132}
+	return file_semantic_proto_rawDescGZIP(), []int{133}
 }
 
 func (x *ResultExpressions) GetValues() []*ResultExpression {
@@ -9716,7 +9792,7 @@ type ResultCase struct {
 
 func (x *ResultCase) Reset() {
 	*x = ResultCase{}
-	mi := &file_semantic_proto_msgTypes[133]
+	mi := &file_semantic_proto_msgTypes[134]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9728,7 +9804,7 @@ func (x *ResultCase) String() string {
 func (*ResultCase) ProtoMessage() {}
 
 func (x *ResultCase) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[133]
+	mi := &file_semantic_proto_msgTypes[134]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9741,7 +9817,7 @@ func (x *ResultCase) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResultCase.ProtoReflect.Descriptor instead.
 func (*ResultCase) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{133}
+	return file_semantic_proto_rawDescGZIP(), []int{134}
 }
 
 func (x *ResultCase) GetBranches() []*ResultBranch {
@@ -9768,7 +9844,7 @@ type ResultBranch struct {
 
 func (x *ResultBranch) Reset() {
 	*x = ResultBranch{}
-	mi := &file_semantic_proto_msgTypes[134]
+	mi := &file_semantic_proto_msgTypes[135]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9780,7 +9856,7 @@ func (x *ResultBranch) String() string {
 func (*ResultBranch) ProtoMessage() {}
 
 func (x *ResultBranch) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[134]
+	mi := &file_semantic_proto_msgTypes[135]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9793,7 +9869,7 @@ func (x *ResultBranch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResultBranch.ProtoReflect.Descriptor instead.
 func (*ResultBranch) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{134}
+	return file_semantic_proto_rawDescGZIP(), []int{135}
 }
 
 func (x *ResultBranch) GetWhen() *ResultExpression {
@@ -9823,7 +9899,7 @@ type ResultCast struct {
 
 func (x *ResultCast) Reset() {
 	*x = ResultCast{}
-	mi := &file_semantic_proto_msgTypes[135]
+	mi := &file_semantic_proto_msgTypes[136]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9835,7 +9911,7 @@ func (x *ResultCast) String() string {
 func (*ResultCast) ProtoMessage() {}
 
 func (x *ResultCast) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[135]
+	mi := &file_semantic_proto_msgTypes[136]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9848,7 +9924,7 @@ func (x *ResultCast) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResultCast.ProtoReflect.Descriptor instead.
 func (*ResultCast) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{135}
+	return file_semantic_proto_rawDescGZIP(), []int{136}
 }
 
 func (x *ResultCast) GetExpression() *ResultExpression {
@@ -9897,7 +9973,7 @@ type ResultRound struct {
 
 func (x *ResultRound) Reset() {
 	*x = ResultRound{}
-	mi := &file_semantic_proto_msgTypes[136]
+	mi := &file_semantic_proto_msgTypes[137]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9909,7 +9985,7 @@ func (x *ResultRound) String() string {
 func (*ResultRound) ProtoMessage() {}
 
 func (x *ResultRound) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[136]
+	mi := &file_semantic_proto_msgTypes[137]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9922,7 +9998,7 @@ func (x *ResultRound) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResultRound.ProtoReflect.Descriptor instead.
 func (*ResultRound) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{136}
+	return file_semantic_proto_rawDescGZIP(), []int{137}
 }
 
 func (x *ResultRound) GetExpression() *ResultExpression {
@@ -9957,7 +10033,7 @@ type ResultNumeric struct {
 
 func (x *ResultNumeric) Reset() {
 	*x = ResultNumeric{}
-	mi := &file_semantic_proto_msgTypes[137]
+	mi := &file_semantic_proto_msgTypes[138]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9969,7 +10045,7 @@ func (x *ResultNumeric) String() string {
 func (*ResultNumeric) ProtoMessage() {}
 
 func (x *ResultNumeric) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[137]
+	mi := &file_semantic_proto_msgTypes[138]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9982,7 +10058,7 @@ func (x *ResultNumeric) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResultNumeric.ProtoReflect.Descriptor instead.
 func (*ResultNumeric) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{137}
+	return file_semantic_proto_rawDescGZIP(), []int{138}
 }
 
 func (x *ResultNumeric) GetExpression() *ResultExpression {
@@ -10017,7 +10093,7 @@ type CollectionSort struct {
 
 func (x *CollectionSort) Reset() {
 	*x = CollectionSort{}
-	mi := &file_semantic_proto_msgTypes[138]
+	mi := &file_semantic_proto_msgTypes[139]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10029,7 +10105,7 @@ func (x *CollectionSort) String() string {
 func (*CollectionSort) ProtoMessage() {}
 
 func (x *CollectionSort) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[138]
+	mi := &file_semantic_proto_msgTypes[139]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10042,7 +10118,7 @@ func (x *CollectionSort) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CollectionSort.ProtoReflect.Descriptor instead.
 func (*CollectionSort) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{138}
+	return file_semantic_proto_rawDescGZIP(), []int{139}
 }
 
 func (x *CollectionSort) GetExpression() *ResultExpression {
@@ -10078,7 +10154,7 @@ type CollectionText struct {
 
 func (x *CollectionText) Reset() {
 	*x = CollectionText{}
-	mi := &file_semantic_proto_msgTypes[139]
+	mi := &file_semantic_proto_msgTypes[140]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10090,7 +10166,7 @@ func (x *CollectionText) String() string {
 func (*CollectionText) ProtoMessage() {}
 
 func (x *CollectionText) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[139]
+	mi := &file_semantic_proto_msgTypes[140]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10103,7 +10179,7 @@ func (x *CollectionText) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CollectionText.ProtoReflect.Descriptor instead.
 func (*CollectionText) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{139}
+	return file_semantic_proto_rawDescGZIP(), []int{140}
 }
 
 func (x *CollectionText) GetExpression() *ResultExpression {
@@ -10144,7 +10220,7 @@ type RowField struct {
 
 func (x *RowField) Reset() {
 	*x = RowField{}
-	mi := &file_semantic_proto_msgTypes[140]
+	mi := &file_semantic_proto_msgTypes[141]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10156,7 +10232,7 @@ func (x *RowField) String() string {
 func (*RowField) ProtoMessage() {}
 
 func (x *RowField) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[140]
+	mi := &file_semantic_proto_msgTypes[141]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10169,7 +10245,7 @@ func (x *RowField) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RowField.ProtoReflect.Descriptor instead.
 func (*RowField) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{140}
+	return file_semantic_proto_rawDescGZIP(), []int{141}
 }
 
 func (x *RowField) GetExpression() *ResultExpression {
@@ -10200,7 +10276,7 @@ type WeightedContribution struct {
 
 func (x *WeightedContribution) Reset() {
 	*x = WeightedContribution{}
-	mi := &file_semantic_proto_msgTypes[141]
+	mi := &file_semantic_proto_msgTypes[142]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10212,7 +10288,7 @@ func (x *WeightedContribution) String() string {
 func (*WeightedContribution) ProtoMessage() {}
 
 func (x *WeightedContribution) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[141]
+	mi := &file_semantic_proto_msgTypes[142]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10225,7 +10301,7 @@ func (x *WeightedContribution) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WeightedContribution.ProtoReflect.Descriptor instead.
 func (*WeightedContribution) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{141}
+	return file_semantic_proto_rawDescGZIP(), []int{142}
 }
 
 func (x *WeightedContribution) GetValue() *ResultExpression {
@@ -10283,7 +10359,7 @@ type UniformAllocation struct {
 
 func (x *UniformAllocation) Reset() {
 	*x = UniformAllocation{}
-	mi := &file_semantic_proto_msgTypes[142]
+	mi := &file_semantic_proto_msgTypes[143]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10295,7 +10371,7 @@ func (x *UniformAllocation) String() string {
 func (*UniformAllocation) ProtoMessage() {}
 
 func (x *UniformAllocation) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[142]
+	mi := &file_semantic_proto_msgTypes[143]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10308,7 +10384,7 @@ func (x *UniformAllocation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UniformAllocation.ProtoReflect.Descriptor instead.
 func (*UniformAllocation) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{142}
+	return file_semantic_proto_rawDescGZIP(), []int{143}
 }
 
 func (x *UniformAllocation) GetValue() *ResultExpression {
@@ -10364,7 +10440,7 @@ type ResultAggregation struct {
 
 func (x *ResultAggregation) Reset() {
 	*x = ResultAggregation{}
-	mi := &file_semantic_proto_msgTypes[143]
+	mi := &file_semantic_proto_msgTypes[144]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10376,7 +10452,7 @@ func (x *ResultAggregation) String() string {
 func (*ResultAggregation) ProtoMessage() {}
 
 func (x *ResultAggregation) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[143]
+	mi := &file_semantic_proto_msgTypes[144]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10389,7 +10465,7 @@ func (x *ResultAggregation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResultAggregation.ProtoReflect.Descriptor instead.
 func (*ResultAggregation) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{143}
+	return file_semantic_proto_rawDescGZIP(), []int{144}
 }
 
 func (x *ResultAggregation) GetKind() isResultAggregation_Kind {
@@ -10518,7 +10594,7 @@ type NumericAggregation struct {
 
 func (x *NumericAggregation) Reset() {
 	*x = NumericAggregation{}
-	mi := &file_semantic_proto_msgTypes[144]
+	mi := &file_semantic_proto_msgTypes[145]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10530,7 +10606,7 @@ func (x *NumericAggregation) String() string {
 func (*NumericAggregation) ProtoMessage() {}
 
 func (x *NumericAggregation) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[144]
+	mi := &file_semantic_proto_msgTypes[145]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10543,7 +10619,7 @@ func (x *NumericAggregation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NumericAggregation.ProtoReflect.Descriptor instead.
 func (*NumericAggregation) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{144}
+	return file_semantic_proto_rawDescGZIP(), []int{145}
 }
 
 func (x *NumericAggregation) GetValueContract() *MetricValueContract {
@@ -10571,7 +10647,7 @@ type AverageAggregation struct {
 
 func (x *AverageAggregation) Reset() {
 	*x = AverageAggregation{}
-	mi := &file_semantic_proto_msgTypes[145]
+	mi := &file_semantic_proto_msgTypes[146]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10583,7 +10659,7 @@ func (x *AverageAggregation) String() string {
 func (*AverageAggregation) ProtoMessage() {}
 
 func (x *AverageAggregation) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[145]
+	mi := &file_semantic_proto_msgTypes[146]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10596,7 +10672,7 @@ func (x *AverageAggregation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AverageAggregation.ProtoReflect.Descriptor instead.
 func (*AverageAggregation) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{145}
+	return file_semantic_proto_rawDescGZIP(), []int{146}
 }
 
 func (x *AverageAggregation) GetValueContract() *MetricValueContract {
@@ -10630,7 +10706,7 @@ type CountAggregation struct {
 
 func (x *CountAggregation) Reset() {
 	*x = CountAggregation{}
-	mi := &file_semantic_proto_msgTypes[146]
+	mi := &file_semantic_proto_msgTypes[147]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10642,7 +10718,7 @@ func (x *CountAggregation) String() string {
 func (*CountAggregation) ProtoMessage() {}
 
 func (x *CountAggregation) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[146]
+	mi := &file_semantic_proto_msgTypes[147]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10655,7 +10731,7 @@ func (x *CountAggregation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CountAggregation.ProtoReflect.Descriptor instead.
 func (*CountAggregation) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{146}
+	return file_semantic_proto_rawDescGZIP(), []int{147}
 }
 
 func (x *CountAggregation) GetDistinct() bool {
@@ -10683,7 +10759,7 @@ type OrderKey struct {
 
 func (x *OrderKey) Reset() {
 	*x = OrderKey{}
-	mi := &file_semantic_proto_msgTypes[147]
+	mi := &file_semantic_proto_msgTypes[148]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10695,7 +10771,7 @@ func (x *OrderKey) String() string {
 func (*OrderKey) ProtoMessage() {}
 
 func (x *OrderKey) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[147]
+	mi := &file_semantic_proto_msgTypes[148]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10708,7 +10784,7 @@ func (x *OrderKey) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OrderKey.ProtoReflect.Descriptor instead.
 func (*OrderKey) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{147}
+	return file_semantic_proto_rawDescGZIP(), []int{148}
 }
 
 func (x *OrderKey) GetSymbol() string {
@@ -10744,7 +10820,7 @@ type ResultAggregate struct {
 
 func (x *ResultAggregate) Reset() {
 	*x = ResultAggregate{}
-	mi := &file_semantic_proto_msgTypes[148]
+	mi := &file_semantic_proto_msgTypes[149]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10756,7 +10832,7 @@ func (x *ResultAggregate) String() string {
 func (*ResultAggregate) ProtoMessage() {}
 
 func (x *ResultAggregate) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[148]
+	mi := &file_semantic_proto_msgTypes[149]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10769,7 +10845,7 @@ func (x *ResultAggregate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResultAggregate.ProtoReflect.Descriptor instead.
 func (*ResultAggregate) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{148}
+	return file_semantic_proto_rawDescGZIP(), []int{149}
 }
 
 func (x *ResultAggregate) GetInput() string {
@@ -10811,7 +10887,7 @@ type ResultGrouping struct {
 
 func (x *ResultGrouping) Reset() {
 	*x = ResultGrouping{}
-	mi := &file_semantic_proto_msgTypes[149]
+	mi := &file_semantic_proto_msgTypes[150]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10823,7 +10899,7 @@ func (x *ResultGrouping) String() string {
 func (*ResultGrouping) ProtoMessage() {}
 
 func (x *ResultGrouping) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[149]
+	mi := &file_semantic_proto_msgTypes[150]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10836,7 +10912,7 @@ func (x *ResultGrouping) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResultGrouping.ProtoReflect.Descriptor instead.
 func (*ResultGrouping) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{149}
+	return file_semantic_proto_rawDescGZIP(), []int{150}
 }
 
 func (x *ResultGrouping) GetGroupBy() []string {
@@ -10871,7 +10947,7 @@ type WindowFrame struct {
 
 func (x *WindowFrame) Reset() {
 	*x = WindowFrame{}
-	mi := &file_semantic_proto_msgTypes[150]
+	mi := &file_semantic_proto_msgTypes[151]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10883,7 +10959,7 @@ func (x *WindowFrame) String() string {
 func (*WindowFrame) ProtoMessage() {}
 
 func (x *WindowFrame) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[150]
+	mi := &file_semantic_proto_msgTypes[151]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10896,7 +10972,7 @@ func (x *WindowFrame) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WindowFrame.ProtoReflect.Descriptor instead.
 func (*WindowFrame) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{150}
+	return file_semantic_proto_rawDescGZIP(), []int{151}
 }
 
 func (x *WindowFrame) GetMode() string {
@@ -10931,7 +11007,7 @@ type WindowBound struct {
 
 func (x *WindowBound) Reset() {
 	*x = WindowBound{}
-	mi := &file_semantic_proto_msgTypes[151]
+	mi := &file_semantic_proto_msgTypes[152]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10943,7 +11019,7 @@ func (x *WindowBound) String() string {
 func (*WindowBound) ProtoMessage() {}
 
 func (x *WindowBound) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[151]
+	mi := &file_semantic_proto_msgTypes[152]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10956,7 +11032,7 @@ func (x *WindowBound) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WindowBound.ProtoReflect.Descriptor instead.
 func (*WindowBound) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{151}
+	return file_semantic_proto_rawDescGZIP(), []int{152}
 }
 
 func (x *WindowBound) GetKind() string {
@@ -11008,7 +11084,7 @@ type Stage struct {
 
 func (x *Stage) Reset() {
 	*x = Stage{}
-	mi := &file_semantic_proto_msgTypes[152]
+	mi := &file_semantic_proto_msgTypes[153]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11020,7 +11096,7 @@ func (x *Stage) String() string {
 func (*Stage) ProtoMessage() {}
 
 func (x *Stage) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[152]
+	mi := &file_semantic_proto_msgTypes[153]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11033,7 +11109,7 @@ func (x *Stage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Stage.ProtoReflect.Descriptor instead.
 func (*Stage) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{152}
+	return file_semantic_proto_rawDescGZIP(), []int{153}
 }
 
 func (x *Stage) GetKind() isStage_Kind {
@@ -11314,7 +11390,7 @@ type StageJoin struct {
 
 func (x *StageJoin) Reset() {
 	*x = StageJoin{}
-	mi := &file_semantic_proto_msgTypes[153]
+	mi := &file_semantic_proto_msgTypes[154]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11326,7 +11402,7 @@ func (x *StageJoin) String() string {
 func (*StageJoin) ProtoMessage() {}
 
 func (x *StageJoin) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[153]
+	mi := &file_semantic_proto_msgTypes[154]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11339,7 +11415,7 @@ func (x *StageJoin) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StageJoin.ProtoReflect.Descriptor instead.
 func (*StageJoin) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{153}
+	return file_semantic_proto_rawDescGZIP(), []int{154}
 }
 
 func (x *StageJoin) GetInputId() string {
@@ -11383,7 +11459,7 @@ type StageAncestors struct {
 
 func (x *StageAncestors) Reset() {
 	*x = StageAncestors{}
-	mi := &file_semantic_proto_msgTypes[154]
+	mi := &file_semantic_proto_msgTypes[155]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11395,7 +11471,7 @@ func (x *StageAncestors) String() string {
 func (*StageAncestors) ProtoMessage() {}
 
 func (x *StageAncestors) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[154]
+	mi := &file_semantic_proto_msgTypes[155]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11408,7 +11484,7 @@ func (x *StageAncestors) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StageAncestors.ProtoReflect.Descriptor instead.
 func (*StageAncestors) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{154}
+	return file_semantic_proto_rawDescGZIP(), []int{155}
 }
 
 func (x *StageAncestors) GetSourceKeys() []string {
@@ -11458,7 +11534,7 @@ type StageExpand struct {
 
 func (x *StageExpand) Reset() {
 	*x = StageExpand{}
-	mi := &file_semantic_proto_msgTypes[155]
+	mi := &file_semantic_proto_msgTypes[156]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11470,7 +11546,7 @@ func (x *StageExpand) String() string {
 func (*StageExpand) ProtoMessage() {}
 
 func (x *StageExpand) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[155]
+	mi := &file_semantic_proto_msgTypes[156]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11483,7 +11559,7 @@ func (x *StageExpand) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StageExpand.ProtoReflect.Descriptor instead.
 func (*StageExpand) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{155}
+	return file_semantic_proto_rawDescGZIP(), []int{156}
 }
 
 func (x *StageExpand) GetInput() string {
@@ -11523,7 +11599,7 @@ type StageSort struct {
 
 func (x *StageSort) Reset() {
 	*x = StageSort{}
-	mi := &file_semantic_proto_msgTypes[156]
+	mi := &file_semantic_proto_msgTypes[157]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11535,7 +11611,7 @@ func (x *StageSort) String() string {
 func (*StageSort) ProtoMessage() {}
 
 func (x *StageSort) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[156]
+	mi := &file_semantic_proto_msgTypes[157]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11548,7 +11624,7 @@ func (x *StageSort) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StageSort.ProtoReflect.Descriptor instead.
 func (*StageSort) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{156}
+	return file_semantic_proto_rawDescGZIP(), []int{157}
 }
 
 func (x *StageSort) GetOrderKeys() []*OrderKey {
@@ -11568,7 +11644,7 @@ type StageTop struct {
 
 func (x *StageTop) Reset() {
 	*x = StageTop{}
-	mi := &file_semantic_proto_msgTypes[157]
+	mi := &file_semantic_proto_msgTypes[158]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11580,7 +11656,7 @@ func (x *StageTop) String() string {
 func (*StageTop) ProtoMessage() {}
 
 func (x *StageTop) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[157]
+	mi := &file_semantic_proto_msgTypes[158]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11593,7 +11669,7 @@ func (x *StageTop) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StageTop.ProtoReflect.Descriptor instead.
 func (*StageTop) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{157}
+	return file_semantic_proto_rawDescGZIP(), []int{158}
 }
 
 func (x *StageTop) GetOrderKeys() []*OrderKey {
@@ -11621,7 +11697,7 @@ type StageDerive struct {
 
 func (x *StageDerive) Reset() {
 	*x = StageDerive{}
-	mi := &file_semantic_proto_msgTypes[158]
+	mi := &file_semantic_proto_msgTypes[159]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11633,7 +11709,7 @@ func (x *StageDerive) String() string {
 func (*StageDerive) ProtoMessage() {}
 
 func (x *StageDerive) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[158]
+	mi := &file_semantic_proto_msgTypes[159]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11646,7 +11722,7 @@ func (x *StageDerive) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StageDerive.ProtoReflect.Descriptor instead.
 func (*StageDerive) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{158}
+	return file_semantic_proto_rawDescGZIP(), []int{159}
 }
 
 func (x *StageDerive) GetExpression() *ResultExpression {
@@ -11683,7 +11759,7 @@ type StageRank struct {
 
 func (x *StageRank) Reset() {
 	*x = StageRank{}
-	mi := &file_semantic_proto_msgTypes[159]
+	mi := &file_semantic_proto_msgTypes[160]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11695,7 +11771,7 @@ func (x *StageRank) String() string {
 func (*StageRank) ProtoMessage() {}
 
 func (x *StageRank) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[159]
+	mi := &file_semantic_proto_msgTypes[160]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11708,7 +11784,7 @@ func (x *StageRank) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StageRank.ProtoReflect.Descriptor instead.
 func (*StageRank) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{159}
+	return file_semantic_proto_rawDescGZIP(), []int{160}
 }
 
 func (x *StageRank) GetOrderBy() string {
@@ -11759,7 +11835,7 @@ type StageOrderedRank struct {
 
 func (x *StageOrderedRank) Reset() {
 	*x = StageOrderedRank{}
-	mi := &file_semantic_proto_msgTypes[160]
+	mi := &file_semantic_proto_msgTypes[161]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11771,7 +11847,7 @@ func (x *StageOrderedRank) String() string {
 func (*StageOrderedRank) ProtoMessage() {}
 
 func (x *StageOrderedRank) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[160]
+	mi := &file_semantic_proto_msgTypes[161]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11784,7 +11860,7 @@ func (x *StageOrderedRank) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StageOrderedRank.ProtoReflect.Descriptor instead.
 func (*StageOrderedRank) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{160}
+	return file_semantic_proto_rawDescGZIP(), []int{161}
 }
 
 func (x *StageOrderedRank) GetOperationType() string {
@@ -11837,7 +11913,7 @@ type StageCumulative struct {
 
 func (x *StageCumulative) Reset() {
 	*x = StageCumulative{}
-	mi := &file_semantic_proto_msgTypes[161]
+	mi := &file_semantic_proto_msgTypes[162]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11849,7 +11925,7 @@ func (x *StageCumulative) String() string {
 func (*StageCumulative) ProtoMessage() {}
 
 func (x *StageCumulative) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[161]
+	mi := &file_semantic_proto_msgTypes[162]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11862,7 +11938,7 @@ func (x *StageCumulative) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StageCumulative.ProtoReflect.Descriptor instead.
 func (*StageCumulative) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{161}
+	return file_semantic_proto_rawDescGZIP(), []int{162}
 }
 
 func (x *StageCumulative) GetInput() string {
@@ -11927,7 +12003,7 @@ type StagePartition struct {
 
 func (x *StagePartition) Reset() {
 	*x = StagePartition{}
-	mi := &file_semantic_proto_msgTypes[162]
+	mi := &file_semantic_proto_msgTypes[163]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11939,7 +12015,7 @@ func (x *StagePartition) String() string {
 func (*StagePartition) ProtoMessage() {}
 
 func (x *StagePartition) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[162]
+	mi := &file_semantic_proto_msgTypes[163]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11952,7 +12028,7 @@ func (x *StagePartition) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StagePartition.ProtoReflect.Descriptor instead.
 func (*StagePartition) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{162}
+	return file_semantic_proto_rawDescGZIP(), []int{163}
 }
 
 func (x *StagePartition) GetInput() string {
@@ -12005,7 +12081,7 @@ type StageWindow struct {
 
 func (x *StageWindow) Reset() {
 	*x = StageWindow{}
-	mi := &file_semantic_proto_msgTypes[163]
+	mi := &file_semantic_proto_msgTypes[164]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12017,7 +12093,7 @@ func (x *StageWindow) String() string {
 func (*StageWindow) ProtoMessage() {}
 
 func (x *StageWindow) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[163]
+	mi := &file_semantic_proto_msgTypes[164]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12030,7 +12106,7 @@ func (x *StageWindow) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StageWindow.ProtoReflect.Descriptor instead.
 func (*StageWindow) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{163}
+	return file_semantic_proto_rawDescGZIP(), []int{164}
 }
 
 func (x *StageWindow) GetInput() string {
@@ -12092,7 +12168,7 @@ type SnapshotSelection struct {
 
 func (x *SnapshotSelection) Reset() {
 	*x = SnapshotSelection{}
-	mi := &file_semantic_proto_msgTypes[164]
+	mi := &file_semantic_proto_msgTypes[165]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12104,7 +12180,7 @@ func (x *SnapshotSelection) String() string {
 func (*SnapshotSelection) ProtoMessage() {}
 
 func (x *SnapshotSelection) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[164]
+	mi := &file_semantic_proto_msgTypes[165]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12117,7 +12193,7 @@ func (x *SnapshotSelection) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SnapshotSelection.ProtoReflect.Descriptor instead.
 func (*SnapshotSelection) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{164}
+	return file_semantic_proto_rawDescGZIP(), []int{165}
 }
 
 func (x *SnapshotSelection) GetTimeSymbol() string {
@@ -12146,7 +12222,7 @@ type StageSelectVersions struct {
 
 func (x *StageSelectVersions) Reset() {
 	*x = StageSelectVersions{}
-	mi := &file_semantic_proto_msgTypes[165]
+	mi := &file_semantic_proto_msgTypes[166]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12158,7 +12234,7 @@ func (x *StageSelectVersions) String() string {
 func (*StageSelectVersions) ProtoMessage() {}
 
 func (x *StageSelectVersions) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[165]
+	mi := &file_semantic_proto_msgTypes[166]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12171,7 +12247,7 @@ func (x *StageSelectVersions) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StageSelectVersions.ProtoReflect.Descriptor instead.
 func (*StageSelectVersions) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{165}
+	return file_semantic_proto_rawDescGZIP(), []int{166}
 }
 
 func (x *StageSelectVersions) GetPartitionBy() []string {
@@ -12212,7 +12288,7 @@ type CalendarAxis struct {
 
 func (x *CalendarAxis) Reset() {
 	*x = CalendarAxis{}
-	mi := &file_semantic_proto_msgTypes[166]
+	mi := &file_semantic_proto_msgTypes[167]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12224,7 +12300,7 @@ func (x *CalendarAxis) String() string {
 func (*CalendarAxis) ProtoMessage() {}
 
 func (x *CalendarAxis) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[166]
+	mi := &file_semantic_proto_msgTypes[167]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12237,7 +12313,7 @@ func (x *CalendarAxis) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CalendarAxis.ProtoReflect.Descriptor instead.
 func (*CalendarAxis) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{166}
+	return file_semantic_proto_rawDescGZIP(), []int{167}
 }
 
 func (x *CalendarAxis) GetInputId() string {
@@ -12274,7 +12350,7 @@ type StageObserveWindow struct {
 
 func (x *StageObserveWindow) Reset() {
 	*x = StageObserveWindow{}
-	mi := &file_semantic_proto_msgTypes[167]
+	mi := &file_semantic_proto_msgTypes[168]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12286,7 +12362,7 @@ func (x *StageObserveWindow) String() string {
 func (*StageObserveWindow) ProtoMessage() {}
 
 func (x *StageObserveWindow) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[167]
+	mi := &file_semantic_proto_msgTypes[168]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12299,7 +12375,7 @@ func (x *StageObserveWindow) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StageObserveWindow.ProtoReflect.Descriptor instead.
 func (*StageObserveWindow) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{167}
+	return file_semantic_proto_rawDescGZIP(), []int{168}
 }
 
 func (x *StageObserveWindow) GetInputKeys() []string {
@@ -12401,7 +12477,7 @@ type StageOffset struct {
 
 func (x *StageOffset) Reset() {
 	*x = StageOffset{}
-	mi := &file_semantic_proto_msgTypes[168]
+	mi := &file_semantic_proto_msgTypes[169]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12413,7 +12489,7 @@ func (x *StageOffset) String() string {
 func (*StageOffset) ProtoMessage() {}
 
 func (x *StageOffset) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[168]
+	mi := &file_semantic_proto_msgTypes[169]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12426,7 +12502,7 @@ func (x *StageOffset) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StageOffset.ProtoReflect.Descriptor instead.
 func (*StageOffset) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{168}
+	return file_semantic_proto_rawDescGZIP(), []int{169}
 }
 
 func (x *StageOffset) GetInput() string {
@@ -12491,7 +12567,7 @@ type MetricDefinition struct {
 
 func (x *MetricDefinition) Reset() {
 	*x = MetricDefinition{}
-	mi := &file_semantic_proto_msgTypes[169]
+	mi := &file_semantic_proto_msgTypes[170]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12503,7 +12579,7 @@ func (x *MetricDefinition) String() string {
 func (*MetricDefinition) ProtoMessage() {}
 
 func (x *MetricDefinition) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[169]
+	mi := &file_semantic_proto_msgTypes[170]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12516,7 +12592,7 @@ func (x *MetricDefinition) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MetricDefinition.ProtoReflect.Descriptor instead.
 func (*MetricDefinition) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{169}
+	return file_semantic_proto_rawDescGZIP(), []int{170}
 }
 
 func (x *MetricDefinition) GetKind() isMetricDefinition_Kind {
@@ -12577,7 +12653,7 @@ type FactMeasure struct {
 
 func (x *FactMeasure) Reset() {
 	*x = FactMeasure{}
-	mi := &file_semantic_proto_msgTypes[170]
+	mi := &file_semantic_proto_msgTypes[171]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12589,7 +12665,7 @@ func (x *FactMeasure) String() string {
 func (*FactMeasure) ProtoMessage() {}
 
 func (x *FactMeasure) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[170]
+	mi := &file_semantic_proto_msgTypes[171]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12602,7 +12678,7 @@ func (x *FactMeasure) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FactMeasure.ProtoReflect.Descriptor instead.
 func (*FactMeasure) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{170}
+	return file_semantic_proto_rawDescGZIP(), []int{171}
 }
 
 func (x *FactMeasure) GetEvent() *EventRef {
@@ -12680,7 +12756,7 @@ type MetricCalculation struct {
 
 func (x *MetricCalculation) Reset() {
 	*x = MetricCalculation{}
-	mi := &file_semantic_proto_msgTypes[171]
+	mi := &file_semantic_proto_msgTypes[172]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12692,7 +12768,7 @@ func (x *MetricCalculation) String() string {
 func (*MetricCalculation) ProtoMessage() {}
 
 func (x *MetricCalculation) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[171]
+	mi := &file_semantic_proto_msgTypes[172]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12705,7 +12781,7 @@ func (x *MetricCalculation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MetricCalculation.ProtoReflect.Descriptor instead.
 func (*MetricCalculation) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{171}
+	return file_semantic_proto_rawDescGZIP(), []int{172}
 }
 
 func (x *MetricCalculation) GetCalculation() *Calculation {
@@ -12748,7 +12824,7 @@ type MetricInstance struct {
 
 func (x *MetricInstance) Reset() {
 	*x = MetricInstance{}
-	mi := &file_semantic_proto_msgTypes[172]
+	mi := &file_semantic_proto_msgTypes[173]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12760,7 +12836,7 @@ func (x *MetricInstance) String() string {
 func (*MetricInstance) ProtoMessage() {}
 
 func (x *MetricInstance) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[172]
+	mi := &file_semantic_proto_msgTypes[173]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12773,7 +12849,7 @@ func (x *MetricInstance) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MetricInstance.ProtoReflect.Descriptor instead.
 func (*MetricInstance) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{172}
+	return file_semantic_proto_rawDescGZIP(), []int{173}
 }
 
 func (x *MetricInstance) GetDisplayName() string {
@@ -12817,7 +12893,7 @@ type MemberSourceDefinition struct {
 
 func (x *MemberSourceDefinition) Reset() {
 	*x = MemberSourceDefinition{}
-	mi := &file_semantic_proto_msgTypes[173]
+	mi := &file_semantic_proto_msgTypes[174]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12829,7 +12905,7 @@ func (x *MemberSourceDefinition) String() string {
 func (*MemberSourceDefinition) ProtoMessage() {}
 
 func (x *MemberSourceDefinition) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[173]
+	mi := &file_semantic_proto_msgTypes[174]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12842,7 +12918,7 @@ func (x *MemberSourceDefinition) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MemberSourceDefinition.ProtoReflect.Descriptor instead.
 func (*MemberSourceDefinition) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{173}
+	return file_semantic_proto_rawDescGZIP(), []int{174}
 }
 
 func (x *MemberSourceDefinition) GetKind() isMemberSourceDefinition_Kind {
@@ -12896,7 +12972,7 @@ type MemberProjectionDefinition struct {
 
 func (x *MemberProjectionDefinition) Reset() {
 	*x = MemberProjectionDefinition{}
-	mi := &file_semantic_proto_msgTypes[174]
+	mi := &file_semantic_proto_msgTypes[175]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12908,7 +12984,7 @@ func (x *MemberProjectionDefinition) String() string {
 func (*MemberProjectionDefinition) ProtoMessage() {}
 
 func (x *MemberProjectionDefinition) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[174]
+	mi := &file_semantic_proto_msgTypes[175]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12921,7 +12997,7 @@ func (x *MemberProjectionDefinition) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MemberProjectionDefinition.ProtoReflect.Descriptor instead.
 func (*MemberProjectionDefinition) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{174}
+	return file_semantic_proto_rawDescGZIP(), []int{175}
 }
 
 func (x *MemberProjectionDefinition) GetEvent() *EventRef {
@@ -12948,7 +13024,7 @@ type MemberComputedDefinition struct {
 
 func (x *MemberComputedDefinition) Reset() {
 	*x = MemberComputedDefinition{}
-	mi := &file_semantic_proto_msgTypes[175]
+	mi := &file_semantic_proto_msgTypes[176]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12960,7 +13036,7 @@ func (x *MemberComputedDefinition) String() string {
 func (*MemberComputedDefinition) ProtoMessage() {}
 
 func (x *MemberComputedDefinition) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[175]
+	mi := &file_semantic_proto_msgTypes[176]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12973,7 +13049,7 @@ func (x *MemberComputedDefinition) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MemberComputedDefinition.ProtoReflect.Descriptor instead.
 func (*MemberComputedDefinition) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{175}
+	return file_semantic_proto_rawDescGZIP(), []int{176}
 }
 
 func (x *MemberComputedDefinition) GetCalculation() *Calculation {
@@ -13007,7 +13083,7 @@ type MemberResult struct {
 
 func (x *MemberResult) Reset() {
 	*x = MemberResult{}
-	mi := &file_semantic_proto_msgTypes[176]
+	mi := &file_semantic_proto_msgTypes[177]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13019,7 +13095,7 @@ func (x *MemberResult) String() string {
 func (*MemberResult) ProtoMessage() {}
 
 func (x *MemberResult) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[176]
+	mi := &file_semantic_proto_msgTypes[177]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13032,7 +13108,7 @@ func (x *MemberResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MemberResult.ProtoReflect.Descriptor instead.
 func (*MemberResult) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{176}
+	return file_semantic_proto_rawDescGZIP(), []int{177}
 }
 
 func (x *MemberResult) GetEntity() string {
@@ -13115,7 +13191,7 @@ type MemberSourceOutput struct {
 
 func (x *MemberSourceOutput) Reset() {
 	*x = MemberSourceOutput{}
-	mi := &file_semantic_proto_msgTypes[177]
+	mi := &file_semantic_proto_msgTypes[178]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13127,7 +13203,7 @@ func (x *MemberSourceOutput) String() string {
 func (*MemberSourceOutput) ProtoMessage() {}
 
 func (x *MemberSourceOutput) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[177]
+	mi := &file_semantic_proto_msgTypes[178]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13140,7 +13216,7 @@ func (x *MemberSourceOutput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MemberSourceOutput.ProtoReflect.Descriptor instead.
 func (*MemberSourceOutput) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{177}
+	return file_semantic_proto_rawDescGZIP(), []int{178}
 }
 
 func (x *MemberSourceOutput) GetKind() isMemberSourceOutput_Kind {
@@ -13260,7 +13336,7 @@ type SourceDimensionOutput struct {
 
 func (x *SourceDimensionOutput) Reset() {
 	*x = SourceDimensionOutput{}
-	mi := &file_semantic_proto_msgTypes[178]
+	mi := &file_semantic_proto_msgTypes[179]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13272,7 +13348,7 @@ func (x *SourceDimensionOutput) String() string {
 func (*SourceDimensionOutput) ProtoMessage() {}
 
 func (x *SourceDimensionOutput) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[178]
+	mi := &file_semantic_proto_msgTypes[179]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13285,7 +13361,7 @@ func (x *SourceDimensionOutput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SourceDimensionOutput.ProtoReflect.Descriptor instead.
 func (*SourceDimensionOutput) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{178}
+	return file_semantic_proto_rawDescGZIP(), []int{179}
 }
 
 func (x *SourceDimensionOutput) GetRole() string {
@@ -13359,7 +13435,7 @@ type SourcePropertyOutput struct {
 
 func (x *SourcePropertyOutput) Reset() {
 	*x = SourcePropertyOutput{}
-	mi := &file_semantic_proto_msgTypes[179]
+	mi := &file_semantic_proto_msgTypes[180]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13371,7 +13447,7 @@ func (x *SourcePropertyOutput) String() string {
 func (*SourcePropertyOutput) ProtoMessage() {}
 
 func (x *SourcePropertyOutput) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[179]
+	mi := &file_semantic_proto_msgTypes[180]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13384,7 +13460,7 @@ func (x *SourcePropertyOutput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SourcePropertyOutput.ProtoReflect.Descriptor instead.
 func (*SourcePropertyOutput) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{179}
+	return file_semantic_proto_rawDescGZIP(), []int{180}
 }
 
 func (x *SourcePropertyOutput) GetRole() string {
@@ -13450,7 +13526,7 @@ type SourceComputedDimensionOutput struct {
 
 func (x *SourceComputedDimensionOutput) Reset() {
 	*x = SourceComputedDimensionOutput{}
-	mi := &file_semantic_proto_msgTypes[180]
+	mi := &file_semantic_proto_msgTypes[181]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13462,7 +13538,7 @@ func (x *SourceComputedDimensionOutput) String() string {
 func (*SourceComputedDimensionOutput) ProtoMessage() {}
 
 func (x *SourceComputedDimensionOutput) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[180]
+	mi := &file_semantic_proto_msgTypes[181]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13475,7 +13551,7 @@ func (x *SourceComputedDimensionOutput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SourceComputedDimensionOutput.ProtoReflect.Descriptor instead.
 func (*SourceComputedDimensionOutput) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{180}
+	return file_semantic_proto_rawDescGZIP(), []int{181}
 }
 
 func (x *SourceComputedDimensionOutput) GetRole() string {
@@ -13533,7 +13609,7 @@ type SourceComputedPropertyOutput struct {
 
 func (x *SourceComputedPropertyOutput) Reset() {
 	*x = SourceComputedPropertyOutput{}
-	mi := &file_semantic_proto_msgTypes[181]
+	mi := &file_semantic_proto_msgTypes[182]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13545,7 +13621,7 @@ func (x *SourceComputedPropertyOutput) String() string {
 func (*SourceComputedPropertyOutput) ProtoMessage() {}
 
 func (x *SourceComputedPropertyOutput) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[181]
+	mi := &file_semantic_proto_msgTypes[182]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13558,7 +13634,7 @@ func (x *SourceComputedPropertyOutput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SourceComputedPropertyOutput.ProtoReflect.Descriptor instead.
 func (*SourceComputedPropertyOutput) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{181}
+	return file_semantic_proto_rawDescGZIP(), []int{182}
 }
 
 func (x *SourceComputedPropertyOutput) GetRole() string {
@@ -13610,7 +13686,7 @@ type SourceContainerOutput struct {
 
 func (x *SourceContainerOutput) Reset() {
 	*x = SourceContainerOutput{}
-	mi := &file_semantic_proto_msgTypes[182]
+	mi := &file_semantic_proto_msgTypes[183]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13622,7 +13698,7 @@ func (x *SourceContainerOutput) String() string {
 func (*SourceContainerOutput) ProtoMessage() {}
 
 func (x *SourceContainerOutput) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[182]
+	mi := &file_semantic_proto_msgTypes[183]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13635,7 +13711,7 @@ func (x *SourceContainerOutput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SourceContainerOutput.ProtoReflect.Descriptor instead.
 func (*SourceContainerOutput) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{182}
+	return file_semantic_proto_rawDescGZIP(), []int{183}
 }
 
 func (x *SourceContainerOutput) GetRole() string {
@@ -13692,7 +13768,7 @@ type SourceComputedContainerOutput struct {
 
 func (x *SourceComputedContainerOutput) Reset() {
 	*x = SourceComputedContainerOutput{}
-	mi := &file_semantic_proto_msgTypes[183]
+	mi := &file_semantic_proto_msgTypes[184]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13704,7 +13780,7 @@ func (x *SourceComputedContainerOutput) String() string {
 func (*SourceComputedContainerOutput) ProtoMessage() {}
 
 func (x *SourceComputedContainerOutput) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[183]
+	mi := &file_semantic_proto_msgTypes[184]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13717,7 +13793,7 @@ func (x *SourceComputedContainerOutput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SourceComputedContainerOutput.ProtoReflect.Descriptor instead.
 func (*SourceComputedContainerOutput) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{183}
+	return file_semantic_proto_rawDescGZIP(), []int{184}
 }
 
 func (x *SourceComputedContainerOutput) GetRole() string {
@@ -13761,7 +13837,7 @@ type MemberSource struct {
 
 func (x *MemberSource) Reset() {
 	*x = MemberSource{}
-	mi := &file_semantic_proto_msgTypes[184]
+	mi := &file_semantic_proto_msgTypes[185]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13773,7 +13849,7 @@ func (x *MemberSource) String() string {
 func (*MemberSource) ProtoMessage() {}
 
 func (x *MemberSource) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[184]
+	mi := &file_semantic_proto_msgTypes[185]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13786,7 +13862,7 @@ func (x *MemberSource) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MemberSource.ProtoReflect.Descriptor instead.
 func (*MemberSource) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{184}
+	return file_semantic_proto_rawDescGZIP(), []int{185}
 }
 
 func (x *MemberSource) GetKind() isMemberSource_Kind {
@@ -13842,7 +13918,7 @@ type ProjectedMemberSource struct {
 
 func (x *ProjectedMemberSource) Reset() {
 	*x = ProjectedMemberSource{}
-	mi := &file_semantic_proto_msgTypes[185]
+	mi := &file_semantic_proto_msgTypes[186]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13854,7 +13930,7 @@ func (x *ProjectedMemberSource) String() string {
 func (*ProjectedMemberSource) ProtoMessage() {}
 
 func (x *ProjectedMemberSource) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[185]
+	mi := &file_semantic_proto_msgTypes[186]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13867,7 +13943,7 @@ func (x *ProjectedMemberSource) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProjectedMemberSource.ProtoReflect.Descriptor instead.
 func (*ProjectedMemberSource) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{185}
+	return file_semantic_proto_rawDescGZIP(), []int{186}
 }
 
 func (x *ProjectedMemberSource) GetId() string {
@@ -13911,7 +13987,7 @@ type ComputedMemberSource struct {
 
 func (x *ComputedMemberSource) Reset() {
 	*x = ComputedMemberSource{}
-	mi := &file_semantic_proto_msgTypes[186]
+	mi := &file_semantic_proto_msgTypes[187]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13923,7 +13999,7 @@ func (x *ComputedMemberSource) String() string {
 func (*ComputedMemberSource) ProtoMessage() {}
 
 func (x *ComputedMemberSource) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[186]
+	mi := &file_semantic_proto_msgTypes[187]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13936,7 +14012,7 @@ func (x *ComputedMemberSource) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ComputedMemberSource.ProtoReflect.Descriptor instead.
 func (*ComputedMemberSource) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{186}
+	return file_semantic_proto_rawDescGZIP(), []int{187}
 }
 
 func (x *ComputedMemberSource) GetId() string {
@@ -13983,7 +14059,7 @@ type ScopeId struct {
 
 func (x *ScopeId) Reset() {
 	*x = ScopeId{}
-	mi := &file_semantic_proto_msgTypes[187]
+	mi := &file_semantic_proto_msgTypes[188]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13995,7 +14071,7 @@ func (x *ScopeId) String() string {
 func (*ScopeId) ProtoMessage() {}
 
 func (x *ScopeId) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[187]
+	mi := &file_semantic_proto_msgTypes[188]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14008,7 +14084,7 @@ func (x *ScopeId) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ScopeId.ProtoReflect.Descriptor instead.
 func (*ScopeId) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{187}
+	return file_semantic_proto_rawDescGZIP(), []int{188}
 }
 
 func (x *ScopeId) GetPath() []string {
@@ -14028,7 +14104,7 @@ type SymbolId struct {
 
 func (x *SymbolId) Reset() {
 	*x = SymbolId{}
-	mi := &file_semantic_proto_msgTypes[188]
+	mi := &file_semantic_proto_msgTypes[189]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14040,7 +14116,7 @@ func (x *SymbolId) String() string {
 func (*SymbolId) ProtoMessage() {}
 
 func (x *SymbolId) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[188]
+	mi := &file_semantic_proto_msgTypes[189]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14053,7 +14129,7 @@ func (x *SymbolId) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SymbolId.ProtoReflect.Descriptor instead.
 func (*SymbolId) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{188}
+	return file_semantic_proto_rawDescGZIP(), []int{189}
 }
 
 func (x *SymbolId) GetScope() *ScopeId {
@@ -14080,7 +14156,7 @@ type ValuePosition struct {
 
 func (x *ValuePosition) Reset() {
 	*x = ValuePosition{}
-	mi := &file_semantic_proto_msgTypes[189]
+	mi := &file_semantic_proto_msgTypes[190]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14092,7 +14168,7 @@ func (x *ValuePosition) String() string {
 func (*ValuePosition) ProtoMessage() {}
 
 func (x *ValuePosition) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[189]
+	mi := &file_semantic_proto_msgTypes[190]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14105,7 +14181,7 @@ func (x *ValuePosition) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ValuePosition.ProtoReflect.Descriptor instead.
 func (*ValuePosition) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{189}
+	return file_semantic_proto_rawDescGZIP(), []int{190}
 }
 
 func (x *ValuePosition) GetOwner() *SymbolId {
@@ -14136,7 +14212,7 @@ type CalculationOwner struct {
 
 func (x *CalculationOwner) Reset() {
 	*x = CalculationOwner{}
-	mi := &file_semantic_proto_msgTypes[190]
+	mi := &file_semantic_proto_msgTypes[191]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14148,7 +14224,7 @@ func (x *CalculationOwner) String() string {
 func (*CalculationOwner) ProtoMessage() {}
 
 func (x *CalculationOwner) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[190]
+	mi := &file_semantic_proto_msgTypes[191]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14161,7 +14237,7 @@ func (x *CalculationOwner) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CalculationOwner.ProtoReflect.Descriptor instead.
 func (*CalculationOwner) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{190}
+	return file_semantic_proto_rawDescGZIP(), []int{191}
 }
 
 func (x *CalculationOwner) GetKind() isCalculationOwner_Kind {
@@ -14233,7 +14309,7 @@ type Symbol struct {
 
 func (x *Symbol) Reset() {
 	*x = Symbol{}
-	mi := &file_semantic_proto_msgTypes[191]
+	mi := &file_semantic_proto_msgTypes[192]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14245,7 +14321,7 @@ func (x *Symbol) String() string {
 func (*Symbol) ProtoMessage() {}
 
 func (x *Symbol) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[191]
+	mi := &file_semantic_proto_msgTypes[192]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14258,7 +14334,7 @@ func (x *Symbol) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Symbol.ProtoReflect.Descriptor instead.
 func (*Symbol) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{191}
+	return file_semantic_proto_rawDescGZIP(), []int{192}
 }
 
 func (x *Symbol) GetId() *SymbolId {
@@ -14315,7 +14391,7 @@ type Origin struct {
 
 func (x *Origin) Reset() {
 	*x = Origin{}
-	mi := &file_semantic_proto_msgTypes[192]
+	mi := &file_semantic_proto_msgTypes[193]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14327,7 +14403,7 @@ func (x *Origin) String() string {
 func (*Origin) ProtoMessage() {}
 
 func (x *Origin) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[192]
+	mi := &file_semantic_proto_msgTypes[193]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14340,7 +14416,7 @@ func (x *Origin) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Origin.ProtoReflect.Descriptor instead.
 func (*Origin) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{192}
+	return file_semantic_proto_rawDescGZIP(), []int{193}
 }
 
 func (x *Origin) GetKind() isOrigin_Kind {
@@ -14486,7 +14562,7 @@ type MetricOrigin struct {
 
 func (x *MetricOrigin) Reset() {
 	*x = MetricOrigin{}
-	mi := &file_semantic_proto_msgTypes[193]
+	mi := &file_semantic_proto_msgTypes[194]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14498,7 +14574,7 @@ func (x *MetricOrigin) String() string {
 func (*MetricOrigin) ProtoMessage() {}
 
 func (x *MetricOrigin) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[193]
+	mi := &file_semantic_proto_msgTypes[194]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14511,7 +14587,7 @@ func (x *MetricOrigin) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MetricOrigin.ProtoReflect.Descriptor instead.
 func (*MetricOrigin) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{193}
+	return file_semantic_proto_rawDescGZIP(), []int{194}
 }
 
 func (x *MetricOrigin) GetScope() *ScopeId {
@@ -14552,7 +14628,7 @@ type DimensionOrigin struct {
 
 func (x *DimensionOrigin) Reset() {
 	*x = DimensionOrigin{}
-	mi := &file_semantic_proto_msgTypes[194]
+	mi := &file_semantic_proto_msgTypes[195]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14564,7 +14640,7 @@ func (x *DimensionOrigin) String() string {
 func (*DimensionOrigin) ProtoMessage() {}
 
 func (x *DimensionOrigin) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[194]
+	mi := &file_semantic_proto_msgTypes[195]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14577,7 +14653,7 @@ func (x *DimensionOrigin) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DimensionOrigin.ProtoReflect.Descriptor instead.
 func (*DimensionOrigin) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{194}
+	return file_semantic_proto_rawDescGZIP(), []int{195}
 }
 
 func (x *DimensionOrigin) GetScope() *ScopeId {
@@ -14607,7 +14683,7 @@ type MemberOrigin struct {
 
 func (x *MemberOrigin) Reset() {
 	*x = MemberOrigin{}
-	mi := &file_semantic_proto_msgTypes[195]
+	mi := &file_semantic_proto_msgTypes[196]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14619,7 +14695,7 @@ func (x *MemberOrigin) String() string {
 func (*MemberOrigin) ProtoMessage() {}
 
 func (x *MemberOrigin) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[195]
+	mi := &file_semantic_proto_msgTypes[196]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14632,7 +14708,7 @@ func (x *MemberOrigin) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MemberOrigin.ProtoReflect.Descriptor instead.
 func (*MemberOrigin) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{195}
+	return file_semantic_proto_rawDescGZIP(), []int{196}
 }
 
 func (x *MemberOrigin) GetScope() *ScopeId {
@@ -14685,7 +14761,7 @@ type MemberMeaning struct {
 
 func (x *MemberMeaning) Reset() {
 	*x = MemberMeaning{}
-	mi := &file_semantic_proto_msgTypes[196]
+	mi := &file_semantic_proto_msgTypes[197]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14697,7 +14773,7 @@ func (x *MemberMeaning) String() string {
 func (*MemberMeaning) ProtoMessage() {}
 
 func (x *MemberMeaning) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[196]
+	mi := &file_semantic_proto_msgTypes[197]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14710,7 +14786,7 @@ func (x *MemberMeaning) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MemberMeaning.ProtoReflect.Descriptor instead.
 func (*MemberMeaning) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{196}
+	return file_semantic_proto_rawDescGZIP(), []int{197}
 }
 
 func (x *MemberMeaning) GetKind() isMemberMeaning_Kind {
@@ -14794,7 +14870,7 @@ type MappedMemberDimensionMeaning struct {
 
 func (x *MappedMemberDimensionMeaning) Reset() {
 	*x = MappedMemberDimensionMeaning{}
-	mi := &file_semantic_proto_msgTypes[197]
+	mi := &file_semantic_proto_msgTypes[198]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14806,7 +14882,7 @@ func (x *MappedMemberDimensionMeaning) String() string {
 func (*MappedMemberDimensionMeaning) ProtoMessage() {}
 
 func (x *MappedMemberDimensionMeaning) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[197]
+	mi := &file_semantic_proto_msgTypes[198]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14819,7 +14895,7 @@ func (x *MappedMemberDimensionMeaning) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MappedMemberDimensionMeaning.ProtoReflect.Descriptor instead.
 func (*MappedMemberDimensionMeaning) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{197}
+	return file_semantic_proto_rawDescGZIP(), []int{198}
 }
 
 func (x *MappedMemberDimensionMeaning) GetDimension() *DimensionRef {
@@ -14847,7 +14923,7 @@ type MemberDimensionMeaning struct {
 
 func (x *MemberDimensionMeaning) Reset() {
 	*x = MemberDimensionMeaning{}
-	mi := &file_semantic_proto_msgTypes[198]
+	mi := &file_semantic_proto_msgTypes[199]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14859,7 +14935,7 @@ func (x *MemberDimensionMeaning) String() string {
 func (*MemberDimensionMeaning) ProtoMessage() {}
 
 func (x *MemberDimensionMeaning) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[198]
+	mi := &file_semantic_proto_msgTypes[199]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14872,7 +14948,7 @@ func (x *MemberDimensionMeaning) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MemberDimensionMeaning.ProtoReflect.Descriptor instead.
 func (*MemberDimensionMeaning) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{198}
+	return file_semantic_proto_rawDescGZIP(), []int{199}
 }
 
 func (x *MemberDimensionMeaning) GetDimensionId() string {
@@ -14908,7 +14984,7 @@ type OperationOrigin struct {
 
 func (x *OperationOrigin) Reset() {
 	*x = OperationOrigin{}
-	mi := &file_semantic_proto_msgTypes[199]
+	mi := &file_semantic_proto_msgTypes[200]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14920,7 +14996,7 @@ func (x *OperationOrigin) String() string {
 func (*OperationOrigin) ProtoMessage() {}
 
 func (x *OperationOrigin) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[199]
+	mi := &file_semantic_proto_msgTypes[200]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14933,7 +15009,7 @@ func (x *OperationOrigin) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OperationOrigin.ProtoReflect.Descriptor instead.
 func (*OperationOrigin) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{199}
+	return file_semantic_proto_rawDescGZIP(), []int{200}
 }
 
 func (x *OperationOrigin) GetScope() *ScopeId {
@@ -14975,7 +15051,7 @@ type GroupingOrigin struct {
 
 func (x *GroupingOrigin) Reset() {
 	*x = GroupingOrigin{}
-	mi := &file_semantic_proto_msgTypes[200]
+	mi := &file_semantic_proto_msgTypes[201]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14987,7 +15063,7 @@ func (x *GroupingOrigin) String() string {
 func (*GroupingOrigin) ProtoMessage() {}
 
 func (x *GroupingOrigin) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[200]
+	mi := &file_semantic_proto_msgTypes[201]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15000,7 +15076,7 @@ func (x *GroupingOrigin) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GroupingOrigin.ProtoReflect.Descriptor instead.
 func (*GroupingOrigin) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{200}
+	return file_semantic_proto_rawDescGZIP(), []int{201}
 }
 
 func (x *GroupingOrigin) GetScope() *ScopeId {
@@ -15038,7 +15114,7 @@ type OmittedDimensionOrigin struct {
 
 func (x *OmittedDimensionOrigin) Reset() {
 	*x = OmittedDimensionOrigin{}
-	mi := &file_semantic_proto_msgTypes[201]
+	mi := &file_semantic_proto_msgTypes[202]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15050,7 +15126,7 @@ func (x *OmittedDimensionOrigin) String() string {
 func (*OmittedDimensionOrigin) ProtoMessage() {}
 
 func (x *OmittedDimensionOrigin) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[201]
+	mi := &file_semantic_proto_msgTypes[202]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15063,7 +15139,7 @@ func (x *OmittedDimensionOrigin) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OmittedDimensionOrigin.ProtoReflect.Descriptor instead.
 func (*OmittedDimensionOrigin) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{201}
+	return file_semantic_proto_rawDescGZIP(), []int{202}
 }
 
 func (x *OmittedDimensionOrigin) GetScope() *ScopeId {
@@ -15121,7 +15197,7 @@ type SetOrigin struct {
 
 func (x *SetOrigin) Reset() {
 	*x = SetOrigin{}
-	mi := &file_semantic_proto_msgTypes[202]
+	mi := &file_semantic_proto_msgTypes[203]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15133,7 +15209,7 @@ func (x *SetOrigin) String() string {
 func (*SetOrigin) ProtoMessage() {}
 
 func (x *SetOrigin) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[202]
+	mi := &file_semantic_proto_msgTypes[203]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15146,7 +15222,7 @@ func (x *SetOrigin) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetOrigin.ProtoReflect.Descriptor instead.
 func (*SetOrigin) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{202}
+	return file_semantic_proto_rawDescGZIP(), []int{203}
 }
 
 func (x *SetOrigin) GetScope() *ScopeId {
@@ -15194,7 +15270,7 @@ type SelectedObservation struct {
 
 func (x *SelectedObservation) Reset() {
 	*x = SelectedObservation{}
-	mi := &file_semantic_proto_msgTypes[203]
+	mi := &file_semantic_proto_msgTypes[204]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15206,7 +15282,7 @@ func (x *SelectedObservation) String() string {
 func (*SelectedObservation) ProtoMessage() {}
 
 func (x *SelectedObservation) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[203]
+	mi := &file_semantic_proto_msgTypes[204]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15219,7 +15295,7 @@ func (x *SelectedObservation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SelectedObservation.ProtoReflect.Descriptor instead.
 func (*SelectedObservation) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{203}
+	return file_semantic_proto_rawDescGZIP(), []int{204}
 }
 
 func (x *SelectedObservation) GetTimeAxes() []*ValuePosition {
@@ -15251,7 +15327,7 @@ type QueryValue struct {
 
 func (x *QueryValue) Reset() {
 	*x = QueryValue{}
-	mi := &file_semantic_proto_msgTypes[204]
+	mi := &file_semantic_proto_msgTypes[205]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15263,7 +15339,7 @@ func (x *QueryValue) String() string {
 func (*QueryValue) ProtoMessage() {}
 
 func (x *QueryValue) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[204]
+	mi := &file_semantic_proto_msgTypes[205]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15276,7 +15352,7 @@ func (x *QueryValue) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryValue.ProtoReflect.Descriptor instead.
 func (*QueryValue) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{204}
+	return file_semantic_proto_rawDescGZIP(), []int{205}
 }
 
 func (x *QueryValue) GetKind() isQueryValue_Kind {
@@ -15360,7 +15436,7 @@ type PlainValue struct {
 
 func (x *PlainValue) Reset() {
 	*x = PlainValue{}
-	mi := &file_semantic_proto_msgTypes[205]
+	mi := &file_semantic_proto_msgTypes[206]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15372,7 +15448,7 @@ func (x *PlainValue) String() string {
 func (*PlainValue) ProtoMessage() {}
 
 func (x *PlainValue) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[205]
+	mi := &file_semantic_proto_msgTypes[206]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15385,7 +15461,7 @@ func (x *PlainValue) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlainValue.ProtoReflect.Descriptor instead.
 func (*PlainValue) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{205}
+	return file_semantic_proto_rawDescGZIP(), []int{206}
 }
 
 func (x *PlainValue) GetSource() *ValuePosition {
@@ -15411,7 +15487,7 @@ type QueryValues struct {
 
 func (x *QueryValues) Reset() {
 	*x = QueryValues{}
-	mi := &file_semantic_proto_msgTypes[206]
+	mi := &file_semantic_proto_msgTypes[207]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15423,7 +15499,7 @@ func (x *QueryValues) String() string {
 func (*QueryValues) ProtoMessage() {}
 
 func (x *QueryValues) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[206]
+	mi := &file_semantic_proto_msgTypes[207]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15436,7 +15512,7 @@ func (x *QueryValues) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryValues.ProtoReflect.Descriptor instead.
 func (*QueryValues) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{206}
+	return file_semantic_proto_rawDescGZIP(), []int{207}
 }
 
 func (x *QueryValues) GetFields() []*QueryValue {
@@ -15457,7 +15533,7 @@ type QueryQuantity struct {
 
 func (x *QueryQuantity) Reset() {
 	*x = QueryQuantity{}
-	mi := &file_semantic_proto_msgTypes[207]
+	mi := &file_semantic_proto_msgTypes[208]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15469,7 +15545,7 @@ func (x *QueryQuantity) String() string {
 func (*QueryQuantity) ProtoMessage() {}
 
 func (x *QueryQuantity) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[207]
+	mi := &file_semantic_proto_msgTypes[208]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15482,7 +15558,7 @@ func (x *QueryQuantity) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryQuantity.ProtoReflect.Descriptor instead.
 func (*QueryQuantity) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{207}
+	return file_semantic_proto_rawDescGZIP(), []int{208}
 }
 
 func (x *QueryQuantity) GetDeclaration() *MetricValueContract {
@@ -15520,7 +15596,7 @@ type QuantityUnit struct {
 
 func (x *QuantityUnit) Reset() {
 	*x = QuantityUnit{}
-	mi := &file_semantic_proto_msgTypes[208]
+	mi := &file_semantic_proto_msgTypes[209]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15532,7 +15608,7 @@ func (x *QuantityUnit) String() string {
 func (*QuantityUnit) ProtoMessage() {}
 
 func (x *QuantityUnit) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[208]
+	mi := &file_semantic_proto_msgTypes[209]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15545,7 +15621,7 @@ func (x *QuantityUnit) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QuantityUnit.ProtoReflect.Descriptor instead.
 func (*QuantityUnit) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{208}
+	return file_semantic_proto_rawDescGZIP(), []int{209}
 }
 
 func (x *QuantityUnit) GetKind() isQuantityUnit_Kind {
@@ -15614,7 +15690,7 @@ type DimensionQuantityUnit struct {
 
 func (x *DimensionQuantityUnit) Reset() {
 	*x = DimensionQuantityUnit{}
-	mi := &file_semantic_proto_msgTypes[209]
+	mi := &file_semantic_proto_msgTypes[210]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15626,7 +15702,7 @@ func (x *DimensionQuantityUnit) String() string {
 func (*DimensionQuantityUnit) ProtoMessage() {}
 
 func (x *DimensionQuantityUnit) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[209]
+	mi := &file_semantic_proto_msgTypes[210]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15639,7 +15715,7 @@ func (x *DimensionQuantityUnit) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DimensionQuantityUnit.ProtoReflect.Descriptor instead.
 func (*DimensionQuantityUnit) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{209}
+	return file_semantic_proto_rawDescGZIP(), []int{210}
 }
 
 func (x *DimensionQuantityUnit) GetAxis() *UnitAxis {
@@ -15666,7 +15742,7 @@ type QuantityKey struct {
 
 func (x *QuantityKey) Reset() {
 	*x = QuantityKey{}
-	mi := &file_semantic_proto_msgTypes[210]
+	mi := &file_semantic_proto_msgTypes[211]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15678,7 +15754,7 @@ func (x *QuantityKey) String() string {
 func (*QuantityKey) ProtoMessage() {}
 
 func (x *QuantityKey) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[210]
+	mi := &file_semantic_proto_msgTypes[211]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15691,7 +15767,7 @@ func (x *QuantityKey) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QuantityKey.ProtoReflect.Descriptor instead.
 func (*QuantityKey) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{210}
+	return file_semantic_proto_rawDescGZIP(), []int{211}
 }
 
 func (x *QuantityKey) GetReference() *UnitReference {
@@ -15722,7 +15798,7 @@ type UnitReference struct {
 
 func (x *UnitReference) Reset() {
 	*x = UnitReference{}
-	mi := &file_semantic_proto_msgTypes[211]
+	mi := &file_semantic_proto_msgTypes[212]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15734,7 +15810,7 @@ func (x *UnitReference) String() string {
 func (*UnitReference) ProtoMessage() {}
 
 func (x *UnitReference) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[211]
+	mi := &file_semantic_proto_msgTypes[212]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15747,7 +15823,7 @@ func (x *UnitReference) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnitReference.ProtoReflect.Descriptor instead.
 func (*UnitReference) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{211}
+	return file_semantic_proto_rawDescGZIP(), []int{212}
 }
 
 func (x *UnitReference) GetKind() isUnitReference_Kind {
@@ -15817,7 +15893,7 @@ type SemanticDimensionReference struct {
 
 func (x *SemanticDimensionReference) Reset() {
 	*x = SemanticDimensionReference{}
-	mi := &file_semantic_proto_msgTypes[212]
+	mi := &file_semantic_proto_msgTypes[213]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15829,7 +15905,7 @@ func (x *SemanticDimensionReference) String() string {
 func (*SemanticDimensionReference) ProtoMessage() {}
 
 func (x *SemanticDimensionReference) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[212]
+	mi := &file_semantic_proto_msgTypes[213]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15842,7 +15918,7 @@ func (x *SemanticDimensionReference) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SemanticDimensionReference.ProtoReflect.Descriptor instead.
 func (*SemanticDimensionReference) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{212}
+	return file_semantic_proto_rawDescGZIP(), []int{213}
 }
 
 func (x *SemanticDimensionReference) GetDimensionId() string {
@@ -15877,7 +15953,7 @@ type MemberSlotReference struct {
 
 func (x *MemberSlotReference) Reset() {
 	*x = MemberSlotReference{}
-	mi := &file_semantic_proto_msgTypes[213]
+	mi := &file_semantic_proto_msgTypes[214]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15889,7 +15965,7 @@ func (x *MemberSlotReference) String() string {
 func (*MemberSlotReference) ProtoMessage() {}
 
 func (x *MemberSlotReference) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[213]
+	mi := &file_semantic_proto_msgTypes[214]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15902,7 +15978,7 @@ func (x *MemberSlotReference) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MemberSlotReference.ProtoReflect.Descriptor instead.
 func (*MemberSlotReference) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{213}
+	return file_semantic_proto_rawDescGZIP(), []int{214}
 }
 
 func (x *MemberSlotReference) GetSourceId() string {
@@ -15939,7 +16015,7 @@ type SelectedQuantityUnit struct {
 
 func (x *SelectedQuantityUnit) Reset() {
 	*x = SelectedQuantityUnit{}
-	mi := &file_semantic_proto_msgTypes[214]
+	mi := &file_semantic_proto_msgTypes[215]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15951,7 +16027,7 @@ func (x *SelectedQuantityUnit) String() string {
 func (*SelectedQuantityUnit) ProtoMessage() {}
 
 func (x *SelectedQuantityUnit) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[214]
+	mi := &file_semantic_proto_msgTypes[215]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15964,7 +16040,7 @@ func (x *SelectedQuantityUnit) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SelectedQuantityUnit.ProtoReflect.Descriptor instead.
 func (*SelectedQuantityUnit) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{214}
+	return file_semantic_proto_rawDescGZIP(), []int{215}
 }
 
 func (x *SelectedQuantityUnit) GetReference() *UnitReference {
@@ -16012,7 +16088,7 @@ type UnitSelection struct {
 
 func (x *UnitSelection) Reset() {
 	*x = UnitSelection{}
-	mi := &file_semantic_proto_msgTypes[215]
+	mi := &file_semantic_proto_msgTypes[216]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16024,7 +16100,7 @@ func (x *UnitSelection) String() string {
 func (*UnitSelection) ProtoMessage() {}
 
 func (x *UnitSelection) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[215]
+	mi := &file_semantic_proto_msgTypes[216]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16037,7 +16113,7 @@ func (x *UnitSelection) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnitSelection.ProtoReflect.Descriptor instead.
 func (*UnitSelection) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{215}
+	return file_semantic_proto_rawDescGZIP(), []int{216}
 }
 
 func (x *UnitSelection) GetSource() *ValuePosition {
@@ -16068,7 +16144,7 @@ type SelectionTarget struct {
 
 func (x *SelectionTarget) Reset() {
 	*x = SelectionTarget{}
-	mi := &file_semantic_proto_msgTypes[216]
+	mi := &file_semantic_proto_msgTypes[217]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16080,7 +16156,7 @@ func (x *SelectionTarget) String() string {
 func (*SelectionTarget) ProtoMessage() {}
 
 func (x *SelectionTarget) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[216]
+	mi := &file_semantic_proto_msgTypes[217]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16093,7 +16169,7 @@ func (x *SelectionTarget) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SelectionTarget.ProtoReflect.Descriptor instead.
 func (*SelectionTarget) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{216}
+	return file_semantic_proto_rawDescGZIP(), []int{217}
 }
 
 func (x *SelectionTarget) GetKind() isSelectionTarget_Kind {
@@ -16164,7 +16240,7 @@ type ResultUnitFilter struct {
 
 func (x *ResultUnitFilter) Reset() {
 	*x = ResultUnitFilter{}
-	mi := &file_semantic_proto_msgTypes[217]
+	mi := &file_semantic_proto_msgTypes[218]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16176,7 +16252,7 @@ func (x *ResultUnitFilter) String() string {
 func (*ResultUnitFilter) ProtoMessage() {}
 
 func (x *ResultUnitFilter) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[217]
+	mi := &file_semantic_proto_msgTypes[218]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16189,7 +16265,7 @@ func (x *ResultUnitFilter) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResultUnitFilter.ProtoReflect.Descriptor instead.
 func (*ResultUnitFilter) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{217}
+	return file_semantic_proto_rawDescGZIP(), []int{218}
 }
 
 func (x *ResultUnitFilter) GetScope() *ScopeId {
@@ -16244,7 +16320,7 @@ type QuantityProvenance struct {
 
 func (x *QuantityProvenance) Reset() {
 	*x = QuantityProvenance{}
-	mi := &file_semantic_proto_msgTypes[218]
+	mi := &file_semantic_proto_msgTypes[219]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16256,7 +16332,7 @@ func (x *QuantityProvenance) String() string {
 func (*QuantityProvenance) ProtoMessage() {}
 
 func (x *QuantityProvenance) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[218]
+	mi := &file_semantic_proto_msgTypes[219]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16269,7 +16345,7 @@ func (x *QuantityProvenance) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QuantityProvenance.ProtoReflect.Descriptor instead.
 func (*QuantityProvenance) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{218}
+	return file_semantic_proto_rawDescGZIP(), []int{219}
 }
 
 func (x *QuantityProvenance) GetKind() isQuantityProvenance_Kind {
@@ -16488,7 +16564,7 @@ type RawQuantity struct {
 
 func (x *RawQuantity) Reset() {
 	*x = RawQuantity{}
-	mi := &file_semantic_proto_msgTypes[219]
+	mi := &file_semantic_proto_msgTypes[220]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16500,7 +16576,7 @@ func (x *RawQuantity) String() string {
 func (*RawQuantity) ProtoMessage() {}
 
 func (x *RawQuantity) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[219]
+	mi := &file_semantic_proto_msgTypes[220]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16513,7 +16589,7 @@ func (x *RawQuantity) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RawQuantity.ProtoReflect.Descriptor instead.
 func (*RawQuantity) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{219}
+	return file_semantic_proto_rawDescGZIP(), []int{220}
 }
 
 func (x *RawQuantity) GetSource() *ValuePosition {
@@ -16541,7 +16617,7 @@ type QuantitySnapshot struct {
 
 func (x *QuantitySnapshot) Reset() {
 	*x = QuantitySnapshot{}
-	mi := &file_semantic_proto_msgTypes[220]
+	mi := &file_semantic_proto_msgTypes[221]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16553,7 +16629,7 @@ func (x *QuantitySnapshot) String() string {
 func (*QuantitySnapshot) ProtoMessage() {}
 
 func (x *QuantitySnapshot) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[220]
+	mi := &file_semantic_proto_msgTypes[221]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16566,7 +16642,7 @@ func (x *QuantitySnapshot) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QuantitySnapshot.ProtoReflect.Descriptor instead.
 func (*QuantitySnapshot) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{220}
+	return file_semantic_proto_rawDescGZIP(), []int{221}
 }
 
 func (x *QuantitySnapshot) GetReduction() string {
@@ -16604,7 +16680,7 @@ type FactQuantity struct {
 
 func (x *FactQuantity) Reset() {
 	*x = FactQuantity{}
-	mi := &file_semantic_proto_msgTypes[221]
+	mi := &file_semantic_proto_msgTypes[222]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16616,7 +16692,7 @@ func (x *FactQuantity) String() string {
 func (*FactQuantity) ProtoMessage() {}
 
 func (x *FactQuantity) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[221]
+	mi := &file_semantic_proto_msgTypes[222]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16629,7 +16705,7 @@ func (x *FactQuantity) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FactQuantity.ProtoReflect.Descriptor instead.
 func (*FactQuantity) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{221}
+	return file_semantic_proto_rawDescGZIP(), []int{222}
 }
 
 func (x *FactQuantity) GetDefinition() *MetricRef {
@@ -16685,7 +16761,7 @@ type SelectedSnapshotQuantity struct {
 
 func (x *SelectedSnapshotQuantity) Reset() {
 	*x = SelectedSnapshotQuantity{}
-	mi := &file_semantic_proto_msgTypes[222]
+	mi := &file_semantic_proto_msgTypes[223]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16697,7 +16773,7 @@ func (x *SelectedSnapshotQuantity) String() string {
 func (*SelectedSnapshotQuantity) ProtoMessage() {}
 
 func (x *SelectedSnapshotQuantity) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[222]
+	mi := &file_semantic_proto_msgTypes[223]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16710,7 +16786,7 @@ func (x *SelectedSnapshotQuantity) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SelectedSnapshotQuantity.ProtoReflect.Descriptor instead.
 func (*SelectedSnapshotQuantity) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{222}
+	return file_semantic_proto_rawDescGZIP(), []int{223}
 }
 
 func (x *SelectedSnapshotQuantity) GetInput() *QuantityProvenance {
@@ -16745,7 +16821,7 @@ type ReducedQuantity struct {
 
 func (x *ReducedQuantity) Reset() {
 	*x = ReducedQuantity{}
-	mi := &file_semantic_proto_msgTypes[223]
+	mi := &file_semantic_proto_msgTypes[224]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16757,7 +16833,7 @@ func (x *ReducedQuantity) String() string {
 func (*ReducedQuantity) ProtoMessage() {}
 
 func (x *ReducedQuantity) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[223]
+	mi := &file_semantic_proto_msgTypes[224]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16770,7 +16846,7 @@ func (x *ReducedQuantity) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReducedQuantity.ProtoReflect.Descriptor instead.
 func (*ReducedQuantity) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{223}
+	return file_semantic_proto_rawDescGZIP(), []int{224}
 }
 
 func (x *ReducedQuantity) GetAggregation() string {
@@ -16805,7 +16881,7 @@ type AllocatedQuantity struct {
 
 func (x *AllocatedQuantity) Reset() {
 	*x = AllocatedQuantity{}
-	mi := &file_semantic_proto_msgTypes[224]
+	mi := &file_semantic_proto_msgTypes[225]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16817,7 +16893,7 @@ func (x *AllocatedQuantity) String() string {
 func (*AllocatedQuantity) ProtoMessage() {}
 
 func (x *AllocatedQuantity) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[224]
+	mi := &file_semantic_proto_msgTypes[225]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16830,7 +16906,7 @@ func (x *AllocatedQuantity) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AllocatedQuantity.ProtoReflect.Descriptor instead.
 func (*AllocatedQuantity) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{224}
+	return file_semantic_proto_rawDescGZIP(), []int{225}
 }
 
 func (x *AllocatedQuantity) GetInput() *QuantityProvenance {
@@ -16863,7 +16939,7 @@ type QuantityTerms struct {
 
 func (x *QuantityTerms) Reset() {
 	*x = QuantityTerms{}
-	mi := &file_semantic_proto_msgTypes[225]
+	mi := &file_semantic_proto_msgTypes[226]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16875,7 +16951,7 @@ func (x *QuantityTerms) String() string {
 func (*QuantityTerms) ProtoMessage() {}
 
 func (x *QuantityTerms) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[225]
+	mi := &file_semantic_proto_msgTypes[226]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16888,7 +16964,7 @@ func (x *QuantityTerms) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QuantityTerms.ProtoReflect.Descriptor instead.
 func (*QuantityTerms) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{225}
+	return file_semantic_proto_rawDescGZIP(), []int{226}
 }
 
 func (x *QuantityTerms) GetValues() []*QuantityProvenance {
@@ -16910,7 +16986,7 @@ type ObservedQuantity struct {
 
 func (x *ObservedQuantity) Reset() {
 	*x = ObservedQuantity{}
-	mi := &file_semantic_proto_msgTypes[226]
+	mi := &file_semantic_proto_msgTypes[227]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16922,7 +16998,7 @@ func (x *ObservedQuantity) String() string {
 func (*ObservedQuantity) ProtoMessage() {}
 
 func (x *ObservedQuantity) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[226]
+	mi := &file_semantic_proto_msgTypes[227]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16935,7 +17011,7 @@ func (x *ObservedQuantity) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ObservedQuantity.ProtoReflect.Descriptor instead.
 func (*ObservedQuantity) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{226}
+	return file_semantic_proto_rawDescGZIP(), []int{227}
 }
 
 func (x *ObservedQuantity) GetNature() string {
@@ -16977,7 +17053,7 @@ type QuantityOrder struct {
 
 func (x *QuantityOrder) Reset() {
 	*x = QuantityOrder{}
-	mi := &file_semantic_proto_msgTypes[227]
+	mi := &file_semantic_proto_msgTypes[228]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16989,7 +17065,7 @@ func (x *QuantityOrder) String() string {
 func (*QuantityOrder) ProtoMessage() {}
 
 func (x *QuantityOrder) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[227]
+	mi := &file_semantic_proto_msgTypes[228]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -17002,7 +17078,7 @@ func (x *QuantityOrder) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QuantityOrder.ProtoReflect.Descriptor instead.
 func (*QuantityOrder) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{227}
+	return file_semantic_proto_rawDescGZIP(), []int{228}
 }
 
 func (x *QuantityOrder) GetPosition() *ValuePosition {
@@ -17042,7 +17118,7 @@ type WindowQuantity struct {
 
 func (x *WindowQuantity) Reset() {
 	*x = WindowQuantity{}
-	mi := &file_semantic_proto_msgTypes[228]
+	mi := &file_semantic_proto_msgTypes[229]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -17054,7 +17130,7 @@ func (x *WindowQuantity) String() string {
 func (*WindowQuantity) ProtoMessage() {}
 
 func (x *WindowQuantity) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[228]
+	mi := &file_semantic_proto_msgTypes[229]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -17067,7 +17143,7 @@ func (x *WindowQuantity) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WindowQuantity.ProtoReflect.Descriptor instead.
 func (*WindowQuantity) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{228}
+	return file_semantic_proto_rawDescGZIP(), []int{229}
 }
 
 func (x *WindowQuantity) GetAggregation() string {
@@ -17140,7 +17216,7 @@ type OffsetQuantity struct {
 
 func (x *OffsetQuantity) Reset() {
 	*x = OffsetQuantity{}
-	mi := &file_semantic_proto_msgTypes[229]
+	mi := &file_semantic_proto_msgTypes[230]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -17152,7 +17228,7 @@ func (x *OffsetQuantity) String() string {
 func (*OffsetQuantity) ProtoMessage() {}
 
 func (x *OffsetQuantity) ProtoReflect() protoreflect.Message {
-	mi := &file_semantic_proto_msgTypes[229]
+	mi := &file_semantic_proto_msgTypes[230]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -17165,7 +17241,7 @@ func (x *OffsetQuantity) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OffsetQuantity.ProtoReflect.Descriptor instead.
 func (*OffsetQuantity) Descriptor() ([]byte, []int) {
-	return file_semantic_proto_rawDescGZIP(), []int{229}
+	return file_semantic_proto_rawDescGZIP(), []int{230}
 }
 
 func (x *OffsetQuantity) GetInput() *QuantityProvenance {
@@ -17985,7 +18061,8 @@ const file_semantic_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\v2'.agentic.olap.semantic.v1.MemberBindingR\x05value:\x028\x01\x1ag\n" +
 	"\x0eRelationsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12?\n" +
-	"\x05value\x18\x02 \x01(\v2).agentic.olap.semantic.v1.RelationBindingR\x05value:\x028\x01\"\xe7\t\n" +
+	"\x05value\x18\x02 \x01(\v2).agentic.olap.semantic.v1.RelationBindingR\x05value:\x028\x01\"\xb6\n" +
+	"\n" +
 	"\x10ResultExpression\x12:\n" +
 	"\x04call\x18\x01 \x01(\v2$.agentic.olap.semantic.v1.ResultCallH\x00R\x04call\x12F\n" +
 	"\bargument\x18\x02 \x01(\v2(.agentic.olap.semantic.v1.ResultArgumentH\x00R\bargument\x12\x18\n" +
@@ -18004,12 +18081,18 @@ const file_semantic_proto_rawDesc = "" +
 	"\x0fcollection_text\x18\x0e \x01(\v2(.agentic.olap.semantic.v1.CollectionTextH\x00R\x0ecollectionText\x12A\n" +
 	"\trow_field\x18\x0f \x01(\v2\".agentic.olap.semantic.v1.RowFieldH\x00R\browField\x12e\n" +
 	"\x15weighted_contribution\x18\x10 \x01(\v2..agentic.olap.semantic.v1.WeightedContributionH\x00R\x14weightedContribution\x12\\\n" +
-	"\x12uniform_allocation\x18\x11 \x01(\v2+.agentic.olap.semantic.v1.UniformAllocationH\x00R\x11uniformAllocationB\x06\n" +
+	"\x12uniform_allocation\x18\x11 \x01(\v2+.agentic.olap.semantic.v1.UniformAllocationH\x00R\x11uniformAllocation\x12M\n" +
+	"\vnative_call\x18\x12 \x01(\v2*.agentic.olap.semantic.v1.ResultNativeCallH\x00R\n" +
+	"nativeCallB\x06\n" +
 	"\x04kind\"r\n" +
 	"\n" +
 	"ResultCall\x12\x1a\n" +
 	"\bfunction\x18\x01 \x01(\tR\bfunction\x12H\n" +
-	"\targuments\x18\x02 \x03(\v2*.agentic.olap.semantic.v1.ResultExpressionR\targuments\"C\n" +
+	"\targuments\x18\x02 \x03(\v2*.agentic.olap.semantic.v1.ResultExpressionR\targuments\"\xc5\x01\n" +
+	"\x10ResultNativeCall\x12K\n" +
+	"\rconnector_ref\x18\x01 \x01(\v2&.agentic.olap.semantic.v1.ConnectorRefR\fconnectorRef\x12\x1a\n" +
+	"\bfunction\x18\x02 \x01(\tR\bfunction\x12H\n" +
+	"\targuments\x18\x03 \x03(\v2*.agentic.olap.semantic.v1.ResultExpressionR\targuments\"C\n" +
 	"\x0eResultArgument\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1d\n" +
 	"\n" +
@@ -18672,7 +18755,7 @@ func file_semantic_proto_rawDescGZIP() []byte {
 	return file_semantic_proto_rawDescData
 }
 
-var file_semantic_proto_msgTypes = make([]protoimpl.MessageInfo, 277)
+var file_semantic_proto_msgTypes = make([]protoimpl.MessageInfo, 278)
 var file_semantic_proto_goTypes = []any{
 	(*Empty)(nil),                         // 0: agentic.olap.semantic.v1.Empty
 	(*StringList)(nil),                    // 1: agentic.olap.semantic.v1.StringList
@@ -18802,161 +18885,162 @@ var file_semantic_proto_goTypes = []any{
 	(*QueryMembers)(nil),                  // 125: agentic.olap.semantic.v1.QueryMembers
 	(*ResultExpression)(nil),              // 126: agentic.olap.semantic.v1.ResultExpression
 	(*ResultCall)(nil),                    // 127: agentic.olap.semantic.v1.ResultCall
-	(*ResultArgument)(nil),                // 128: agentic.olap.semantic.v1.ResultArgument
-	(*TypedLiteral)(nil),                  // 129: agentic.olap.semantic.v1.TypedLiteral
-	(*QuantityLiteral)(nil),               // 130: agentic.olap.semantic.v1.QuantityLiteral
-	(*ResultOperation)(nil),               // 131: agentic.olap.semantic.v1.ResultOperation
-	(*ResultExpressions)(nil),             // 132: agentic.olap.semantic.v1.ResultExpressions
-	(*ResultCase)(nil),                    // 133: agentic.olap.semantic.v1.ResultCase
-	(*ResultBranch)(nil),                  // 134: agentic.olap.semantic.v1.ResultBranch
-	(*ResultCast)(nil),                    // 135: agentic.olap.semantic.v1.ResultCast
-	(*ResultRound)(nil),                   // 136: agentic.olap.semantic.v1.ResultRound
-	(*ResultNumeric)(nil),                 // 137: agentic.olap.semantic.v1.ResultNumeric
-	(*CollectionSort)(nil),                // 138: agentic.olap.semantic.v1.CollectionSort
-	(*CollectionText)(nil),                // 139: agentic.olap.semantic.v1.CollectionText
-	(*RowField)(nil),                      // 140: agentic.olap.semantic.v1.RowField
-	(*WeightedContribution)(nil),          // 141: agentic.olap.semantic.v1.WeightedContribution
-	(*UniformAllocation)(nil),             // 142: agentic.olap.semantic.v1.UniformAllocation
-	(*ResultAggregation)(nil),             // 143: agentic.olap.semantic.v1.ResultAggregation
-	(*NumericAggregation)(nil),            // 144: agentic.olap.semantic.v1.NumericAggregation
-	(*AverageAggregation)(nil),            // 145: agentic.olap.semantic.v1.AverageAggregation
-	(*CountAggregation)(nil),              // 146: agentic.olap.semantic.v1.CountAggregation
-	(*OrderKey)(nil),                      // 147: agentic.olap.semantic.v1.OrderKey
-	(*ResultAggregate)(nil),               // 148: agentic.olap.semantic.v1.ResultAggregate
-	(*ResultGrouping)(nil),                // 149: agentic.olap.semantic.v1.ResultGrouping
-	(*WindowFrame)(nil),                   // 150: agentic.olap.semantic.v1.WindowFrame
-	(*WindowBound)(nil),                   // 151: agentic.olap.semantic.v1.WindowBound
-	(*Stage)(nil),                         // 152: agentic.olap.semantic.v1.Stage
-	(*StageJoin)(nil),                     // 153: agentic.olap.semantic.v1.StageJoin
-	(*StageAncestors)(nil),                // 154: agentic.olap.semantic.v1.StageAncestors
-	(*StageExpand)(nil),                   // 155: agentic.olap.semantic.v1.StageExpand
-	(*StageSort)(nil),                     // 156: agentic.olap.semantic.v1.StageSort
-	(*StageTop)(nil),                      // 157: agentic.olap.semantic.v1.StageTop
-	(*StageDerive)(nil),                   // 158: agentic.olap.semantic.v1.StageDerive
-	(*StageRank)(nil),                     // 159: agentic.olap.semantic.v1.StageRank
-	(*StageOrderedRank)(nil),              // 160: agentic.olap.semantic.v1.StageOrderedRank
-	(*StageCumulative)(nil),               // 161: agentic.olap.semantic.v1.StageCumulative
-	(*StagePartition)(nil),                // 162: agentic.olap.semantic.v1.StagePartition
-	(*StageWindow)(nil),                   // 163: agentic.olap.semantic.v1.StageWindow
-	(*SnapshotSelection)(nil),             // 164: agentic.olap.semantic.v1.SnapshotSelection
-	(*StageSelectVersions)(nil),           // 165: agentic.olap.semantic.v1.StageSelectVersions
-	(*CalendarAxis)(nil),                  // 166: agentic.olap.semantic.v1.CalendarAxis
-	(*StageObserveWindow)(nil),            // 167: agentic.olap.semantic.v1.StageObserveWindow
-	(*StageOffset)(nil),                   // 168: agentic.olap.semantic.v1.StageOffset
-	(*MetricDefinition)(nil),              // 169: agentic.olap.semantic.v1.MetricDefinition
-	(*FactMeasure)(nil),                   // 170: agentic.olap.semantic.v1.FactMeasure
-	(*MetricCalculation)(nil),             // 171: agentic.olap.semantic.v1.MetricCalculation
-	(*MetricInstance)(nil),                // 172: agentic.olap.semantic.v1.MetricInstance
-	(*MemberSourceDefinition)(nil),        // 173: agentic.olap.semantic.v1.MemberSourceDefinition
-	(*MemberProjectionDefinition)(nil),    // 174: agentic.olap.semantic.v1.MemberProjectionDefinition
-	(*MemberComputedDefinition)(nil),      // 175: agentic.olap.semantic.v1.MemberComputedDefinition
-	(*MemberResult)(nil),                  // 176: agentic.olap.semantic.v1.MemberResult
-	(*MemberSourceOutput)(nil),            // 177: agentic.olap.semantic.v1.MemberSourceOutput
-	(*SourceDimensionOutput)(nil),         // 178: agentic.olap.semantic.v1.SourceDimensionOutput
-	(*SourcePropertyOutput)(nil),          // 179: agentic.olap.semantic.v1.SourcePropertyOutput
-	(*SourceComputedDimensionOutput)(nil), // 180: agentic.olap.semantic.v1.SourceComputedDimensionOutput
-	(*SourceComputedPropertyOutput)(nil),  // 181: agentic.olap.semantic.v1.SourceComputedPropertyOutput
-	(*SourceContainerOutput)(nil),         // 182: agentic.olap.semantic.v1.SourceContainerOutput
-	(*SourceComputedContainerOutput)(nil), // 183: agentic.olap.semantic.v1.SourceComputedContainerOutput
-	(*MemberSource)(nil),                  // 184: agentic.olap.semantic.v1.MemberSource
-	(*ProjectedMemberSource)(nil),         // 185: agentic.olap.semantic.v1.ProjectedMemberSource
-	(*ComputedMemberSource)(nil),          // 186: agentic.olap.semantic.v1.ComputedMemberSource
-	(*ScopeId)(nil),                       // 187: agentic.olap.semantic.v1.ScopeId
-	(*SymbolId)(nil),                      // 188: agentic.olap.semantic.v1.SymbolId
-	(*ValuePosition)(nil),                 // 189: agentic.olap.semantic.v1.ValuePosition
-	(*CalculationOwner)(nil),              // 190: agentic.olap.semantic.v1.CalculationOwner
-	(*Symbol)(nil),                        // 191: agentic.olap.semantic.v1.Symbol
-	(*Origin)(nil),                        // 192: agentic.olap.semantic.v1.Origin
-	(*MetricOrigin)(nil),                  // 193: agentic.olap.semantic.v1.MetricOrigin
-	(*DimensionOrigin)(nil),               // 194: agentic.olap.semantic.v1.DimensionOrigin
-	(*MemberOrigin)(nil),                  // 195: agentic.olap.semantic.v1.MemberOrigin
-	(*MemberMeaning)(nil),                 // 196: agentic.olap.semantic.v1.MemberMeaning
-	(*MappedMemberDimensionMeaning)(nil),  // 197: agentic.olap.semantic.v1.MappedMemberDimensionMeaning
-	(*MemberDimensionMeaning)(nil),        // 198: agentic.olap.semantic.v1.MemberDimensionMeaning
-	(*OperationOrigin)(nil),               // 199: agentic.olap.semantic.v1.OperationOrigin
-	(*GroupingOrigin)(nil),                // 200: agentic.olap.semantic.v1.GroupingOrigin
-	(*OmittedDimensionOrigin)(nil),        // 201: agentic.olap.semantic.v1.OmittedDimensionOrigin
-	(*SetOrigin)(nil),                     // 202: agentic.olap.semantic.v1.SetOrigin
-	(*SelectedObservation)(nil),           // 203: agentic.olap.semantic.v1.SelectedObservation
-	(*QueryValue)(nil),                    // 204: agentic.olap.semantic.v1.QueryValue
-	(*PlainValue)(nil),                    // 205: agentic.olap.semantic.v1.PlainValue
-	(*QueryValues)(nil),                   // 206: agentic.olap.semantic.v1.QueryValues
-	(*QueryQuantity)(nil),                 // 207: agentic.olap.semantic.v1.QueryQuantity
-	(*QuantityUnit)(nil),                  // 208: agentic.olap.semantic.v1.QuantityUnit
-	(*DimensionQuantityUnit)(nil),         // 209: agentic.olap.semantic.v1.DimensionQuantityUnit
-	(*QuantityKey)(nil),                   // 210: agentic.olap.semantic.v1.QuantityKey
-	(*UnitReference)(nil),                 // 211: agentic.olap.semantic.v1.UnitReference
-	(*SemanticDimensionReference)(nil),    // 212: agentic.olap.semantic.v1.SemanticDimensionReference
-	(*MemberSlotReference)(nil),           // 213: agentic.olap.semantic.v1.MemberSlotReference
-	(*SelectedQuantityUnit)(nil),          // 214: agentic.olap.semantic.v1.SelectedQuantityUnit
-	(*UnitSelection)(nil),                 // 215: agentic.olap.semantic.v1.UnitSelection
-	(*SelectionTarget)(nil),               // 216: agentic.olap.semantic.v1.SelectionTarget
-	(*ResultUnitFilter)(nil),              // 217: agentic.olap.semantic.v1.ResultUnitFilter
-	(*QuantityProvenance)(nil),            // 218: agentic.olap.semantic.v1.QuantityProvenance
-	(*RawQuantity)(nil),                   // 219: agentic.olap.semantic.v1.RawQuantity
-	(*QuantitySnapshot)(nil),              // 220: agentic.olap.semantic.v1.QuantitySnapshot
-	(*FactQuantity)(nil),                  // 221: agentic.olap.semantic.v1.FactQuantity
-	(*SelectedSnapshotQuantity)(nil),      // 222: agentic.olap.semantic.v1.SelectedSnapshotQuantity
-	(*ReducedQuantity)(nil),               // 223: agentic.olap.semantic.v1.ReducedQuantity
-	(*AllocatedQuantity)(nil),             // 224: agentic.olap.semantic.v1.AllocatedQuantity
-	(*QuantityTerms)(nil),                 // 225: agentic.olap.semantic.v1.QuantityTerms
-	(*ObservedQuantity)(nil),              // 226: agentic.olap.semantic.v1.ObservedQuantity
-	(*QuantityOrder)(nil),                 // 227: agentic.olap.semantic.v1.QuantityOrder
-	(*WindowQuantity)(nil),                // 228: agentic.olap.semantic.v1.WindowQuantity
-	(*OffsetQuantity)(nil),                // 229: agentic.olap.semantic.v1.OffsetQuantity
-	nil,                                   // 230: agentic.olap.semantic.v1.EventIdentity.EntityRolesEntry
-	nil,                                   // 231: agentic.olap.semantic.v1.MetricValueContract.UnitEquationsEntry
-	nil,                                   // 232: agentic.olap.semantic.v1.CalculationArguments.ValuesEntry
-	nil,                                   // 233: agentic.olap.semantic.v1.DimensionExists.ClocksEntry
-	nil,                                   // 234: agentic.olap.semantic.v1.CalculationBindings.DimensionsEntry
-	nil,                                   // 235: agentic.olap.semantic.v1.CalculationBindings.MembersEntry
-	nil,                                   // 236: agentic.olap.semantic.v1.CalculationBindings.GroupingCandidatesEntry
-	nil,                                   // 237: agentic.olap.semantic.v1.CalculationBindings.MeasurementsEntry
-	nil,                                   // 238: agentic.olap.semantic.v1.CalculationBindings.RelationsEntry
-	nil,                                   // 239: agentic.olap.semantic.v1.SourceCall.ArgumentsEntry
-	nil,                                   // 240: agentic.olap.semantic.v1.SourceCall.OutputSlotsEntry
-	nil,                                   // 241: agentic.olap.semantic.v1.SourceCall.MembersEntry
-	nil,                                   // 242: agentic.olap.semantic.v1.SourceCall.RelationsEntry
-	nil,                                   // 243: agentic.olap.semantic.v1.LocalBinding.OutputSlotsEntry
-	nil,                                   // 244: agentic.olap.semantic.v1.Calculation.ParametersEntry
-	nil,                                   // 245: agentic.olap.semantic.v1.MeasurementSlot.ParametersEntry
-	nil,                                   // 246: agentic.olap.semantic.v1.MemberSlot.OutputsEntry
-	nil,                                   // 247: agentic.olap.semantic.v1.CalculationScope.InputsEntry
-	nil,                                   // 248: agentic.olap.semantic.v1.CalculationMeasures.ClocksEntry
-	nil,                                   // 249: agentic.olap.semantic.v1.CalculationCall.DimensionSlotsEntry
-	nil,                                   // 250: agentic.olap.semantic.v1.CalculationCall.MemberSlotsEntry
-	nil,                                   // 251: agentic.olap.semantic.v1.CalculationCall.MeasurementSlotsEntry
-	nil,                                   // 252: agentic.olap.semantic.v1.CalculationCall.RelationSlotsEntry
-	nil,                                   // 253: agentic.olap.semantic.v1.CalculationCall.ArgumentsEntry
-	nil,                                   // 254: agentic.olap.semantic.v1.CalculationMembers.ClocksEntry
-	nil,                                   // 255: agentic.olap.semantic.v1.AlignMeasurements.InputsEntry
-	nil,                                   // 256: agentic.olap.semantic.v1.AlignedInput.KeysEntry
-	nil,                                   // 257: agentic.olap.semantic.v1.QueryScope.InputsEntry
-	nil,                                   // 258: agentic.olap.semantic.v1.QueryCompute.ArgumentsEntry
-	nil,                                   // 259: agentic.olap.semantic.v1.QueryCompute.MembersEntry
-	nil,                                   // 260: agentic.olap.semantic.v1.QueryCompute.RelationsEntry
-	nil,                                   // 261: agentic.olap.semantic.v1.QueryInvocation.ArgumentsEntry
-	nil,                                   // 262: agentic.olap.semantic.v1.QueryInvocation.MembersEntry
-	nil,                                   // 263: agentic.olap.semantic.v1.QueryInvocation.RelationsEntry
-	nil,                                   // 264: agentic.olap.semantic.v1.QueryMeasures.SourceClocksEntry
-	nil,                                   // 265: agentic.olap.semantic.v1.QueryMembers.ArgumentsEntry
-	nil,                                   // 266: agentic.olap.semantic.v1.QueryMembers.ClocksEntry
-	nil,                                   // 267: agentic.olap.semantic.v1.QueryMembers.MembersEntry
-	nil,                                   // 268: agentic.olap.semantic.v1.QueryMembers.RelationsEntry
-	nil,                                   // 269: agentic.olap.semantic.v1.FactMeasure.RolesEntry
-	nil,                                   // 270: agentic.olap.semantic.v1.MetricInstance.FixedArgumentsEntry
-	nil,                                   // 271: agentic.olap.semantic.v1.MemberResult.OutputsEntry
-	nil,                                   // 272: agentic.olap.semantic.v1.MemberResult.FilterOperatorsEntry
-	nil,                                   // 273: agentic.olap.semantic.v1.MemberResult.ClockSlotsEntry
-	nil,                                   // 274: agentic.olap.semantic.v1.ProjectedMemberSource.OutputExpressionsEntry
-	nil,                                   // 275: agentic.olap.semantic.v1.ComputedMemberSource.FixedArgumentsEntry
-	nil,                                   // 276: agentic.olap.semantic.v1.QuantitySnapshot.BoundClocksEntry
+	(*ResultNativeCall)(nil),              // 128: agentic.olap.semantic.v1.ResultNativeCall
+	(*ResultArgument)(nil),                // 129: agentic.olap.semantic.v1.ResultArgument
+	(*TypedLiteral)(nil),                  // 130: agentic.olap.semantic.v1.TypedLiteral
+	(*QuantityLiteral)(nil),               // 131: agentic.olap.semantic.v1.QuantityLiteral
+	(*ResultOperation)(nil),               // 132: agentic.olap.semantic.v1.ResultOperation
+	(*ResultExpressions)(nil),             // 133: agentic.olap.semantic.v1.ResultExpressions
+	(*ResultCase)(nil),                    // 134: agentic.olap.semantic.v1.ResultCase
+	(*ResultBranch)(nil),                  // 135: agentic.olap.semantic.v1.ResultBranch
+	(*ResultCast)(nil),                    // 136: agentic.olap.semantic.v1.ResultCast
+	(*ResultRound)(nil),                   // 137: agentic.olap.semantic.v1.ResultRound
+	(*ResultNumeric)(nil),                 // 138: agentic.olap.semantic.v1.ResultNumeric
+	(*CollectionSort)(nil),                // 139: agentic.olap.semantic.v1.CollectionSort
+	(*CollectionText)(nil),                // 140: agentic.olap.semantic.v1.CollectionText
+	(*RowField)(nil),                      // 141: agentic.olap.semantic.v1.RowField
+	(*WeightedContribution)(nil),          // 142: agentic.olap.semantic.v1.WeightedContribution
+	(*UniformAllocation)(nil),             // 143: agentic.olap.semantic.v1.UniformAllocation
+	(*ResultAggregation)(nil),             // 144: agentic.olap.semantic.v1.ResultAggregation
+	(*NumericAggregation)(nil),            // 145: agentic.olap.semantic.v1.NumericAggregation
+	(*AverageAggregation)(nil),            // 146: agentic.olap.semantic.v1.AverageAggregation
+	(*CountAggregation)(nil),              // 147: agentic.olap.semantic.v1.CountAggregation
+	(*OrderKey)(nil),                      // 148: agentic.olap.semantic.v1.OrderKey
+	(*ResultAggregate)(nil),               // 149: agentic.olap.semantic.v1.ResultAggregate
+	(*ResultGrouping)(nil),                // 150: agentic.olap.semantic.v1.ResultGrouping
+	(*WindowFrame)(nil),                   // 151: agentic.olap.semantic.v1.WindowFrame
+	(*WindowBound)(nil),                   // 152: agentic.olap.semantic.v1.WindowBound
+	(*Stage)(nil),                         // 153: agentic.olap.semantic.v1.Stage
+	(*StageJoin)(nil),                     // 154: agentic.olap.semantic.v1.StageJoin
+	(*StageAncestors)(nil),                // 155: agentic.olap.semantic.v1.StageAncestors
+	(*StageExpand)(nil),                   // 156: agentic.olap.semantic.v1.StageExpand
+	(*StageSort)(nil),                     // 157: agentic.olap.semantic.v1.StageSort
+	(*StageTop)(nil),                      // 158: agentic.olap.semantic.v1.StageTop
+	(*StageDerive)(nil),                   // 159: agentic.olap.semantic.v1.StageDerive
+	(*StageRank)(nil),                     // 160: agentic.olap.semantic.v1.StageRank
+	(*StageOrderedRank)(nil),              // 161: agentic.olap.semantic.v1.StageOrderedRank
+	(*StageCumulative)(nil),               // 162: agentic.olap.semantic.v1.StageCumulative
+	(*StagePartition)(nil),                // 163: agentic.olap.semantic.v1.StagePartition
+	(*StageWindow)(nil),                   // 164: agentic.olap.semantic.v1.StageWindow
+	(*SnapshotSelection)(nil),             // 165: agentic.olap.semantic.v1.SnapshotSelection
+	(*StageSelectVersions)(nil),           // 166: agentic.olap.semantic.v1.StageSelectVersions
+	(*CalendarAxis)(nil),                  // 167: agentic.olap.semantic.v1.CalendarAxis
+	(*StageObserveWindow)(nil),            // 168: agentic.olap.semantic.v1.StageObserveWindow
+	(*StageOffset)(nil),                   // 169: agentic.olap.semantic.v1.StageOffset
+	(*MetricDefinition)(nil),              // 170: agentic.olap.semantic.v1.MetricDefinition
+	(*FactMeasure)(nil),                   // 171: agentic.olap.semantic.v1.FactMeasure
+	(*MetricCalculation)(nil),             // 172: agentic.olap.semantic.v1.MetricCalculation
+	(*MetricInstance)(nil),                // 173: agentic.olap.semantic.v1.MetricInstance
+	(*MemberSourceDefinition)(nil),        // 174: agentic.olap.semantic.v1.MemberSourceDefinition
+	(*MemberProjectionDefinition)(nil),    // 175: agentic.olap.semantic.v1.MemberProjectionDefinition
+	(*MemberComputedDefinition)(nil),      // 176: agentic.olap.semantic.v1.MemberComputedDefinition
+	(*MemberResult)(nil),                  // 177: agentic.olap.semantic.v1.MemberResult
+	(*MemberSourceOutput)(nil),            // 178: agentic.olap.semantic.v1.MemberSourceOutput
+	(*SourceDimensionOutput)(nil),         // 179: agentic.olap.semantic.v1.SourceDimensionOutput
+	(*SourcePropertyOutput)(nil),          // 180: agentic.olap.semantic.v1.SourcePropertyOutput
+	(*SourceComputedDimensionOutput)(nil), // 181: agentic.olap.semantic.v1.SourceComputedDimensionOutput
+	(*SourceComputedPropertyOutput)(nil),  // 182: agentic.olap.semantic.v1.SourceComputedPropertyOutput
+	(*SourceContainerOutput)(nil),         // 183: agentic.olap.semantic.v1.SourceContainerOutput
+	(*SourceComputedContainerOutput)(nil), // 184: agentic.olap.semantic.v1.SourceComputedContainerOutput
+	(*MemberSource)(nil),                  // 185: agentic.olap.semantic.v1.MemberSource
+	(*ProjectedMemberSource)(nil),         // 186: agentic.olap.semantic.v1.ProjectedMemberSource
+	(*ComputedMemberSource)(nil),          // 187: agentic.olap.semantic.v1.ComputedMemberSource
+	(*ScopeId)(nil),                       // 188: agentic.olap.semantic.v1.ScopeId
+	(*SymbolId)(nil),                      // 189: agentic.olap.semantic.v1.SymbolId
+	(*ValuePosition)(nil),                 // 190: agentic.olap.semantic.v1.ValuePosition
+	(*CalculationOwner)(nil),              // 191: agentic.olap.semantic.v1.CalculationOwner
+	(*Symbol)(nil),                        // 192: agentic.olap.semantic.v1.Symbol
+	(*Origin)(nil),                        // 193: agentic.olap.semantic.v1.Origin
+	(*MetricOrigin)(nil),                  // 194: agentic.olap.semantic.v1.MetricOrigin
+	(*DimensionOrigin)(nil),               // 195: agentic.olap.semantic.v1.DimensionOrigin
+	(*MemberOrigin)(nil),                  // 196: agentic.olap.semantic.v1.MemberOrigin
+	(*MemberMeaning)(nil),                 // 197: agentic.olap.semantic.v1.MemberMeaning
+	(*MappedMemberDimensionMeaning)(nil),  // 198: agentic.olap.semantic.v1.MappedMemberDimensionMeaning
+	(*MemberDimensionMeaning)(nil),        // 199: agentic.olap.semantic.v1.MemberDimensionMeaning
+	(*OperationOrigin)(nil),               // 200: agentic.olap.semantic.v1.OperationOrigin
+	(*GroupingOrigin)(nil),                // 201: agentic.olap.semantic.v1.GroupingOrigin
+	(*OmittedDimensionOrigin)(nil),        // 202: agentic.olap.semantic.v1.OmittedDimensionOrigin
+	(*SetOrigin)(nil),                     // 203: agentic.olap.semantic.v1.SetOrigin
+	(*SelectedObservation)(nil),           // 204: agentic.olap.semantic.v1.SelectedObservation
+	(*QueryValue)(nil),                    // 205: agentic.olap.semantic.v1.QueryValue
+	(*PlainValue)(nil),                    // 206: agentic.olap.semantic.v1.PlainValue
+	(*QueryValues)(nil),                   // 207: agentic.olap.semantic.v1.QueryValues
+	(*QueryQuantity)(nil),                 // 208: agentic.olap.semantic.v1.QueryQuantity
+	(*QuantityUnit)(nil),                  // 209: agentic.olap.semantic.v1.QuantityUnit
+	(*DimensionQuantityUnit)(nil),         // 210: agentic.olap.semantic.v1.DimensionQuantityUnit
+	(*QuantityKey)(nil),                   // 211: agentic.olap.semantic.v1.QuantityKey
+	(*UnitReference)(nil),                 // 212: agentic.olap.semantic.v1.UnitReference
+	(*SemanticDimensionReference)(nil),    // 213: agentic.olap.semantic.v1.SemanticDimensionReference
+	(*MemberSlotReference)(nil),           // 214: agentic.olap.semantic.v1.MemberSlotReference
+	(*SelectedQuantityUnit)(nil),          // 215: agentic.olap.semantic.v1.SelectedQuantityUnit
+	(*UnitSelection)(nil),                 // 216: agentic.olap.semantic.v1.UnitSelection
+	(*SelectionTarget)(nil),               // 217: agentic.olap.semantic.v1.SelectionTarget
+	(*ResultUnitFilter)(nil),              // 218: agentic.olap.semantic.v1.ResultUnitFilter
+	(*QuantityProvenance)(nil),            // 219: agentic.olap.semantic.v1.QuantityProvenance
+	(*RawQuantity)(nil),                   // 220: agentic.olap.semantic.v1.RawQuantity
+	(*QuantitySnapshot)(nil),              // 221: agentic.olap.semantic.v1.QuantitySnapshot
+	(*FactQuantity)(nil),                  // 222: agentic.olap.semantic.v1.FactQuantity
+	(*SelectedSnapshotQuantity)(nil),      // 223: agentic.olap.semantic.v1.SelectedSnapshotQuantity
+	(*ReducedQuantity)(nil),               // 224: agentic.olap.semantic.v1.ReducedQuantity
+	(*AllocatedQuantity)(nil),             // 225: agentic.olap.semantic.v1.AllocatedQuantity
+	(*QuantityTerms)(nil),                 // 226: agentic.olap.semantic.v1.QuantityTerms
+	(*ObservedQuantity)(nil),              // 227: agentic.olap.semantic.v1.ObservedQuantity
+	(*QuantityOrder)(nil),                 // 228: agentic.olap.semantic.v1.QuantityOrder
+	(*WindowQuantity)(nil),                // 229: agentic.olap.semantic.v1.WindowQuantity
+	(*OffsetQuantity)(nil),                // 230: agentic.olap.semantic.v1.OffsetQuantity
+	nil,                                   // 231: agentic.olap.semantic.v1.EventIdentity.EntityRolesEntry
+	nil,                                   // 232: agentic.olap.semantic.v1.MetricValueContract.UnitEquationsEntry
+	nil,                                   // 233: agentic.olap.semantic.v1.CalculationArguments.ValuesEntry
+	nil,                                   // 234: agentic.olap.semantic.v1.DimensionExists.ClocksEntry
+	nil,                                   // 235: agentic.olap.semantic.v1.CalculationBindings.DimensionsEntry
+	nil,                                   // 236: agentic.olap.semantic.v1.CalculationBindings.MembersEntry
+	nil,                                   // 237: agentic.olap.semantic.v1.CalculationBindings.GroupingCandidatesEntry
+	nil,                                   // 238: agentic.olap.semantic.v1.CalculationBindings.MeasurementsEntry
+	nil,                                   // 239: agentic.olap.semantic.v1.CalculationBindings.RelationsEntry
+	nil,                                   // 240: agentic.olap.semantic.v1.SourceCall.ArgumentsEntry
+	nil,                                   // 241: agentic.olap.semantic.v1.SourceCall.OutputSlotsEntry
+	nil,                                   // 242: agentic.olap.semantic.v1.SourceCall.MembersEntry
+	nil,                                   // 243: agentic.olap.semantic.v1.SourceCall.RelationsEntry
+	nil,                                   // 244: agentic.olap.semantic.v1.LocalBinding.OutputSlotsEntry
+	nil,                                   // 245: agentic.olap.semantic.v1.Calculation.ParametersEntry
+	nil,                                   // 246: agentic.olap.semantic.v1.MeasurementSlot.ParametersEntry
+	nil,                                   // 247: agentic.olap.semantic.v1.MemberSlot.OutputsEntry
+	nil,                                   // 248: agentic.olap.semantic.v1.CalculationScope.InputsEntry
+	nil,                                   // 249: agentic.olap.semantic.v1.CalculationMeasures.ClocksEntry
+	nil,                                   // 250: agentic.olap.semantic.v1.CalculationCall.DimensionSlotsEntry
+	nil,                                   // 251: agentic.olap.semantic.v1.CalculationCall.MemberSlotsEntry
+	nil,                                   // 252: agentic.olap.semantic.v1.CalculationCall.MeasurementSlotsEntry
+	nil,                                   // 253: agentic.olap.semantic.v1.CalculationCall.RelationSlotsEntry
+	nil,                                   // 254: agentic.olap.semantic.v1.CalculationCall.ArgumentsEntry
+	nil,                                   // 255: agentic.olap.semantic.v1.CalculationMembers.ClocksEntry
+	nil,                                   // 256: agentic.olap.semantic.v1.AlignMeasurements.InputsEntry
+	nil,                                   // 257: agentic.olap.semantic.v1.AlignedInput.KeysEntry
+	nil,                                   // 258: agentic.olap.semantic.v1.QueryScope.InputsEntry
+	nil,                                   // 259: agentic.olap.semantic.v1.QueryCompute.ArgumentsEntry
+	nil,                                   // 260: agentic.olap.semantic.v1.QueryCompute.MembersEntry
+	nil,                                   // 261: agentic.olap.semantic.v1.QueryCompute.RelationsEntry
+	nil,                                   // 262: agentic.olap.semantic.v1.QueryInvocation.ArgumentsEntry
+	nil,                                   // 263: agentic.olap.semantic.v1.QueryInvocation.MembersEntry
+	nil,                                   // 264: agentic.olap.semantic.v1.QueryInvocation.RelationsEntry
+	nil,                                   // 265: agentic.olap.semantic.v1.QueryMeasures.SourceClocksEntry
+	nil,                                   // 266: agentic.olap.semantic.v1.QueryMembers.ArgumentsEntry
+	nil,                                   // 267: agentic.olap.semantic.v1.QueryMembers.ClocksEntry
+	nil,                                   // 268: agentic.olap.semantic.v1.QueryMembers.MembersEntry
+	nil,                                   // 269: agentic.olap.semantic.v1.QueryMembers.RelationsEntry
+	nil,                                   // 270: agentic.olap.semantic.v1.FactMeasure.RolesEntry
+	nil,                                   // 271: agentic.olap.semantic.v1.MetricInstance.FixedArgumentsEntry
+	nil,                                   // 272: agentic.olap.semantic.v1.MemberResult.OutputsEntry
+	nil,                                   // 273: agentic.olap.semantic.v1.MemberResult.FilterOperatorsEntry
+	nil,                                   // 274: agentic.olap.semantic.v1.MemberResult.ClockSlotsEntry
+	nil,                                   // 275: agentic.olap.semantic.v1.ProjectedMemberSource.OutputExpressionsEntry
+	nil,                                   // 276: agentic.olap.semantic.v1.ComputedMemberSource.FixedArgumentsEntry
+	nil,                                   // 277: agentic.olap.semantic.v1.QuantitySnapshot.BoundClocksEntry
 }
 var file_semantic_proto_depIdxs = []int32{
 	10,  // 0: agentic.olap.semantic.v1.RelationAccessPath.join_path_refs:type_name -> agentic.olap.semantic.v1.JoinRef
 	10,  // 1: agentic.olap.semantic.v1.JoinRefs.values:type_name -> agentic.olap.semantic.v1.JoinRef
 	7,   // 2: agentic.olap.semantic.v1.EventIdentity.record_key:type_name -> agentic.olap.semantic.v1.LogicUnitRef
-	230, // 3: agentic.olap.semantic.v1.EventIdentity.entity_roles:type_name -> agentic.olap.semantic.v1.EventIdentity.EntityRolesEntry
+	231, // 3: agentic.olap.semantic.v1.EventIdentity.entity_roles:type_name -> agentic.olap.semantic.v1.EventIdentity.EntityRolesEntry
 	7,   // 4: agentic.olap.semantic.v1.LogicUnitRefs.values:type_name -> agentic.olap.semantic.v1.LogicUnitRef
 	18,  // 5: agentic.olap.semantic.v1.TemporalConstraint.intervals:type_name -> agentic.olap.semantic.v1.TemporalInterval
 	16,  // 6: agentic.olap.semantic.v1.TemporalConstraintValue.value:type_name -> agentic.olap.semantic.v1.TemporalConstraint
@@ -18995,7 +19079,7 @@ var file_semantic_proto_depIdxs = []int32{
 	40,  // 39: agentic.olap.semantic.v1.MetricValueContract.unit:type_name -> agentic.olap.semantic.v1.ValueUnit
 	44,  // 40: agentic.olap.semantic.v1.MetricValueContract.arithmetic:type_name -> agentic.olap.semantic.v1.Arithmetic
 	46,  // 41: agentic.olap.semantic.v1.MetricValueContract.result:type_name -> agentic.olap.semantic.v1.NumericResult
-	231, // 42: agentic.olap.semantic.v1.MetricValueContract.unit_equations:type_name -> agentic.olap.semantic.v1.MetricValueContract.UnitEquationsEntry
+	232, // 42: agentic.olap.semantic.v1.MetricValueContract.unit_equations:type_name -> agentic.olap.semantic.v1.MetricValueContract.UnitEquationsEntry
 	39,  // 43: agentic.olap.semantic.v1.UnitAxis.members:type_name -> agentic.olap.semantic.v1.UnitMember
 	61,  // 44: agentic.olap.semantic.v1.UnitMember.member:type_name -> agentic.olap.semantic.v1.CalculationScalar
 	37,  // 45: agentic.olap.semantic.v1.UnitMember.unit:type_name -> agentic.olap.semantic.v1.UnitIdentity
@@ -19039,7 +19123,7 @@ var file_semantic_proto_depIdxs = []int32{
 	15,  // 83: agentic.olap.semantic.v1.CalculationBinding.clock:type_name -> agentic.olap.semantic.v1.TemporalClock
 	63,  // 84: agentic.olap.semantic.v1.CalculationBinding.grouping:type_name -> agentic.olap.semantic.v1.DimensionRefs
 	64,  // 85: agentic.olap.semantic.v1.CalculationBinding.condition:type_name -> agentic.olap.semantic.v1.DimensionCondition
-	232, // 86: agentic.olap.semantic.v1.CalculationArguments.values:type_name -> agentic.olap.semantic.v1.CalculationArguments.ValuesEntry
+	233, // 86: agentic.olap.semantic.v1.CalculationArguments.values:type_name -> agentic.olap.semantic.v1.CalculationArguments.ValuesEntry
 	8,   // 87: agentic.olap.semantic.v1.DimensionRefs.values:type_name -> agentic.olap.semantic.v1.DimensionRef
 	0,   // 88: agentic.olap.semantic.v1.DimensionCondition.unrestricted:type_name -> agentic.olap.semantic.v1.Empty
 	65,  // 89: agentic.olap.semantic.v1.DimensionCondition.predicate:type_name -> agentic.olap.semantic.v1.DimensionPredicate
@@ -19050,7 +19134,7 @@ var file_semantic_proto_depIdxs = []int32{
 	8,   // 94: agentic.olap.semantic.v1.DimensionPredicate.dimension:type_name -> agentic.olap.semantic.v1.DimensionRef
 	61,  // 95: agentic.olap.semantic.v1.DimensionPredicate.values:type_name -> agentic.olap.semantic.v1.CalculationScalar
 	14,  // 96: agentic.olap.semantic.v1.DimensionExists.range:type_name -> agentic.olap.semantic.v1.TemporalWindow
-	233, // 97: agentic.olap.semantic.v1.DimensionExists.clocks:type_name -> agentic.olap.semantic.v1.DimensionExists.ClocksEntry
+	234, // 97: agentic.olap.semantic.v1.DimensionExists.clocks:type_name -> agentic.olap.semantic.v1.DimensionExists.ClocksEntry
 	68,  // 98: agentic.olap.semantic.v1.DimensionExists.predicate:type_name -> agentic.olap.semantic.v1.MemberCondition
 	64,  // 99: agentic.olap.semantic.v1.DimensionConditions.values:type_name -> agentic.olap.semantic.v1.DimensionCondition
 	0,   // 100: agentic.olap.semantic.v1.MemberCondition.unrestricted:type_name -> agentic.olap.semantic.v1.Empty
@@ -19060,31 +19144,31 @@ var file_semantic_proto_depIdxs = []int32{
 	68,  // 104: agentic.olap.semantic.v1.MemberCondition.not:type_name -> agentic.olap.semantic.v1.MemberCondition
 	60,  // 105: agentic.olap.semantic.v1.MemberPredicate.values:type_name -> agentic.olap.semantic.v1.CalculationBinding
 	68,  // 106: agentic.olap.semantic.v1.MemberConditions.values:type_name -> agentic.olap.semantic.v1.MemberCondition
-	234, // 107: agentic.olap.semantic.v1.CalculationBindings.dimensions:type_name -> agentic.olap.semantic.v1.CalculationBindings.DimensionsEntry
-	235, // 108: agentic.olap.semantic.v1.CalculationBindings.members:type_name -> agentic.olap.semantic.v1.CalculationBindings.MembersEntry
-	236, // 109: agentic.olap.semantic.v1.CalculationBindings.grouping_candidates:type_name -> agentic.olap.semantic.v1.CalculationBindings.GroupingCandidatesEntry
-	237, // 110: agentic.olap.semantic.v1.CalculationBindings.measurements:type_name -> agentic.olap.semantic.v1.CalculationBindings.MeasurementsEntry
-	238, // 111: agentic.olap.semantic.v1.CalculationBindings.relations:type_name -> agentic.olap.semantic.v1.CalculationBindings.RelationsEntry
+	235, // 107: agentic.olap.semantic.v1.CalculationBindings.dimensions:type_name -> agentic.olap.semantic.v1.CalculationBindings.DimensionsEntry
+	236, // 108: agentic.olap.semantic.v1.CalculationBindings.members:type_name -> agentic.olap.semantic.v1.CalculationBindings.MembersEntry
+	237, // 109: agentic.olap.semantic.v1.CalculationBindings.grouping_candidates:type_name -> agentic.olap.semantic.v1.CalculationBindings.GroupingCandidatesEntry
+	238, // 110: agentic.olap.semantic.v1.CalculationBindings.measurements:type_name -> agentic.olap.semantic.v1.CalculationBindings.MeasurementsEntry
+	239, // 111: agentic.olap.semantic.v1.CalculationBindings.relations:type_name -> agentic.olap.semantic.v1.CalculationBindings.RelationsEntry
 	8,   // 112: agentic.olap.semantic.v1.DimensionBinding.reference:type_name -> agentic.olap.semantic.v1.DimensionRef
 	72,  // 113: agentic.olap.semantic.v1.DimensionBindings.values:type_name -> agentic.olap.semantic.v1.DimensionBinding
 	75,  // 114: agentic.olap.semantic.v1.MemberBinding.source_call:type_name -> agentic.olap.semantic.v1.SourceCall
 	76,  // 115: agentic.olap.semantic.v1.MemberBinding.local:type_name -> agentic.olap.semantic.v1.LocalBinding
 	0,   // 116: agentic.olap.semantic.v1.MemberBinding.parameter:type_name -> agentic.olap.semantic.v1.Empty
 	5,   // 117: agentic.olap.semantic.v1.SourceCall.source:type_name -> agentic.olap.semantic.v1.MemberRef
-	239, // 118: agentic.olap.semantic.v1.SourceCall.arguments:type_name -> agentic.olap.semantic.v1.SourceCall.ArgumentsEntry
-	240, // 119: agentic.olap.semantic.v1.SourceCall.output_slots:type_name -> agentic.olap.semantic.v1.SourceCall.OutputSlotsEntry
-	241, // 120: agentic.olap.semantic.v1.SourceCall.members:type_name -> agentic.olap.semantic.v1.SourceCall.MembersEntry
-	242, // 121: agentic.olap.semantic.v1.SourceCall.relations:type_name -> agentic.olap.semantic.v1.SourceCall.RelationsEntry
-	243, // 122: agentic.olap.semantic.v1.LocalBinding.output_slots:type_name -> agentic.olap.semantic.v1.LocalBinding.OutputSlotsEntry
+	240, // 118: agentic.olap.semantic.v1.SourceCall.arguments:type_name -> agentic.olap.semantic.v1.SourceCall.ArgumentsEntry
+	241, // 119: agentic.olap.semantic.v1.SourceCall.output_slots:type_name -> agentic.olap.semantic.v1.SourceCall.OutputSlotsEntry
+	242, // 120: agentic.olap.semantic.v1.SourceCall.members:type_name -> agentic.olap.semantic.v1.SourceCall.MembersEntry
+	243, // 121: agentic.olap.semantic.v1.SourceCall.relations:type_name -> agentic.olap.semantic.v1.SourceCall.RelationsEntry
+	244, // 122: agentic.olap.semantic.v1.LocalBinding.output_slots:type_name -> agentic.olap.semantic.v1.LocalBinding.OutputSlotsEntry
 	76,  // 123: agentic.olap.semantic.v1.RelationBinding.local:type_name -> agentic.olap.semantic.v1.LocalBinding
 	0,   // 124: agentic.olap.semantic.v1.RelationBinding.parameter:type_name -> agentic.olap.semantic.v1.Empty
 	79,  // 125: agentic.olap.semantic.v1.Calculation.dimension_slots:type_name -> agentic.olap.semantic.v1.DimensionSlot
 	85,  // 126: agentic.olap.semantic.v1.Calculation.member_slots:type_name -> agentic.olap.semantic.v1.MemberSlot
 	80,  // 127: agentic.olap.semantic.v1.Calculation.measurement_slots:type_name -> agentic.olap.semantic.v1.MeasurementSlot
 	86,  // 128: agentic.olap.semantic.v1.Calculation.relation_slots:type_name -> agentic.olap.semantic.v1.RelationSlot
-	244, // 129: agentic.olap.semantic.v1.Calculation.parameters:type_name -> agentic.olap.semantic.v1.Calculation.ParametersEntry
+	245, // 129: agentic.olap.semantic.v1.Calculation.parameters:type_name -> agentic.olap.semantic.v1.Calculation.ParametersEntry
 	88,  // 130: agentic.olap.semantic.v1.Calculation.computation:type_name -> agentic.olap.semantic.v1.CalculationScope
-	245, // 131: agentic.olap.semantic.v1.MeasurementSlot.parameters:type_name -> agentic.olap.semantic.v1.MeasurementSlot.ParametersEntry
+	246, // 131: agentic.olap.semantic.v1.MeasurementSlot.parameters:type_name -> agentic.olap.semantic.v1.MeasurementSlot.ParametersEntry
 	79,  // 132: agentic.olap.semantic.v1.MeasurementSlot.observation_slots:type_name -> agentic.olap.semantic.v1.DimensionSlot
 	36,  // 133: agentic.olap.semantic.v1.MeasurementSlot.value_contract:type_name -> agentic.olap.semantic.v1.MetricValueContract
 	82,  // 134: agentic.olap.semantic.v1.MemberOutput.dimension:type_name -> agentic.olap.semantic.v1.MemberDimensionOutput
@@ -19093,7 +19177,7 @@ var file_semantic_proto_depIdxs = []int32{
 	36,  // 137: agentic.olap.semantic.v1.MemberDimensionOutput.value_contract:type_name -> agentic.olap.semantic.v1.MetricValueContract
 	36,  // 138: agentic.olap.semantic.v1.MemberPropertyOutput.value_contract:type_name -> agentic.olap.semantic.v1.MetricValueContract
 	56,  // 139: agentic.olap.semantic.v1.MemberContainerOutput.shape:type_name -> agentic.olap.semantic.v1.SetOutputShape
-	246, // 140: agentic.olap.semantic.v1.MemberSlot.outputs:type_name -> agentic.olap.semantic.v1.MemberSlot.OutputsEntry
+	247, // 140: agentic.olap.semantic.v1.MemberSlot.outputs:type_name -> agentic.olap.semantic.v1.MemberSlot.OutputsEntry
 	5,   // 141: agentic.olap.semantic.v1.MemberSlot.fixed_source:type_name -> agentic.olap.semantic.v1.MemberRef
 	55,  // 142: agentic.olap.semantic.v1.RelationSlot.outputs:type_name -> agentic.olap.semantic.v1.SetOutput
 	1,   // 143: agentic.olap.semantic.v1.RelationSlot.keys:type_name -> agentic.olap.semantic.v1.StringList
@@ -19101,8 +19185,8 @@ var file_semantic_proto_depIdxs = []int32{
 	60,  // 145: agentic.olap.semantic.v1.CalculationParameter.default_value:type_name -> agentic.olap.semantic.v1.CalculationBinding
 	36,  // 146: agentic.olap.semantic.v1.CalculationParameter.value_contract:type_name -> agentic.olap.semantic.v1.MetricValueContract
 	90,  // 147: agentic.olap.semantic.v1.CalculationScope.root:type_name -> agentic.olap.semantic.v1.CalculationRoot
-	247, // 148: agentic.olap.semantic.v1.CalculationScope.inputs:type_name -> agentic.olap.semantic.v1.CalculationScope.InputsEntry
-	152, // 149: agentic.olap.semantic.v1.CalculationScope.stages:type_name -> agentic.olap.semantic.v1.Stage
+	248, // 148: agentic.olap.semantic.v1.CalculationScope.inputs:type_name -> agentic.olap.semantic.v1.CalculationScope.InputsEntry
+	153, // 149: agentic.olap.semantic.v1.CalculationScope.stages:type_name -> agentic.olap.semantic.v1.Stage
 	88,  // 150: agentic.olap.semantic.v1.CalculationInput.computation:type_name -> agentic.olap.semantic.v1.CalculationScope
 	91,  // 151: agentic.olap.semantic.v1.CalculationRoot.measures:type_name -> agentic.olap.semantic.v1.CalculationMeasures
 	94,  // 152: agentic.olap.semantic.v1.CalculationRoot.members:type_name -> agentic.olap.semantic.v1.CalculationMembers
@@ -19112,19 +19196,19 @@ var file_semantic_proto_depIdxs = []int32{
 	107, // 156: agentic.olap.semantic.v1.CalculationRoot.observation_statistics:type_name -> agentic.olap.semantic.v1.ObservationStatistics
 	92,  // 157: agentic.olap.semantic.v1.CalculationMeasures.calls:type_name -> agentic.olap.semantic.v1.CalculationCall
 	60,  // 158: agentic.olap.semantic.v1.CalculationMeasures.range:type_name -> agentic.olap.semantic.v1.CalculationBinding
-	248, // 159: agentic.olap.semantic.v1.CalculationMeasures.clocks:type_name -> agentic.olap.semantic.v1.CalculationMeasures.ClocksEntry
+	249, // 159: agentic.olap.semantic.v1.CalculationMeasures.clocks:type_name -> agentic.olap.semantic.v1.CalculationMeasures.ClocksEntry
 	110, // 160: agentic.olap.semantic.v1.CalculationMeasures.grouping_levels:type_name -> agentic.olap.semantic.v1.GroupingLevels
 	93,  // 161: agentic.olap.semantic.v1.CalculationCall.target:type_name -> agentic.olap.semantic.v1.CallTarget
-	249, // 162: agentic.olap.semantic.v1.CalculationCall.dimension_slots:type_name -> agentic.olap.semantic.v1.CalculationCall.DimensionSlotsEntry
-	250, // 163: agentic.olap.semantic.v1.CalculationCall.member_slots:type_name -> agentic.olap.semantic.v1.CalculationCall.MemberSlotsEntry
-	251, // 164: agentic.olap.semantic.v1.CalculationCall.measurement_slots:type_name -> agentic.olap.semantic.v1.CalculationCall.MeasurementSlotsEntry
-	252, // 165: agentic.olap.semantic.v1.CalculationCall.relation_slots:type_name -> agentic.olap.semantic.v1.CalculationCall.RelationSlotsEntry
-	253, // 166: agentic.olap.semantic.v1.CalculationCall.arguments:type_name -> agentic.olap.semantic.v1.CalculationCall.ArgumentsEntry
+	250, // 162: agentic.olap.semantic.v1.CalculationCall.dimension_slots:type_name -> agentic.olap.semantic.v1.CalculationCall.DimensionSlotsEntry
+	251, // 163: agentic.olap.semantic.v1.CalculationCall.member_slots:type_name -> agentic.olap.semantic.v1.CalculationCall.MemberSlotsEntry
+	252, // 164: agentic.olap.semantic.v1.CalculationCall.measurement_slots:type_name -> agentic.olap.semantic.v1.CalculationCall.MeasurementSlotsEntry
+	253, // 165: agentic.olap.semantic.v1.CalculationCall.relation_slots:type_name -> agentic.olap.semantic.v1.CalculationCall.RelationSlotsEntry
+	254, // 166: agentic.olap.semantic.v1.CalculationCall.arguments:type_name -> agentic.olap.semantic.v1.CalculationCall.ArgumentsEntry
 	60,  // 167: agentic.olap.semantic.v1.CalculationCall.source_condition:type_name -> agentic.olap.semantic.v1.CalculationBinding
 	3,   // 168: agentic.olap.semantic.v1.CallTarget.fixed:type_name -> agentic.olap.semantic.v1.MetricRef
 	95,  // 169: agentic.olap.semantic.v1.CalculationMembers.outputs:type_name -> agentic.olap.semantic.v1.MemberProjection
 	60,  // 170: agentic.olap.semantic.v1.CalculationMembers.range:type_name -> agentic.olap.semantic.v1.CalculationBinding
-	254, // 171: agentic.olap.semantic.v1.CalculationMembers.clocks:type_name -> agentic.olap.semantic.v1.CalculationMembers.ClocksEntry
+	255, // 171: agentic.olap.semantic.v1.CalculationMembers.clocks:type_name -> agentic.olap.semantic.v1.CalculationMembers.ClocksEntry
 	68,  // 172: agentic.olap.semantic.v1.CalculationMembers.condition:type_name -> agentic.olap.semantic.v1.MemberCondition
 	8,   // 173: agentic.olap.semantic.v1.MemberProjection.dimension:type_name -> agentic.olap.semantic.v1.DimensionRef
 	96,  // 174: agentic.olap.semantic.v1.SetCombination.inputs:type_name -> agentic.olap.semantic.v1.SetProjection
@@ -19134,17 +19218,17 @@ var file_semantic_proto_depIdxs = []int32{
 	99,  // 178: agentic.olap.semantic.v1.ObjectMeasure.roles:type_name -> agentic.olap.semantic.v1.ObjectRole
 	100, // 179: agentic.olap.semantic.v1.ObjectRole.target:type_name -> agentic.olap.semantic.v1.ObjectTarget
 	101, // 180: agentic.olap.semantic.v1.ObjectTarget.record_outputs:type_name -> agentic.olap.semantic.v1.RecordOutputs
-	255, // 181: agentic.olap.semantic.v1.AlignMeasurements.inputs:type_name -> agentic.olap.semantic.v1.AlignMeasurements.InputsEntry
+	256, // 181: agentic.olap.semantic.v1.AlignMeasurements.inputs:type_name -> agentic.olap.semantic.v1.AlignMeasurements.InputsEntry
 	105, // 182: agentic.olap.semantic.v1.AlignMeasurements.population:type_name -> agentic.olap.semantic.v1.AlignmentPopulation
 	88,  // 183: agentic.olap.semantic.v1.AlignedInput.computation:type_name -> agentic.olap.semantic.v1.CalculationScope
-	256, // 184: agentic.olap.semantic.v1.AlignedInput.keys:type_name -> agentic.olap.semantic.v1.AlignedInput.KeysEntry
+	257, // 184: agentic.olap.semantic.v1.AlignedInput.keys:type_name -> agentic.olap.semantic.v1.AlignedInput.KeysEntry
 	104, // 185: agentic.olap.semantic.v1.AlignedInput.values:type_name -> agentic.olap.semantic.v1.AlignedValue
 	0,   // 186: agentic.olap.semantic.v1.ObservationUnit.raw_rows:type_name -> agentic.olap.semantic.v1.Empty
 	1,   // 187: agentic.olap.semantic.v1.ObservationUnit.objects_by:type_name -> agentic.olap.semantic.v1.StringList
 	88,  // 188: agentic.olap.semantic.v1.ObservationStatistics.observations:type_name -> agentic.olap.semantic.v1.CalculationScope
 	106, // 189: agentic.olap.semantic.v1.ObservationStatistics.unit:type_name -> agentic.olap.semantic.v1.ObservationUnit
 	108, // 190: agentic.olap.semantic.v1.ObservationStatistics.statistics:type_name -> agentic.olap.semantic.v1.ObservationStatistic
-	148, // 191: agentic.olap.semantic.v1.ObservationStatistic.reduction:type_name -> agentic.olap.semantic.v1.ResultAggregate
+	149, // 191: agentic.olap.semantic.v1.ObservationStatistic.reduction:type_name -> agentic.olap.semantic.v1.ResultAggregate
 	109, // 192: agentic.olap.semantic.v1.ObservationStatistic.weighted_mean:type_name -> agentic.olap.semantic.v1.WeightedMean
 	36,  // 193: agentic.olap.semantic.v1.WeightedMean.numerator_contract:type_name -> agentic.olap.semantic.v1.MetricValueContract
 	36,  // 194: agentic.olap.semantic.v1.WeightedMean.weight_sum_contract:type_name -> agentic.olap.semantic.v1.MetricValueContract
@@ -19152,8 +19236,8 @@ var file_semantic_proto_depIdxs = []int32{
 	111, // 196: agentic.olap.semantic.v1.GroupingLevels.levels:type_name -> agentic.olap.semantic.v1.GroupingLevel
 	113, // 197: agentic.olap.semantic.v1.BoundGroupingLevels.levels:type_name -> agentic.olap.semantic.v1.BoundGroupingLevel
 	116, // 198: agentic.olap.semantic.v1.QueryScope.root:type_name -> agentic.olap.semantic.v1.QueryRoot
-	257, // 199: agentic.olap.semantic.v1.QueryScope.inputs:type_name -> agentic.olap.semantic.v1.QueryScope.InputsEntry
-	152, // 200: agentic.olap.semantic.v1.QueryScope.stages:type_name -> agentic.olap.semantic.v1.Stage
+	258, // 199: agentic.olap.semantic.v1.QueryScope.inputs:type_name -> agentic.olap.semantic.v1.QueryScope.InputsEntry
+	153, // 200: agentic.olap.semantic.v1.QueryScope.stages:type_name -> agentic.olap.semantic.v1.Stage
 	114, // 201: agentic.olap.semantic.v1.QueryInput.computation:type_name -> agentic.olap.semantic.v1.QueryScope
 	119, // 202: agentic.olap.semantic.v1.QueryRoot.measures:type_name -> agentic.olap.semantic.v1.QueryMeasures
 	125, // 203: agentic.olap.semantic.v1.QueryRoot.members:type_name -> agentic.olap.semantic.v1.QueryMembers
@@ -19161,18 +19245,18 @@ var file_semantic_proto_depIdxs = []int32{
 	117, // 205: agentic.olap.semantic.v1.QueryRoot.compute:type_name -> agentic.olap.semantic.v1.QueryCompute
 	78,  // 206: agentic.olap.semantic.v1.QueryCompute.calculation:type_name -> agentic.olap.semantic.v1.Calculation
 	71,  // 207: agentic.olap.semantic.v1.QueryCompute.bindings:type_name -> agentic.olap.semantic.v1.CalculationBindings
-	258, // 208: agentic.olap.semantic.v1.QueryCompute.arguments:type_name -> agentic.olap.semantic.v1.QueryCompute.ArgumentsEntry
-	259, // 209: agentic.olap.semantic.v1.QueryCompute.members:type_name -> agentic.olap.semantic.v1.QueryCompute.MembersEntry
-	260, // 210: agentic.olap.semantic.v1.QueryCompute.relations:type_name -> agentic.olap.semantic.v1.QueryCompute.RelationsEntry
+	259, // 208: agentic.olap.semantic.v1.QueryCompute.arguments:type_name -> agentic.olap.semantic.v1.QueryCompute.ArgumentsEntry
+	260, // 209: agentic.olap.semantic.v1.QueryCompute.members:type_name -> agentic.olap.semantic.v1.QueryCompute.MembersEntry
+	261, // 210: agentic.olap.semantic.v1.QueryCompute.relations:type_name -> agentic.olap.semantic.v1.QueryCompute.RelationsEntry
 	4,   // 211: agentic.olap.semantic.v1.QueryInvocation.instance:type_name -> agentic.olap.semantic.v1.MetricInstanceRef
-	261, // 212: agentic.olap.semantic.v1.QueryInvocation.arguments:type_name -> agentic.olap.semantic.v1.QueryInvocation.ArgumentsEntry
-	262, // 213: agentic.olap.semantic.v1.QueryInvocation.members:type_name -> agentic.olap.semantic.v1.QueryInvocation.MembersEntry
-	263, // 214: agentic.olap.semantic.v1.QueryInvocation.relations:type_name -> agentic.olap.semantic.v1.QueryInvocation.RelationsEntry
+	262, // 212: agentic.olap.semantic.v1.QueryInvocation.arguments:type_name -> agentic.olap.semantic.v1.QueryInvocation.ArgumentsEntry
+	263, // 213: agentic.olap.semantic.v1.QueryInvocation.members:type_name -> agentic.olap.semantic.v1.QueryInvocation.MembersEntry
+	264, // 214: agentic.olap.semantic.v1.QueryInvocation.relations:type_name -> agentic.olap.semantic.v1.QueryInvocation.RelationsEntry
 	64,  // 215: agentic.olap.semantic.v1.QueryInvocation.source_condition:type_name -> agentic.olap.semantic.v1.DimensionCondition
 	118, // 216: agentic.olap.semantic.v1.QueryMeasures.calls:type_name -> agentic.olap.semantic.v1.QueryInvocation
 	8,   // 217: agentic.olap.semantic.v1.QueryMeasures.grouping:type_name -> agentic.olap.semantic.v1.DimensionRef
 	120, // 218: agentic.olap.semantic.v1.QueryMeasures.source_time_range:type_name -> agentic.olap.semantic.v1.QueryTimeRange
-	264, // 219: agentic.olap.semantic.v1.QueryMeasures.source_clocks:type_name -> agentic.olap.semantic.v1.QueryMeasures.SourceClocksEntry
+	265, // 219: agentic.olap.semantic.v1.QueryMeasures.source_clocks:type_name -> agentic.olap.semantic.v1.QueryMeasures.SourceClocksEntry
 	64,  // 220: agentic.olap.semantic.v1.QueryMeasures.source_condition:type_name -> agentic.olap.semantic.v1.DimensionCondition
 	64,  // 221: agentic.olap.semantic.v1.QueryMeasures.output_condition:type_name -> agentic.olap.semantic.v1.DimensionCondition
 	121, // 222: agentic.olap.semantic.v1.QueryMeasures.source_event_conditions:type_name -> agentic.olap.semantic.v1.EventCondition
@@ -19185,298 +19269,301 @@ var file_semantic_proto_depIdxs = []int32{
 	124, // 229: agentic.olap.semantic.v1.QueryGroupingLevels.levels:type_name -> agentic.olap.semantic.v1.QueryGroupingLevel
 	8,   // 230: agentic.olap.semantic.v1.QueryGroupingLevel.dimensions:type_name -> agentic.olap.semantic.v1.DimensionRef
 	5,   // 231: agentic.olap.semantic.v1.QueryMembers.source:type_name -> agentic.olap.semantic.v1.MemberRef
-	265, // 232: agentic.olap.semantic.v1.QueryMembers.arguments:type_name -> agentic.olap.semantic.v1.QueryMembers.ArgumentsEntry
+	266, // 232: agentic.olap.semantic.v1.QueryMembers.arguments:type_name -> agentic.olap.semantic.v1.QueryMembers.ArgumentsEntry
 	95,  // 233: agentic.olap.semantic.v1.QueryMembers.outputs:type_name -> agentic.olap.semantic.v1.MemberProjection
 	14,  // 234: agentic.olap.semantic.v1.QueryMembers.range:type_name -> agentic.olap.semantic.v1.TemporalWindow
-	266, // 235: agentic.olap.semantic.v1.QueryMembers.clocks:type_name -> agentic.olap.semantic.v1.QueryMembers.ClocksEntry
+	267, // 235: agentic.olap.semantic.v1.QueryMembers.clocks:type_name -> agentic.olap.semantic.v1.QueryMembers.ClocksEntry
 	68,  // 236: agentic.olap.semantic.v1.QueryMembers.condition:type_name -> agentic.olap.semantic.v1.MemberCondition
-	267, // 237: agentic.olap.semantic.v1.QueryMembers.members:type_name -> agentic.olap.semantic.v1.QueryMembers.MembersEntry
-	268, // 238: agentic.olap.semantic.v1.QueryMembers.relations:type_name -> agentic.olap.semantic.v1.QueryMembers.RelationsEntry
+	268, // 237: agentic.olap.semantic.v1.QueryMembers.members:type_name -> agentic.olap.semantic.v1.QueryMembers.MembersEntry
+	269, // 238: agentic.olap.semantic.v1.QueryMembers.relations:type_name -> agentic.olap.semantic.v1.QueryMembers.RelationsEntry
 	127, // 239: agentic.olap.semantic.v1.ResultExpression.call:type_name -> agentic.olap.semantic.v1.ResultCall
-	128, // 240: agentic.olap.semantic.v1.ResultExpression.argument:type_name -> agentic.olap.semantic.v1.ResultArgument
+	129, // 240: agentic.olap.semantic.v1.ResultExpression.argument:type_name -> agentic.olap.semantic.v1.ResultArgument
 	22,  // 241: agentic.olap.semantic.v1.ResultExpression.literal:type_name -> agentic.olap.semantic.v1.ScalarLiteral
-	129, // 242: agentic.olap.semantic.v1.ResultExpression.typed_literal:type_name -> agentic.olap.semantic.v1.TypedLiteral
-	130, // 243: agentic.olap.semantic.v1.ResultExpression.quantity_literal:type_name -> agentic.olap.semantic.v1.QuantityLiteral
-	131, // 244: agentic.olap.semantic.v1.ResultExpression.operation:type_name -> agentic.olap.semantic.v1.ResultOperation
-	132, // 245: agentic.olap.semantic.v1.ResultExpression.row:type_name -> agentic.olap.semantic.v1.ResultExpressions
-	133, // 246: agentic.olap.semantic.v1.ResultExpression.case_when:type_name -> agentic.olap.semantic.v1.ResultCase
-	135, // 247: agentic.olap.semantic.v1.ResultExpression.cast:type_name -> agentic.olap.semantic.v1.ResultCast
-	136, // 248: agentic.olap.semantic.v1.ResultExpression.round:type_name -> agentic.olap.semantic.v1.ResultRound
-	137, // 249: agentic.olap.semantic.v1.ResultExpression.numeric:type_name -> agentic.olap.semantic.v1.ResultNumeric
-	138, // 250: agentic.olap.semantic.v1.ResultExpression.collection_sort:type_name -> agentic.olap.semantic.v1.CollectionSort
-	139, // 251: agentic.olap.semantic.v1.ResultExpression.collection_text:type_name -> agentic.olap.semantic.v1.CollectionText
-	140, // 252: agentic.olap.semantic.v1.ResultExpression.row_field:type_name -> agentic.olap.semantic.v1.RowField
-	141, // 253: agentic.olap.semantic.v1.ResultExpression.weighted_contribution:type_name -> agentic.olap.semantic.v1.WeightedContribution
-	142, // 254: agentic.olap.semantic.v1.ResultExpression.uniform_allocation:type_name -> agentic.olap.semantic.v1.UniformAllocation
-	126, // 255: agentic.olap.semantic.v1.ResultCall.arguments:type_name -> agentic.olap.semantic.v1.ResultExpression
-	22,  // 256: agentic.olap.semantic.v1.TypedLiteral.value:type_name -> agentic.olap.semantic.v1.ScalarLiteral
-	36,  // 257: agentic.olap.semantic.v1.QuantityLiteral.value_contract:type_name -> agentic.olap.semantic.v1.MetricValueContract
-	126, // 258: agentic.olap.semantic.v1.ResultOperation.operands:type_name -> agentic.olap.semantic.v1.ResultExpression
-	126, // 259: agentic.olap.semantic.v1.ResultExpressions.values:type_name -> agentic.olap.semantic.v1.ResultExpression
-	134, // 260: agentic.olap.semantic.v1.ResultCase.branches:type_name -> agentic.olap.semantic.v1.ResultBranch
-	126, // 261: agentic.olap.semantic.v1.ResultCase.otherwise:type_name -> agentic.olap.semantic.v1.ResultExpression
-	126, // 262: agentic.olap.semantic.v1.ResultBranch.when:type_name -> agentic.olap.semantic.v1.ResultExpression
-	126, // 263: agentic.olap.semantic.v1.ResultBranch.then:type_name -> agentic.olap.semantic.v1.ResultExpression
-	126, // 264: agentic.olap.semantic.v1.ResultCast.expression:type_name -> agentic.olap.semantic.v1.ResultExpression
-	126, // 265: agentic.olap.semantic.v1.ResultRound.expression:type_name -> agentic.olap.semantic.v1.ResultExpression
-	126, // 266: agentic.olap.semantic.v1.ResultNumeric.expression:type_name -> agentic.olap.semantic.v1.ResultExpression
-	36,  // 267: agentic.olap.semantic.v1.ResultNumeric.value_contract:type_name -> agentic.olap.semantic.v1.MetricValueContract
-	126, // 268: agentic.olap.semantic.v1.CollectionSort.expression:type_name -> agentic.olap.semantic.v1.ResultExpression
-	126, // 269: agentic.olap.semantic.v1.CollectionText.expression:type_name -> agentic.olap.semantic.v1.ResultExpression
-	126, // 270: agentic.olap.semantic.v1.RowField.expression:type_name -> agentic.olap.semantic.v1.ResultExpression
-	126, // 271: agentic.olap.semantic.v1.WeightedContribution.value:type_name -> agentic.olap.semantic.v1.ResultExpression
-	126, // 272: agentic.olap.semantic.v1.WeightedContribution.weight:type_name -> agentic.olap.semantic.v1.ResultExpression
-	106, // 273: agentic.olap.semantic.v1.WeightedContribution.observation_unit:type_name -> agentic.olap.semantic.v1.ObservationUnit
-	36,  // 274: agentic.olap.semantic.v1.WeightedContribution.value_contract:type_name -> agentic.olap.semantic.v1.MetricValueContract
-	126, // 275: agentic.olap.semantic.v1.UniformAllocation.value:type_name -> agentic.olap.semantic.v1.ResultExpression
-	36,  // 276: agentic.olap.semantic.v1.UniformAllocation.value_contract:type_name -> agentic.olap.semantic.v1.MetricValueContract
-	144, // 277: agentic.olap.semantic.v1.ResultAggregation.sum:type_name -> agentic.olap.semantic.v1.NumericAggregation
-	145, // 278: agentic.olap.semantic.v1.ResultAggregation.average:type_name -> agentic.olap.semantic.v1.AverageAggregation
-	144, // 279: agentic.olap.semantic.v1.ResultAggregation.sample_deviation:type_name -> agentic.olap.semantic.v1.NumericAggregation
-	146, // 280: agentic.olap.semantic.v1.ResultAggregation.count:type_name -> agentic.olap.semantic.v1.CountAggregation
-	36,  // 281: agentic.olap.semantic.v1.NumericAggregation.value_contract:type_name -> agentic.olap.semantic.v1.MetricValueContract
-	36,  // 282: agentic.olap.semantic.v1.AverageAggregation.value_contract:type_name -> agentic.olap.semantic.v1.MetricValueContract
-	143, // 283: agentic.olap.semantic.v1.ResultAggregate.aggregation:type_name -> agentic.olap.semantic.v1.ResultAggregation
-	148, // 284: agentic.olap.semantic.v1.ResultGrouping.aggregates:type_name -> agentic.olap.semantic.v1.ResultAggregate
-	112, // 285: agentic.olap.semantic.v1.ResultGrouping.grouping_levels:type_name -> agentic.olap.semantic.v1.BoundGroupingLevels
-	151, // 286: agentic.olap.semantic.v1.WindowFrame.lower:type_name -> agentic.olap.semantic.v1.WindowBound
-	151, // 287: agentic.olap.semantic.v1.WindowFrame.upper:type_name -> agentic.olap.semantic.v1.WindowBound
-	153, // 288: agentic.olap.semantic.v1.Stage.join_input:type_name -> agentic.olap.semantic.v1.StageJoin
-	154, // 289: agentic.olap.semantic.v1.Stage.ancestor_closure:type_name -> agentic.olap.semantic.v1.StageAncestors
-	155, // 290: agentic.olap.semantic.v1.Stage.expand_collection:type_name -> agentic.olap.semantic.v1.StageExpand
-	1,   // 291: agentic.olap.semantic.v1.Stage.project:type_name -> agentic.olap.semantic.v1.StringList
-	149, // 292: agentic.olap.semantic.v1.Stage.regroup:type_name -> agentic.olap.semantic.v1.ResultGrouping
-	126, // 293: agentic.olap.semantic.v1.Stage.post_filter:type_name -> agentic.olap.semantic.v1.ResultExpression
-	156, // 294: agentic.olap.semantic.v1.Stage.sort:type_name -> agentic.olap.semantic.v1.StageSort
-	157, // 295: agentic.olap.semantic.v1.Stage.top_n:type_name -> agentic.olap.semantic.v1.StageTop
-	158, // 296: agentic.olap.semantic.v1.Stage.derive:type_name -> agentic.olap.semantic.v1.StageDerive
-	159, // 297: agentic.olap.semantic.v1.Stage.rank:type_name -> agentic.olap.semantic.v1.StageRank
-	160, // 298: agentic.olap.semantic.v1.Stage.ordered_rank:type_name -> agentic.olap.semantic.v1.StageOrderedRank
-	161, // 299: agentic.olap.semantic.v1.Stage.cumulative:type_name -> agentic.olap.semantic.v1.StageCumulative
-	162, // 300: agentic.olap.semantic.v1.Stage.partition_aggregate:type_name -> agentic.olap.semantic.v1.StagePartition
-	163, // 301: agentic.olap.semantic.v1.Stage.window_aggregate:type_name -> agentic.olap.semantic.v1.StageWindow
-	165, // 302: agentic.olap.semantic.v1.Stage.select_versions:type_name -> agentic.olap.semantic.v1.StageSelectVersions
-	167, // 303: agentic.olap.semantic.v1.Stage.observe_window:type_name -> agentic.olap.semantic.v1.StageObserveWindow
-	168, // 304: agentic.olap.semantic.v1.Stage.offset_value:type_name -> agentic.olap.semantic.v1.StageOffset
-	126, // 305: agentic.olap.semantic.v1.StageJoin.condition:type_name -> agentic.olap.semantic.v1.ResultExpression
-	147, // 306: agentic.olap.semantic.v1.StageSort.order_keys:type_name -> agentic.olap.semantic.v1.OrderKey
-	147, // 307: agentic.olap.semantic.v1.StageTop.order_keys:type_name -> agentic.olap.semantic.v1.OrderKey
-	126, // 308: agentic.olap.semantic.v1.StageDerive.expression:type_name -> agentic.olap.semantic.v1.ResultExpression
-	147, // 309: agentic.olap.semantic.v1.StageOrderedRank.order_keys:type_name -> agentic.olap.semantic.v1.OrderKey
-	143, // 310: agentic.olap.semantic.v1.StageCumulative.aggregation:type_name -> agentic.olap.semantic.v1.ResultAggregation
-	143, // 311: agentic.olap.semantic.v1.StagePartition.aggregation:type_name -> agentic.olap.semantic.v1.ResultAggregation
-	147, // 312: agentic.olap.semantic.v1.StageWindow.order_keys:type_name -> agentic.olap.semantic.v1.OrderKey
-	143, // 313: agentic.olap.semantic.v1.StageWindow.aggregation:type_name -> agentic.olap.semantic.v1.ResultAggregation
-	150, // 314: agentic.olap.semantic.v1.StageWindow.window_frame:type_name -> agentic.olap.semantic.v1.WindowFrame
-	60,  // 315: agentic.olap.semantic.v1.SnapshotSelection.as_of:type_name -> agentic.olap.semantic.v1.CalculationBinding
-	147, // 316: agentic.olap.semantic.v1.StageSelectVersions.order_keys:type_name -> agentic.olap.semantic.v1.OrderKey
-	164, // 317: agentic.olap.semantic.v1.StageSelectVersions.snapshot:type_name -> agentic.olap.semantic.v1.SnapshotSelection
-	147, // 318: agentic.olap.semantic.v1.StageObserveWindow.order_keys:type_name -> agentic.olap.semantic.v1.OrderKey
-	143, // 319: agentic.olap.semantic.v1.StageObserveWindow.aggregation:type_name -> agentic.olap.semantic.v1.ResultAggregation
-	150, // 320: agentic.olap.semantic.v1.StageObserveWindow.window_frame:type_name -> agentic.olap.semantic.v1.WindowFrame
-	60,  // 321: agentic.olap.semantic.v1.StageObserveWindow.observation_range:type_name -> agentic.olap.semantic.v1.CalculationBinding
-	60,  // 322: agentic.olap.semantic.v1.StageObserveWindow.display_range:type_name -> agentic.olap.semantic.v1.CalculationBinding
-	166, // 323: agentic.olap.semantic.v1.StageObserveWindow.calendar:type_name -> agentic.olap.semantic.v1.CalendarAxis
-	147, // 324: agentic.olap.semantic.v1.StageOffset.order_keys:type_name -> agentic.olap.semantic.v1.OrderKey
-	170, // 325: agentic.olap.semantic.v1.MetricDefinition.fact_measure:type_name -> agentic.olap.semantic.v1.FactMeasure
-	171, // 326: agentic.olap.semantic.v1.MetricDefinition.calculation:type_name -> agentic.olap.semantic.v1.MetricCalculation
-	6,   // 327: agentic.olap.semantic.v1.FactMeasure.event:type_name -> agentic.olap.semantic.v1.EventRef
-	23,  // 328: agentic.olap.semantic.v1.FactMeasure.input:type_name -> agentic.olap.semantic.v1.SemanticExpression
-	23,  // 329: agentic.olap.semantic.v1.FactMeasure.private_predicate:type_name -> agentic.olap.semantic.v1.SemanticExpression
-	269, // 330: agentic.olap.semantic.v1.FactMeasure.roles:type_name -> agentic.olap.semantic.v1.FactMeasure.RolesEntry
-	54,  // 331: agentic.olap.semantic.v1.FactMeasure.snapshot_rule:type_name -> agentic.olap.semantic.v1.MetricSnapshotRule
-	36,  // 332: agentic.olap.semantic.v1.FactMeasure.value_contract:type_name -> agentic.olap.semantic.v1.MetricValueContract
-	78,  // 333: agentic.olap.semantic.v1.MetricCalculation.calculation:type_name -> agentic.olap.semantic.v1.Calculation
-	36,  // 334: agentic.olap.semantic.v1.MetricCalculation.value_contract:type_name -> agentic.olap.semantic.v1.MetricValueContract
-	3,   // 335: agentic.olap.semantic.v1.MetricInstance.definition:type_name -> agentic.olap.semantic.v1.MetricRef
-	71,  // 336: agentic.olap.semantic.v1.MetricInstance.bindings:type_name -> agentic.olap.semantic.v1.CalculationBindings
-	270, // 337: agentic.olap.semantic.v1.MetricInstance.fixed_arguments:type_name -> agentic.olap.semantic.v1.MetricInstance.FixedArgumentsEntry
-	174, // 338: agentic.olap.semantic.v1.MemberSourceDefinition.projection:type_name -> agentic.olap.semantic.v1.MemberProjectionDefinition
-	175, // 339: agentic.olap.semantic.v1.MemberSourceDefinition.computed:type_name -> agentic.olap.semantic.v1.MemberComputedDefinition
-	6,   // 340: agentic.olap.semantic.v1.MemberProjectionDefinition.event:type_name -> agentic.olap.semantic.v1.EventRef
-	176, // 341: agentic.olap.semantic.v1.MemberProjectionDefinition.result:type_name -> agentic.olap.semantic.v1.MemberResult
-	78,  // 342: agentic.olap.semantic.v1.MemberComputedDefinition.calculation:type_name -> agentic.olap.semantic.v1.Calculation
-	176, // 343: agentic.olap.semantic.v1.MemberComputedDefinition.result:type_name -> agentic.olap.semantic.v1.MemberResult
-	271, // 344: agentic.olap.semantic.v1.MemberResult.outputs:type_name -> agentic.olap.semantic.v1.MemberResult.OutputsEntry
-	272, // 345: agentic.olap.semantic.v1.MemberResult.filter_operators:type_name -> agentic.olap.semantic.v1.MemberResult.FilterOperatorsEntry
-	273, // 346: agentic.olap.semantic.v1.MemberResult.clock_slots:type_name -> agentic.olap.semantic.v1.MemberResult.ClockSlotsEntry
-	178, // 347: agentic.olap.semantic.v1.MemberSourceOutput.dimension:type_name -> agentic.olap.semantic.v1.SourceDimensionOutput
-	179, // 348: agentic.olap.semantic.v1.MemberSourceOutput.property:type_name -> agentic.olap.semantic.v1.SourcePropertyOutput
-	180, // 349: agentic.olap.semantic.v1.MemberSourceOutput.computed_dimension:type_name -> agentic.olap.semantic.v1.SourceComputedDimensionOutput
-	181, // 350: agentic.olap.semantic.v1.MemberSourceOutput.computed_property:type_name -> agentic.olap.semantic.v1.SourceComputedPropertyOutput
-	182, // 351: agentic.olap.semantic.v1.MemberSourceOutput.container_property:type_name -> agentic.olap.semantic.v1.SourceContainerOutput
-	183, // 352: agentic.olap.semantic.v1.MemberSourceOutput.computed_container_property:type_name -> agentic.olap.semantic.v1.SourceComputedContainerOutput
-	36,  // 353: agentic.olap.semantic.v1.SourceDimensionOutput.value_contract:type_name -> agentic.olap.semantic.v1.MetricValueContract
-	9,   // 354: agentic.olap.semantic.v1.SourcePropertyOutput.access_path:type_name -> agentic.olap.semantic.v1.RelationAccessPath
-	36,  // 355: agentic.olap.semantic.v1.SourcePropertyOutput.value_contract:type_name -> agentic.olap.semantic.v1.MetricValueContract
-	36,  // 356: agentic.olap.semantic.v1.SourceComputedDimensionOutput.value_contract:type_name -> agentic.olap.semantic.v1.MetricValueContract
-	36,  // 357: agentic.olap.semantic.v1.SourceComputedPropertyOutput.value_contract:type_name -> agentic.olap.semantic.v1.MetricValueContract
-	56,  // 358: agentic.olap.semantic.v1.SourceContainerOutput.shape:type_name -> agentic.olap.semantic.v1.SetOutputShape
-	9,   // 359: agentic.olap.semantic.v1.SourceContainerOutput.access_path:type_name -> agentic.olap.semantic.v1.RelationAccessPath
-	56,  // 360: agentic.olap.semantic.v1.SourceComputedContainerOutput.shape:type_name -> agentic.olap.semantic.v1.SetOutputShape
-	185, // 361: agentic.olap.semantic.v1.MemberSource.projection:type_name -> agentic.olap.semantic.v1.ProjectedMemberSource
-	186, // 362: agentic.olap.semantic.v1.MemberSource.computed:type_name -> agentic.olap.semantic.v1.ComputedMemberSource
-	174, // 363: agentic.olap.semantic.v1.ProjectedMemberSource.definition:type_name -> agentic.olap.semantic.v1.MemberProjectionDefinition
-	274, // 364: agentic.olap.semantic.v1.ProjectedMemberSource.output_expressions:type_name -> agentic.olap.semantic.v1.ProjectedMemberSource.OutputExpressionsEntry
-	175, // 365: agentic.olap.semantic.v1.ComputedMemberSource.definition:type_name -> agentic.olap.semantic.v1.MemberComputedDefinition
-	71,  // 366: agentic.olap.semantic.v1.ComputedMemberSource.bindings:type_name -> agentic.olap.semantic.v1.CalculationBindings
-	275, // 367: agentic.olap.semantic.v1.ComputedMemberSource.fixed_arguments:type_name -> agentic.olap.semantic.v1.ComputedMemberSource.FixedArgumentsEntry
-	187, // 368: agentic.olap.semantic.v1.SymbolId.scope:type_name -> agentic.olap.semantic.v1.ScopeId
-	188, // 369: agentic.olap.semantic.v1.ValuePosition.owner:type_name -> agentic.olap.semantic.v1.SymbolId
-	4,   // 370: agentic.olap.semantic.v1.CalculationOwner.metric:type_name -> agentic.olap.semantic.v1.MetricInstanceRef
-	5,   // 371: agentic.olap.semantic.v1.CalculationOwner.member:type_name -> agentic.olap.semantic.v1.MemberRef
-	1,   // 372: agentic.olap.semantic.v1.CalculationOwner.query:type_name -> agentic.olap.semantic.v1.StringList
-	188, // 373: agentic.olap.semantic.v1.Symbol.id:type_name -> agentic.olap.semantic.v1.SymbolId
-	192, // 374: agentic.olap.semantic.v1.Symbol.origin:type_name -> agentic.olap.semantic.v1.Origin
-	188, // 375: agentic.olap.semantic.v1.Symbol.dependencies:type_name -> agentic.olap.semantic.v1.SymbolId
-	204, // 376: agentic.olap.semantic.v1.Symbol.value:type_name -> agentic.olap.semantic.v1.QueryValue
-	193, // 377: agentic.olap.semantic.v1.Origin.metric:type_name -> agentic.olap.semantic.v1.MetricOrigin
-	194, // 378: agentic.olap.semantic.v1.Origin.dimension:type_name -> agentic.olap.semantic.v1.DimensionOrigin
-	195, // 379: agentic.olap.semantic.v1.Origin.member:type_name -> agentic.olap.semantic.v1.MemberOrigin
-	199, // 380: agentic.olap.semantic.v1.Origin.operation:type_name -> agentic.olap.semantic.v1.OperationOrigin
-	187, // 381: agentic.olap.semantic.v1.Origin.input_presence:type_name -> agentic.olap.semantic.v1.ScopeId
-	200, // 382: agentic.olap.semantic.v1.Origin.grouping:type_name -> agentic.olap.semantic.v1.GroupingOrigin
-	201, // 383: agentic.olap.semantic.v1.Origin.omitted_dimension:type_name -> agentic.olap.semantic.v1.OmittedDimensionOrigin
-	202, // 384: agentic.olap.semantic.v1.Origin.set:type_name -> agentic.olap.semantic.v1.SetOrigin
-	187, // 385: agentic.olap.semantic.v1.MetricOrigin.scope:type_name -> agentic.olap.semantic.v1.ScopeId
-	190, // 386: agentic.olap.semantic.v1.MetricOrigin.owner:type_name -> agentic.olap.semantic.v1.CalculationOwner
-	3,   // 387: agentic.olap.semantic.v1.MetricOrigin.metric:type_name -> agentic.olap.semantic.v1.MetricRef
-	187, // 388: agentic.olap.semantic.v1.DimensionOrigin.scope:type_name -> agentic.olap.semantic.v1.ScopeId
-	8,   // 389: agentic.olap.semantic.v1.DimensionOrigin.dimension:type_name -> agentic.olap.semantic.v1.DimensionRef
-	187, // 390: agentic.olap.semantic.v1.MemberOrigin.scope:type_name -> agentic.olap.semantic.v1.ScopeId
-	196, // 391: agentic.olap.semantic.v1.MemberOrigin.meaning:type_name -> agentic.olap.semantic.v1.MemberMeaning
-	197, // 392: agentic.olap.semantic.v1.MemberMeaning.mapped_dimension:type_name -> agentic.olap.semantic.v1.MappedMemberDimensionMeaning
-	198, // 393: agentic.olap.semantic.v1.MemberMeaning.dimension:type_name -> agentic.olap.semantic.v1.MemberDimensionMeaning
-	58,  // 394: agentic.olap.semantic.v1.MemberMeaning.property:type_name -> agentic.olap.semantic.v1.PropertyShape
-	84,  // 395: agentic.olap.semantic.v1.MemberMeaning.container:type_name -> agentic.olap.semantic.v1.MemberContainerOutput
-	8,   // 396: agentic.olap.semantic.v1.MappedMemberDimensionMeaning.dimension:type_name -> agentic.olap.semantic.v1.DimensionRef
-	187, // 397: agentic.olap.semantic.v1.OperationOrigin.scope:type_name -> agentic.olap.semantic.v1.ScopeId
-	187, // 398: agentic.olap.semantic.v1.GroupingOrigin.scope:type_name -> agentic.olap.semantic.v1.ScopeId
-	112, // 399: agentic.olap.semantic.v1.GroupingOrigin.definition:type_name -> agentic.olap.semantic.v1.BoundGroupingLevels
-	187, // 400: agentic.olap.semantic.v1.OmittedDimensionOrigin.scope:type_name -> agentic.olap.semantic.v1.ScopeId
-	188, // 401: agentic.olap.semantic.v1.OmittedDimensionOrigin.source:type_name -> agentic.olap.semantic.v1.SymbolId
-	188, // 402: agentic.olap.semantic.v1.OmittedDimensionOrigin.grouping:type_name -> agentic.olap.semantic.v1.SymbolId
-	8,   // 403: agentic.olap.semantic.v1.OmittedDimensionOrigin.dimension:type_name -> agentic.olap.semantic.v1.DimensionRef
-	187, // 404: agentic.olap.semantic.v1.SetOrigin.scope:type_name -> agentic.olap.semantic.v1.ScopeId
-	56,  // 405: agentic.olap.semantic.v1.SetOrigin.shape:type_name -> agentic.olap.semantic.v1.SetOutputShape
-	189, // 406: agentic.olap.semantic.v1.SelectedObservation.time_axes:type_name -> agentic.olap.semantic.v1.ValuePosition
-	61,  // 407: agentic.olap.semantic.v1.SelectedObservation.as_of:type_name -> agentic.olap.semantic.v1.CalculationScalar
-	205, // 408: agentic.olap.semantic.v1.QueryValue.plain:type_name -> agentic.olap.semantic.v1.PlainValue
-	207, // 409: agentic.olap.semantic.v1.QueryValue.measure:type_name -> agentic.olap.semantic.v1.QueryQuantity
-	206, // 410: agentic.olap.semantic.v1.QueryValue.row:type_name -> agentic.olap.semantic.v1.QueryValues
-	204, // 411: agentic.olap.semantic.v1.QueryValue.array:type_name -> agentic.olap.semantic.v1.QueryValue
-	189, // 412: agentic.olap.semantic.v1.PlainValue.source:type_name -> agentic.olap.semantic.v1.ValuePosition
-	189, // 413: agentic.olap.semantic.v1.PlainValue.positions:type_name -> agentic.olap.semantic.v1.ValuePosition
-	204, // 414: agentic.olap.semantic.v1.QueryValues.fields:type_name -> agentic.olap.semantic.v1.QueryValue
-	36,  // 415: agentic.olap.semantic.v1.QueryQuantity.declaration:type_name -> agentic.olap.semantic.v1.MetricValueContract
-	208, // 416: agentic.olap.semantic.v1.QueryQuantity.unit:type_name -> agentic.olap.semantic.v1.QuantityUnit
-	218, // 417: agentic.olap.semantic.v1.QueryQuantity.provenance:type_name -> agentic.olap.semantic.v1.QuantityProvenance
-	37,  // 418: agentic.olap.semantic.v1.QuantityUnit.fixed:type_name -> agentic.olap.semantic.v1.UnitIdentity
-	209, // 419: agentic.olap.semantic.v1.QuantityUnit.dimension:type_name -> agentic.olap.semantic.v1.DimensionQuantityUnit
-	214, // 420: agentic.olap.semantic.v1.QuantityUnit.selected_member:type_name -> agentic.olap.semantic.v1.SelectedQuantityUnit
-	38,  // 421: agentic.olap.semantic.v1.DimensionQuantityUnit.axis:type_name -> agentic.olap.semantic.v1.UnitAxis
-	210, // 422: agentic.olap.semantic.v1.DimensionQuantityUnit.keys:type_name -> agentic.olap.semantic.v1.QuantityKey
-	211, // 423: agentic.olap.semantic.v1.QuantityKey.reference:type_name -> agentic.olap.semantic.v1.UnitReference
-	189, // 424: agentic.olap.semantic.v1.QuantityKey.position:type_name -> agentic.olap.semantic.v1.ValuePosition
-	212, // 425: agentic.olap.semantic.v1.UnitReference.semantic_dimension:type_name -> agentic.olap.semantic.v1.SemanticDimensionReference
-	8,   // 426: agentic.olap.semantic.v1.UnitReference.analysis_dimension:type_name -> agentic.olap.semantic.v1.DimensionRef
-	213, // 427: agentic.olap.semantic.v1.UnitReference.member_slot:type_name -> agentic.olap.semantic.v1.MemberSlotReference
-	211, // 428: agentic.olap.semantic.v1.SelectedQuantityUnit.reference:type_name -> agentic.olap.semantic.v1.UnitReference
-	38,  // 429: agentic.olap.semantic.v1.SelectedQuantityUnit.axis:type_name -> agentic.olap.semantic.v1.UnitAxis
-	61,  // 430: agentic.olap.semantic.v1.SelectedQuantityUnit.member:type_name -> agentic.olap.semantic.v1.CalculationScalar
-	37,  // 431: agentic.olap.semantic.v1.SelectedQuantityUnit.identity:type_name -> agentic.olap.semantic.v1.UnitIdentity
-	215, // 432: agentic.olap.semantic.v1.SelectedQuantityUnit.selection:type_name -> agentic.olap.semantic.v1.UnitSelection
-	189, // 433: agentic.olap.semantic.v1.UnitSelection.source:type_name -> agentic.olap.semantic.v1.ValuePosition
-	216, // 434: agentic.olap.semantic.v1.UnitSelection.target:type_name -> agentic.olap.semantic.v1.SelectionTarget
-	213, // 435: agentic.olap.semantic.v1.SelectionTarget.member_filter:type_name -> agentic.olap.semantic.v1.MemberSlotReference
-	217, // 436: agentic.olap.semantic.v1.SelectionTarget.result_filter:type_name -> agentic.olap.semantic.v1.ResultUnitFilter
-	187, // 437: agentic.olap.semantic.v1.ResultUnitFilter.scope:type_name -> agentic.olap.semantic.v1.ScopeId
-	188, // 438: agentic.olap.semantic.v1.ResultUnitFilter.key:type_name -> agentic.olap.semantic.v1.SymbolId
-	61,  // 439: agentic.olap.semantic.v1.ResultUnitFilter.member:type_name -> agentic.olap.semantic.v1.CalculationScalar
-	219, // 440: agentic.olap.semantic.v1.QuantityProvenance.raw:type_name -> agentic.olap.semantic.v1.RawQuantity
-	221, // 441: agentic.olap.semantic.v1.QuantityProvenance.fact:type_name -> agentic.olap.semantic.v1.FactQuantity
-	222, // 442: agentic.olap.semantic.v1.QuantityProvenance.selected_snapshot:type_name -> agentic.olap.semantic.v1.SelectedSnapshotQuantity
-	223, // 443: agentic.olap.semantic.v1.QuantityProvenance.reduction:type_name -> agentic.olap.semantic.v1.ReducedQuantity
-	224, // 444: agentic.olap.semantic.v1.QuantityProvenance.uniform_allocation:type_name -> agentic.olap.semantic.v1.AllocatedQuantity
-	225, // 445: agentic.olap.semantic.v1.QuantityProvenance.linear:type_name -> agentic.olap.semantic.v1.QuantityTerms
-	226, // 446: agentic.olap.semantic.v1.QuantityProvenance.observed:type_name -> agentic.olap.semantic.v1.ObservedQuantity
-	228, // 447: agentic.olap.semantic.v1.QuantityProvenance.window:type_name -> agentic.olap.semantic.v1.WindowQuantity
-	229, // 448: agentic.olap.semantic.v1.QuantityProvenance.offset:type_name -> agentic.olap.semantic.v1.OffsetQuantity
-	218, // 449: agentic.olap.semantic.v1.QuantityProvenance.copied:type_name -> agentic.olap.semantic.v1.QuantityProvenance
-	228, // 450: agentic.olap.semantic.v1.QuantityProvenance.delta:type_name -> agentic.olap.semantic.v1.WindowQuantity
-	225, // 451: agentic.olap.semantic.v1.QuantityProvenance.alternatives:type_name -> agentic.olap.semantic.v1.QuantityTerms
-	189, // 452: agentic.olap.semantic.v1.RawQuantity.source:type_name -> agentic.olap.semantic.v1.ValuePosition
-	189, // 453: agentic.olap.semantic.v1.RawQuantity.observations:type_name -> agentic.olap.semantic.v1.ValuePosition
-	189, // 454: agentic.olap.semantic.v1.QuantitySnapshot.time_axes:type_name -> agentic.olap.semantic.v1.ValuePosition
-	276, // 455: agentic.olap.semantic.v1.QuantitySnapshot.bound_clocks:type_name -> agentic.olap.semantic.v1.QuantitySnapshot.BoundClocksEntry
-	3,   // 456: agentic.olap.semantic.v1.FactQuantity.definition:type_name -> agentic.olap.semantic.v1.MetricRef
-	189, // 457: agentic.olap.semantic.v1.FactQuantity.source:type_name -> agentic.olap.semantic.v1.ValuePosition
-	189, // 458: agentic.olap.semantic.v1.FactQuantity.observations:type_name -> agentic.olap.semantic.v1.ValuePosition
-	220, // 459: agentic.olap.semantic.v1.FactQuantity.snapshot:type_name -> agentic.olap.semantic.v1.QuantitySnapshot
-	218, // 460: agentic.olap.semantic.v1.SelectedSnapshotQuantity.input:type_name -> agentic.olap.semantic.v1.QuantityProvenance
-	189, // 461: agentic.olap.semantic.v1.SelectedSnapshotQuantity.time_axes:type_name -> agentic.olap.semantic.v1.ValuePosition
-	61,  // 462: agentic.olap.semantic.v1.SelectedSnapshotQuantity.as_of:type_name -> agentic.olap.semantic.v1.CalculationScalar
-	218, // 463: agentic.olap.semantic.v1.ReducedQuantity.input:type_name -> agentic.olap.semantic.v1.QuantityProvenance
-	189, // 464: agentic.olap.semantic.v1.ReducedQuantity.observations:type_name -> agentic.olap.semantic.v1.ValuePosition
-	218, // 465: agentic.olap.semantic.v1.AllocatedQuantity.input:type_name -> agentic.olap.semantic.v1.QuantityProvenance
-	189, // 466: agentic.olap.semantic.v1.AllocatedQuantity.source_keys:type_name -> agentic.olap.semantic.v1.ValuePosition
-	189, // 467: agentic.olap.semantic.v1.AllocatedQuantity.member_keys:type_name -> agentic.olap.semantic.v1.ValuePosition
-	218, // 468: agentic.olap.semantic.v1.QuantityTerms.values:type_name -> agentic.olap.semantic.v1.QuantityProvenance
-	218, // 469: agentic.olap.semantic.v1.ObservedQuantity.components:type_name -> agentic.olap.semantic.v1.QuantityProvenance
-	189, // 470: agentic.olap.semantic.v1.ObservedQuantity.observations:type_name -> agentic.olap.semantic.v1.ValuePosition
-	189, // 471: agentic.olap.semantic.v1.QuantityOrder.position:type_name -> agentic.olap.semantic.v1.ValuePosition
-	218, // 472: agentic.olap.semantic.v1.WindowQuantity.input:type_name -> agentic.olap.semantic.v1.QuantityProvenance
-	189, // 473: agentic.olap.semantic.v1.WindowQuantity.observations:type_name -> agentic.olap.semantic.v1.ValuePosition
-	189, // 474: agentic.olap.semantic.v1.WindowQuantity.partition:type_name -> agentic.olap.semantic.v1.ValuePosition
-	227, // 475: agentic.olap.semantic.v1.WindowQuantity.order:type_name -> agentic.olap.semantic.v1.QuantityOrder
-	150, // 476: agentic.olap.semantic.v1.WindowQuantity.frame:type_name -> agentic.olap.semantic.v1.WindowFrame
-	218, // 477: agentic.olap.semantic.v1.OffsetQuantity.input:type_name -> agentic.olap.semantic.v1.QuantityProvenance
-	189, // 478: agentic.olap.semantic.v1.OffsetQuantity.partition:type_name -> agentic.olap.semantic.v1.ValuePosition
-	227, // 479: agentic.olap.semantic.v1.OffsetQuantity.order:type_name -> agentic.olap.semantic.v1.QuantityOrder
-	13,  // 480: agentic.olap.semantic.v1.EventIdentity.EntityRolesEntry.value:type_name -> agentic.olap.semantic.v1.LogicUnitRefs
-	48,  // 481: agentic.olap.semantic.v1.MetricValueContract.UnitEquationsEntry.value:type_name -> agentic.olap.semantic.v1.UnitEquation
-	60,  // 482: agentic.olap.semantic.v1.CalculationArguments.ValuesEntry.value:type_name -> agentic.olap.semantic.v1.CalculationBinding
-	15,  // 483: agentic.olap.semantic.v1.DimensionExists.ClocksEntry.value:type_name -> agentic.olap.semantic.v1.TemporalClock
-	72,  // 484: agentic.olap.semantic.v1.CalculationBindings.DimensionsEntry.value:type_name -> agentic.olap.semantic.v1.DimensionBinding
-	74,  // 485: agentic.olap.semantic.v1.CalculationBindings.MembersEntry.value:type_name -> agentic.olap.semantic.v1.MemberBinding
-	73,  // 486: agentic.olap.semantic.v1.CalculationBindings.GroupingCandidatesEntry.value:type_name -> agentic.olap.semantic.v1.DimensionBindings
-	4,   // 487: agentic.olap.semantic.v1.CalculationBindings.MeasurementsEntry.value:type_name -> agentic.olap.semantic.v1.MetricInstanceRef
-	77,  // 488: agentic.olap.semantic.v1.CalculationBindings.RelationsEntry.value:type_name -> agentic.olap.semantic.v1.RelationBinding
-	60,  // 489: agentic.olap.semantic.v1.SourceCall.ArgumentsEntry.value:type_name -> agentic.olap.semantic.v1.CalculationBinding
-	74,  // 490: agentic.olap.semantic.v1.SourceCall.MembersEntry.value:type_name -> agentic.olap.semantic.v1.MemberBinding
-	77,  // 491: agentic.olap.semantic.v1.SourceCall.RelationsEntry.value:type_name -> agentic.olap.semantic.v1.RelationBinding
-	87,  // 492: agentic.olap.semantic.v1.Calculation.ParametersEntry.value:type_name -> agentic.olap.semantic.v1.CalculationParameter
-	87,  // 493: agentic.olap.semantic.v1.MeasurementSlot.ParametersEntry.value:type_name -> agentic.olap.semantic.v1.CalculationParameter
-	81,  // 494: agentic.olap.semantic.v1.MemberSlot.OutputsEntry.value:type_name -> agentic.olap.semantic.v1.MemberOutput
-	89,  // 495: agentic.olap.semantic.v1.CalculationScope.InputsEntry.value:type_name -> agentic.olap.semantic.v1.CalculationInput
-	60,  // 496: agentic.olap.semantic.v1.CalculationMeasures.ClocksEntry.value:type_name -> agentic.olap.semantic.v1.CalculationBinding
-	60,  // 497: agentic.olap.semantic.v1.CalculationCall.ArgumentsEntry.value:type_name -> agentic.olap.semantic.v1.CalculationBinding
-	60,  // 498: agentic.olap.semantic.v1.CalculationMembers.ClocksEntry.value:type_name -> agentic.olap.semantic.v1.CalculationBinding
-	103, // 499: agentic.olap.semantic.v1.AlignMeasurements.InputsEntry.value:type_name -> agentic.olap.semantic.v1.AlignedInput
-	115, // 500: agentic.olap.semantic.v1.QueryScope.InputsEntry.value:type_name -> agentic.olap.semantic.v1.QueryInput
-	60,  // 501: agentic.olap.semantic.v1.QueryCompute.ArgumentsEntry.value:type_name -> agentic.olap.semantic.v1.CalculationBinding
-	74,  // 502: agentic.olap.semantic.v1.QueryCompute.MembersEntry.value:type_name -> agentic.olap.semantic.v1.MemberBinding
-	77,  // 503: agentic.olap.semantic.v1.QueryCompute.RelationsEntry.value:type_name -> agentic.olap.semantic.v1.RelationBinding
-	60,  // 504: agentic.olap.semantic.v1.QueryInvocation.ArgumentsEntry.value:type_name -> agentic.olap.semantic.v1.CalculationBinding
-	74,  // 505: agentic.olap.semantic.v1.QueryInvocation.MembersEntry.value:type_name -> agentic.olap.semantic.v1.MemberBinding
-	77,  // 506: agentic.olap.semantic.v1.QueryInvocation.RelationsEntry.value:type_name -> agentic.olap.semantic.v1.RelationBinding
-	15,  // 507: agentic.olap.semantic.v1.QueryMeasures.SourceClocksEntry.value:type_name -> agentic.olap.semantic.v1.TemporalClock
-	60,  // 508: agentic.olap.semantic.v1.QueryMembers.ArgumentsEntry.value:type_name -> agentic.olap.semantic.v1.CalculationBinding
-	15,  // 509: agentic.olap.semantic.v1.QueryMembers.ClocksEntry.value:type_name -> agentic.olap.semantic.v1.TemporalClock
-	74,  // 510: agentic.olap.semantic.v1.QueryMembers.MembersEntry.value:type_name -> agentic.olap.semantic.v1.MemberBinding
-	77,  // 511: agentic.olap.semantic.v1.QueryMembers.RelationsEntry.value:type_name -> agentic.olap.semantic.v1.RelationBinding
-	9,   // 512: agentic.olap.semantic.v1.FactMeasure.RolesEntry.value:type_name -> agentic.olap.semantic.v1.RelationAccessPath
-	60,  // 513: agentic.olap.semantic.v1.MetricInstance.FixedArgumentsEntry.value:type_name -> agentic.olap.semantic.v1.CalculationBinding
-	177, // 514: agentic.olap.semantic.v1.MemberResult.OutputsEntry.value:type_name -> agentic.olap.semantic.v1.MemberSourceOutput
-	1,   // 515: agentic.olap.semantic.v1.MemberResult.FilterOperatorsEntry.value:type_name -> agentic.olap.semantic.v1.StringList
-	23,  // 516: agentic.olap.semantic.v1.ProjectedMemberSource.OutputExpressionsEntry.value:type_name -> agentic.olap.semantic.v1.SemanticExpression
-	60,  // 517: agentic.olap.semantic.v1.ComputedMemberSource.FixedArgumentsEntry.value:type_name -> agentic.olap.semantic.v1.CalculationBinding
-	15,  // 518: agentic.olap.semantic.v1.QuantitySnapshot.BoundClocksEntry.value:type_name -> agentic.olap.semantic.v1.TemporalClock
-	519, // [519:519] is the sub-list for method output_type
-	519, // [519:519] is the sub-list for method input_type
-	519, // [519:519] is the sub-list for extension type_name
-	519, // [519:519] is the sub-list for extension extendee
-	0,   // [0:519] is the sub-list for field type_name
+	130, // 242: agentic.olap.semantic.v1.ResultExpression.typed_literal:type_name -> agentic.olap.semantic.v1.TypedLiteral
+	131, // 243: agentic.olap.semantic.v1.ResultExpression.quantity_literal:type_name -> agentic.olap.semantic.v1.QuantityLiteral
+	132, // 244: agentic.olap.semantic.v1.ResultExpression.operation:type_name -> agentic.olap.semantic.v1.ResultOperation
+	133, // 245: agentic.olap.semantic.v1.ResultExpression.row:type_name -> agentic.olap.semantic.v1.ResultExpressions
+	134, // 246: agentic.olap.semantic.v1.ResultExpression.case_when:type_name -> agentic.olap.semantic.v1.ResultCase
+	136, // 247: agentic.olap.semantic.v1.ResultExpression.cast:type_name -> agentic.olap.semantic.v1.ResultCast
+	137, // 248: agentic.olap.semantic.v1.ResultExpression.round:type_name -> agentic.olap.semantic.v1.ResultRound
+	138, // 249: agentic.olap.semantic.v1.ResultExpression.numeric:type_name -> agentic.olap.semantic.v1.ResultNumeric
+	139, // 250: agentic.olap.semantic.v1.ResultExpression.collection_sort:type_name -> agentic.olap.semantic.v1.CollectionSort
+	140, // 251: agentic.olap.semantic.v1.ResultExpression.collection_text:type_name -> agentic.olap.semantic.v1.CollectionText
+	141, // 252: agentic.olap.semantic.v1.ResultExpression.row_field:type_name -> agentic.olap.semantic.v1.RowField
+	142, // 253: agentic.olap.semantic.v1.ResultExpression.weighted_contribution:type_name -> agentic.olap.semantic.v1.WeightedContribution
+	143, // 254: agentic.olap.semantic.v1.ResultExpression.uniform_allocation:type_name -> agentic.olap.semantic.v1.UniformAllocation
+	128, // 255: agentic.olap.semantic.v1.ResultExpression.native_call:type_name -> agentic.olap.semantic.v1.ResultNativeCall
+	126, // 256: agentic.olap.semantic.v1.ResultCall.arguments:type_name -> agentic.olap.semantic.v1.ResultExpression
+	2,   // 257: agentic.olap.semantic.v1.ResultNativeCall.connector_ref:type_name -> agentic.olap.semantic.v1.ConnectorRef
+	126, // 258: agentic.olap.semantic.v1.ResultNativeCall.arguments:type_name -> agentic.olap.semantic.v1.ResultExpression
+	22,  // 259: agentic.olap.semantic.v1.TypedLiteral.value:type_name -> agentic.olap.semantic.v1.ScalarLiteral
+	36,  // 260: agentic.olap.semantic.v1.QuantityLiteral.value_contract:type_name -> agentic.olap.semantic.v1.MetricValueContract
+	126, // 261: agentic.olap.semantic.v1.ResultOperation.operands:type_name -> agentic.olap.semantic.v1.ResultExpression
+	126, // 262: agentic.olap.semantic.v1.ResultExpressions.values:type_name -> agentic.olap.semantic.v1.ResultExpression
+	135, // 263: agentic.olap.semantic.v1.ResultCase.branches:type_name -> agentic.olap.semantic.v1.ResultBranch
+	126, // 264: agentic.olap.semantic.v1.ResultCase.otherwise:type_name -> agentic.olap.semantic.v1.ResultExpression
+	126, // 265: agentic.olap.semantic.v1.ResultBranch.when:type_name -> agentic.olap.semantic.v1.ResultExpression
+	126, // 266: agentic.olap.semantic.v1.ResultBranch.then:type_name -> agentic.olap.semantic.v1.ResultExpression
+	126, // 267: agentic.olap.semantic.v1.ResultCast.expression:type_name -> agentic.olap.semantic.v1.ResultExpression
+	126, // 268: agentic.olap.semantic.v1.ResultRound.expression:type_name -> agentic.olap.semantic.v1.ResultExpression
+	126, // 269: agentic.olap.semantic.v1.ResultNumeric.expression:type_name -> agentic.olap.semantic.v1.ResultExpression
+	36,  // 270: agentic.olap.semantic.v1.ResultNumeric.value_contract:type_name -> agentic.olap.semantic.v1.MetricValueContract
+	126, // 271: agentic.olap.semantic.v1.CollectionSort.expression:type_name -> agentic.olap.semantic.v1.ResultExpression
+	126, // 272: agentic.olap.semantic.v1.CollectionText.expression:type_name -> agentic.olap.semantic.v1.ResultExpression
+	126, // 273: agentic.olap.semantic.v1.RowField.expression:type_name -> agentic.olap.semantic.v1.ResultExpression
+	126, // 274: agentic.olap.semantic.v1.WeightedContribution.value:type_name -> agentic.olap.semantic.v1.ResultExpression
+	126, // 275: agentic.olap.semantic.v1.WeightedContribution.weight:type_name -> agentic.olap.semantic.v1.ResultExpression
+	106, // 276: agentic.olap.semantic.v1.WeightedContribution.observation_unit:type_name -> agentic.olap.semantic.v1.ObservationUnit
+	36,  // 277: agentic.olap.semantic.v1.WeightedContribution.value_contract:type_name -> agentic.olap.semantic.v1.MetricValueContract
+	126, // 278: agentic.olap.semantic.v1.UniformAllocation.value:type_name -> agentic.olap.semantic.v1.ResultExpression
+	36,  // 279: agentic.olap.semantic.v1.UniformAllocation.value_contract:type_name -> agentic.olap.semantic.v1.MetricValueContract
+	145, // 280: agentic.olap.semantic.v1.ResultAggregation.sum:type_name -> agentic.olap.semantic.v1.NumericAggregation
+	146, // 281: agentic.olap.semantic.v1.ResultAggregation.average:type_name -> agentic.olap.semantic.v1.AverageAggregation
+	145, // 282: agentic.olap.semantic.v1.ResultAggregation.sample_deviation:type_name -> agentic.olap.semantic.v1.NumericAggregation
+	147, // 283: agentic.olap.semantic.v1.ResultAggregation.count:type_name -> agentic.olap.semantic.v1.CountAggregation
+	36,  // 284: agentic.olap.semantic.v1.NumericAggregation.value_contract:type_name -> agentic.olap.semantic.v1.MetricValueContract
+	36,  // 285: agentic.olap.semantic.v1.AverageAggregation.value_contract:type_name -> agentic.olap.semantic.v1.MetricValueContract
+	144, // 286: agentic.olap.semantic.v1.ResultAggregate.aggregation:type_name -> agentic.olap.semantic.v1.ResultAggregation
+	149, // 287: agentic.olap.semantic.v1.ResultGrouping.aggregates:type_name -> agentic.olap.semantic.v1.ResultAggregate
+	112, // 288: agentic.olap.semantic.v1.ResultGrouping.grouping_levels:type_name -> agentic.olap.semantic.v1.BoundGroupingLevels
+	152, // 289: agentic.olap.semantic.v1.WindowFrame.lower:type_name -> agentic.olap.semantic.v1.WindowBound
+	152, // 290: agentic.olap.semantic.v1.WindowFrame.upper:type_name -> agentic.olap.semantic.v1.WindowBound
+	154, // 291: agentic.olap.semantic.v1.Stage.join_input:type_name -> agentic.olap.semantic.v1.StageJoin
+	155, // 292: agentic.olap.semantic.v1.Stage.ancestor_closure:type_name -> agentic.olap.semantic.v1.StageAncestors
+	156, // 293: agentic.olap.semantic.v1.Stage.expand_collection:type_name -> agentic.olap.semantic.v1.StageExpand
+	1,   // 294: agentic.olap.semantic.v1.Stage.project:type_name -> agentic.olap.semantic.v1.StringList
+	150, // 295: agentic.olap.semantic.v1.Stage.regroup:type_name -> agentic.olap.semantic.v1.ResultGrouping
+	126, // 296: agentic.olap.semantic.v1.Stage.post_filter:type_name -> agentic.olap.semantic.v1.ResultExpression
+	157, // 297: agentic.olap.semantic.v1.Stage.sort:type_name -> agentic.olap.semantic.v1.StageSort
+	158, // 298: agentic.olap.semantic.v1.Stage.top_n:type_name -> agentic.olap.semantic.v1.StageTop
+	159, // 299: agentic.olap.semantic.v1.Stage.derive:type_name -> agentic.olap.semantic.v1.StageDerive
+	160, // 300: agentic.olap.semantic.v1.Stage.rank:type_name -> agentic.olap.semantic.v1.StageRank
+	161, // 301: agentic.olap.semantic.v1.Stage.ordered_rank:type_name -> agentic.olap.semantic.v1.StageOrderedRank
+	162, // 302: agentic.olap.semantic.v1.Stage.cumulative:type_name -> agentic.olap.semantic.v1.StageCumulative
+	163, // 303: agentic.olap.semantic.v1.Stage.partition_aggregate:type_name -> agentic.olap.semantic.v1.StagePartition
+	164, // 304: agentic.olap.semantic.v1.Stage.window_aggregate:type_name -> agentic.olap.semantic.v1.StageWindow
+	166, // 305: agentic.olap.semantic.v1.Stage.select_versions:type_name -> agentic.olap.semantic.v1.StageSelectVersions
+	168, // 306: agentic.olap.semantic.v1.Stage.observe_window:type_name -> agentic.olap.semantic.v1.StageObserveWindow
+	169, // 307: agentic.olap.semantic.v1.Stage.offset_value:type_name -> agentic.olap.semantic.v1.StageOffset
+	126, // 308: agentic.olap.semantic.v1.StageJoin.condition:type_name -> agentic.olap.semantic.v1.ResultExpression
+	148, // 309: agentic.olap.semantic.v1.StageSort.order_keys:type_name -> agentic.olap.semantic.v1.OrderKey
+	148, // 310: agentic.olap.semantic.v1.StageTop.order_keys:type_name -> agentic.olap.semantic.v1.OrderKey
+	126, // 311: agentic.olap.semantic.v1.StageDerive.expression:type_name -> agentic.olap.semantic.v1.ResultExpression
+	148, // 312: agentic.olap.semantic.v1.StageOrderedRank.order_keys:type_name -> agentic.olap.semantic.v1.OrderKey
+	144, // 313: agentic.olap.semantic.v1.StageCumulative.aggregation:type_name -> agentic.olap.semantic.v1.ResultAggregation
+	144, // 314: agentic.olap.semantic.v1.StagePartition.aggregation:type_name -> agentic.olap.semantic.v1.ResultAggregation
+	148, // 315: agentic.olap.semantic.v1.StageWindow.order_keys:type_name -> agentic.olap.semantic.v1.OrderKey
+	144, // 316: agentic.olap.semantic.v1.StageWindow.aggregation:type_name -> agentic.olap.semantic.v1.ResultAggregation
+	151, // 317: agentic.olap.semantic.v1.StageWindow.window_frame:type_name -> agentic.olap.semantic.v1.WindowFrame
+	60,  // 318: agentic.olap.semantic.v1.SnapshotSelection.as_of:type_name -> agentic.olap.semantic.v1.CalculationBinding
+	148, // 319: agentic.olap.semantic.v1.StageSelectVersions.order_keys:type_name -> agentic.olap.semantic.v1.OrderKey
+	165, // 320: agentic.olap.semantic.v1.StageSelectVersions.snapshot:type_name -> agentic.olap.semantic.v1.SnapshotSelection
+	148, // 321: agentic.olap.semantic.v1.StageObserveWindow.order_keys:type_name -> agentic.olap.semantic.v1.OrderKey
+	144, // 322: agentic.olap.semantic.v1.StageObserveWindow.aggregation:type_name -> agentic.olap.semantic.v1.ResultAggregation
+	151, // 323: agentic.olap.semantic.v1.StageObserveWindow.window_frame:type_name -> agentic.olap.semantic.v1.WindowFrame
+	60,  // 324: agentic.olap.semantic.v1.StageObserveWindow.observation_range:type_name -> agentic.olap.semantic.v1.CalculationBinding
+	60,  // 325: agentic.olap.semantic.v1.StageObserveWindow.display_range:type_name -> agentic.olap.semantic.v1.CalculationBinding
+	167, // 326: agentic.olap.semantic.v1.StageObserveWindow.calendar:type_name -> agentic.olap.semantic.v1.CalendarAxis
+	148, // 327: agentic.olap.semantic.v1.StageOffset.order_keys:type_name -> agentic.olap.semantic.v1.OrderKey
+	171, // 328: agentic.olap.semantic.v1.MetricDefinition.fact_measure:type_name -> agentic.olap.semantic.v1.FactMeasure
+	172, // 329: agentic.olap.semantic.v1.MetricDefinition.calculation:type_name -> agentic.olap.semantic.v1.MetricCalculation
+	6,   // 330: agentic.olap.semantic.v1.FactMeasure.event:type_name -> agentic.olap.semantic.v1.EventRef
+	23,  // 331: agentic.olap.semantic.v1.FactMeasure.input:type_name -> agentic.olap.semantic.v1.SemanticExpression
+	23,  // 332: agentic.olap.semantic.v1.FactMeasure.private_predicate:type_name -> agentic.olap.semantic.v1.SemanticExpression
+	270, // 333: agentic.olap.semantic.v1.FactMeasure.roles:type_name -> agentic.olap.semantic.v1.FactMeasure.RolesEntry
+	54,  // 334: agentic.olap.semantic.v1.FactMeasure.snapshot_rule:type_name -> agentic.olap.semantic.v1.MetricSnapshotRule
+	36,  // 335: agentic.olap.semantic.v1.FactMeasure.value_contract:type_name -> agentic.olap.semantic.v1.MetricValueContract
+	78,  // 336: agentic.olap.semantic.v1.MetricCalculation.calculation:type_name -> agentic.olap.semantic.v1.Calculation
+	36,  // 337: agentic.olap.semantic.v1.MetricCalculation.value_contract:type_name -> agentic.olap.semantic.v1.MetricValueContract
+	3,   // 338: agentic.olap.semantic.v1.MetricInstance.definition:type_name -> agentic.olap.semantic.v1.MetricRef
+	71,  // 339: agentic.olap.semantic.v1.MetricInstance.bindings:type_name -> agentic.olap.semantic.v1.CalculationBindings
+	271, // 340: agentic.olap.semantic.v1.MetricInstance.fixed_arguments:type_name -> agentic.olap.semantic.v1.MetricInstance.FixedArgumentsEntry
+	175, // 341: agentic.olap.semantic.v1.MemberSourceDefinition.projection:type_name -> agentic.olap.semantic.v1.MemberProjectionDefinition
+	176, // 342: agentic.olap.semantic.v1.MemberSourceDefinition.computed:type_name -> agentic.olap.semantic.v1.MemberComputedDefinition
+	6,   // 343: agentic.olap.semantic.v1.MemberProjectionDefinition.event:type_name -> agentic.olap.semantic.v1.EventRef
+	177, // 344: agentic.olap.semantic.v1.MemberProjectionDefinition.result:type_name -> agentic.olap.semantic.v1.MemberResult
+	78,  // 345: agentic.olap.semantic.v1.MemberComputedDefinition.calculation:type_name -> agentic.olap.semantic.v1.Calculation
+	177, // 346: agentic.olap.semantic.v1.MemberComputedDefinition.result:type_name -> agentic.olap.semantic.v1.MemberResult
+	272, // 347: agentic.olap.semantic.v1.MemberResult.outputs:type_name -> agentic.olap.semantic.v1.MemberResult.OutputsEntry
+	273, // 348: agentic.olap.semantic.v1.MemberResult.filter_operators:type_name -> agentic.olap.semantic.v1.MemberResult.FilterOperatorsEntry
+	274, // 349: agentic.olap.semantic.v1.MemberResult.clock_slots:type_name -> agentic.olap.semantic.v1.MemberResult.ClockSlotsEntry
+	179, // 350: agentic.olap.semantic.v1.MemberSourceOutput.dimension:type_name -> agentic.olap.semantic.v1.SourceDimensionOutput
+	180, // 351: agentic.olap.semantic.v1.MemberSourceOutput.property:type_name -> agentic.olap.semantic.v1.SourcePropertyOutput
+	181, // 352: agentic.olap.semantic.v1.MemberSourceOutput.computed_dimension:type_name -> agentic.olap.semantic.v1.SourceComputedDimensionOutput
+	182, // 353: agentic.olap.semantic.v1.MemberSourceOutput.computed_property:type_name -> agentic.olap.semantic.v1.SourceComputedPropertyOutput
+	183, // 354: agentic.olap.semantic.v1.MemberSourceOutput.container_property:type_name -> agentic.olap.semantic.v1.SourceContainerOutput
+	184, // 355: agentic.olap.semantic.v1.MemberSourceOutput.computed_container_property:type_name -> agentic.olap.semantic.v1.SourceComputedContainerOutput
+	36,  // 356: agentic.olap.semantic.v1.SourceDimensionOutput.value_contract:type_name -> agentic.olap.semantic.v1.MetricValueContract
+	9,   // 357: agentic.olap.semantic.v1.SourcePropertyOutput.access_path:type_name -> agentic.olap.semantic.v1.RelationAccessPath
+	36,  // 358: agentic.olap.semantic.v1.SourcePropertyOutput.value_contract:type_name -> agentic.olap.semantic.v1.MetricValueContract
+	36,  // 359: agentic.olap.semantic.v1.SourceComputedDimensionOutput.value_contract:type_name -> agentic.olap.semantic.v1.MetricValueContract
+	36,  // 360: agentic.olap.semantic.v1.SourceComputedPropertyOutput.value_contract:type_name -> agentic.olap.semantic.v1.MetricValueContract
+	56,  // 361: agentic.olap.semantic.v1.SourceContainerOutput.shape:type_name -> agentic.olap.semantic.v1.SetOutputShape
+	9,   // 362: agentic.olap.semantic.v1.SourceContainerOutput.access_path:type_name -> agentic.olap.semantic.v1.RelationAccessPath
+	56,  // 363: agentic.olap.semantic.v1.SourceComputedContainerOutput.shape:type_name -> agentic.olap.semantic.v1.SetOutputShape
+	186, // 364: agentic.olap.semantic.v1.MemberSource.projection:type_name -> agentic.olap.semantic.v1.ProjectedMemberSource
+	187, // 365: agentic.olap.semantic.v1.MemberSource.computed:type_name -> agentic.olap.semantic.v1.ComputedMemberSource
+	175, // 366: agentic.olap.semantic.v1.ProjectedMemberSource.definition:type_name -> agentic.olap.semantic.v1.MemberProjectionDefinition
+	275, // 367: agentic.olap.semantic.v1.ProjectedMemberSource.output_expressions:type_name -> agentic.olap.semantic.v1.ProjectedMemberSource.OutputExpressionsEntry
+	176, // 368: agentic.olap.semantic.v1.ComputedMemberSource.definition:type_name -> agentic.olap.semantic.v1.MemberComputedDefinition
+	71,  // 369: agentic.olap.semantic.v1.ComputedMemberSource.bindings:type_name -> agentic.olap.semantic.v1.CalculationBindings
+	276, // 370: agentic.olap.semantic.v1.ComputedMemberSource.fixed_arguments:type_name -> agentic.olap.semantic.v1.ComputedMemberSource.FixedArgumentsEntry
+	188, // 371: agentic.olap.semantic.v1.SymbolId.scope:type_name -> agentic.olap.semantic.v1.ScopeId
+	189, // 372: agentic.olap.semantic.v1.ValuePosition.owner:type_name -> agentic.olap.semantic.v1.SymbolId
+	4,   // 373: agentic.olap.semantic.v1.CalculationOwner.metric:type_name -> agentic.olap.semantic.v1.MetricInstanceRef
+	5,   // 374: agentic.olap.semantic.v1.CalculationOwner.member:type_name -> agentic.olap.semantic.v1.MemberRef
+	1,   // 375: agentic.olap.semantic.v1.CalculationOwner.query:type_name -> agentic.olap.semantic.v1.StringList
+	189, // 376: agentic.olap.semantic.v1.Symbol.id:type_name -> agentic.olap.semantic.v1.SymbolId
+	193, // 377: agentic.olap.semantic.v1.Symbol.origin:type_name -> agentic.olap.semantic.v1.Origin
+	189, // 378: agentic.olap.semantic.v1.Symbol.dependencies:type_name -> agentic.olap.semantic.v1.SymbolId
+	205, // 379: agentic.olap.semantic.v1.Symbol.value:type_name -> agentic.olap.semantic.v1.QueryValue
+	194, // 380: agentic.olap.semantic.v1.Origin.metric:type_name -> agentic.olap.semantic.v1.MetricOrigin
+	195, // 381: agentic.olap.semantic.v1.Origin.dimension:type_name -> agentic.olap.semantic.v1.DimensionOrigin
+	196, // 382: agentic.olap.semantic.v1.Origin.member:type_name -> agentic.olap.semantic.v1.MemberOrigin
+	200, // 383: agentic.olap.semantic.v1.Origin.operation:type_name -> agentic.olap.semantic.v1.OperationOrigin
+	188, // 384: agentic.olap.semantic.v1.Origin.input_presence:type_name -> agentic.olap.semantic.v1.ScopeId
+	201, // 385: agentic.olap.semantic.v1.Origin.grouping:type_name -> agentic.olap.semantic.v1.GroupingOrigin
+	202, // 386: agentic.olap.semantic.v1.Origin.omitted_dimension:type_name -> agentic.olap.semantic.v1.OmittedDimensionOrigin
+	203, // 387: agentic.olap.semantic.v1.Origin.set:type_name -> agentic.olap.semantic.v1.SetOrigin
+	188, // 388: agentic.olap.semantic.v1.MetricOrigin.scope:type_name -> agentic.olap.semantic.v1.ScopeId
+	191, // 389: agentic.olap.semantic.v1.MetricOrigin.owner:type_name -> agentic.olap.semantic.v1.CalculationOwner
+	3,   // 390: agentic.olap.semantic.v1.MetricOrigin.metric:type_name -> agentic.olap.semantic.v1.MetricRef
+	188, // 391: agentic.olap.semantic.v1.DimensionOrigin.scope:type_name -> agentic.olap.semantic.v1.ScopeId
+	8,   // 392: agentic.olap.semantic.v1.DimensionOrigin.dimension:type_name -> agentic.olap.semantic.v1.DimensionRef
+	188, // 393: agentic.olap.semantic.v1.MemberOrigin.scope:type_name -> agentic.olap.semantic.v1.ScopeId
+	197, // 394: agentic.olap.semantic.v1.MemberOrigin.meaning:type_name -> agentic.olap.semantic.v1.MemberMeaning
+	198, // 395: agentic.olap.semantic.v1.MemberMeaning.mapped_dimension:type_name -> agentic.olap.semantic.v1.MappedMemberDimensionMeaning
+	199, // 396: agentic.olap.semantic.v1.MemberMeaning.dimension:type_name -> agentic.olap.semantic.v1.MemberDimensionMeaning
+	58,  // 397: agentic.olap.semantic.v1.MemberMeaning.property:type_name -> agentic.olap.semantic.v1.PropertyShape
+	84,  // 398: agentic.olap.semantic.v1.MemberMeaning.container:type_name -> agentic.olap.semantic.v1.MemberContainerOutput
+	8,   // 399: agentic.olap.semantic.v1.MappedMemberDimensionMeaning.dimension:type_name -> agentic.olap.semantic.v1.DimensionRef
+	188, // 400: agentic.olap.semantic.v1.OperationOrigin.scope:type_name -> agentic.olap.semantic.v1.ScopeId
+	188, // 401: agentic.olap.semantic.v1.GroupingOrigin.scope:type_name -> agentic.olap.semantic.v1.ScopeId
+	112, // 402: agentic.olap.semantic.v1.GroupingOrigin.definition:type_name -> agentic.olap.semantic.v1.BoundGroupingLevels
+	188, // 403: agentic.olap.semantic.v1.OmittedDimensionOrigin.scope:type_name -> agentic.olap.semantic.v1.ScopeId
+	189, // 404: agentic.olap.semantic.v1.OmittedDimensionOrigin.source:type_name -> agentic.olap.semantic.v1.SymbolId
+	189, // 405: agentic.olap.semantic.v1.OmittedDimensionOrigin.grouping:type_name -> agentic.olap.semantic.v1.SymbolId
+	8,   // 406: agentic.olap.semantic.v1.OmittedDimensionOrigin.dimension:type_name -> agentic.olap.semantic.v1.DimensionRef
+	188, // 407: agentic.olap.semantic.v1.SetOrigin.scope:type_name -> agentic.olap.semantic.v1.ScopeId
+	56,  // 408: agentic.olap.semantic.v1.SetOrigin.shape:type_name -> agentic.olap.semantic.v1.SetOutputShape
+	190, // 409: agentic.olap.semantic.v1.SelectedObservation.time_axes:type_name -> agentic.olap.semantic.v1.ValuePosition
+	61,  // 410: agentic.olap.semantic.v1.SelectedObservation.as_of:type_name -> agentic.olap.semantic.v1.CalculationScalar
+	206, // 411: agentic.olap.semantic.v1.QueryValue.plain:type_name -> agentic.olap.semantic.v1.PlainValue
+	208, // 412: agentic.olap.semantic.v1.QueryValue.measure:type_name -> agentic.olap.semantic.v1.QueryQuantity
+	207, // 413: agentic.olap.semantic.v1.QueryValue.row:type_name -> agentic.olap.semantic.v1.QueryValues
+	205, // 414: agentic.olap.semantic.v1.QueryValue.array:type_name -> agentic.olap.semantic.v1.QueryValue
+	190, // 415: agentic.olap.semantic.v1.PlainValue.source:type_name -> agentic.olap.semantic.v1.ValuePosition
+	190, // 416: agentic.olap.semantic.v1.PlainValue.positions:type_name -> agentic.olap.semantic.v1.ValuePosition
+	205, // 417: agentic.olap.semantic.v1.QueryValues.fields:type_name -> agentic.olap.semantic.v1.QueryValue
+	36,  // 418: agentic.olap.semantic.v1.QueryQuantity.declaration:type_name -> agentic.olap.semantic.v1.MetricValueContract
+	209, // 419: agentic.olap.semantic.v1.QueryQuantity.unit:type_name -> agentic.olap.semantic.v1.QuantityUnit
+	219, // 420: agentic.olap.semantic.v1.QueryQuantity.provenance:type_name -> agentic.olap.semantic.v1.QuantityProvenance
+	37,  // 421: agentic.olap.semantic.v1.QuantityUnit.fixed:type_name -> agentic.olap.semantic.v1.UnitIdentity
+	210, // 422: agentic.olap.semantic.v1.QuantityUnit.dimension:type_name -> agentic.olap.semantic.v1.DimensionQuantityUnit
+	215, // 423: agentic.olap.semantic.v1.QuantityUnit.selected_member:type_name -> agentic.olap.semantic.v1.SelectedQuantityUnit
+	38,  // 424: agentic.olap.semantic.v1.DimensionQuantityUnit.axis:type_name -> agentic.olap.semantic.v1.UnitAxis
+	211, // 425: agentic.olap.semantic.v1.DimensionQuantityUnit.keys:type_name -> agentic.olap.semantic.v1.QuantityKey
+	212, // 426: agentic.olap.semantic.v1.QuantityKey.reference:type_name -> agentic.olap.semantic.v1.UnitReference
+	190, // 427: agentic.olap.semantic.v1.QuantityKey.position:type_name -> agentic.olap.semantic.v1.ValuePosition
+	213, // 428: agentic.olap.semantic.v1.UnitReference.semantic_dimension:type_name -> agentic.olap.semantic.v1.SemanticDimensionReference
+	8,   // 429: agentic.olap.semantic.v1.UnitReference.analysis_dimension:type_name -> agentic.olap.semantic.v1.DimensionRef
+	214, // 430: agentic.olap.semantic.v1.UnitReference.member_slot:type_name -> agentic.olap.semantic.v1.MemberSlotReference
+	212, // 431: agentic.olap.semantic.v1.SelectedQuantityUnit.reference:type_name -> agentic.olap.semantic.v1.UnitReference
+	38,  // 432: agentic.olap.semantic.v1.SelectedQuantityUnit.axis:type_name -> agentic.olap.semantic.v1.UnitAxis
+	61,  // 433: agentic.olap.semantic.v1.SelectedQuantityUnit.member:type_name -> agentic.olap.semantic.v1.CalculationScalar
+	37,  // 434: agentic.olap.semantic.v1.SelectedQuantityUnit.identity:type_name -> agentic.olap.semantic.v1.UnitIdentity
+	216, // 435: agentic.olap.semantic.v1.SelectedQuantityUnit.selection:type_name -> agentic.olap.semantic.v1.UnitSelection
+	190, // 436: agentic.olap.semantic.v1.UnitSelection.source:type_name -> agentic.olap.semantic.v1.ValuePosition
+	217, // 437: agentic.olap.semantic.v1.UnitSelection.target:type_name -> agentic.olap.semantic.v1.SelectionTarget
+	214, // 438: agentic.olap.semantic.v1.SelectionTarget.member_filter:type_name -> agentic.olap.semantic.v1.MemberSlotReference
+	218, // 439: agentic.olap.semantic.v1.SelectionTarget.result_filter:type_name -> agentic.olap.semantic.v1.ResultUnitFilter
+	188, // 440: agentic.olap.semantic.v1.ResultUnitFilter.scope:type_name -> agentic.olap.semantic.v1.ScopeId
+	189, // 441: agentic.olap.semantic.v1.ResultUnitFilter.key:type_name -> agentic.olap.semantic.v1.SymbolId
+	61,  // 442: agentic.olap.semantic.v1.ResultUnitFilter.member:type_name -> agentic.olap.semantic.v1.CalculationScalar
+	220, // 443: agentic.olap.semantic.v1.QuantityProvenance.raw:type_name -> agentic.olap.semantic.v1.RawQuantity
+	222, // 444: agentic.olap.semantic.v1.QuantityProvenance.fact:type_name -> agentic.olap.semantic.v1.FactQuantity
+	223, // 445: agentic.olap.semantic.v1.QuantityProvenance.selected_snapshot:type_name -> agentic.olap.semantic.v1.SelectedSnapshotQuantity
+	224, // 446: agentic.olap.semantic.v1.QuantityProvenance.reduction:type_name -> agentic.olap.semantic.v1.ReducedQuantity
+	225, // 447: agentic.olap.semantic.v1.QuantityProvenance.uniform_allocation:type_name -> agentic.olap.semantic.v1.AllocatedQuantity
+	226, // 448: agentic.olap.semantic.v1.QuantityProvenance.linear:type_name -> agentic.olap.semantic.v1.QuantityTerms
+	227, // 449: agentic.olap.semantic.v1.QuantityProvenance.observed:type_name -> agentic.olap.semantic.v1.ObservedQuantity
+	229, // 450: agentic.olap.semantic.v1.QuantityProvenance.window:type_name -> agentic.olap.semantic.v1.WindowQuantity
+	230, // 451: agentic.olap.semantic.v1.QuantityProvenance.offset:type_name -> agentic.olap.semantic.v1.OffsetQuantity
+	219, // 452: agentic.olap.semantic.v1.QuantityProvenance.copied:type_name -> agentic.olap.semantic.v1.QuantityProvenance
+	229, // 453: agentic.olap.semantic.v1.QuantityProvenance.delta:type_name -> agentic.olap.semantic.v1.WindowQuantity
+	226, // 454: agentic.olap.semantic.v1.QuantityProvenance.alternatives:type_name -> agentic.olap.semantic.v1.QuantityTerms
+	190, // 455: agentic.olap.semantic.v1.RawQuantity.source:type_name -> agentic.olap.semantic.v1.ValuePosition
+	190, // 456: agentic.olap.semantic.v1.RawQuantity.observations:type_name -> agentic.olap.semantic.v1.ValuePosition
+	190, // 457: agentic.olap.semantic.v1.QuantitySnapshot.time_axes:type_name -> agentic.olap.semantic.v1.ValuePosition
+	277, // 458: agentic.olap.semantic.v1.QuantitySnapshot.bound_clocks:type_name -> agentic.olap.semantic.v1.QuantitySnapshot.BoundClocksEntry
+	3,   // 459: agentic.olap.semantic.v1.FactQuantity.definition:type_name -> agentic.olap.semantic.v1.MetricRef
+	190, // 460: agentic.olap.semantic.v1.FactQuantity.source:type_name -> agentic.olap.semantic.v1.ValuePosition
+	190, // 461: agentic.olap.semantic.v1.FactQuantity.observations:type_name -> agentic.olap.semantic.v1.ValuePosition
+	221, // 462: agentic.olap.semantic.v1.FactQuantity.snapshot:type_name -> agentic.olap.semantic.v1.QuantitySnapshot
+	219, // 463: agentic.olap.semantic.v1.SelectedSnapshotQuantity.input:type_name -> agentic.olap.semantic.v1.QuantityProvenance
+	190, // 464: agentic.olap.semantic.v1.SelectedSnapshotQuantity.time_axes:type_name -> agentic.olap.semantic.v1.ValuePosition
+	61,  // 465: agentic.olap.semantic.v1.SelectedSnapshotQuantity.as_of:type_name -> agentic.olap.semantic.v1.CalculationScalar
+	219, // 466: agentic.olap.semantic.v1.ReducedQuantity.input:type_name -> agentic.olap.semantic.v1.QuantityProvenance
+	190, // 467: agentic.olap.semantic.v1.ReducedQuantity.observations:type_name -> agentic.olap.semantic.v1.ValuePosition
+	219, // 468: agentic.olap.semantic.v1.AllocatedQuantity.input:type_name -> agentic.olap.semantic.v1.QuantityProvenance
+	190, // 469: agentic.olap.semantic.v1.AllocatedQuantity.source_keys:type_name -> agentic.olap.semantic.v1.ValuePosition
+	190, // 470: agentic.olap.semantic.v1.AllocatedQuantity.member_keys:type_name -> agentic.olap.semantic.v1.ValuePosition
+	219, // 471: agentic.olap.semantic.v1.QuantityTerms.values:type_name -> agentic.olap.semantic.v1.QuantityProvenance
+	219, // 472: agentic.olap.semantic.v1.ObservedQuantity.components:type_name -> agentic.olap.semantic.v1.QuantityProvenance
+	190, // 473: agentic.olap.semantic.v1.ObservedQuantity.observations:type_name -> agentic.olap.semantic.v1.ValuePosition
+	190, // 474: agentic.olap.semantic.v1.QuantityOrder.position:type_name -> agentic.olap.semantic.v1.ValuePosition
+	219, // 475: agentic.olap.semantic.v1.WindowQuantity.input:type_name -> agentic.olap.semantic.v1.QuantityProvenance
+	190, // 476: agentic.olap.semantic.v1.WindowQuantity.observations:type_name -> agentic.olap.semantic.v1.ValuePosition
+	190, // 477: agentic.olap.semantic.v1.WindowQuantity.partition:type_name -> agentic.olap.semantic.v1.ValuePosition
+	228, // 478: agentic.olap.semantic.v1.WindowQuantity.order:type_name -> agentic.olap.semantic.v1.QuantityOrder
+	151, // 479: agentic.olap.semantic.v1.WindowQuantity.frame:type_name -> agentic.olap.semantic.v1.WindowFrame
+	219, // 480: agentic.olap.semantic.v1.OffsetQuantity.input:type_name -> agentic.olap.semantic.v1.QuantityProvenance
+	190, // 481: agentic.olap.semantic.v1.OffsetQuantity.partition:type_name -> agentic.olap.semantic.v1.ValuePosition
+	228, // 482: agentic.olap.semantic.v1.OffsetQuantity.order:type_name -> agentic.olap.semantic.v1.QuantityOrder
+	13,  // 483: agentic.olap.semantic.v1.EventIdentity.EntityRolesEntry.value:type_name -> agentic.olap.semantic.v1.LogicUnitRefs
+	48,  // 484: agentic.olap.semantic.v1.MetricValueContract.UnitEquationsEntry.value:type_name -> agentic.olap.semantic.v1.UnitEquation
+	60,  // 485: agentic.olap.semantic.v1.CalculationArguments.ValuesEntry.value:type_name -> agentic.olap.semantic.v1.CalculationBinding
+	15,  // 486: agentic.olap.semantic.v1.DimensionExists.ClocksEntry.value:type_name -> agentic.olap.semantic.v1.TemporalClock
+	72,  // 487: agentic.olap.semantic.v1.CalculationBindings.DimensionsEntry.value:type_name -> agentic.olap.semantic.v1.DimensionBinding
+	74,  // 488: agentic.olap.semantic.v1.CalculationBindings.MembersEntry.value:type_name -> agentic.olap.semantic.v1.MemberBinding
+	73,  // 489: agentic.olap.semantic.v1.CalculationBindings.GroupingCandidatesEntry.value:type_name -> agentic.olap.semantic.v1.DimensionBindings
+	4,   // 490: agentic.olap.semantic.v1.CalculationBindings.MeasurementsEntry.value:type_name -> agentic.olap.semantic.v1.MetricInstanceRef
+	77,  // 491: agentic.olap.semantic.v1.CalculationBindings.RelationsEntry.value:type_name -> agentic.olap.semantic.v1.RelationBinding
+	60,  // 492: agentic.olap.semantic.v1.SourceCall.ArgumentsEntry.value:type_name -> agentic.olap.semantic.v1.CalculationBinding
+	74,  // 493: agentic.olap.semantic.v1.SourceCall.MembersEntry.value:type_name -> agentic.olap.semantic.v1.MemberBinding
+	77,  // 494: agentic.olap.semantic.v1.SourceCall.RelationsEntry.value:type_name -> agentic.olap.semantic.v1.RelationBinding
+	87,  // 495: agentic.olap.semantic.v1.Calculation.ParametersEntry.value:type_name -> agentic.olap.semantic.v1.CalculationParameter
+	87,  // 496: agentic.olap.semantic.v1.MeasurementSlot.ParametersEntry.value:type_name -> agentic.olap.semantic.v1.CalculationParameter
+	81,  // 497: agentic.olap.semantic.v1.MemberSlot.OutputsEntry.value:type_name -> agentic.olap.semantic.v1.MemberOutput
+	89,  // 498: agentic.olap.semantic.v1.CalculationScope.InputsEntry.value:type_name -> agentic.olap.semantic.v1.CalculationInput
+	60,  // 499: agentic.olap.semantic.v1.CalculationMeasures.ClocksEntry.value:type_name -> agentic.olap.semantic.v1.CalculationBinding
+	60,  // 500: agentic.olap.semantic.v1.CalculationCall.ArgumentsEntry.value:type_name -> agentic.olap.semantic.v1.CalculationBinding
+	60,  // 501: agentic.olap.semantic.v1.CalculationMembers.ClocksEntry.value:type_name -> agentic.olap.semantic.v1.CalculationBinding
+	103, // 502: agentic.olap.semantic.v1.AlignMeasurements.InputsEntry.value:type_name -> agentic.olap.semantic.v1.AlignedInput
+	115, // 503: agentic.olap.semantic.v1.QueryScope.InputsEntry.value:type_name -> agentic.olap.semantic.v1.QueryInput
+	60,  // 504: agentic.olap.semantic.v1.QueryCompute.ArgumentsEntry.value:type_name -> agentic.olap.semantic.v1.CalculationBinding
+	74,  // 505: agentic.olap.semantic.v1.QueryCompute.MembersEntry.value:type_name -> agentic.olap.semantic.v1.MemberBinding
+	77,  // 506: agentic.olap.semantic.v1.QueryCompute.RelationsEntry.value:type_name -> agentic.olap.semantic.v1.RelationBinding
+	60,  // 507: agentic.olap.semantic.v1.QueryInvocation.ArgumentsEntry.value:type_name -> agentic.olap.semantic.v1.CalculationBinding
+	74,  // 508: agentic.olap.semantic.v1.QueryInvocation.MembersEntry.value:type_name -> agentic.olap.semantic.v1.MemberBinding
+	77,  // 509: agentic.olap.semantic.v1.QueryInvocation.RelationsEntry.value:type_name -> agentic.olap.semantic.v1.RelationBinding
+	15,  // 510: agentic.olap.semantic.v1.QueryMeasures.SourceClocksEntry.value:type_name -> agentic.olap.semantic.v1.TemporalClock
+	60,  // 511: agentic.olap.semantic.v1.QueryMembers.ArgumentsEntry.value:type_name -> agentic.olap.semantic.v1.CalculationBinding
+	15,  // 512: agentic.olap.semantic.v1.QueryMembers.ClocksEntry.value:type_name -> agentic.olap.semantic.v1.TemporalClock
+	74,  // 513: agentic.olap.semantic.v1.QueryMembers.MembersEntry.value:type_name -> agentic.olap.semantic.v1.MemberBinding
+	77,  // 514: agentic.olap.semantic.v1.QueryMembers.RelationsEntry.value:type_name -> agentic.olap.semantic.v1.RelationBinding
+	9,   // 515: agentic.olap.semantic.v1.FactMeasure.RolesEntry.value:type_name -> agentic.olap.semantic.v1.RelationAccessPath
+	60,  // 516: agentic.olap.semantic.v1.MetricInstance.FixedArgumentsEntry.value:type_name -> agentic.olap.semantic.v1.CalculationBinding
+	178, // 517: agentic.olap.semantic.v1.MemberResult.OutputsEntry.value:type_name -> agentic.olap.semantic.v1.MemberSourceOutput
+	1,   // 518: agentic.olap.semantic.v1.MemberResult.FilterOperatorsEntry.value:type_name -> agentic.olap.semantic.v1.StringList
+	23,  // 519: agentic.olap.semantic.v1.ProjectedMemberSource.OutputExpressionsEntry.value:type_name -> agentic.olap.semantic.v1.SemanticExpression
+	60,  // 520: agentic.olap.semantic.v1.ComputedMemberSource.FixedArgumentsEntry.value:type_name -> agentic.olap.semantic.v1.CalculationBinding
+	15,  // 521: agentic.olap.semantic.v1.QuantitySnapshot.BoundClocksEntry.value:type_name -> agentic.olap.semantic.v1.TemporalClock
+	522, // [522:522] is the sub-list for method output_type
+	522, // [522:522] is the sub-list for method input_type
+	522, // [522:522] is the sub-list for extension type_name
+	522, // [522:522] is the sub-list for extension extendee
+	0,   // [0:522] is the sub-list for field type_name
 }
 
 func init() { file_semantic_proto_init() }
@@ -19651,13 +19738,14 @@ func file_semantic_proto_init() {
 		(*ResultExpression_RowField)(nil),
 		(*ResultExpression_WeightedContribution)(nil),
 		(*ResultExpression_UniformAllocation)(nil),
+		(*ResultExpression_NativeCall)(nil),
 	}
-	file_semantic_proto_msgTypes[135].OneofWrappers = []any{}
-	file_semantic_proto_msgTypes[137].OneofWrappers = []any{}
-	file_semantic_proto_msgTypes[139].OneofWrappers = []any{}
-	file_semantic_proto_msgTypes[141].OneofWrappers = []any{}
+	file_semantic_proto_msgTypes[136].OneofWrappers = []any{}
+	file_semantic_proto_msgTypes[138].OneofWrappers = []any{}
+	file_semantic_proto_msgTypes[140].OneofWrappers = []any{}
 	file_semantic_proto_msgTypes[142].OneofWrappers = []any{}
-	file_semantic_proto_msgTypes[143].OneofWrappers = []any{
+	file_semantic_proto_msgTypes[143].OneofWrappers = []any{}
+	file_semantic_proto_msgTypes[144].OneofWrappers = []any{
 		(*ResultAggregation_Sum)(nil),
 		(*ResultAggregation_Average)(nil),
 		(*ResultAggregation_SampleDeviation)(nil),
@@ -19666,8 +19754,8 @@ func file_semantic_proto_init() {
 		(*ResultAggregation_Count)(nil),
 		(*ResultAggregation_CollectDistinct)(nil),
 	}
-	file_semantic_proto_msgTypes[151].OneofWrappers = []any{}
-	file_semantic_proto_msgTypes[152].OneofWrappers = []any{
+	file_semantic_proto_msgTypes[152].OneofWrappers = []any{}
+	file_semantic_proto_msgTypes[153].OneofWrappers = []any{
 		(*Stage_JoinInput)(nil),
 		(*Stage_AncestorClosure)(nil),
 		(*Stage_ExpandCollection)(nil),
@@ -19686,17 +19774,17 @@ func file_semantic_proto_init() {
 		(*Stage_ObserveWindow)(nil),
 		(*Stage_OffsetValue)(nil),
 	}
-	file_semantic_proto_msgTypes[167].OneofWrappers = []any{}
-	file_semantic_proto_msgTypes[169].OneofWrappers = []any{
+	file_semantic_proto_msgTypes[168].OneofWrappers = []any{}
+	file_semantic_proto_msgTypes[170].OneofWrappers = []any{
 		(*MetricDefinition_FactMeasure)(nil),
 		(*MetricDefinition_Calculation)(nil),
 	}
-	file_semantic_proto_msgTypes[173].OneofWrappers = []any{
+	file_semantic_proto_msgTypes[174].OneofWrappers = []any{
 		(*MemberSourceDefinition_Projection)(nil),
 		(*MemberSourceDefinition_Computed)(nil),
 	}
-	file_semantic_proto_msgTypes[176].OneofWrappers = []any{}
-	file_semantic_proto_msgTypes[177].OneofWrappers = []any{
+	file_semantic_proto_msgTypes[177].OneofWrappers = []any{}
+	file_semantic_proto_msgTypes[178].OneofWrappers = []any{
 		(*MemberSourceOutput_Dimension)(nil),
 		(*MemberSourceOutput_Property)(nil),
 		(*MemberSourceOutput_ComputedDimension)(nil),
@@ -19704,16 +19792,16 @@ func file_semantic_proto_init() {
 		(*MemberSourceOutput_ContainerProperty)(nil),
 		(*MemberSourceOutput_ComputedContainerProperty)(nil),
 	}
-	file_semantic_proto_msgTypes[184].OneofWrappers = []any{
+	file_semantic_proto_msgTypes[185].OneofWrappers = []any{
 		(*MemberSource_Projection)(nil),
 		(*MemberSource_Computed)(nil),
 	}
-	file_semantic_proto_msgTypes[190].OneofWrappers = []any{
+	file_semantic_proto_msgTypes[191].OneofWrappers = []any{
 		(*CalculationOwner_Metric)(nil),
 		(*CalculationOwner_Member)(nil),
 		(*CalculationOwner_Query)(nil),
 	}
-	file_semantic_proto_msgTypes[192].OneofWrappers = []any{
+	file_semantic_proto_msgTypes[193].OneofWrappers = []any{
 		(*Origin_Metric)(nil),
 		(*Origin_Dimension)(nil),
 		(*Origin_Member)(nil),
@@ -19723,34 +19811,34 @@ func file_semantic_proto_init() {
 		(*Origin_OmittedDimension)(nil),
 		(*Origin_Set)(nil),
 	}
-	file_semantic_proto_msgTypes[196].OneofWrappers = []any{
+	file_semantic_proto_msgTypes[197].OneofWrappers = []any{
 		(*MemberMeaning_MappedDimension)(nil),
 		(*MemberMeaning_Dimension)(nil),
 		(*MemberMeaning_Property)(nil),
 		(*MemberMeaning_Container)(nil),
 	}
-	file_semantic_proto_msgTypes[204].OneofWrappers = []any{
+	file_semantic_proto_msgTypes[205].OneofWrappers = []any{
 		(*QueryValue_Plain)(nil),
 		(*QueryValue_Measure)(nil),
 		(*QueryValue_Row)(nil),
 		(*QueryValue_Array)(nil),
 	}
-	file_semantic_proto_msgTypes[208].OneofWrappers = []any{
+	file_semantic_proto_msgTypes[209].OneofWrappers = []any{
 		(*QuantityUnit_Fixed)(nil),
 		(*QuantityUnit_Dimension)(nil),
 		(*QuantityUnit_SelectedMember)(nil),
 	}
-	file_semantic_proto_msgTypes[211].OneofWrappers = []any{
+	file_semantic_proto_msgTypes[212].OneofWrappers = []any{
 		(*UnitReference_SemanticDimension)(nil),
 		(*UnitReference_AnalysisDimension)(nil),
 		(*UnitReference_MemberSlot)(nil),
 	}
-	file_semantic_proto_msgTypes[216].OneofWrappers = []any{
+	file_semantic_proto_msgTypes[217].OneofWrappers = []any{
 		(*SelectionTarget_DimensionFilter)(nil),
 		(*SelectionTarget_MemberFilter)(nil),
 		(*SelectionTarget_ResultFilter)(nil),
 	}
-	file_semantic_proto_msgTypes[218].OneofWrappers = []any{
+	file_semantic_proto_msgTypes[219].OneofWrappers = []any{
 		(*QuantityProvenance_Raw)(nil),
 		(*QuantityProvenance_Constant)(nil),
 		(*QuantityProvenance_Fact)(nil),
@@ -19771,7 +19859,7 @@ func file_semantic_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_semantic_proto_rawDesc), len(file_semantic_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   277,
+			NumMessages:   278,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

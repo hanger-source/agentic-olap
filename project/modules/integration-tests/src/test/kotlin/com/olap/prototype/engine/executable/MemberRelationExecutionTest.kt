@@ -93,7 +93,7 @@ class MemberRelationExecutionTest {
     }
     private fun compile(catalog: ExecutableCatalog, input: ExecutableInputScope): ExecutableLoweringResult {
         val graph = ExecutableInputGraph.index(input)
-        return CalciteRelCompiler(TestConnectors.registry).compile(graph, ExecutableStageAnalysis.analyze(graph), ExecutableSourceResolver().resolve(catalog, graph), OlapQueryContext("member_relation")).lowering
+        return CalciteRelCompiler(TestConnectors.registry).compile(graph, ExecutableStageAnalysis.analyze(graph, TestConnectors.registry), ExecutableSourceResolver().resolve(catalog, graph), OlapQueryContext("member_relation")).lowering
     }
     private fun stages(input: ExecutableInputScope, operations: List<PostOperationContract.ValidatedOperation>) =
         ExecutableInputScope(input.inputMode, input.root, input.objectRestrictions, input.additionalInputs, operations)

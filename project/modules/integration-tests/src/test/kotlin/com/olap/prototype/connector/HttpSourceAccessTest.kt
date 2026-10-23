@@ -8,10 +8,23 @@ import com.olap.prototype.codec.GovernanceProto
 import com.olap.prototype.codec.ProtoBytes
 import com.olap.prototype.contract.*
 import com.olap.prototype.engine.calcite.CandidateValueCompiler
+import com.olap.prototype.engine.calcite.CalciteQueryCompiler
 import com.olap.prototype.engine.catalog.ExecutablePhysicalExecutionBinding
 import com.olap.prototype.expression.*
 import com.olap.prototype.integration.RuntimeDeploymentLimits
 import com.olap.prototype.integration.TestConnectors
+import com.olap.prototype.metric.MetricValueContract
+import com.olap.prototype.query.*
+import com.olap.prototype.query.PostOperationContract.Derive
+import com.olap.prototype.query.PostOperationContract.JoinInput
+import com.olap.prototype.query.PostOperationContract.OrderKey
+import com.olap.prototype.query.PostOperationContract.Project
+import com.olap.prototype.query.PostOperationContract.Regroup
+import com.olap.prototype.query.PostOperationContract.ResultAggregate
+import com.olap.prototype.query.PostOperationContract.ResultGrouping
+import com.olap.prototype.query.PostOperationContract.Sort
+import com.olap.prototype.query.PostOperationContract.ValidatedOperation
+import com.olap.prototype.query.ResultExpression.*
 import com.olap.prototype.api.ResultValueType
 import com.olap.prototype.util.OlapJsonUtils
 import com.olap.prototype.warehouse.*
@@ -19,6 +32,7 @@ import com.olap.prototype.warehouse.contract.*
 import com.olap.prototype.warehouse.inspection.*
 import com.olap.prototype.warehouse.onboarding.SourceStructureRegistrationRequest
 import org.apache.calcite.rex.RexNode
+import org.apache.calcite.rel.RelNode
 import org.apache.calcite.sql.type.SqlTypeName
 import org.apache.calcite.tools.Frameworks
 import org.junit.jupiter.api.Assertions.*
@@ -38,6 +52,110 @@ import java.util.jar.JarFile
 import java.util.jar.JarOutputStream
 
 class HttpSourceAccessTest {
+    @Test fun nativeCompletedValuesPreserveBagContributionsConditionalErrorsAndArithmetic(@TempDir directory: Path) {
+        val spec = JdbcConnectionSpec("native-values", TestConnectors.ref("duckdb"), "duckdb",
+            "jdbc:duckdb:${directory.resolve("native-values.duckdb")}", null, null, "org.duckdb.DuckDBDriver")
+        TestConnectors.open("duckdb", spec.jdbcUrl).use { connection -> connection.createStatement().use { sql ->
+            sql.execute("CREATE TABLE facts(id INTEGER, record_key VARCHAR, qualifier VARCHAR)")
+            sql.execute("CREATE TABLE details(record_key VARCHAR, start_text VARCHAR, end_text VARCHAR)")
+            sql.execute("INSERT INTO facts VALUES (1,'multiple','yes'),(2,'false',''),(3,'unknown',NULL),(4,'null','yes'),(5,'absent','yes')")
+            sql.execute("INSERT INTO details VALUES ('multiple','20260101','20260105'),('multiple','20260105','20260103'),('false','bad-date','bad-date'),('unknown','bad-date','bad-date'),('null','20260101',NULL)")
+        } }
+        val jdbc = (TestConnectors.registry.require(spec.connectorRef).access as JdbcAccess).jdbc
+        HttpSqlService(jdbc, spec).use { server -> ConnectorPlugins.load(listOf(plugin(directory))).use { loaded ->
+            val ref = loaded.registry.references().single()
+            val source = SourceConfiguration(spec.dataSourceId, ref, "duckdb", mapOf("endpoint" to server.endpoint, "consistentChecks" to true),
+                mapOf("timeoutMillis" to 30000), mapOf("authorization" to "OLAP_TEST_HTTP_AUTH"))
+            val support = loaded.registry.require(ref).compilation
+            val native = NativeExpressionScope(ref, support) { null }
+            fun binding(table: String, columns: List<String>): ExecutablePhysicalExecutionBinding {
+                val refs = columns.associateWith { "$table:$it@1" }
+                return ExecutablePhysicalExecutionBinding(table, "1", null, null, null, null, table, "1", table, "1", source.dataSourceId,
+                    ref, listOf("main", table), source.dialectId, null, "main", table, nativeEvidence(source, refs), emptyList(),
+                    physicalColumnBindings = refs.entries.associate { it.value to it.key },
+                    physicalColumnTypes = refs.entries.associate { it.value to if (it.key == "id") JdbcColumnType(java.sql.Types.INTEGER, "INTEGER", 10, 0, true)
+                        else JdbcColumnType(java.sql.Types.VARCHAR, "VARCHAR", 65536, null, true) })
+            }
+            val bindings = listOf(binding("facts", listOf("id", "record_key", "qualifier")), binding("details", listOf("record_key", "start_text", "end_text")))
+            fun symbol(name: String): ResultExpression = ResultSymbol(name)
+            fun operation(operator: ResultOperator, vararg arguments: ResultExpression): ResultExpression = ResultOperation(operator, arguments.toList())
+            fun call(function: String, vararg arguments: ResultExpression): ResultExpression = ResultNativeCall(ref, function, arguments.toList())
+            fun date(name: String) = call("parse_day", symbol(name), ResultTypedLiteral(ScalarValueType.TEXT, "%Y%m%d"))
+            val quantity = MetricValueContract(MetricValueContract.Fixed(MetricValueContract.ONE), MetricValueContract.Exact(), MetricValueContract.Integer(64), emptyMap(), MetricValueContract.Overflow.FAIL)
+            val floating = MetricValueContract(quantity.unit, MetricValueContract.NativeFloating(), MetricValueContract.BinaryFloat(64), emptyMap(), quantity.overflow)
+            val selected = ResultCaseWhen(listOf(ResultCaseBranch(operation(ResultOperator.NE, symbol("qualifier"), ResultTypedLiteral(ScalarValueType.TEXT, "")),
+                call("calendar_days", date("detail__end_text"), date("detail__start_text")))), ResultLiteral(null))
+            val joined = listOf(JoinInput("details", "detail", "LEFT", operation(ResultOperator.EQ, symbol("record_key"), symbol("detail__record_key"))),
+                Derive(selected, "days", "合格关联贡献的日历天差"))
+            fun compile(operations: List<ValidatedOperation>, join: Boolean = true): Pair<RelNode, List<JdbcParameter>> {
+                val inputs = CalciteQueryCompiler.inputs(bindings, bindings.flatMap { it.physicalColumnBindings.keys }.toSet(), emptySet(), loaded.registry)
+                val b = inputs.builder
+                val root = b.scan(listOf("main", "facts")).build()
+                val scope = QueryStageAnalysis.ScopeId.root()
+                fun columns(relation: RelNode, at: QueryStageAnalysis.ScopeId) = relation.rowType.fieldNames.mapIndexed { index, name ->
+                    QueryStageAnalysis.SourceColumn.categorical(name, QueryStageAnalysis.OperationOrigin(at, 0, index, PostOperationContract.PROJECT)) }
+                val children = if (!join) emptyMap() else {
+                    val right = b.scan(listOf("main", "details")).build()
+                    val rightScope = scope.child("details")
+                    val analysis = QueryStageAnalysis.analyze(rightScope, columns(right, rightScope), QueryStageAnalysis.UnknownSourceKey.INSTANCE,
+                        emptyMap(), emptyList(), QueryStageAnalysis.IntrinsicPopulation(emptySet()), "details")
+                    mapOf("details" to (analysis to right))
+                }
+                val functions = operations.flatMap { PostOperationTraversal.expressions(it) }.flatMap(ResultExpressionTree::nodes)
+                    .filterIsInstance<ResultNativeCall>().associateWith { native.requireScalarCall(it.connectorRef, it.function, it.arguments.size) }
+                val analysis = QueryStageAnalysis.analyze(scope, columns(root, scope), QueryStageAnalysis.UnknownSourceKey.INSTANCE,
+                    children.mapValues { QueryStageAnalysis.Child("RELATION", it.value.first) }, operations,
+                    QueryStageAnalysis.IntrinsicPopulation(emptySet()), "native completed values", nativeFunctions = functions)
+                val parameters = mutableListOf<JdbcParameter>()
+                b.push(root)
+                CompletedRelationCompiler.compile(b, analysis, linkedMapOf(), parameters, children.mapValues { it.value.second }, mutableListOf(), native)
+                return CalciteQueryCompiler.optimize(b.build(), parameters) to parameters
+            }
+            fun execute(operations: List<ValidatedOperation>, join: Boolean = true): List<List<Any?>> {
+                val (plan, parameters) = compile(operations, join)
+                val sql = CalciteSqlRendering.render(plan, support, parameters)
+                val aliases = plan.rowType.fieldNames.associateWith { it }
+                val request = SourceSqlRequest("execute-query", sql.sql, CalciteSqlRendering.orderedParameters(sql, parameters), aliases, aliases,
+                    plan.rowType.fieldList.associate { it.name to SemanticNativeTypes.resultType(it.type) }, emptyList(), emptyList(), null)
+                return DeadlineExecutionControl(10000).use { control -> SourceProvider(source, loaded.registry)
+                    .execute(request, control, RuntimeDeploymentLimits.result, RuntimeDeploymentLimits.nativeMemoryBytes) { _, _ -> }
+                    .frame.rows.map { row -> row.cells.map { it.value } } }
+            }
+            val displayed = joined + listOf(Project(listOf("id", "days")), Sort(listOf(OrderKey("id", "ASC", "LAST"), OrderKey("days", "ASC", "LAST"))))
+            val rows = execute(displayed)
+            assertEquals(listOf(1L, 1L, 2L, 3L, 4L, 5L), rows.map { (it[0] as Number).toLong() })
+            assertEquals(listOf(-2L, 4L, null, null, null, null), rows.map { (it[1] as? Number)?.toLong() })
+            val summed = execute(joined + Regroup(ResultGrouping(emptyList(), listOf(ResultAggregate("days", ResultAggregation.Sum(quantity, ResultAggregation.NullPolicy.IGNORE), "total", "有效贡献之和")), null)))
+            assertEquals(2L, (summed.single().single() as Number).toLong())
+
+            val nativeNumber = call("native_float", symbol("id"))
+            val rawNumber = listOf(Derive(nativeNumber, "number", "原始行原生数值"))
+            assertEquals(15.0, (execute(rawNumber + Regroup(ResultGrouping(emptyList(), listOf(ResultAggregate("number", ResultAggregation.Sum(floating, ResultAggregation.NullPolicy.IGNORE), "total", "行贡献之和")), null)), false).single().single() as Number).toDouble())
+            val requests = server.queries
+            val exact = MetricValueContract(quantity.unit, MetricValueContract.Exact(), MetricValueContract.Decimal(38, 0, MetricValueContract.Rounding.NONE), emptyMap(), quantity.overflow)
+            val attempts = listOf(
+                listOf(Derive(ResultNumeric(ResultCast(nativeNumber, SemanticExpression.ValueType.DECIMAL, 38, 0, MetricValueContract.Rounding.NONE), exact, null), "washed", "禁止CAST升级")),
+                listOf(Derive(ResultNumeric(ResultCaseWhen(listOf(ResultCaseBranch(ResultLiteral(true), nativeNumber)), ResultLiteral(null)), exact, null), "washed", "禁止CASE升级")),
+                rawNumber + Regroup(ResultGrouping(emptyList(), listOf(ResultAggregate("number", ResultAggregation.Sum(exact, ResultAggregation.NullPolicy.IGNORE), "washed", "禁止聚合升级")), null)),
+                rawNumber + Derive(ResultNumeric(ResultCast(call("number_text", symbol("number")), SemanticExpression.ValueType.DECIMAL, 38, 0, MetricValueContract.Rounding.NONE), exact, null), "washed", "禁止经文本擦除数量"),
+                rawNumber + listOf(Regroup(ResultGrouping(listOf("record_key"), listOf(ResultAggregate("number", ResultAggregation.Average(floating, ResultAggregation.NullPolicy.IGNORE, MetricValueContract.Rounding.NONE), "mean", "每组均值")), null)),
+                    Derive(call("native_float", symbol("mean")), "transformed", "完成均值仍有原观察"),
+                    Regroup(ResultGrouping(emptyList(), listOf(ResultAggregate("transformed", ResultAggregation.Sum(floating, ResultAggregation.NullPolicy.IGNORE), "washed", "禁止非可加观察重置")), null))))
+            attempts.forEach { assertThrows(IllegalArgumentException::class.java) { compile(it, false) } }
+            val mismatch = ResultNativeCall(TestConnectors.ref("duckdb"), "native_float", listOf(symbol("id")))
+            val denied = assertThrows(IllegalArgumentException::class.java) { compile(listOf(Derive(mismatch, "wrong", "精确插件不得替换")), false) }
+            assertTrue(requireNotNull(denied.message).contains("exact source compilation scope"))
+            val tableFunction = ResultNativeCall(ref, "latest_declared_partition", listOf(ResultTypedLiteral(ScalarValueType.TEXT, "main.facts"), ResultTypedLiteral(ScalarValueType.TEXT, "OPEN")))
+            assertThrows(IllegalArgumentException::class.java) { compile(listOf(Derive(tableFunction, "wrong", "结果层不引入表来源")), false) }
+            assertEquals(requests, server.queries, "合同拒绝不得发出HTTP请求")
+
+            TestConnectors.open("duckdb", spec.jdbcUrl).use { connection -> connection.createStatement().use { it.execute("UPDATE details SET end_text='bad-date' WHERE record_key='multiple'") } }
+            val selectedFailure = assertThrows(SourceExecutionException::class.java) { execute(displayed) }
+            assertEquals(SourceResponseState.RECEIVED, selectedFailure.failure.request.response)
+            assertEquals("500", selectedFailure.failure.request.status, "合格脏日期必须到真实SQL来源失败")
+        } }
+    }
+
     @Test fun nativeTableArgumentReadsLiveMetadataInOneSqlAndRequiresItsExactFrozenSource(@TempDir directory: Path) {
         val url = "jdbc:duckdb:${directory.resolve("native-metadata.duckdb")}"
         TestConnectors.open("duckdb", url).use { writer -> writer.createStatement().use { statement ->

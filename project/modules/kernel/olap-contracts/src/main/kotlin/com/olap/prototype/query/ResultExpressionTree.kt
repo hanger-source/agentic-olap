@@ -14,7 +14,7 @@ object ResultExpressionTree {
             }
             is ResultUniformAllocation -> value.sourceKeys + value.memberKeys
             is ResultArgument, is ResultSymbol, is ResultLiteral, is ResultTypedLiteral, is ResultQuantityLiteral,
-            is ResultCall, is ResultOperation, is ResultRow, is ResultCaseWhen, is ResultCast, is ResultRowField,
+            is ResultCall, is ResultNativeCall, is ResultOperation, is ResultRow, is ResultCaseWhen, is ResultCast, is ResultRowField,
             is ResultCollectionSort, is ResultCollectionText, is ResultNumeric, is ResultRound -> emptyList()
         }
     }
@@ -24,6 +24,7 @@ object ResultExpressionTree {
             add(value)
             when (value) {
                 is ResultCall -> value.arguments.forEach(::visit)
+                is ResultNativeCall -> value.arguments.forEach(::visit)
                 is ResultOperation -> value.operands.forEach(::visit)
                 is ResultRow -> value.operands.forEach(::visit)
                 is ResultCaseWhen -> {
@@ -55,6 +56,7 @@ object ResultExpressionTree {
         fun bind(child: ResultExpression): ResultExpression = rewrite(child, selections, contracts, transform)
         return transform(when (value) {
             is ResultCall -> ResultCall(value.function, value.arguments.map(::bind))
+            is ResultNativeCall -> ResultNativeCall(value.connectorRef, value.function, value.arguments.map(::bind))
             is ResultOperation -> ResultOperation(value.operator, value.operands.map(::bind))
             is ResultRow -> ResultRow(value.operands.map(::bind))
             is ResultRowField -> value.copy(expression = bind(value.expression))

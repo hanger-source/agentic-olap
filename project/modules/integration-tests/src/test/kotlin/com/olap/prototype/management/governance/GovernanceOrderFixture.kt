@@ -4,6 +4,7 @@ import com.olap.prototype.codec.GovernanceProto
 import com.olap.prototype.codec.ProtoBytes
 import com.olap.prototype.calculation.*
 import com.olap.prototype.connector.JdbcAccess
+import com.olap.prototype.connector.ConnectorRegistry
 import com.olap.prototype.connector.SourceProvider
 import com.olap.prototype.engine.OlapEngine
 import com.olap.prototype.engine.catalog.ExecutablePostOperationCapabilities
@@ -42,8 +43,8 @@ import java.util.HexFormat
 /** 既有治理链唯一作者fixture；不计算查询答案，不替产品冻结/授权。 */
 internal class GovernanceOrderFixture(val database: PlatformDatabase, val directory: Path,
     private val initialOrders: List<String> = emptyList(), private val sourceKeys: List<SnapshotUniqueKey.Rule> = emptyList(),
+    val connectors: ConnectorRegistry = TestConnectors.registry, private val deployedSource: SourceConfiguration? = null,
     private val sourceDeclaration: ((JdbcTableConstraints.DataAnchor) -> SealedSourceDataset)? = null) {
-    val connectors = TestConnectors.registry
     val now: Instant = Instant.parse("2026-07-21T00:00:00Z")
     val mapper = OlapJsonUtils.mapper()
     val warehouse = WarehouseRegistryRepository(database)
@@ -63,11 +64,12 @@ internal class GovernanceOrderFixture(val database: PlatformDatabase, val direct
     val lifecycle = GovernanceVersionLifecycleService(database, business, physical, logical, topologies, events, dimensions,
         metrics, subjects, adoptions, analysis, members, scenarios, DiagnosticLifecycleRepository(database), warehouse)
     val spec = JdbcConnectionSpec("duckdb", TestConnectors.ref("duckdb"), "duckdb", "jdbc:duckdb:${directory.resolve("warehouse.duckdb")}", null, null, "org.duckdb.DuckDBDriver")
+    private val source: SourceConfiguration get() = deployedSource ?: spec.source()
     val artifacts = ReleaseArtifactRepository(database)
     val capabilities = ReleaseQueryCapabilityRepository(database)
     private val inspector = JdbcWarehouseInspector(connectors)
     private val inspection = JdbcSourceInspection(inspector, connectors)
-    val onboarding = WarehouseOnboardingService(physical, WarehouseRegistryService(database, warehouse, physical)) { reference -> spec.source().takeIf { it.bindingRef() == reference } }
+    val onboarding = WarehouseOnboardingService(physical, WarehouseRegistryService(database, warehouse, physical)) { reference -> source.takeIf { it.bindingRef() == reference } }
     lateinit var physicalId: String
         private set
     lateinit var paymentId: String
@@ -95,23 +97,32 @@ internal class GovernanceOrderFixture(val database: PlatformDatabase, val direct
     }
 
     private fun preparePhysical() {
-        TestConnectors.open("duckdb", spec.jdbcUrl).use { connection -> connection.createStatement().use { sql ->
-            sql.execute("CREATE TABLE main.orders (order_id VARCHAR PRIMARY KEY, pay_amount DECIMAL(18,2), destination VARCHAR NOT NULL, pay_time DATE NOT NULL, customer_id VARCHAR)")
-            initialOrders.forEach { sql.execute(it) }
-        } }
-        SourceRegistrationService(database, connectors).initializeAuthorizedSources(listOf(spec.source()))
-        val discovered = onboarding.discover(WarehouseDiscoveryCommand("duckdb", spec.sourceIdentityHash(), null, "main", "orders", emptyList(), 10,
+        val catalog = TestConnectors.open("duckdb", spec.jdbcUrl).use { connection ->
+            connection.createStatement().use { sql ->
+                sql.execute("CREATE TABLE main.orders (order_id VARCHAR PRIMARY KEY, pay_amount DECIMAL(18,2), destination VARCHAR NOT NULL, pay_time DATE NOT NULL, customer_id VARCHAR)")
+                initialOrders.forEach { sql.execute(it) }
+            }
+            connection.catalog
+        }
+        SourceRegistrationService(database, connectors).initializeAuthorizedSources(listOf(source))
+        sourceSnapshot = inspector.describe(WarehouseTableInspectionRequest(spec.source(), WarehouseTableRef(catalog, "main", "orders")), RuntimeDeploymentLimits.CONTROL)
+        val discovered = if (deployedSource == null) onboarding.discover(WarehouseDiscoveryCommand("duckdb", spec.sourceIdentityHash(), catalog, "main", "orders", emptyList(), 10,
             emptyMap(), if (sourceKeys.isEmpty()) emptyMap() else mapOf("orders" to sourceKeys), "golden"), RuntimeDeploymentLimits.CONTROL, inspection)
+        else {
+            require(sourceKeys.isEmpty() && sourceDeclaration == null) { "HTTP fixture uses explicit structure without sealed-source declarations" }
+            onboarding.registerStructure(SourceStructureRegistrationRequest(source.dataSourceId, source.sourceIdentityHash(), sourceSnapshot.table.ref.catalog,
+                requireNotNull(sourceSnapshot.table.ref.schema), "fixture-owned-database", "1", listOf(SourceStructureRegistrationRequest.Table(
+                    sourceSnapshot.table, sourceSnapshot.columns, sourceSnapshot.constraints)), "golden"))
+        }
         check(discovered.snapshot.status == "SUCCEEDED") { discovered.snapshot.errorMessage.orEmpty() }
         val table = discovered.tables.single()
-        sourceSnapshot = inspector.describe(WarehouseTableInspectionRequest(spec.source(), WarehouseTableRef(table.catalogName, table.schemaName, table.tableName)), RuntimeDeploymentLimits.CONTROL)
         val collections = sourceDeclaration?.let { declaration ->
             val jdbc = (connectors.require(spec.connectorRef).access as JdbcAccess).jdbc
             val anchor = JdbcConnectionFactory(connectors).openReadOnly(spec).use { jdbc.sourceAnchor(it, spec, RuntimeDeploymentLimits.CONTROL::checkCancellation) }
             val dataset = declaration(anchor)
             onboarding.registerSourceDataset(SourceDatasetRegistrationRequest("duckdb", spec.sourceIdentityHash(), dataset), RuntimeDeploymentLimits.CONTROL, inspection)
         } ?: emptyList()
-        val input = PhysicalTableCreateRequest("warehouse.orders", "orders", "交易订单物理表", "黄金场景订单", "交易", "data", "internal", "warehouse", "duckdb", "duckdb",
+        val input = PhysicalTableCreateRequest("warehouse.orders", "orders", "交易订单物理表", "黄金场景订单", "交易", "data", "internal", "warehouse", source.dataSourceId, source.dialectId,
             table.catalogName, table.schemaName, requireNotNull(table.schemaHash), PhysicalTableCreateRequest.SourceConstraintsInput(table.id, collections.map { it.id }), "golden", discovered.columns.map {
                 PhysicalTableCreateRequest.ColumnInput(it.columnName, it.columnName, it.typeName, "internal", requireNotNull(it.nullable), "真实订单字段",
                     com.olap.prototype.contract.JdbcColumnType(it.jdbcType, it.typeName, it.precision, it.scale, it.nullable))
@@ -188,8 +199,8 @@ internal class GovernanceOrderFixture(val database: PlatformDatabase, val direct
     fun publication(id: String = "release_trade", version: String = "1", scenario: String = SCENARIO) = artifacts.loadExecutableCatalog(ReleaseCatalogRequest(scenario, 1, id, version))
 
     fun execute(publication: PublishedExecutableCatalog, computation: QueryComputation.Scope): ExecutableExecutionResult {
-        val source = SourceProvider(spec.source(), connectors)
-        val engine = OlapEngine(OlapSemanticCompiler(CalciteRelCompiler(connectors)), SourceExecutableSqlExecutor({ reference -> source.takeIf { it.bindingRef == reference } },
+        val provider = SourceProvider(source, connectors)
+        val engine = OlapEngine(OlapSemanticCompiler(CalciteRelCompiler(connectors)), SourceExecutableSqlExecutor({ reference -> provider.takeIf { it.bindingRef == reference } },
             RuntimeDeploymentLimits.result, RuntimeDeploymentLimits.nativeMemoryBytes, null))
         val observer = object : ExecutableExecutionObserver {
             override fun bindingCompleted(input: ExecutableInputScope) { }

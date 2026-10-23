@@ -64,7 +64,7 @@ data class QueryQuantity(val declaration: MetricValueContract, val unit: Unit, v
         override fun equals(other: Any?): Boolean = other is Linear && terms == other.terms
         override fun hashCode(): Int = terms.hashCode()
     }
-    enum class Nature { RATIO, PRODUCT, WEIGHTED_VALUE, WEIGHTED_WEIGHT, ABSOLUTE, RANK }
+    enum class Nature { RATIO, PRODUCT, WEIGHTED_VALUE, WEIGHTED_WEIGHT, ABSOLUTE, RANK, SCALAR_FUNCTION }
     class Observed(val nature: Nature, components: List<Provenance>, observations: List<ValuePosition>, val knownObservation: Boolean) : Provenance {
         val components: List<Provenance> = contributions(components, false)
         val observations: List<ValuePosition> = positions(observations)

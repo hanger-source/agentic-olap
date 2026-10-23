@@ -137,8 +137,9 @@ message QueryGroupingLevels { string output_alias = 1; repeated QueryGroupingLev
 message QueryGroupingLevel { string id = 1; repeated DimensionRef dimensions = 2; }
 message QueryMembers { string call_id = 1; MemberRef source = 2; map<string, CalculationBinding> arguments = 3; repeated MemberProjection outputs = 4; TemporalWindow range = 5; map<string, TemporalClock> clocks = 6; MemberCondition condition = 7; map<string, MemberBinding> members = 8; map<string, RelationBinding> relations = 9; }
 
-message ResultExpression { oneof kind { ResultCall call = 1; ResultArgument argument = 2; string symbol = 3; ScalarLiteral literal = 4; TypedLiteral typed_literal = 5; QuantityLiteral quantity_literal = 6; ResultOperation operation = 7; ResultExpressions row = 8; ResultCase case_when = 9; ResultCast cast = 10; ResultRound round = 11; ResultNumeric numeric = 12; CollectionSort collection_sort = 13; CollectionText collection_text = 14; RowField row_field = 15; WeightedContribution weighted_contribution = 16; UniformAllocation uniform_allocation = 17; } }
+message ResultExpression { oneof kind { ResultCall call = 1; ResultArgument argument = 2; string symbol = 3; ScalarLiteral literal = 4; TypedLiteral typed_literal = 5; QuantityLiteral quantity_literal = 6; ResultOperation operation = 7; ResultExpressions row = 8; ResultCase case_when = 9; ResultCast cast = 10; ResultRound round = 11; ResultNumeric numeric = 12; CollectionSort collection_sort = 13; CollectionText collection_text = 14; RowField row_field = 15; WeightedContribution weighted_contribution = 16; UniformAllocation uniform_allocation = 17; ResultNativeCall native_call = 18; } }
 message ResultCall { string function = 1; repeated ResultExpression arguments = 2; }
+message ResultNativeCall { ConnectorRef connector_ref = 1; string function = 2; repeated ResultExpression arguments = 3; }
 message ResultArgument { string name = 1; string value_type = 2; }
 message TypedLiteral { string value_type = 1; ScalarLiteral value = 2; }
 message QuantityLiteral { string value = 1; MetricValueContract value_contract = 2; }

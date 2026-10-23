@@ -4,6 +4,8 @@ import com.olap.prototype.engine.calcite.CalciteQueryCompiler
 import com.olap.prototype.expression.CalciteCompilation
 import com.olap.prototype.expression.CalciteSqlRendering
 import com.olap.prototype.expression.CompletedRelationCompiler
+import com.olap.prototype.expression.NativeExpressionScope
+import com.olap.prototype.expression.SemanticCalciteTypeSystem
 import com.olap.prototype.expression.CollectionExpansionRel
 import com.olap.prototype.connector.CompilationSupport
 import com.olap.prototype.connector.NativeCompilationCapabilityException
@@ -172,7 +174,9 @@ class CollectionExecutionTest {
         val analysis = QueryStageAnalysis.analyze(scope, columns, QueryStageAnalysis.UnknownSourceKey.INSTANCE,
             inputs.mapValues { QueryStageAnalysis.Child("RELATION", it.value.first) }, operations,
             QueryStageAnalysis.IntrinsicPopulation(emptySet()), "physical collections")
-        CompletedRelationCompiler.compile(builder, analysis, linkedMapOf(), parameters, inputs.mapValues { it.value.second }, mutableListOf())
+        val support = (builder.typeFactory.typeSystem as SemanticCalciteTypeSystem).nativeSupport
+        val native = NativeExpressionScope(TestConnectors.ref("duckdb"), support) { null }
+        CompletedRelationCompiler.compile(builder, analysis, linkedMapOf(), parameters, inputs.mapValues { it.value.second }, mutableListOf(), native)
         return analysis to builder.build()
     }
 
@@ -270,7 +274,8 @@ class CollectionExecutionTest {
                         PostOperationContract.Project(listOf("parent", "code", "number", "ordinal", "record")),
                         PostOperationContract.Sort(listOf(PostOperationContract.OrderKey("parent", "ASC", "FIRST"), PostOperationContract.OrderKey("ordinal", "ASC", "FIRST")))),
                     QueryStageAnalysis.IntrinsicPopulation(emptySet()), "record collection")
-                CompletedRelationCompiler.compile(builder, analysis, linkedMapOf(), mutableListOf(), emptyMap(), mutableListOf())
+                CompletedRelationCompiler.compile(builder, analysis, linkedMapOf(), mutableListOf(), emptyMap(), mutableListOf(),
+                    NativeExpressionScope(TestConnectors.ref("duckdb"), support) { null })
                 val plan = CalciteQueryCompiler.optimize(builder.build(), emptyList())
                 val sql = CalciteSqlRendering.render(plan, support).sql
                 println("[collection-sql indexed projection=$projection aggregate=$aggregateInput $mode] $sql")
@@ -326,7 +331,8 @@ class CollectionExecutionTest {
             val analysis = QueryStageAnalysis.analyze(scope, listOf(QueryStageAnalysis.SourceColumn.categorical("parent", origin),
                 QueryStageAnalysis.SourceColumn("items", origin, emptyList(), QueryValue.Imported(QueryStageAnalysis.SymbolId(scope, 100), QueryValue.Array(QueryValue.anonymous())))),
                 QueryStageAnalysis.UniqueSourceKey(listOf("parent")), emptyMap(), operations, QueryStageAnalysis.IntrinsicPopulation(emptySet()), "collections")
-            CompletedRelationCompiler.compile(builder, analysis, linkedMapOf(), mutableListOf(), emptyMap(), mutableListOf())
+            CompletedRelationCompiler.compile(builder, analysis, linkedMapOf(), mutableListOf(), emptyMap(), mutableListOf(),
+                NativeExpressionScope(TestConnectors.ref("duckdb"), support) { null })
             val sql = CalciteSqlRendering.render(builder.build(), support).sql
             println("[collection-sql $mode] $sql")
             TestConnectors.open("duckdb", "jdbc:duckdb:").use { connection -> connection.createStatement().use { statement -> statement.executeQuery(sql).use { rows ->

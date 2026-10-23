@@ -75,6 +75,8 @@ internal object SemanticExpressionsProto {
     }
     fun result(v: DR): ResultExpression = ResultExpression.newBuilder().apply { when (v) {
         is DR.ResultCall -> setCall(ResultCall.newBuilder().setFunction(v.function.name).addAllArguments(v.arguments.map(::result)))
+        is DR.ResultNativeCall -> setNativeCall(ResultNativeCall.newBuilder().setConnectorRef(SemanticProto.toProto(v.connectorRef))
+            .setFunction(v.function).addAllArguments(v.arguments.map(::result)))
         is DR.ResultArgument -> setArgument(ResultArgument.newBuilder().setName(v.name).setValueType(v.valueType.name))
         is DR.ResultSymbol -> setSymbol(v.symbol)
         is DR.ResultLiteral -> setLiteral(literal(v.value))
@@ -96,6 +98,7 @@ internal object SemanticExpressionsProto {
     } }.build()
     fun result(v: ResultExpression): DR = when (v.kindCase) {
         ResultExpression.KindCase.CALL -> DR.ResultCall(ScalarFunction.valueOf(v.call.function), v.call.argumentsList.map(::result))
+        ResultExpression.KindCase.NATIVE_CALL -> v.nativeCall.let { DR.ResultNativeCall(SemanticProto.fromProto(it.connectorRef), it.function, it.argumentsList.map(::result)) }
         ResultExpression.KindCase.ARGUMENT -> DR.ResultArgument(v.argument.name, ScalarValueType.valueOf(v.argument.valueType))
         ResultExpression.KindCase.SYMBOL -> DR.ResultSymbol(v.symbol)
         ResultExpression.KindCase.LITERAL -> DR.ResultLiteral(literal(v.literal))

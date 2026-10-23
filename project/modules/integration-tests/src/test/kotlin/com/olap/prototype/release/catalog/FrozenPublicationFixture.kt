@@ -174,7 +174,7 @@ internal class FrozenPublicationFixture(directory: Path, dialect: String, unique
         fun execute(fixture: FrozenPublicationFixture, catalog: PublishedExecutableCatalog, request: QueryComputation.Scope): List<List<Any?>> {
             val graph = ExecutableInputGraph.index(bindFrozen(catalog, request))
             val sources = ExecutableSourceResolver().resolve(catalog.catalog, graph)
-            val compiled = CalciteRelCompiler(connectors).compile(graph, ExecutableStageAnalysis.analyze(graph), sources, OlapQueryContext("frozen_catalog")).lowering
+            val compiled = CalciteRelCompiler(connectors).compile(graph, ExecutableStageAnalysis.analyze(graph, connectors), sources, OlapQueryContext("frozen_catalog")).lowering
             fixture.connection.prepareStatement(compiled.sql).use { query ->
                 val jdbc = (connectors.require(fixture.spec.connectorRef).access as JdbcAccess).jdbc
                 compiled.parameters.forEachIndexed { index, parameter -> jdbc.bind(query, index + 1, parameter) }

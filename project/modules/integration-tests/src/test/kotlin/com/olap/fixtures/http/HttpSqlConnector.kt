@@ -4,6 +4,7 @@ import com.olap.prototype.api.*
 import com.olap.prototype.connector.*
 import com.olap.prototype.contract.*
 import com.olap.prototype.expression.NativeScalarFunction
+import com.olap.prototype.metric.MetricValueContract
 import com.olap.prototype.query.ScalarValueType
 import com.olap.prototype.warehouse.*
 import com.olap.prototype.warehouse.contract.*
@@ -37,15 +38,34 @@ class HttpSqlConnector : OlapConnector {
             override val parameterSubmission = CompilationSupport.ParameterSubmission.TYPED_LITERALS
             override val nativeScalarFunctions = listOf(NativeScalarFunction("latest_declared_partition", listOf(
                 NativeScalarFunction.Parameter(NativeScalarFunction.ParameterKind.PHYSICAL_TABLE, null), NativeScalarFunction.Parameter(NativeScalarFunction.ParameterKind.SCALAR, ScalarValueType.TEXT)),
-                NativeValueType("VARCHAR", 65536, null, true), null, NativeScalarFunction.Stability.STATEMENT))
+                NativeValueType("VARCHAR", 65536, null, true), null, NativeScalarFunction.Stability.STATEMENT),
+                NativeScalarFunction("parse_day", listOf(ScalarValueType.TEXT, ScalarValueType.TEXT).map { NativeScalarFunction.Parameter(NativeScalarFunction.ParameterKind.SCALAR, it) },
+                    NativeValueType("DATE", null, null, true), null, NativeScalarFunction.Stability.IMMUTABLE),
+                NativeScalarFunction("calendar_days", listOf(ScalarValueType.DATE, ScalarValueType.DATE).map { NativeScalarFunction.Parameter(NativeScalarFunction.ParameterKind.SCALAR, it) },
+                    NativeValueType("INTEGER", null, null, true), MetricValueContract.Exact(), NativeScalarFunction.Stability.IMMUTABLE),
+                NativeScalarFunction("native_float", listOf(NativeScalarFunction.Parameter(NativeScalarFunction.ParameterKind.SCALAR, ScalarValueType.NUMBER)),
+                    NativeValueType("DOUBLE", null, null, true), MetricValueContract.NativeFloating(), NativeScalarFunction.Stability.IMMUTABLE),
+                NativeScalarFunction("number_text", listOf(NativeScalarFunction.Parameter(NativeScalarFunction.ParameterKind.SCALAR, ScalarValueType.NUMBER)),
+                    NativeValueType("VARCHAR", 65536, null, true), null, NativeScalarFunction.Stability.IMMUTABLE))
             override fun requireNativeScalarFunction(id: String): NativeScalarFunction = nativeScalarFunctions.firstOrNull { it.id == id } ?: throw IllegalArgumentException("native scalar function is not declared by the exact connector: $id")
             override fun nativeScalarCall(function: String, arguments: List<CompilationSupport.NativeArgument>): SqlNode {
-                require(function == "latest_declared_partition") { "undeclared fixture native function" }
-                val table = arguments[0] as CompilationSupport.TableArgument
-                val state = arguments[1] as CompilationSupport.ScalarArgument
                 val pos = SqlParserPos.ZERO
-                return SqlFunction("fixture_latest_partition", SqlKind.OTHER_FUNCTION, ReturnTypes.ARG0, null, OperandTypes.VARIADIC, SqlFunctionCategory.USER_DEFINED_FUNCTION)
-                    .createCall(pos, SqlLiteral.createCharString(table.qualifiedPath.joinToString("."), pos), state.value)
+                fun scalar(index: Int) = (arguments[index] as CompilationSupport.ScalarArgument).value
+                fun cast(value: SqlNode, type: SqlTypeName) = org.apache.calcite.sql.`fun`.SqlStdOperatorTable.CAST.createCall(pos, value,
+                    SqlDataTypeSpec(SqlBasicTypeNameSpec(type, pos), pos))
+                return when (function) {
+                    "latest_declared_partition" -> {
+                        val table = arguments[0] as CompilationSupport.TableArgument
+                        SqlFunction("fixture_latest_partition", SqlKind.OTHER_FUNCTION, ReturnTypes.ARG0, null, OperandTypes.VARIADIC, SqlFunctionCategory.USER_DEFINED_FUNCTION)
+                            .createCall(pos, SqlLiteral.createCharString(table.qualifiedPath.joinToString("."), pos), scalar(1))
+                    }
+                    "parse_day" -> cast(SqlFunction("STRPTIME", SqlKind.OTHER_FUNCTION, null, null, OperandTypes.VARIADIC, SqlFunctionCategory.TIMEDATE)
+                        .createCall(pos, scalar(0), scalar(1)), SqlTypeName.DATE)
+                    "calendar_days" -> org.apache.calcite.sql.`fun`.SqlStdOperatorTable.MINUS.createCall(pos, scalar(0), scalar(1))
+                    "native_float" -> cast(scalar(0), SqlTypeName.DOUBLE)
+                    "number_text" -> cast(scalar(0), SqlTypeName.VARCHAR)
+                    else -> throw IllegalArgumentException("undeclared fixture native function: $function")
+                }
             }
         }
     }

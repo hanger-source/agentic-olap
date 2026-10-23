@@ -146,7 +146,11 @@ olap.output(olap.sources.connectorCapabilities(
 
 `compilationCapabilities` 只列出插件明确支持的编译能力。`CORRELATED_DERIVED_PROJECTION` 表示派生关系投影可以引用外层查询值，普通 EXISTS 的条件相关不需要这项能力。若数值求值绑定实际需要这种投影而插件未声明，编译在提交 SQL 前返回 `NATIVE_COMPILATION_CAPABILITY_MISSING`，并指出 `capability=CORRELATED_DERIVED_PROJECTION`、`operation=NUMERIC_EVALUATION_BINDING`。不退回重复内联、移除人口守卫或提前计算未选中分支。
 
-`SemanticExpression.NativeCall` 提交精确 `connectorRef`、`function` 和有序 `arguments`。参数使用正式 Scalar 与 PhysicalTable 变体，分别持有完整表达式或精确物理表身份和版本。物理表参数引用已采用的精确版本，必须与调用所在来源的绑定、插件及方言一致，作为真实来源依赖冻结和核验。Query 内联调用只能引用本次精确发布允许的表闭包；它不是表名文本，也不接受任意 SQL。实际 Kotlin 构造器与封闭变体从服务 API 发现读取。技术调查 `profile-relationship` 不提供已采用表解析，不支持 `NATIVE_CALL`。
+来源表达式使用 `SemanticExpression.NativeCall`，提交精确 `connectorRef`、`function` 和有序 `arguments`。参数使用正式 Scalar 与 PhysicalTable 变体，分别持有来源表达式或精确物理表身份和版本。物理表参数引用已采用的精确版本，必须与调用所在来源的绑定、插件及方言一致，作为真实来源依赖冻结和核验。来源表达式中的内联调用也只允许本次精确发布的表闭包；它不是表名文本，也不接受任意 SQL。技术调查 `profile-relationship` 不提供已采用表解析，不支持此类调用。
+
+完成关系表达式使用 `ResultExpression.ResultNativeCall(connectorRef,function,arguments)`，有序实参均为 `ResultExpression`。它在当前实际来源中变换已有标量值，不另选来源、不引入物理表；函数声明的参数必须均为 SCALAR。发布场景须明确授权 `NATIVE_CALL` 表达式种类，字段及实参继续经过现有表达式授权。已完成关系的 CASE 分支可以持有该节点，所有分支都静态核验，运行调用保留在实际分支位置。原生函数对格式文本、NULL、非法输入和求值的行为由插件及来源兑现，不能用无条件的来源预解析代替条件分支。完整作者构造见[条件原生调用](../examples/agent-client/conditional-native-call.olap.kts)。
+
+原生数值结果保留声明的算术及容量，作为维数一数量继续参与组合；DECIMAL 需要明确原生 precision 和 scale。维数一的数量实参只用于 NUMBER→NUMBER，并须满足函数的算术保证；非数值返回只消费分类标量，带业务单位的测量也不能通过该入口擦除单位。函数声明不推导业务天数、货币或单位转换。实际 Kotlin 构造器、类型及局部规则从服务 API 发现读取。
 
 调用保留在本次来源 SQL 中执行。来源要求通过 `uses` 明确区分 `ROWS`（读取数据行）与 `NATIVE_TABLE`（原生函数的表参数）；两者都核对精确来源身份与授权，行约束及有限集合核验按实际 `ROWS` 用途要求。仅作函数参数的表也进入依赖闭包，无需伪造字段引用。
 

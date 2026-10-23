@@ -8,6 +8,7 @@ import com.olap.prototype.member.MemberResult
 import com.olap.prototype.governance.contract.LogicUnitRecord
 import com.olap.prototype.governance.contract.LogicalTableCreateRequest
 import com.olap.prototype.query.SetOutputContract
+import com.olap.prototype.query.ResultExpression
 import java.lang.reflect.Type
 import kotlin.reflect.KClass
 import kotlin.reflect.KFunction
@@ -135,6 +136,19 @@ object ApiDiscovery {
             LogicUnitRecord::class -> LogicUnitRecord.contract()
             LogicalTableCreateRequest.LogicUnitInput::class -> LogicalTableCreateRequest.LogicUnitInput.contract()
             SetOutputContract.Container::class, SetOutputContract.Array::class, SetOutputContract.Row::class -> SetOutputContract.Container.contract()
+            ResultExpression.ResultNativeCall::class -> mapOf(
+                "connector" to "CURRENT_EXACT_SOURCE_CONNECTOR_REF",
+                "function" to "DECLARED_NATIVE_SCALAR_FUNCTION_ID",
+                "arguments" to "DECLARED_ORDER_COUNT_AND_SCALAR_TYPES_ONLY",
+                "physicalTable" to "SOURCE_NATIVE_CALL_AND_ADOPTED_PHYSICAL_CLOSURE_ONLY",
+                "authorization" to "PUBLISHED_NATIVE_CALL_EXPRESSION_KIND_AND_RECURSIVE_ARGUMENT_AUTHORIZATION",
+                "case" to "ALL_BRANCHES_STATICALLY_VALIDATED_CALL_REMAINS_IN_ITS_AUTHORED_BRANCH",
+                "nativeSemantics" to "PLUGIN_AND_BACKEND_OWN_FORMAT_NULL_ERROR_AND_STABILITY_GUARANTEES",
+                "numericResult" to "DIMENSIONLESS_NATIVE_CAPACITY_AND_DECLARED_ARITHMETIC_NO_UPGRADE",
+                "numericProvenance" to "PRESERVE_ARGUMENT_OBSERVATION_AND_MULTIPLICITY_AS_SCALAR_FUNCTION",
+                "measureArguments" to "NUMBER_TO_NUMBER_ONLY_DIMENSIONLESS_WITH_COMPATIBLE_NATIVE_ARITHMETIC_NO_BUSINESS_UNIT_ERASURE",
+                "nonNumericResultArguments" to "CATEGORICAL_SCALARS_ONLY_NO_MEASUREMENT_PROVENANCE_ERASURE",
+            )
             else -> when {
                 type == ScriptArguments::class || ScriptValue::class.java.isAssignableFrom(type.java) -> ScriptValue.contract()
                 type == OlapEnvironment::class || type == OlapClient::class -> mapOf(

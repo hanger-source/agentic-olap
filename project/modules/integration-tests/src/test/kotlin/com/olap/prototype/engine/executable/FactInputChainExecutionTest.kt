@@ -87,7 +87,7 @@ class FactInputChainExecutionTest {
     }
     private fun compile(store: Store, scope: ExecutableInputScope): ExecutableLoweringResult {
         val graph = ExecutableInputGraph.index(scope)
-        return CalciteRelCompiler(TestConnectors.registry).compile(graph, ExecutableStageAnalysis.analyze(graph),
+        return CalciteRelCompiler(TestConnectors.registry).compile(graph, ExecutableStageAnalysis.analyze(graph, TestConnectors.registry),
             ExecutableSourceResolver().resolve(store.catalog, graph), OlapQueryContext("core-native-chain")).lowering
     }
     private fun execute(store: Store, scope: ExecutableInputScope) = execute(store, compile(store, scope))

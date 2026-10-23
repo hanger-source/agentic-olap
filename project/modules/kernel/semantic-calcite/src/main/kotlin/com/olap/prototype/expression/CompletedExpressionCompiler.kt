@@ -14,11 +14,14 @@ import org.apache.calcite.tools.RelBuilder
 import java.math.BigDecimal
 
 /** 完成关系的递归表达式发射，数量、容器和标量各持自己的规则。 */
-internal class CompletedExpressionCompiler private constructor(private val b: RelBuilder, private val parameters: MutableList<JdbcParameter>) {
+internal class CompletedExpressionCompiler private constructor(private val b: RelBuilder, private val parameters: MutableList<JdbcParameter>,
+    private val native: NativeExpressionScope) {
     companion object {
-        fun compile(builder: RelBuilder, expression: ResultExpression, parameters: MutableList<JdbcParameter>): RexNode = CompletedExpressionCompiler(builder, parameters).emit(expression)
+        fun compile(builder: RelBuilder, expression: ResultExpression, parameters: MutableList<JdbcParameter>, native: NativeExpressionScope): RexNode =
+            CompletedExpressionCompiler(builder, parameters, native).emit(expression)
     }
     private fun emit(expression: ResultExpression): RexNode = when (expression) {
+        is ResultExpression.ResultNativeCall -> native.compileScalar(b, expression.connectorRef, expression.function, expression.arguments.map(::emit))
         is ResultExpression.ResultCall -> {
             val temporal = expression.function.temporal
             val unit = if (temporal) (expression.arguments.first() as ResultExpression.ResultTypedLiteral).value as String else null
@@ -34,7 +37,7 @@ internal class CompletedExpressionCompiler private constructor(private val b: Re
         is ResultExpression.ResultWeightedContribution -> weightedContribution(expression)
         is ResultExpression.ResultNumeric -> SemanticNumericRex.output(b, emit(expression.expression), expression.valueContract)
         is ResultExpression.ResultQuantityLiteral -> quantityLiteral(expression)
-        is ResultExpression.ResultCast -> SemanticCalciteRexCompiler(b, parameters) { _, _ -> throw IllegalArgumentException("completed result expressions cannot access native source functions") }
+        is ResultExpression.ResultCast -> SemanticCalciteRexCompiler(b, parameters) { call, operands -> native.compile(b, call, operands) }
             .cast(emit(expression.expression), expression.targetType, expression.precision, expression.scale, expression.rounding)
         is ResultExpression.ResultRound -> SemanticNumericRex.round(b, emit(expression.expression), expression.scale, expression.rounding)
         is ResultExpression.ResultRowField -> rowField(expression)

@@ -18,7 +18,7 @@ import java.time.temporal.ChronoUnit
 
 /** 版本、观察范围、有限日历和展示裁剪的完整边界，不拥有跨阶段列累计。 */
 internal class CompletedObservationCompiler(private val b: RelBuilder, private val parameters: MutableList<JdbcParameter>,
-    private val relations: Map<String, RelNode>, private val checks: MutableList<RelationalCheck>) {
+    private val relations: Map<String, RelNode>, private val checks: MutableList<RelationalCheck>, private val native: NativeExpressionScope) {
 
     fun selectVersions(selection: PostOperationContract.SelectVersions) {
         val names = b.peek().rowType.fieldNames.toList()
@@ -133,7 +133,7 @@ internal class CompletedObservationCompiler(private val b: RelBuilder, private v
         range.end?.let { val value = temporalLiteral(scalar, it); requireTemporalType(b.field(time), value); predicates.add(b.call(Ops.LESS_THAN, b.field(time), value)) }
         b.filter(b.and(predicates))
     }
-    private fun temporalLiteral(type: ScalarValueType, text: String): RexNode = CompletedExpressionCompiler.compile(b, ResultExpression.ResultTypedLiteral(type, text), parameters)
+    private fun temporalLiteral(type: ScalarValueType, text: String): RexNode = CompletedExpressionCompiler.compile(b, ResultExpression.ResultTypedLiteral(type, text), parameters, native)
     private fun requireTemporalType(axis: RexNode, value: RexNode) { require(SqlTypeUtil.isDatetime(axis.type) && axis.type.sqlTypeName == value.type.sqlTypeName) { "temporal selection requires the actual axis type without implicit conversion" } }
     private fun internalName(names: Collection<String>, prefix: String): String {
         var name = prefix; var suffix = 1

@@ -25,7 +25,7 @@ class StageAuthorization(val operationType: String, joinTypes: Set<JoinType>, ag
 class ExpressionAuthorization(kinds: Set<Kind>, operators: Set<ResultExpression.ResultOperator>, functions: Set<ScalarFunction>,
     castTypes: Set<SemanticExpression.ValueType>, literalTypes: Set<ScalarValueType>) {
     enum class Kind { ARGUMENT, SYMBOL, LITERAL, EXACT_NUMBER, QUANTITY_LITERAL, NUMERIC, WEIGHTED_CONTRIBUTION, UNIFORM_ALLOCATION,
-        TYPED_LITERAL, CALL, OPERATION, CASE, ROW, ROW_FIELD, COLLECTION_SORT, COLLECTION_TEXT, CAST, ROUND }
+        TYPED_LITERAL, CALL, NATIVE_CALL, OPERATION, CASE, ROW, ROW_FIELD, COLLECTION_SORT, COLLECTION_TEXT, CAST, ROUND }
     val kinds: Set<Kind> = java.util.Set.copyOf(kinds)
     val operators: Set<ResultExpression.ResultOperator> = java.util.Set.copyOf(operators)
     val functions: Set<ScalarFunction> = java.util.Set.copyOf(functions)

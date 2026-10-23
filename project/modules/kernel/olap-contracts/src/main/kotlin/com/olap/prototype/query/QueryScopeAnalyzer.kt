@@ -1,6 +1,7 @@
 package com.olap.prototype.query
 
 import com.olap.prototype.calculation.Calculation
+import com.olap.prototype.expression.NativeScalarFunction
 import com.olap.prototype.query.QueryStageAnalysis.Analysis
 import com.olap.prototype.query.QueryStageAnalysis.Child
 import com.olap.prototype.query.QueryStageAnalysis.GroupingOrigin
@@ -31,6 +32,7 @@ internal class QueryScopeAnalyzer(
     private val children: Map<String, Child>,
     private val population: Population,
     private val field: String,
+    private val nativeFunctions: Map<ResultExpression.ResultNativeCall, NativeScalarFunction>,
 ) {
     private var symbols = linkedMapOf<String, Symbol>()
     private var nextPosition = 0
@@ -208,7 +210,7 @@ internal class QueryScopeAnalyzer(
                         require(expressionKey is UniqueKey && actual.containsAll(expressionKey.columns) && keys.all { requireSymbol(available, it).value is QueryValue.Plain }) {
                             "uniform allocation requires the complete actual source/member association identity"
                         }
-                        QueryValueSemantics.uniformAllocation(QueryValueSemantics.expression(node.value, available),
+                        QueryValueSemantics.uniformAllocation(QueryValueSemantics.expression(node.value, available, nativeFunctions),
                             node.sourceKeys.map { requireSymbol(available, it) }, node.memberKeys.map { requireSymbol(available, it) })
                     }
                     else -> kotlin.Unit
@@ -217,7 +219,7 @@ internal class QueryScopeAnalyzer(
         }
 
         private fun joinInput(join: PostOperationContract.JoinInput) {
-            QueryValueSemantics.expression(join.condition, available)
+            QueryValueSemantics.expression(join.condition, available, nativeFunctions)
             if (join.joinType in setOf("SEMI", "ANTI")) return
             val child = children.getValue(join.inputId).analysis
             val retainedPopulation = QueryKeys.rightSingleMatch(child, join, symbols.keys)
@@ -317,7 +319,7 @@ internal class QueryScopeAnalyzer(
             if (unique != null && !symbols.values.map { it.id }.toSet().containsAll(unique.columns)) key = UnknownKey.INSTANCE
         }
         private fun filter(filter: PostOperationContract.PostFilter) {
-            QueryValueSemantics.expression(filter.expression, available)
+            QueryValueSemantics.expression(filter.expression, available, nativeFunctions)
             key = selectedGroupingKey(filter.expression, key)
             val rewritten = refineUnits(filter.expression, index)
             val unique = key as? UniqueKey
@@ -325,7 +327,7 @@ internal class QueryScopeAnalyzer(
         }
         private fun appendOutput(output: PostOperationContract.OutputOperation) {
             add(symbols, symbol(output.outputAlias, OperationOrigin(scope, index, 0, operation.operationType),
-                dependencies.map { requireSymbol(available, it).id }.toSet().toList(), selectedStock(outputValue(output, available, key)), sameObservation(output, available)))
+                dependencies.map { requireSymbol(available, it).id }.toSet().toList(), selectedStock(outputValue(output, available, key, nativeFunctions)), sameObservation(output, available)))
             if (output is PostOperationContract.ObserveWindow && output.domain == PostOperationContract.ObservationDomain.ROWS)
                 key = QueryKeys.key((output.partitionBy + output.orderKeys.map { it.symbol }).distinct(), symbols)
         }
@@ -442,8 +444,9 @@ internal class QueryScopeAnalyzer(
         private fun requireSymbol(symbols: Map<String, Symbol>, name: String): Symbol = requireNotNull(symbols[name]) { "symbol is outside the current lexical scope: $name" }
         private fun add(symbols: MutableMap<String, Symbol>, value: Symbol) { require(symbols.putIfAbsent(value.name, value) == null) { "conflicting output symbol: ${value.name}" } }
 
-        private fun outputValue(operation: PostOperationContract.OutputOperation, symbols: Map<String, Symbol>, key: Key): QueryValue = when (operation) {
-            is PostOperationContract.Derive -> QueryValueSemantics.expression(operation.expression, symbols)
+        private fun outputValue(operation: PostOperationContract.OutputOperation, symbols: Map<String, Symbol>, key: Key,
+            nativeFunctions: Map<ResultExpression.ResultNativeCall, NativeScalarFunction>): QueryValue = when (operation) {
+            is PostOperationContract.Derive -> QueryValueSemantics.expression(operation.expression, symbols, nativeFunctions)
             is PostOperationContract.Rank, is PostOperationContract.OrderedRank -> QueryAggregationSemantics.count()
             is PostOperationContract.Cumulative -> QueryAggregationSemantics.window(operation.aggregation, requireSymbol(symbols, operation.input).value,
                 operation.partitionBy.map { requireSymbol(symbols, it) }, orders(symbols, listOf(PostOperationContract.OrderKey(operation.orderBy, operation.direction, if (operation.direction == "ASC") "LAST" else "FIRST"))),

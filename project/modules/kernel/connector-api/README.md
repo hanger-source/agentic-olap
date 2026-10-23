@@ -63,7 +63,13 @@ AVG 的类型容量、算术正确性与舍入必须共同成立。`typeSystem.d
 
 `MetricValueContract.Arithmetic` 区分 `EXACT_DECIMAL`、带结果域及误差容差的 `NATIVE_APPROXIMATION`，以及不声明结果域或误差界限的 `NATIVE_FLOATING`。后者仍核验容量、有限值及溢出，不能经 CAST 或 DECIMAL 结果类型取得输入没有的精确性或容差保证。插件的原生结果类型与算术保证必须分别如实声明。
 
-表达式 `NATIVE_CALL` 保存精确 `connectorRef`、函数 `function` 和 `arguments`。`SCALAR` 参数携带完整 `expression`；`PHYSICAL_TABLE` 参数携带 `physicalTableId/physicalTableVersion`，它是需要冻结与核验的真实物理依赖，不是表名字符串或任意 SQL。`nativeScalarCall` 只负责把核心校验后的 `ScalarArgument(SqlNode)`、`TableArgument(qualifiedPath)` 映射为后端 SQL AST，不接管业务关系规划。
+来源表达式 `SemanticExpression.NativeCall` 保存精确 `connectorRef`、函数 `function` 和 `arguments`。`SCALAR` 参数携带完整 `expression`；`PHYSICAL_TABLE` 参数携带 `physicalTableId/physicalTableVersion`，它是需要冻结与核验的真实物理依赖，不是表名字符串或任意 SQL。`nativeScalarCall` 只负责把核心校验后的 `ScalarArgument(SqlNode)`、`TableArgument(qualifiedPath)` 映射为后端 SQL AST，不接管业务关系规划。
+
+完成关系使用 `ResultExpression.ResultNativeCall(connectorRef,function,arguments)`，实参为有序 `List<ResultExpression>`，只接受该精确来源连接器已经声明的纯 `SCALAR` 签名。它能放在 JOIN 后的 `DERIVE`、条件或 `ResultCaseWhen` 分支，直接消费当前结果符号；函数 ID、参数个数、原生类型和返回类型仍经共同原生编译入口核验。`PHYSICAL_TABLE` 依赖留在来源定义及其采用闭包，不能从完成关系新增表读取。发布的阶段表达式授权须允许 `NATIVE_CALL`，参数树继续逐节点核对授权。构造器、封闭变体和局部规则从正式 `describe-script-api` 发现，不另维护节点清单。
+
+需要有条件解析时，把原生调用直接构造在 CASE 的 THEN 内，并把整个 CASE 放在业务要求的关联之后。核心保留该关系位置与分支结构，不把解析提前到独立源投影或在客户端预取；CASE 所有分支仍做静态函数、类型及授权检查，不能用恒假条件隐藏非法调用。插件负责真实后端的格式解释、NULL、解析错误和 CASE 求值行为，包括后端规划期折叠的适用边界；声明函数不等于已通过目标后端的脏输入试验。原生函数不能借此去重 LEFT bag、补零、选最新或改写业务公式。[作者示例](../../../../examples/agent-client/conditional-native-call.olap.kts)展示关联后的条件格式解析构造，不声明内置插件已经提供某个解析函数。
+
+完成关系原生数值结果保留函数声明的原生容量及 `arithmetic`，数量为维数一；它不从函数名推导天、金额或其他业务单位。Measure 实参只允许在 NUMBER→NUMBER 调用中使用：单位须为维数一，原生结果保证须承接输入，不能把近似或原生浮点升级为 Exact。非数值返回的原生调用只消费分类标量，不能通过 NUMBER→TEXT→CAST 擦除数量含义。原生数值调用保留输入的观察与重复度来源；原始逐行实参可形成逐行贡献，已完成的非线性数量不会重新成为原始独立贡献。CAST、`ResultNumeric` 及最终 DECIMAL 形状也不创造精确性、误差容差或单位变换。后续日期差、贡献人口、均值分解、单位与舍入由正式业务模型明确组合。
 
 `SourceSqlRequest.sourceRequirements` 的 `uses` 明确区分 `ROWS` 与 `NATIVE_TABLE`，同一表可以同时具有两种用途。插件保留两者的精确来源和表身份核对；行约束与有限集合核验只对实际行读取要求执行。原生函数随本次 SQL 求值，不在客户端预取结果。
 

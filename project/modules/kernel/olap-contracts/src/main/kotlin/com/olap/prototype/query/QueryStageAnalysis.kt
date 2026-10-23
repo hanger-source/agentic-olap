@@ -3,6 +3,7 @@ package com.olap.prototype.query
 import com.olap.prototype.calculation.Calculation
 import com.olap.prototype.calculation.CalculationOwner
 import com.olap.prototype.calculation.MetricRef
+import com.olap.prototype.expression.NativeScalarFunction
 import java.util.Collections
 
 /** 公开计算的符号、来源与直接键事实，不推导SQL类型、基数或优化候选。 */
@@ -131,7 +132,9 @@ object QueryStageAnalysis {
         return Collections.unmodifiableMap(result)
     }
     fun analyze(scope: ScopeId, sourceColumns: List<SourceColumn>, sourceKey: SourceKey, children: Map<String, Child>, operations: List<PostOperationContract.ValidatedOperation>, population: Population,
-        field: String, sourceObservations: List<SelectedObservation> = emptyList()): Analysis = QueryScopeAnalyzer(scope, children, population, field).analyze(sourceColumns, sourceKey, operations, sourceObservations)
+        field: String, sourceObservations: List<SelectedObservation> = emptyList(),
+        nativeFunctions: Map<ResultExpression.ResultNativeCall, NativeScalarFunction> = emptyMap()): Analysis =
+        QueryScopeAnalyzer(scope, children, population, field, nativeFunctions).analyze(sourceColumns, sourceKey, operations, sourceObservations)
     private fun text(value: String) { require(value.isNotBlank()) { "identity must be explicit" } }
     private fun version(value: String) { require(value.matches(Regex("[1-9][0-9]*"))) { "asset version must be exact" } }
 }
