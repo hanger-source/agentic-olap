@@ -36,8 +36,14 @@ agentic-olap info
 agentic-olap tools
 agentic-olap call list-data-sources --payload '{}'
 agentic-olap call describe-script-api --payload '{}'
-agentic-olap call execute-script --payload '{"source":"olap.output(olap.sources.list(EmptyRequest))","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v1","parameters":{}}'
+agentic-olap call execute-script --payload '{"executionId":"sources-1","waitMillis":1000,"source":"olap.output(olap.sources.list(EmptyRequest))","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v2","parameters":{}}'
 ```
+
+`execute-script` 首次可建立持续 Kotlin 会话，回执给出 `sessionId` 与 `executionId`。`waitMillis` 只控制本次等待：`RUNNING` 时用 `wait-script` 读取同一执行，不重复提交源码；后续片段明确传同一 `sessionId` 和新的 `executionId`。通过 `cancel-script` 取消执行，`read-script-session` 读取会话，`reset-script-session` 清空语言上下文，`close-script-session` 结束自己建立的会话。重置和关闭会停止当前执行，核对旧进程退出后才确认；服务重启不恢复语言对象，也不重放历史源码。
+
+同一个执行身份和相同源码、参数及会话选择只执行一次；相同身份却改变输入会被拒绝。这个去重记录属于当前服务生命周期，不承诺跨服务重启去重。语言会话与持久定义、发布、查询结果分别管理。`info` 的连接器读取也使用这条链，并关闭自己创建的会话。
+
+显式 `olap.output` 与普通打印按发生顺序进入本次执行的 `outputs`；最后表达式不会被隐式输出。最终 JSON/MCP 消息过大时自动完整保存并返回 `read-response` 入口，原执行结局不变。
 
 `info` 给出实际地址、配置及令牌文件位置、本地安装版本与运行目录，并通过 MCP 读取运行中服务版本、获准连接器和来源，不打印令牌。服务不可达或版本不同以非零退出并说明原因；无权读取的项目明确标记。来源列表只证明该主体可见的部署配置，报告的 `sourceQuery=NOT_CHECKED` 表示没有执行业务查询。`token` 显式读取令牌供自己的 MCP 客户端注入。外部 Agent 可直接连接该服务的 `/mcp`，也可通过 `tools/call` 操作同一真实 MCP 服务。
 

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -48,6 +47,9 @@ func (m *Manager) admit(ctx context.Context) (context.Context, func(), error) {
 }
 
 type ScriptSubmission struct {
+	SessionID     string          `json:"sessionId,omitempty"`
+	ExecutionID   string          `json:"executionId"`
+	WaitMillis    int64           `json:"waitMillis"`
 	Source        string          `json:"source"`
 	SourceName    string          `json:"sourceName"`
 	DSLAPIVersion string          `json:"dslApiVersion"`
@@ -82,13 +84,17 @@ func (effects ScriptEffects) MarshalJSON() ([]byte, error) {
 }
 
 type ScriptReport struct {
+	SessionID         string                 `json:"sessionId"`
+	ExecutionID       string                 `json:"executionId"`
+	State             string                 `json:"state"`
+	SessionUsable     bool                   `json:"sessionUsable"`
 	RequestID         string                 `json:"requestId"`
 	WorkerID          string                 `json:"workerId"`
 	WorkerOutcome     string                 `json:"workerOutcome"`
 	WorkerDisposition string                 `json:"workerDisposition,omitempty"`
 	RecycleReasons    []string               `json:"recycleReasons"`
 	Success           bool                   `json:"success"`
-	Value             json.RawMessage        `json:"value"`
+	Outputs           []ScriptOutput         `json:"outputs"`
 	Diagnostics       []*pb.ScriptDiagnostic `json:"diagnostics"`
 	Calls             []ScriptCallReceipt    `json:"calls"`
 	TimingNanos       map[string]int64       `json:"timingNanos"`
@@ -154,139 +160,168 @@ func (s *scriptCalls) finish(index int, reply *pb.CapabilityResponse, elapsed ti
 	value.Effects = reply.Effects
 	if reply.Failure != nil {
 		value.Stage, value.Code = reply.Failure.Stage, reply.Failure.Code
+		if reply.Failure.Code == "CAPABILITY_DELIVERY_FAILED" {
+			value.State = "UNKNOWN"
+		}
 	}
+}
+
+func (s *scriptCalls) settled() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	close(s.active)
 	s.active = nil
 }
 
-func (s *scriptCalls) close(ctx context.Context) []ScriptCallReceipt {
+func (s *scriptCalls) close() {
 	s.mu.Lock()
 	s.closed = true
 	active := s.active
 	s.mu.Unlock()
 	if active != nil {
-		select {
-		case <-active:
-		case <-ctx.Done():
-		}
+		<-active
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.seen = nil
+}
+
+func (s *scriptCalls) snapshot() []ScriptCallReceipt {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]ScriptCallReceipt{}, s.receipts...)
 }
 
-func (m *Manager) Script(ctx context.Context, principal Principal, submission ScriptSubmission, invoke CapabilityHandler) (*ScriptReport, error) {
-	if submission.Source == "" || int64(len(submission.Source)) > m.deployment.Limits.InputBytes || submission.SourceName == "" || submission.DSLAPIVersion != m.classpaths.DSLAPIVersion || !json.Valid(submission.Parameters) || int64(len(submission.Parameters)) > m.deployment.Limits.InputBytes || invoke == nil {
-		return nil, errors.New("script requires bounded source, sourceName, exact DSL API version and parameters")
-	}
-	owner, err := scriptOwner(principal)
-	if err != nil {
-		return nil, err
-	}
+func (m *Manager) runScript(execution *scriptExecution, session *scriptSession, principal Principal, submission ScriptSubmission) (finalState string, finalSuccess bool, worker *scriptWorker) {
 	started := time.Now()
-	parent, cancel := context.WithTimeout(ctx, time.Duration(m.deployment.Limits.RequestSeconds*float64(time.Second)))
-	defer cancel()
-	parent, release, err := m.admit(parent)
-	if err != nil {
-		return nil, err
-	}
-	defer release()
-	id := fmt.Sprintf("script-%d", m.sequence.Add(1))
-	m.mu.Lock()
-	if m.closed {
-		m.mu.Unlock()
-		return nil, errors.New("runtime is closed")
-	}
-	m.scriptRuns[id] = cancel
-	m.scriptWait.Add(1)
-	m.mu.Unlock()
-	defer func() { m.mu.Lock(); delete(m.scriptRuns, id); m.mu.Unlock(); m.scriptWait.Done() }()
-	report := &ScriptReport{RequestID: id, RecycleReasons: []string{}, Calls: []ScriptCallReceipt{}, Diagnostics: []*pb.ScriptDiagnostic{}, TimingNanos: map[string]int64{}}
-	fail := func(cause error) (*ScriptReport, error) {
-		report.Success = false
-		code := "SCRIPT_RUNTIME_FAILED"
+	p := m.scripts
+	p.mu.Lock()
+	worker = session.slot.worker
+	p.mu.Unlock()
+	reasons := []string{}
+	directory := ""
+	finalState, finalSuccess = "LOST", false
+	defer func() {
+		execution.calls.close()
+		if worker != nil && len(reasons) > 0 {
+			worker.close(reasons...)
+		}
+		if directory != "" {
+			if err := os.RemoveAll(directory); err != nil {
+				reasons = appendScriptReason(reasons, "SCRIPT_EXECUTION_DIRECTORY_CLEANUP_FAILED")
+				slog.Error("script execution directory cleanup failed", "requestId", execution.id, "error", err)
+			}
+		}
+		disposition := "RETIRED"
+		if worker != nil {
+			disposition, reasons = m.finishScriptWorker(session, worker, reasons)
+		} else {
+			p.mu.Lock()
+			if session.state != "RESETTING" && session.state != "CLOSING" {
+				session.state = "LOST"
+				releaseLostScriptSlot(session, nil, "NO_PROCESS_HANDLE")
+			}
+			p.mu.Unlock()
+		}
+		execution.mu.Lock()
+		execution.report.WorkerDisposition, execution.report.RecycleReasons = disposition, reasons
+		execution.report.TimingNanos["SCRIPT_TOTAL"] = time.Since(started).Nanoseconds()
+		execution.invoke, execution.ctx, execution.cancel = nil, nil, nil
+		execution.mu.Unlock()
+	}()
+	fail := func(cause error) {
+		execution.requestCancel()
+		state, code := "LOST", "SCRIPT_RUNTIME_LOST"
 		if errors.Is(cause, context.DeadlineExceeded) {
-			code = "SCRIPT_DEADLINE_EXCEEDED"
-		} else if errors.Is(cause, context.Canceled) {
-			code = "SCRIPT_CANCELLED"
+			state, code = "CANCELLED", "SCRIPT_DEADLINE_EXCEEDED"
 		}
-		report.Diagnostics = append(report.Diagnostics, &pb.ScriptDiagnostic{Stage: "RUNTIME", Severity: "ERROR", Code: code, Message: "script runtime did not complete; inspect the recorded capability calls"})
-		report.TimingNanos["SCRIPT_TOTAL"] = time.Since(started).Nanoseconds()
-		slog.Warn("script did not complete", "requestId", id, "error", cause)
-		return report, cause
-	}
-	queued := time.Now()
-	slot, worker, outcome, startup, err := m.acquireScript(parent, owner)
-	if err != nil {
-		return fail(err)
-	}
-	report.WorkerID, report.WorkerOutcome = worker.id, outcome
-	report.TimingNanos["SCRIPT_WORKER_STARTUP"] = startup.Nanoseconds()
-	report.TimingNanos["SCRIPT_WORKER_QUEUE"] = time.Since(queued).Nanoseconds() - startup.Nanoseconds()
-	recycleReasons := []string{"SCRIPT_EXECUTION_NOT_COMPLETED"}
-	defer func() {
-		releasing := time.Now()
-		report.WorkerDisposition, report.RecycleReasons = m.releaseScript(slot, worker, recycleReasons)
-		report.TimingNanos["SCRIPT_WORKER_RELEASE"] = time.Since(releasing).Nanoseconds()
-		report.TimingNanos["SCRIPT_TOTAL"] = time.Since(started).Nanoseconds()
-	}()
-	directory, err := worker.executionDirectory()
-	if err != nil {
-		recycleReasons = []string{"SCRIPT_EXECUTION_DIRECTORY_FAILED"}
-		return fail(err)
-	}
-	defer func() {
-		if err := os.RemoveAll(directory); err != nil {
-			slog.Error("script directory cleanup failed", "requestId", id, "error", err)
-			recycleReasons = appendScriptReason(recycleReasons, "SCRIPT_EXECUTION_DIRECTORY_CLEANUP_FAILED")
+		if errors.Is(cause, context.Canceled) {
+			state, code = "CANCELLED", "SCRIPT_CANCELLED"
 		}
-	}()
-	calls := &scriptCalls{id: id, maximum: m.deployment.Scripting.MaxCalls, seen: map[string]bool{}, receipts: []ScriptCallReceipt{}}
-	if err = worker.bind(&scriptExecution{ctx: parent, id: id, calls: calls, invoke: invoke, outputRemaining: m.deployment.Limits.ResponseBytes}); err != nil {
-		recycleReasons = []string{"SCRIPT_WORKER_BIND_FAILED"}
-		return fail(err)
+		execution.mu.Lock()
+		finalState, finalSuccess = state, false
+		execution.report.Diagnostics = append(execution.report.Diagnostics, &pb.ScriptDiagnostic{Stage: "RUNTIME", Severity: "ERROR", Code: code, Message: "script execution did not complete; recorded outputs, calls and effects remain available"})
+		execution.mu.Unlock()
+		slog.Warn("script execution did not complete", "sessionId", session.id, "executionId", execution.executionID, "requestId", execution.id, "error", cause)
 	}
-	slog.Info("script started", "requestId", id, "sourceName", submission.SourceName, "workerId", worker.id, "workerOutcome", outcome)
-	response, runErr := worker.process.script(parent, &pb.ScriptRequest{RequestId: id, RemainingMillis: remainingMillis(parent), Source: &pb.ScriptSource{Source: submission.Source, SourceName: submission.SourceName, DslApiVersion: submission.DSLAPIVersion}, ParametersJson: submission.Parameters, CallerSubject: principal.Subject, ExecutionDirectory: directory})
-	recycleReasons = []string{}
-	if response == nil {
-		recycleReasons = append(recycleReasons, "SCRIPT_RESPONSE_MISSING")
-	} else {
-		for _, issue := range response.GetResourceIssues() {
-			recycleReasons = appendScriptReason(recycleReasons, issue.Code)
-			worker.log.Warn("script resource observation", "requestId", id, "workerId", worker.id, "resourceIssue", issue)
-		}
-		if response.GetRecycleWorker() && len(recycleReasons) == 0 {
-			recycleReasons = append(recycleReasons, "SCRIPT_WORKER_RECYCLE_REQUESTED")
-		}
-	}
-	if runErr != nil {
-		cancel()
-	}
-	finalization, finish := context.WithTimeout(context.WithoutCancel(parent), 5*time.Second)
-	report.Calls = calls.close(finalization)
-	finish()
-	if runErr != nil {
-		return fail(runErr)
-	}
-	report.Success = response.Success
-	report.Diagnostics = append(report.Diagnostics, response.Diagnostics...)
-	for stage, nanos := range response.TimingNanos {
-		report.TimingNanos[stage] = int64(nanos)
-	}
-	if response.Success {
-		if err := validateRegisteredProto(response.Result); err != nil {
-			return fail(err)
-		}
-		raw, err := protojson.MarshalOptions{}.Marshal(response.Result)
+	if worker == nil {
+		startup := time.Now()
+		var err error
+		worker, err = m.newScriptWorker(execution.ctx, session.owner)
 		if err != nil {
-			return fail(err)
+			if worker != nil {
+				p.mu.Lock()
+				session.slot.worker = worker
+				p.mu.Unlock()
+			}
+			reasons = append(reasons, "SCRIPT_WORKER_STARTUP_FAILED")
+			fail(err)
+			return
 		}
-		report.Value = raw
+		p.mu.Lock()
+		session.slot.worker = worker
+		if session.state == "STARTING" {
+			session.state = "BUSY"
+		}
+		p.mu.Unlock()
+		execution.mu.Lock()
+		execution.report.WorkerOutcome = "STARTED"
+		execution.report.TimingNanos["SCRIPT_WORKER_STARTUP"] = time.Since(startup).Nanoseconds()
+		execution.mu.Unlock()
+		go m.observeScriptWorker(session, worker)
+	} else {
+		execution.mu.Lock()
+		execution.report.WorkerOutcome = "SESSION"
+		execution.mu.Unlock()
 	}
-	report.TimingNanos["SCRIPT_TOTAL"] = time.Since(started).Nanoseconds()
-	slog.Info("script completed", "requestId", id, "success", report.Success, "calls", len(report.Calls))
-	return report, nil
+	execution.mu.Lock()
+	execution.report.WorkerID = worker.id
+	execution.mu.Unlock()
+	var err error
+	directory, err = worker.executionDirectory()
+	if err != nil {
+		reasons = append(reasons, "SCRIPT_EXECUTION_DIRECTORY_FAILED")
+		fail(err)
+		return
+	}
+	if err = worker.bind(execution); err != nil {
+		reasons = append(reasons, "SCRIPT_WORKER_BIND_FAILED")
+		fail(err)
+		return
+	}
+	slog.Info("script started", "sessionId", session.id, "executionId", execution.executionID, "requestId", execution.id, "workerId", worker.id)
+	response, runErr := worker.process.script(execution.ctx, &pb.ScriptRequest{RequestId: execution.id, SessionId: session.id,
+		RemainingMillis: remainingMillis(execution.ctx), Source: &pb.ScriptSource{Source: submission.Source, SourceName: submission.SourceName, DslApiVersion: submission.DSLAPIVersion},
+		ParametersJson: submission.Parameters, CallerSubject: principal.Subject, ExecutionDirectory: directory})
+	if response == nil {
+		reasons = append(reasons, "SCRIPT_RESPONSE_MISSING")
+		fail(runErr)
+		return
+	}
+	state := response.State
+	if state != "COMPLETED" && state != "COMPILE_FAILED" && state != "RUNTIME_FAILED" && state != "CANCELLED" {
+		reasons = append(reasons, "SCRIPT_RESPONSE_CONTRACT_INVALID")
+		fail(errors.New("invalid script completion state"))
+		return
+	}
+	for _, issue := range response.ResourceIssues {
+		worker.log.Warn("script resource observation", "sessionId", session.id, "executionId", execution.executionID, "requestId", execution.id, "workerId", worker.id, "resourceIssue", issue)
+		if !response.SessionUsable {
+			reasons = appendScriptReason(reasons, issue.Code)
+		}
+	}
+	if !response.SessionUsable && len(reasons) == 0 {
+		reasons = append(reasons, "SCRIPT_SESSION_UNUSABLE")
+	}
+	execution.mu.Lock()
+	finalState, finalSuccess = state, state == "COMPLETED" && response.Success
+	execution.report.Diagnostics = append(execution.report.Diagnostics, response.Diagnostics...)
+	for stage, nanos := range response.TimingNanos {
+		execution.report.TimingNanos[stage] = int64(nanos)
+	}
+	execution.mu.Unlock()
+	slog.Info("script completed", "sessionId", session.id, "executionId", execution.executionID, "requestId", execution.id, "state", state)
+	return
 }
 
 func (m *Manager) invokeScriptCapability(ctx context.Context, request *pb.CapabilityRequest, invoke CapabilityHandler) *pb.CapabilityResponse {
@@ -359,13 +394,13 @@ func (m *Manager) scriptDirectory() (string, error) {
 	return resolved, nil
 }
 
-func (m *Manager) startScriptProcess(ctx context.Context, directory string, callback func(*pb.CapabilityRequest), output func(*pb.ScriptOutput)) (*process, error) {
+func (m *Manager) startScriptProcess(ctx context.Context, directory string, callback func(*pb.CapabilityRequest), output func(*pb.ScriptOutput), emission func(*pb.ScriptEmission)) (*process, error) {
 	configuration := &pb.ScriptConfiguration{DslApiVersion: m.classpaths.DSLAPIVersion, CompilationClasspath: m.classpaths.DSL, MaximumSourceBytes: uint64(m.deployment.Limits.InputBytes), MaximumFrameBytes: uint64(m.deployment.Limits.FrameBytes), MaximumInputDepth: m.deployment.Limits.InputDepth, MaximumInputNodes: m.deployment.Limits.InputNodes}
 	configuration.MaximumRequestBytes = uint64(m.deployment.Limits.InputBytes)
 	files := append(strings.Split(m.classpaths.Script, string(filepath.ListSeparator)), m.classpaths.DSL...)
 	startup, cancel := context.WithTimeout(ctx, time.Duration(m.deployment.Limits.StartupSeconds*float64(time.Second)))
 	defer cancel()
-	p, _, err := startProcess(startup, m.cfg, processLaunch{Classpath: m.classpaths.Script, Mode: "script", HeapMiB: m.deployment.Scripting.JVMHeapMiB, Bootstrap: &pb.Bootstrap{Protocol: protocolVersion, Scripting: configuration}, MaximumBytes: m.deployment.Limits.FrameBytes, LogBytes: m.deployment.Scripting.NativeLogBytes, Capability: callback, ScriptOutput: output, Sandbox: &scriptSandbox{Directory: directory, ReadFiles: files}})
+	p, _, err := startProcess(startup, m.cfg, processLaunch{Classpath: m.classpaths.Script, Mode: "script", HeapMiB: m.deployment.Scripting.JVMHeapMiB, Bootstrap: &pb.Bootstrap{Protocol: protocolVersion, Scripting: configuration}, MaximumBytes: m.deployment.Limits.FrameBytes, LogBytes: m.deployment.Scripting.NativeLogBytes, Capability: callback, ScriptOutput: output, ScriptEmission: emission, Sandbox: &scriptSandbox{Directory: directory, ReadFiles: files}})
 	if err != nil {
 		return nil, err
 	}

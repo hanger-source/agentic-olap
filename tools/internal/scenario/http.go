@@ -2,6 +2,7 @@ package scenario
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
 	"net"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/hanger-source/agentic-olap/tooling/internal/products"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // Go只准备来源、运行正式产品和提交完整脚本；业务定义与Query由Kotlin脚本构造。
@@ -93,6 +95,9 @@ func runHTTP(ctx context.Context, w products.Workspace, options Options) {
 	obj(configuration["limits"])["workerCount"] = 1
 	obj(configuration["scripting"])["workerCount"] = 1
 	obj(configuration["scripting"])["maxCalls"] = 1000
+	if name == "server-http" {
+		obj(configuration["limits"])["responseBytes"] = 65536
+	}
 	configPath := filepath.Join(root, "server.json")
 	write(configPath, configuration)
 	environment := []string{"AGENTIC_OLAP_HOME=" + options.Distribution, "SSL_CERT_FILE=" + identity.ca, "NO_PROXY=127.0.0.1,localhost", "OLAP_TEST_HTTP_AUTH=Bearer fixture-query-access"}
@@ -110,7 +115,50 @@ func runHTTP(ctx context.Context, w products.Workspace, options Options) {
 	api := obj(first.call("describe-script-api", object{}))
 	version := str(api["dslApiVersion"])
 	report["api"] = api
-	first.call("execute-script", object{"source": "val a = olap.sources.list(com.olap.prototype.source.contract.EmptyRequest)\nval b = olap.sources.list(com.olap.prototype.source.contract.EmptyRequest)\ncheck(a == b)\nolap.output(b)", "sourceName": "source-discovery.kts", "dslApiVersion": version, "parameters": object{}})
+	first.call("execute-script", scriptPayload([]byte("val a = olap.sources.list(com.olap.prototype.source.contract.EmptyRequest)\nval b = olap.sources.list(com.olap.prototype.source.contract.EmptyRequest)\ncheck(a == b)\nolap.output(b)"), "source-discovery", version, object{}))
+	if name == "server-http" {
+		const source = `print("\u0001".repeat(14000))
+olap.output(com.olap.prototype.dsl.ScriptValue.Text("after-large-print"))
+Any()`
+		payload := scriptPayload([]byte(source), "large-print-delivery", version, object{})
+		printed := obj(first.call("execute-script", payload))
+		require(printed["success"] == true && printed["state"] == "COMPLETED", "大打印交付改变了实际代码执行状态：%s", encoded(printed["diagnostics"]))
+		outputs := arr(printed["outputs"])
+		require(len(outputs) == 2, "大打印与显式值应完整有序交付，普通末值不自动输出；实际%d项", len(outputs))
+		stdout, value := obj(outputs[0]), obj(outputs[1])
+		expected := strings.Repeat("\u0001", 14000)
+		require(stdout["kind"] == "STDOUT" && stdout["encoding"] == "UTF8" && stdout["content"] == expected,
+			"完整STDOUT字节或顺序不符")
+		require(value["kind"] == "VALUE" && obj(value["value"])["text"] == "after-large-print", "大打印后的显式输出未按顺序交付")
+		// 复用客户端的真实调用留档观察保存及读取，不另造响应解包路径。
+		trace, err := os.ReadFile(first.trace.Name())
+		must(err)
+		var delivery object
+		submitted, pages := 0, 0
+		for _, line := range strings.Split(string(trace), "\n") {
+			if line == "" {
+				continue
+			}
+			entry := obj(decode([]byte(line)))
+			operation := entry["operation"]
+			input := obj(entry["payload"])
+			if (operation == "execute-script" || operation == "wait-script") && input["executionId"] == payload["executionId"] {
+				if operation == "execute-script" {
+					submitted++
+				}
+				if result, ok := obj(entry["response"])["result"].(map[string]any); ok && result["delivery"] == "SAVED" {
+					delivery = result
+				}
+			}
+			if operation == "read-response" && delivery != nil &&
+				reflect.DeepEqual(input["reference"], obj(obj(delivery["read"])["payload"])["reference"]) {
+				pages++
+			}
+		}
+		require(submitted == 1 && delivery != nil && pages > 0, "大打印必须一次提交、自动完整保存并正式回读；提交%d次，读取%d页", submitted, pages)
+		report["largePrintDelivery"] = object{"execution": printed, "savedDelivery": delivery, "stdoutBytes": len(expected),
+			"executionsSubmitted": submitted, "responsePagesRead": pages}
+	}
 	var source []byte
 	var refs object
 	parameters := object{"phase": "build", "sourceId": "example-" + name}
@@ -125,7 +173,7 @@ val failure = runCatching {
 }.exceptionOrNull()
 val rejected = failure as com.olap.prototype.dsl.transport.CapabilityFailureException
 check(rejected.failure.code == "SOURCE_CAPABILITY_MISSING") { rejected.failure.toString() }
-com.olap.prototype.dsl.ScriptValue.Text(rejected.failure.code)
+olap.output(com.olap.prototype.dsl.ScriptValue.Text(rejected.failure.code))
 `
 		report["unsupportedHttpCatalog"] = first.call("execute-script", scriptPayload([]byte(unsupportedCatalog), "unsupported-http-catalog", version, parameters))
 	}
@@ -145,8 +193,10 @@ com.olap.prototype.dsl.ScriptValue.Text(rejected.failure.code)
 		count++
 	}
 	require(count == 0, "无grant主体仍发现工具")
-	response := denied.callStatus("execute-script", scriptPayload([]byte("error(\"must not run\")"), "denied", version, object{}), false)
-	require(obj(response["error"])["code"] == "AUTHORIZATION_DENIED", "未授权脚本未被正式服务拒绝")
+	deniedResult, deniedError := denied.session.CallTool(ctx, &mcp.CallToolParams{Name: "execute-script", Arguments: object{
+		"payload": scriptPayload([]byte("error(\"must not run\")"), "denied", version, object{}),
+	}})
+	require(deniedError != nil || deniedResult != nil && deniedResult.IsError, "无grant主体仍能调用未公开工具")
 	denied.close()
 	s.stop()
 	obj(configuration["limits"])["maxInFlight"] = 1
@@ -206,14 +256,36 @@ com.olap.prototype.dsl.ScriptValue.Text(rejected.failure.code)
 }
 
 func scriptPayload(source []byte, name, version string, parameters object) object {
-	return object{"source": string(source), "sourceName": name + ".kts", "dslApiVersion": version, "parameters": parameters}
+	identity := make([]byte, 16)
+	_, err := rand.Read(identity)
+	must(err)
+	return object{"executionId": fmt.Sprintf("%s-%x", name, identity), "waitMillis": 10000,
+		"source": string(source), "sourceName": name + ".kts", "dslApiVersion": version, "parameters": parameters}
 }
 func scriptReferences(report object) object {
-	values := obj(obj(obj(report["value"])["object"])["values"])
-	query := obj(obj(values["query"])["reference"])["query"]
-	result := obj(obj(values["result"])["reference"])["result"]
-	require(query != nil && result != nil, "正式脚本必须返回已保存查询和结果的精确引用")
-	return object{"query": query, "result": result}
+	var references object
+	for _, raw := range arr(report["outputs"]) {
+		event := obj(raw)
+		if event["kind"] != "VALUE" {
+			continue
+		}
+		value := obj(event["value"])
+		container, ok := value["object"].(map[string]any)
+		if !ok {
+			continue
+		}
+		values := obj(container["values"])
+		if values["query"] == nil || values["result"] == nil {
+			continue
+		}
+		require(references == nil, "作者程序输出了多份查询/结果引用，不能猜测其业务含义")
+		query := obj(obj(values["query"])["reference"])["query"]
+		result := obj(obj(values["result"])["reference"])["result"]
+		require(query != nil && result != nil, "VALUE 输出必须包含已保存查询和结果的精确引用")
+		references = object{"query": query, "result": result}
+	}
+	require(references != nil, "正式脚本必须显式输出已保存查询和结果的精确引用")
+	return references
 }
 
 // 原生请求与当前声明的来源绑定没有被示例脚本改写。

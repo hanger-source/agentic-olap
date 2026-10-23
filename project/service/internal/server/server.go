@@ -118,7 +118,7 @@ func (s *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (s *HTTP) session(r *http.Request) *mcp.Server {
 	principal := r.Context().Value(principalKey{}).(runtime.Principal)
 	operations, err := s.app.Operations(r.Context(), principal)
-	server := mcp.NewServer(&mcp.Implementation{Name: "agentic-olap", Version: s.version}, &mcp.ServerOptions{Instructions: "先用 describe-script-api 发现正式 Kotlin 类型和能力，再通过 execute-script 提交完整 kts 程序。脚本可调查来源、管理定义、采用发布并组合查询；每次能力调用照常授权。工具参数放在 payload 中。", Logger: slog.Default()})
+	server := mcp.NewServer(&mcp.Implementation{Name: "agentic-olap", Version: s.version}, &mcp.ServerOptions{Instructions: "先用 describe-script-api 发现正式 Kotlin 类型。execute-script 使用明确 executionId，在新会话或指定 sessionId 中持续求值；RUNNING 时用 wait-script 等待原执行，不重复源码。使用 close-script-session 释放自己建立的会话。正式能力各自授权、记录；显式 olap.output 与打印独立于末表达式。工具参数放在 payload 中。", Logger: slog.Default()})
 	if err != nil {
 		slog.Warn("authorized operation discovery failed", "error", err)
 		return nil
@@ -154,8 +154,8 @@ func (s *HTTP) session(r *http.Request) *mcp.Server {
 		}
 		destructive, open := !contract.ReadOnly, false
 		schema := json.RawMessage(`{"type":"object","properties":{"payload":{"type":"object"}},"required":["payload"],"additionalProperties":false}`)
-		if operation == "execute-script" {
-			schema = json.RawMessage(`{"type":"object","properties":{"payload":{"type":"object","properties":{"source":{"type":"string","description":"完整 Kotlin 脚本源码"},"sourceName":{"type":"string","description":"用于错误定位的 .kts 名称"},"dslApiVersion":{"type":"string","description":"describe-script-api 返回的精确 DSL API 版本"},"parameters":{"type":"object","description":"本次脚本的普通参数；无参数时传空对象。JSON 输入遵守实际部署的 requestBytes/inputNodes/inputDepth；普通值不另设固定容量。表示与计数规则见 describe-script-api 的 com.olap.prototype.dsl.ScriptArguments.rules。"}},"required":["source","sourceName","dslApiVersion","parameters"],"additionalProperties":false}},"required":["payload"],"additionalProperties":false}`)
+		if specific := scriptToolSchema(operation); specific != nil {
+			schema = specific
 		}
 		server.AddTool(&mcp.Tool{Name: operation, Description: contract.Description, InputSchema: schema, Annotations: &mcp.ToolAnnotations{ReadOnlyHint: contract.ReadOnly, DestructiveHint: &destructive, OpenWorldHint: &open}}, func(ctx context.Context, request *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			var args struct {
@@ -198,9 +198,21 @@ func failure(operation string, err error) application.Envelope {
 	references := map[string]any{}
 	var delivery *application.DeliveryFailure
 	var input *wire.InputError
+	var script *runtime.ScriptError
 	if errors.As(err, &delivery) {
 		code, message, stage = "RESULT_DELIVERY_FAILED", delivery.Error(), "RESULT_DELIVERY"
 		references["runId"] = delivery.RunID
+	} else if errors.As(err, &script) {
+		code, message, stage = script.Code, script.Message, "SCRIPT"
+		if script.SessionID != "" {
+			references["sessionId"] = script.SessionID
+		}
+		if script.ExecutionID != "" {
+			references["executionId"] = script.ExecutionID
+		}
+		if script.State != "" {
+			references["state"] = script.State
+		}
 	} else if errors.Is(err, context.DeadlineExceeded) {
 		code, message, stage = "CLIENT_WAIT_DEADLINE_EXCEEDED", "等待期限已结束；操作实际结局尚未确认，请核对运行记录", "CLIENT_WAIT"
 		references["clientOutcome"] = "DEADLINE_EXCEEDED"

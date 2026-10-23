@@ -53,7 +53,7 @@ func distributionClassPaths(directory string) (distributionPaths, error) {
 	if err = json.Unmarshal(data, &manifest); err != nil {
 		return paths, err
 	}
-	if manifest.Version != "agentic-olap-distribution/v3" || manifest.Runtime.Main != "com.olap.prototype.runtime.ApplicationMainKt" || len(manifest.Runtime.Classpath) == 0 || manifest.Scripting.DSLAPIVersion != "agentic-olap-kotlin-dsl/v1" || len(manifest.Scripting.Runtime) == 0 || len(manifest.Scripting.DSL) == 0 {
+	if manifest.Version != "agentic-olap-distribution/v3" || manifest.Runtime.Main != "com.olap.prototype.runtime.ApplicationMainKt" || len(manifest.Runtime.Classpath) == 0 || manifest.Scripting.DSLAPIVersion != "agentic-olap-kotlin-dsl/v2" || len(manifest.Scripting.Runtime) == 0 || len(manifest.Scripting.DSL) == 0 {
 		return paths, errors.New("unsupported or incomplete JVM distribution")
 	}
 	verified := make(map[string]string)

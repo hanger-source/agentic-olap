@@ -16,11 +16,7 @@ import com.olap.prototype.warehouse.inspection.*
 import com.olap.prototype.warehouse.onboarding.*
 import java.math.BigDecimal
 
-val actor = olap.caller.subject
-fun activate(type: GovernanceActivationObjectType, id: String, version: Long = 1) {
-    olap.governance.activate(GovernanceVersionActivationRequest(type, id, version, actor, "安装验收明确激活精确版本"))
-}
-fun output(vararg values: Pair<String, ScriptValue>) = ScriptValue.ObjectValue(mapOf(*values))
+fun fields(vararg values: Pair<String, ScriptValue>) = ScriptValue.ObjectValue(mapOf(*values))
 fun text(value: String) = ScriptValue.Text(value)
 fun reference(name: String): QueryResultReference = QueryResultReference(parameters.text(name + "RunId"), parameters.text(name + "Sha256"))
 fun scalar(value: ResultValueView): ExecutableBusinessResult.ScalarValue =
@@ -50,12 +46,16 @@ fun computation(entry: PublishedQueryEntry, unauthorized: Boolean = false): Quer
         DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(calls.map { it.callId }), null))
 }
 
-when (parameters.text("phase")) {
+val actor = olap.caller.subject
+fun activate(type: GovernanceActivationObjectType, id: String, version: Long = 1) {
+    olap.governance.activate(GovernanceVersionActivationRequest(type, id, version, actor, "安装验收明确激活精确版本"))
+}
+olap.output(when (parameters.text("phase")) {
     "create" -> {
         check(olap.sources.list(EmptyRequest).items.isEmpty())
         val asset = olap.governance.createBusinessLine(BusinessLineCreateRequest(
             "installed_product", "安装后的实际治理资产", actor, "npm包真实创建与重启读取", actor)).businessLine
-        output("businessLineId" to text(asset.id))
+        fields("businessLineId" to text(asset.id))
     }
     "structure" -> {
         val source = olap.sources.list(EmptyRequest).items.single { it.binding.dataSourceId == "business" }
@@ -75,7 +75,7 @@ when (parameters.text("phase")) {
         val snapshot = olap.semantics.sourceDiscovery(GovernanceReadRequests.SnapshotInput(stored.snapshotId))
         check(requireNotNull(snapshot.structureProvenance).kind == StructureProvenance.Kind.DECLARED && snapshot.driverName == null)
         val businessLine = olap.semantics.businessLines(GovernanceReadRequests.PageInput(0, 20)).items.single { it.id == parameters.text("businessLineId") }
-        output("snapshotId" to text(stored.snapshotId), "sourceIdentityHash" to text(source.binding.sourceIdentityHash),
+        fields("snapshotId" to text(stored.snapshotId), "sourceIdentityHash" to text(source.binding.sourceIdentityHash),
             "businessLineId" to text(businessLine.id))
     }
     "build" -> {
@@ -166,8 +166,9 @@ when (parameters.text("phase")) {
         val nextCoordinate = QueryCapabilityRequest(scenario.id, 2, "installed-sales", "2")
         val nextPublication = olap.semantics.publication(nextCoordinate)
         val continued = execute(QueryIntent(nextCoordinate, computation(nextPublication)), "修订上下文后保持订单口径")
-        output("query" to olap.output(saved.reference), "result" to olap.output(requireNotNull(execution.resultReference)),
-            "continuedResult" to olap.output(requireNotNull(continued.resultReference)), "scenarioId" to text(scenario.id),
+        fields("query" to ScriptValue.QueryReferenceValue(saved.reference),
+            "result" to ScriptValue.ResultReferenceValue(requireNotNull(execution.resultReference)),
+            "continuedResult" to ScriptValue.ResultReferenceValue(requireNotNull(continued.resultReference)), "scenarioId" to text(scenario.id),
             "subjectAreaId" to text(subject.id), "orderColumnVersion" to text(orderColumnVersion))
     }
     "reopen" -> {
@@ -178,7 +179,7 @@ when (parameters.text("phase")) {
         val repeated = olap.queries.execute(QueryExecutionRequest(QuerySelection.Saved(query), true, "重启后按同一发布重新计算销售额与订单数", null))
         check(repeated.status == QueryExecutionStatus.SUCCEEDED && repeated.saved && repeated.runId != original.runId)
         verify(requireNotNull(repeated.resultReference))
-        output("query" to olap.output(query), "result" to olap.output(requireNotNull(repeated.resultReference)))
+        fields("query" to ScriptValue.QueryReferenceValue(query), "result" to ScriptValue.ResultReferenceValue(requireNotNull(repeated.resultReference)))
     }
     else -> error("未知安装验收阶段")
-}
+})

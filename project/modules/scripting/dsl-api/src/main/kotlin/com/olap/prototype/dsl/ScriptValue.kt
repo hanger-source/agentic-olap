@@ -3,7 +3,7 @@ package com.olap.prototype.dsl
 import java.math.BigDecimal
 import java.util.Collections
 
-/** 脚本参数和普通返回值；不允许把 JVM 对象、闭包或类当成持久语义。 */
+/** 普通参数和显式输出的快照；语言末表达式不受此类型约束。 */
 sealed interface ScriptValue {
     data object Null : ScriptValue
     data class BooleanValue(val value: Boolean) : ScriptValue
@@ -45,7 +45,7 @@ sealed interface ScriptValue {
     }
     companion object {
         fun contract(): Map<String, Any> = mapOf(
-            "appliesTo" to listOf("SCRIPT_ARGUMENTS", "ORDINARY_SCRIPT_RESULTS"),
+            "appliesTo" to listOf("SCRIPT_ARGUMENTS", "EXPLICIT_SCRIPT_OUTPUTS"),
             "representation" to mapOf("decimal" to "EXACT_JAVA_BIG_DECIMAL_VALUE_AND_SCALE",
                 "text" to "JVM_STRING", "objectKeys" to "ANY_STRING_INCLUDING_EMPTY_AND_WHITESPACE",
                 "collections" to "IMMUTABLE_DEFENSIVE_COPY",

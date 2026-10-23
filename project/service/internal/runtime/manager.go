@@ -84,6 +84,7 @@ type Manager struct {
 	scriptRuns  map[string]context.CancelFunc
 	scripts     *scriptPool
 	closing     chan struct{}
+	closeDone   chan struct{}
 	scriptWait  sync.WaitGroup
 	requestWait sync.WaitGroup
 }
@@ -235,11 +236,20 @@ func (m *Manager) call(ctx context.Context, principal Principal, request *pb.Req
 	started := time.Now()
 	requestCtx, cancel := context.WithTimeout(ctx, time.Duration(m.deployment.Limits.RequestSeconds*float64(time.Second)))
 	defer cancel()
-	requestCtx, release, err := m.admit(requestCtx)
-	if err != nil {
-		return Reply{}, err
+	// 控制元数据不执行业务或借 worker；满载时仍须能发现、授权和停止正在执行的脚本。
+	switch request.Operation {
+	case "operation-discovery", "describe-script-api", "describe-operation", "authorize-script":
+		if err := requestCtx.Err(); err != nil {
+			return Reply{}, err
+		}
+	default:
+		admittedContext, release, err := m.admit(requestCtx)
+		if err != nil {
+			return Reply{}, err
+		}
+		requestCtx = admittedContext
+		defer release()
 	}
-	defer release()
 	admitted := time.Now()
 	m.mu.Lock()
 	if m.closed || m.metadata == nil {
@@ -518,10 +528,17 @@ func (m *Manager) releaseRequest(state *requestState, invalidate bool) {
 func (m *Manager) Close(ctx context.Context) error {
 	m.mu.Lock()
 	if m.closed {
+		done := m.closeDone
 		m.mu.Unlock()
-		return nil
+		select {
+		case <-done:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 	m.closed = true
+	m.closeDone = make(chan struct{})
 	close(m.closing)
 	for _, cancel := range m.scriptRuns {
 		cancel()
@@ -558,6 +575,7 @@ func (m *Manager) Close(ctx context.Context) error {
 		if p != nil {
 			p.stop()
 		}
+		go func() { <-done; close(m.closeDone) }()
 		return ctx.Err()
 	}
 	if p != nil {
@@ -566,9 +584,11 @@ func (m *Manager) Close(ctx context.Context) error {
 		case <-p.done:
 		case <-ctx.Done():
 			p.stop()
+			close(m.closeDone)
 			return ctx.Err()
 		}
 		p.stop()
 	}
+	close(m.closeDone)
 	return nil
 }

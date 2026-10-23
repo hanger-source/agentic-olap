@@ -1,12 +1,10 @@
-package com.olap.prototype.scripting
+package com.olap.prototype.runtime
 
-import com.olap.prototype.dsl.OlapClient
 import java.lang.management.ManagementFactory
-import java.net.URLClassLoader
 import java.nio.file.Files
 import java.nio.file.Path
 
-/** 只清理由本运行器实际取得的资源；未知平台线程仍阻止复用，快照不覆盖虚拟线程。 */
+/** 观察本次求值资源，不关闭会话语言历史；未知平台线程仍阻止继续使用，快照不覆盖虚拟线程。 */
 internal class ScriptExecutionResources(directory: Path) : AutoCloseable {
     private val thread = Thread.currentThread()
     private val previousLoader = thread.contextClassLoader
@@ -14,7 +12,6 @@ internal class ScriptExecutionResources(directory: Path) : AutoCloseable {
     private val previousOutput = System.out
     private val previousError = System.err
     private val threadBean = ManagementFactory.getThreadMXBean()
-    val classLoader = URLClassLoader(emptyArray(), OlapClient::class.java.classLoader)
     private var threadsBeforeEvaluation: Set<Long>? = null
     private val issues = mutableListOf<ScriptResourceIssue>()
     val resourceIssues: List<ScriptResourceIssue> get() = java.util.List.copyOf(issues)
@@ -31,7 +28,6 @@ internal class ScriptExecutionResources(directory: Path) : AutoCloseable {
             inspectionFailure("platform thread baseline could not be inspected", failure)
             throw failure
         }
-        thread.contextClassLoader = classLoader
     }
 
     override fun close() {
@@ -42,9 +38,6 @@ internal class ScriptExecutionResources(directory: Path) : AutoCloseable {
         try { thread.contextClassLoader = previousLoader }
         catch (failure: Exception) { issues += ScriptResourceIssue("CONTEXT_CLASSLOADER_RESTORE_FAILED",
             "script evaluation context classloader could not be restored (${failure.javaClass.name.take(MAXIMUM_TEXT)})") }
-        try { classLoader.close() }
-        catch (failure: Exception) { issues += ScriptResourceIssue("CLASSLOADER_CLOSE_FAILED",
-            "script evaluation classloader could not be closed (${failure.javaClass.name.take(MAXIMUM_TEXT)})") }
     }
 
     private fun inspectThreads(before: Set<Long>) {
@@ -98,7 +91,7 @@ internal class ScriptExecutionResources(directory: Path) : AutoCloseable {
     }
 
     private fun describeLoader(loader: ClassLoader?): String = if (loader == null) "BOOTSTRAP" else {
-        val relation = when { loader === classLoader -> "EVALUATION_CONTEXT"; loader === previousLoader -> "PREVIOUS_CONTEXT"; else -> "OTHER_CONTEXT" }
+        val relation = if (loader === previousLoader) "PREVIOUS_CONTEXT" else "OTHER_CONTEXT"
         "${loader.javaClass.name.take(MAXIMUM_TEXT / 2)}@${Integer.toHexString(System.identityHashCode(loader))}:$relation"
     }
 
@@ -113,3 +106,10 @@ internal class ScriptExecutionResources(directory: Path) : AutoCloseable {
         const val MAXIMUM_THREAD_REFERENCES = 4_096
     }
 }
+
+/** 有界私有事实，不保留 Thread/ClassLoader 引用，也不推断资源创建者。 */
+internal data class ScriptThreadObservation(val id: Long, val name: String, val state: String, val daemon: Boolean,
+    val contextClassLoader: String, val stack: List<String>)
+
+internal data class ScriptResourceIssue(val code: String, val message: String, val observedCount: Int = 0,
+    val threads: List<ScriptThreadObservation> = emptyList(), val truncated: Boolean = false)

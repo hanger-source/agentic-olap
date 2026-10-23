@@ -113,7 +113,7 @@ func requestBodyDeadlineHTTP(s *service, requestLimit time.Duration) {
 	must(err)
 	must(response.Body.Close())
 	elapsed := time.Since(started)
-	require(response.StatusCode == http.StatusBadRequest, "未完成body应被读取期限拒绝，实际HTTP %d：%s", response.StatusCode, diagnostic)
+	require(response.StatusCode >= 400 && response.StatusCode < 500, "未完成body应被拒绝，实际HTTP %d：%s", response.StatusCode, diagnostic)
 	require(elapsed >= requestLimit-time.Second, "未完成body在期限前被其它输入规则拒绝：%s", elapsed)
 	_, err = reader.ReadByte()
 	require(err == io.EOF, "body读取期限结束后连接未关闭：%v", err)

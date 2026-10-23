@@ -4,7 +4,7 @@ import "google/protobuf/any.proto";
 import "query.proto";
 import "governance.proto";
 
-package agentic.olap.runtime.v2;
+package agentic.olap.runtime.v3;
 
 option java_package = "com.olap.prototype.protocol";
 option java_multiple_files = true;
@@ -28,6 +28,7 @@ message Frame {
     ScriptWorkerFault script_worker_fault = 13;
     ScriptOutput script_output = 14;
     ProtocolFile file = 15;
+    ScriptEmission script_emission = 16;
   }
 }
 
@@ -41,7 +42,7 @@ enum WorkerKind {
 }
 
 message Bootstrap {
-  string protocol = 1; // agentic-olap-runtime/v2，版本必须精确一致。
+  string protocol = 1; // agentic-olap-runtime/v3，版本必须精确一致。
   bytes deployment_json = 2; // metadata mode only; no credential values.
   bytes limits_json = 3;
   repeated string connector_manifests = 4;
@@ -207,6 +208,13 @@ message ScriptRequest {
   bytes parameters_json = 4;
   string caller_subject = 5;
   string execution_directory = 6;
+  string session_id = 7;
+}
+
+// 输出动作发生时已编码的不可变快照；与打印及完成事实共用同一有序通道。
+message ScriptEmission {
+  string request_id = 1;
+  google.protobuf.Any output = 2;
 }
 
 // 普通脚本输出与完成回执在同一有序通道中交付；原生 JVM stderr 另受进程级限额。
@@ -227,6 +235,7 @@ message SourceLocation {
   uint32 start_column = 3;
   uint32 end_line = 4;
   uint32 end_column = 5;
+  string snippet_id = 6;
 }
 
 message ScriptDiagnostic {
@@ -247,11 +256,11 @@ message ScriptDiagnostic {
 message ScriptResponse {
   string request_id = 1;
   bool success = 2;
-  google.protobuf.Any result = 3;
   repeated ScriptDiagnostic diagnostics = 4;
   map<string, uint64> timing_nanos = 5;
-  bool recycle_worker = 6;
+  bool session_usable = 6;
   repeated ScriptResourceIssue resource_issues = 7;
+  string state = 8;
 }
 // 私有服务诊断，不进入公开脚本报告。这里只复制有界值，不持有线程或类加载器。
 message ScriptResourceIssue {

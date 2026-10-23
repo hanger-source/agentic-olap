@@ -46,17 +46,20 @@ agentic-olap call describe-script-api --payload '{"type":"com.olap.prototype.cal
 
 `LogicUnitInput.rules.valueTypeRules` 要求标量 `logicType` 与容器 `valueShape` 恰好选一个：标量的 `valueShape=null`；容器的 `logicType=null`，形状为正式 `SetOutputContract.Container` 的 ARRAY／ROW。普通金额字段使用 `LogicType.NUMBER`，数量合同中的单位、算术和结果容量不填入字段的容器形状。
 
-`execute-script` 一次提交完整 kts 程序。先从概览取得精确版本，再调用：
+`execute-script` 向持续 Kotlin 会话提交一个完整片段。DSL 为 `agentic-olap-kotlin-dsl/v2`，以服务发现结果为准。`executionId` 必填；不填 `sessionId` 创建会话，后续使用实际返回的会话 ID：
 
 ~~~sh
-agentic-olap call execute-script --payload '{"source":"olap.output(olap.sources.list(EmptyRequest))","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v1","parameters":{}}'
+agentic-olap call execute-script --payload '{"executionId":"sources-001","waitMillis":0,"source":"val sources = olap.sources.list(EmptyRequest)\nolap.output(sources)","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v2","parameters":{}}'
+agentic-olap call wait-script --payload '{"executionId":"sources-001","waitMillis":1000}'
 ~~~
 
-CLI 的 `--payload` 是参数对象；直接用 MCP SDK 时，arguments 包为 `{"payload":{...}}`。源码和普通参数是提交封套，语义计算使用正式类型，不提交 JSON AST。
+`waitMillis=0` 立即观察，正值最多等待这些毫秒。返回 RUNNING 后用 `wait-script` 继续，不能再提交源码启动另一执行；HTTP 等待结束不会自动取消代码。相同身份、executionId 和执行输入读取原记录，改变输入会冲突，waitMillis 不参与冲突比较；首次未填 sessionId 的同执行重试保持原输入。CLI 的 `--payload` 是参数对象；MCP SDK 的 arguments 包为 `{"payload":{...}}`。
+
+完整控制入口：`wait-script {executionId,waitMillis}`、`cancel-script {executionId}`、`read-script-session {sessionId}`、`reset-script-session {sessionId}`、`close-script-session {sessionId}`。一次会话固定 JVM，同身份可以创建多会话，每个会话一次执行一个片段。reset／close 停止当前代码，确认旧 JVM 退出并清理目录后才建立空环境或释放资源；控制期间不提交新片段。不继续使用时显式 close。服务重启不恢复语言历史、执行记录或去重，不自动重放代码。
 
 ## 在程序中使用能力
 
-脚本固定提供 `olap:OlapClient` 与 `parameters:ScriptArguments`：
+正式 DSL 的顶层属性提供会话内稳定的 `olap:OlapClient` 与当前 `parameters:ScriptArguments`：
 
 - `olap.sources`：获准来源、插件能力、可选调查、结构与集合登记、部署可用性。
 - `olap.semantics`：定义发现、精确版本、依赖、影响与差异、上下文选择、发布语义。
@@ -66,15 +69,17 @@ CLI 的 `--payload` 是参数对象；直接用 MCP SDK 时，arguments 包为 `
 
 构造器只构造模型；调用正式方法才产生读取、写入或查询。可以用普通 Kotlin 分支、循环、局部函数读取返回值后继续组织输入。公共 API 不提供 Principal、凭据或元数据库；实际调用仍由 Go 根据本次真实主体、操作和资源授权。共享 JVM 不承诺同进程任意恶意 Kotlin 的完整隔离，外部文件、网络和启动进程由 OS 沙箱限制。
 
-作者身份用只读 `olap.caller.subject`，不从参数伪造。`olap.temporaryDirectory` 是本次提交的受管临时子目录；`File(".")` 仍是稳定 worker 私有根，不表示本次目录。脚本池在同一 Subject＋Scopes 归属内复用；每次提交重新建立执行状态与受管资源，不承诺任意 JVM 全局副作用自动清为全新状态。
+作者身份用只读 `olap.caller.subject`，不从参数伪造。`olap.temporaryDirectory` 是跨片段保留的会话私有根；内部请求临时目录不注入作者环境。会话按 Subject＋规范化 Scopes 核对归属；顶层属性只在当前活跃求值线程提供环境，不向后台线程继承。正式调用和显式输出继续核对本次真实执行，历史后台线程不能借新权限。
 
-报告中的 `workerOutcome` 是借用时的启动／复用结果；`workerDisposition=RETAINED/RETIRED` 和 `recycleReasons` 描述实际归还结局。新增、未确认结束且归属未知的平台线程触发保守退役；JVM 已确认结束的候选不计作残留，未取样或读取失败不视为已结束。不能据此断言线程泄漏；有界线程证据只进入私有诊断，公开报告不返回线程堆栈。
+`parameters` getter 每次读取本次不可变快照：`fun code() = parameters.text("code")` 在后续执行读取新参数，`val original = parameters` 保留原快照。声明、导入、对象、变量及函数引用遵循真实 Kotlin REPL 语义，不假定重新声明同名函数会改变已编译旧函数内部的绑定。语言历史不会自动变成持久业务定义。
 
-末表达式返回 `olap.output(response)`、`olap.output(reference)`、普通 `ScriptValue` 或 `Unit`。正式回执须来自本次真实能力调用；普通值支持精确十进制、布尔、文本、NULL 和不可变数组、对象，不能返回任意 JVM 对象。整段程序不是跨所有调用的一个事务；后续失败不会撤销前面已完成的写入或查询，不盲目重放。
+`olap.output(response/reference/ScriptValue)` 是 Unit 动作，可多次调用；每次立即生成正式快照。正式回执只接受真实客户端返回对象；普通值支持精确十进制、布尔、文本、NULL 和不可变数组、对象。末表达式可以是任意对象，不自动展开或输出。`outputs` 按 sequence 保留 VALUE 和 STDOUT／STDERR 的相对顺序；VALUE 的 value 为正式 Protobuf JSON，打印有明确 encoding（合法文本 UTF8，否则 BASE64）与 content。输出后发生异常仍保留前面的输出；私有原生诊断不当作用户打印。整段代码不构成跨所有正式调用的事务。
+
+报告 state 为 RUNNING／COMPLETED／COMPILE_FAILED／RUNTIME_FAILED／CANCELLED／LOST，只有最终 COMPLETED 且 success=true 才成功。sessionUsable 与执行成功分别判断；当前能否提交以 `read-script-session` 的 READY 为准。普通编译失败可以继续，未知活线程或不可恢复语言／进程故障必须显式 reset，不自动重建重放。正常语言历史类加载器保留至会话关闭。线程观察不证明泄漏；必要现场只进入有界私有诊断。
 
 普通值模型没有固定的节点、深度、文本、键或十进制容量阈值；目录等结构事实正常放入 `parameters`，脚本据此构造正式模型。用 `describe-script-api` 读取 `ScriptArguments/ScriptValue` 的 `rules.deploymentBudgets`，或读取 `describe-operation` 对 `execute-script` 披露的 `resourceBudgets`，取得实际输入预算与直接响应阈值。JSON 输入遵守 `requestBytes/inputNodes/inputDepth`：根为第 1 层且计节点，容器、标量与 NULL 计节点，键不计，节点与深度在首次越界拒绝。普通值与正式能力回执按正式 Protobuf 和实际返回体编码、读取，不设置独立输出容量或深度门槛。SQL 的 `resultRows/resultValues/resultBytes/resultDepth` 约束业务结果物化。不要为容量而默认展开源码、把目录编码成文本或自动拆分写入。表示、输入预算与交付细节见[普通参数与返回值容量](../../docs/agent-usage.md#普通参数与返回值容量)。
 
-失败响应的 `calls[].effects` 保留治理写入及保存／修订查询的精确效果引用；用其 `readOperation` 在原权限下读取实际版本，不从最终 `value=null` 推断前面未提交，不选 latest。空 `effects` 不证明无副作用，失败也不自动回滚或重试；该引用只服务本次响应内恢复，不承诺断线或退出后的持久恢复。状态与 worker 报告的边界见[脚本回执与继续执行](../../docs/agent-usage.md#脚本回执与继续执行)。
+`calls[].effects` 独立于是否调用 output，保留治理写入及保存／修订查询的精确效果引用；用其 readOperation 在原权限下读取实际版本，不从没有输出或片段失败推断前面未提交，不选 latest。空 effects 不证明无副作用，失败、取消、reset 或 close 都不自动回滚既有提交；服务重启不提供这些执行观察的持久恢复。状态与输出边界见[脚本回执与继续执行](../../docs/agent-usage.md#脚本回执与继续执行)。
 
 ## 按业务含义建设与组合
 

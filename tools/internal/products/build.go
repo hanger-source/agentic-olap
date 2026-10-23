@@ -206,7 +206,7 @@ func (w Workspace) ReadJVM() (JVMBuild, error) {
 	if err != nil {
 		return build, err
 	}
-	if build.FormatVersion != "agentic-olap-jvm-build/v4" || build.ConnectorAPIVersion == "" || build.Scripting.DSLAPIVersion != "agentic-olap-kotlin-dsl/v1" || len(build.Scripting.Runtime) == 0 || len(build.Scripting.DSL) == 0 || !sameHashes(build.Sources, sources) {
+	if build.FormatVersion != "agentic-olap-jvm-build/v4" || build.ConnectorAPIVersion == "" || build.Scripting.DSLAPIVersion != "agentic-olap-kotlin-dsl/v2" || len(build.Scripting.Runtime) == 0 || len(build.Scripting.DSL) == 0 || !sameHashes(build.Sources, sources) {
 		return build, errors.New("JVM 源码与构建记录不同，请先完成同轮 jvm-build")
 	}
 	identities := build.classpathFiles()

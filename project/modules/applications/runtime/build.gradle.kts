@@ -10,7 +10,7 @@ application { mainClass.set("com.olap.prototype.runtime.ApplicationMainKt") }
 dependencies {
     api(project(":dsl-api"))
     api(project(":olap-protocol"))
-    compileOnly(project(":script-runtime"))
+    compileOnly(project(":kotlin-repl"))
     api(project(":olap-codec"))
     implementation(project(":json-io"))
     implementation(libs.kotlinx.serialization.json)

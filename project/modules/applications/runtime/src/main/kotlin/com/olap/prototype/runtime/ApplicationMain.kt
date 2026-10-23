@@ -20,7 +20,7 @@ fun main(args: Array<String>) {
     }
     val input = BufferedInputStream(System.`in`)
     val initial = ProtocolPeer.readFrame(input, 64 * 1024 * 1024) ?: error("supervisor bootstrap is required")
-    require(initial.bodyCase == Frame.BodyCase.BOOTSTRAP && initial.bootstrap.protocol == "agentic-olap-runtime/v2") {
+    require(initial.bodyCase == Frame.BodyCase.BOOTSTRAP && initial.bootstrap.protocol == "agentic-olap-runtime/v3") {
         "unsupported runtime protocol bootstrap"
     }
     val bootstrap = initial.bootstrap

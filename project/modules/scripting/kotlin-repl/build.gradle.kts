@@ -1,5 +1,5 @@
 dependencies {
-    api(project(":dsl-api"))
+    implementation(kotlin("compiler-embeddable"))
     implementation(kotlin("scripting-jvm-host"))
     implementation(kotlin("scripting-compiler-embeddable"))
 }

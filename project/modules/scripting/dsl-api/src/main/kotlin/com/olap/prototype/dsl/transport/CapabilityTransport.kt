@@ -1,6 +1,8 @@
 package com.olap.prototype.dsl.transport
 
 import java.lang.reflect.Type
+import java.lang.ref.ReferenceQueue
+import java.lang.ref.WeakReference
 import kotlin.reflect.jvm.kotlinFunction
 import kotlin.reflect.full.valueParameters
 
@@ -20,21 +22,35 @@ data class CapabilityFailure(val operationId: String, val callId: String, val co
     val message: String, val fieldPath: List<String>, val diagnosticId: String?)
 class CapabilityFailureException(val failure: CapabilityFailure) : RuntimeException(failure.message)
 
-internal class CapabilityCalls(private val transport: CapabilityTransport, private val codec: CapabilityCodec) {
+internal class CapabilityCalls(private val transport: CapabilityTransport, private val codec: CapabilityCodec,
+    private val emit: (com.olap.prototype.dsl.ScriptValue) -> Unit) {
     private data class Returned(val operationId: String, val bytes: ByteArray)
-    private val responses = java.util.IdentityHashMap<Any, Returned>()
+    private class Identity(value: Any, queue: ReferenceQueue<Any>? = null) : WeakReference<Any>(value, queue) {
+        private val hash = System.identityHashCode(value)
+        override fun hashCode(): Int = hash
+        override fun equals(other: Any?): Boolean = this === other || other is Identity && get()?.let { it === other.get() } == true
+    }
+    private val collected = ReferenceQueue<Any>()
+    private val responses = HashMap<Identity, Returned>()
+    private fun reclaim() {
+        while (true) responses.remove((collected.poll() ?: return) as Identity)
+    }
     fun <T : Any> call(owner: Class<*>, method: String, input: Any): T {
         val operation = CapabilityRegistry.method(owner, method)
         val output = transport.call(operation.operationId, codec.encodeRequest(operation.operationId, input))
         @Suppress("UNCHECKED_CAST")
         val decoded = codec.decodeResult(operation.operationId, output) as T
-        responses[decoded] = Returned(operation.operationId, output.copyOf())
+        reclaim()
+        responses[Identity(decoded, collected)] = Returned(operation.operationId, output.copyOf())
         return decoded
     }
-    fun returnedOutput(value: Any): com.olap.prototype.dsl.ScriptValue.RegisteredModel {
-        val operation = responses[value] ?: throw IllegalArgumentException("only an actual typed capability response can be emitted as a registered model")
-        return com.olap.prototype.dsl.ScriptValue.RegisteredModel(operation.operationId, operation.bytes)
+    fun output(value: Any) {
+        reclaim()
+        val operation = responses[Identity(value)] ?: throw IllegalArgumentException("only an actual typed capability response can be emitted as a registered model")
+        // 真实返回模型不统一假定深不可变；在对象仍可达时保留原正式回执字节，不重新解释已被调用方修改的对象。
+        emit(com.olap.prototype.dsl.ScriptValue.RegisteredModel(operation.operationId, operation.bytes))
     }
+    fun outputValue(value: com.olap.prototype.dsl.ScriptValue) = emit(value)
 }
 
 @Target(AnnotationTarget.FUNCTION)

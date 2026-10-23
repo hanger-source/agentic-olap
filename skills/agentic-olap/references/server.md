@@ -6,6 +6,8 @@
 
 本仓库源码的连接器 API 为 `agentic-olap-connector/v12-kotlin-native-collection-placement-calcite-1.42`，存储格式为 `16`。服务、连接器和 SDK 使用同轮交付构件；安装发行物时以实际服务及 `agentic-olap sdk` 披露的 API 为准。独立插件须使用对应正式 Maven SDK 重新构建，集合展开实现与精确绑定要求见[连接说明](connections.md)。
 
+代码会话使用 `agentic-olap-kotlin-dsl/v2`，服务内部通信为 `agentic-olap-runtime/v3`。会话由服务持有固定 JVM 和真实 Kotlin 语言历史；模型对话与账号由外部客户端持有。
+
 需要 Node.js 20 或更高版本。macOS arm64 产品通过一个 npm 包交付 Go 程序和 JRE；npm 安装脚本从 JitPack 取得自有 Kotlin 运行构件和内置连接器，从 Maven Central 取得第三方 JVM 库和 H2／DuckDB 驱动，全部按发行清单锁定，完成摘要校验及本地安装。需要允许该安装脚本，下载失败会使安装失败。安装完成后启动只使用本地文件，不再下载依赖。SDK 的正式 Maven 坐标和文档由 `agentic-olap sdk` 读取。使用者无需安装编译工具或自行编译产品源码：
 
 ~~~sh
@@ -20,12 +22,33 @@ agentic-olap info
 agentic-olap tools
 agentic-olap call list-data-sources --payload '{}'
 agentic-olap call describe-script-api --payload '{}'
-agentic-olap call execute-script --payload '{"source":"olap.output(olap.sources.list(EmptyRequest))","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v1","parameters":{}}'
+agentic-olap call execute-script --payload '{"executionId":"sources-001","waitMillis":0,"source":"val sources = olap.sources.list(EmptyRequest)\nolap.output(sources)","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v2","parameters":{}}'
+agentic-olap call wait-script --payload '{"executionId":"sources-001","waitMillis":1000}'
 ~~~
 
 `tools` 通过官方 MCP 客户端读取可见工具；`call` 将 JSON 对象作为工具 payload 提交，输出真实 MCP 响应，业务失败以非零退出。`describe-operation` 提供 MCP 提交封套，`describe-script-api` 提供脚本实际使用的 Kotlin 方法、构造器和回执。脚本版本取服务发现结果。如何建设、复用和查询语义，见随同交付的 [Agent skill](../SKILL.md)。
 
 已有适用定义或发布时直接复用；新业务含义通过服务中的治理工具沉淀，不要求修改产品源码、执行批量建模脚本或每次重新发布。
+
+## 代码会话的执行与控制
+
+`execute-script` 必填 executionId 和完整 `source/sourceName/dslApiVersion/parameters`；sessionId 可空以创建会话，继续提交时使用实际返回的 sessionId。waitMillis 为非负整数，0 立即观察，正值最多等待这些毫秒。RUNNING 表示执行尚未结束，使用 `wait-script {executionId,waitMillis}` 继续读取，不再次提交代码。工具受理成功与内层执行 success 分开；最终 COMPLETED 且 success=true 才是代码成功。
+
+同一主体和规范化 scopes 下，相同 executionId 及执行输入读取原记录；waitMillis 不参与冲突比较。首次创建时省略 sessionId，重试同一执行也保持该输入。不同执行输入使用新 executionId。HTTP 超时或客户端停止等待不会自动取消代码，执行有独立部署期限。
+
+| 工具 | 输入 | 生命周期 |
+| --- | --- | --- |
+| `wait-script` | executionId、waitMillis | 读取同一执行及实际输出，不重新求值 |
+| `cancel-script` | executionId | 请求协作停止并等待实际结束；必要时停止 JVM，来源取消仍按真实证据表达 |
+| `read-script-session` | sessionId | 读取 STARTING／READY／BUSY／RESETTING／CLOSING／LOST／CLOSED 及当前执行 |
+| `reset-script-session` | sessionId | 停止当前代码，确认旧 JVM 退出，清理目录并建立空语言环境 |
+| `close-script-session` | sessionId | 停止当前代码，确认退出并清理目录，释放会话资源 |
+
+一个会话固定一个 JVM，一次执行一个片段，只有 READY 能接收新片段；RESETTING／CLOSING 不接受代码。普通编译失败保留可用会话；不可恢复语言状态、未知活线程及进程故障使会话不可用，需要明确 reset。控制操作不撤销已完成的治理或来源执行。无需继续时显式 close；服务重启不恢复语言历史、执行记录或去重，不自动重放源码。正式定义、发布和保存结果各自保持持久合同。
+
+`olap` 和 `parameters` 是正式 DSL 的顶层属性，由应用在真正求值期间绑定到当前线程；环境不向后台线程继承。片段共用稳定 OlapClient，parameters getter 读取当前不可变快照，`val original = parameters` 保留当时的对象；旧函数读取 getter 或调用稳定客户端时使用当前执行绑定。正式调用和显式输出继续核对精确活跃求值线程。变量和函数的重新声明遵循 Kotlin 语义，不保证旧函数内部自动改绑。`olap.temporaryDirectory` 为跨片段的会话私有根；内部请求子目录不向作者暴露，交接结束后清理。
+
+`olap.output` 是 Unit 输出动作，接受真实注册回执、精确引用及普通 ScriptValue，可以多次使用；末表达式任意对象不自动输出。outputs 顺序保存 VALUE 与 STDOUT／STDERR：VALUE 使用正式 Protobuf JSON，打印合法 UTF-8 时 encoding=UTF8，否则 encoding=BASE64。已输出内容及 calls.effects 不因后续异常消失；是否输出与正式写入效果独立。完整构造及状态说明见 [Agent 使用指引](../../../docs/agent-usage.md#会话中调用正式能力)。
 
 ## 本地配置、令牌与持久数据
 
@@ -76,7 +99,8 @@ agentic-olap call execute-script --payload '{"source":"olap.output(olap.sources.
 
 ~~~sh
 agentic-olap call describe-script-api --payload '{"operation":"inspect-warehouse"}'
-agentic-olap call execute-script --payload '{"source":"olap.output(olap.sources.list(EmptyRequest))","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v1","parameters":{}}'
+agentic-olap call execute-script --payload '{"executionId":"sources-after-config","waitMillis":0,"source":"olap.output(olap.sources.list(EmptyRequest))","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v2","parameters":{}}'
+agentic-olap call wait-script --payload '{"executionId":"sources-after-config","waitMillis":1000}'
 ~~~
 
 同一 `dataSourceId` 可以有多个访问绑定。明确选定 `olap.sources.list(EmptyRequest)` 返回的 `binding.sourceIdentityHash`，调查与显式结构登记原样传入该摘要，不猜最新绑定。来源列表只证明登记可见；实际调查结果才说明本次连接与调查成立。空表结果可能来自真实空库或调查范围。连接、授权或业务口径不足时取得实际信息，不自动换来源、补零或扩大权限。
@@ -112,7 +136,7 @@ agentic-olap start --config /absolute/deployment/server.json
 }
 ~~~
 
-该示例 grant 只授予列出的发现和读取权限。执行脚本还需 `execute-script`，脚本调用的治理、来源、查询与结果权限仍须逐项授予；只允许运行脚本不会扩大其内部能力。服务从 JWKS 验签，校验 issuer、audience、算法和有效期；JWT 必须有 `iss/aud/exp/sub`，`sub` 为非空文本。文本 `scope` claim 按空白拆分，其他 claim 不自动转为权限。
+该示例 grant 只授予列出的发现和读取权限。代码会话的 execute-script、wait-script、cancel-script、read-script-session、reset-script-session、close-script-session 分别需要对应操作权限；片段调用的治理、来源、查询与结果权限仍须逐项授予。允许会话执行或控制不会扩大其中的业务能力。服务从 JWKS 验签，校验 issuer、audience、算法和有效期；JWT 必须有 `iss/aud/exp/sub`，sub 为非空文本。文本 scope claim 按空白拆分，其他 claim 不自动转为权限。
 
 每条 grant 要求主体精确匹配，并包含它要求的全部 scope；`operations` 为正式权限标识。部分与工具名相同，类型化治理方法仍对应 `read-governance/write-governance` 等共同权限，执行脚本还分别核对实际能力与资源；不能把方法名直接当权限名。资源数组 `dataSources/subjectAreas/releases` 可使用精确身份或显式 `"*"`，空数组不授予该类资源，不支持前缀模式。共享定义治理还需要 `allGovernanceAssets=true`；发布访问需要同一 grant 同时覆盖其主题域和发布，执行另核对实际来源。创建命令中的主体须与认证主体一致。
 
@@ -134,13 +158,13 @@ agentic-olap call list-publications --payload '{"subjectAreaId":"实际主题域
 
 官方 SDK 生成的完整最终 JSON/MCP 消息不超过 `limits.responseBytes` 时直接返回，超过时自动完整保存在 `dataRoot/responses`。当前消息给出简短提示、`location` 和 `read.operation/read.payload`；无需预先选择保存，不截断、删减或重执行业务，不新增存储配额或审批。成功保持成功，失败消息完整保存后仍保留原失败。
 
-将短提示的 `read.payload` 原样作为 `read-response` 的 payload，其中包含精确 `reference={responseId,sha256}` 和起始 `offset`。可选 `length` 与 `offset` 均按 UTF-8 字节计算；`offset` 必须位于字符起点，段尾不截破字符。返回页包含 `content/offset/nextOffset/totalBytes/location/reference/format`，按 `nextOffset` 继续即可读完整存档，不重新执行业务。
+将短提示的 `read.payload` 原样作为 `read-response` 的 payload，其中包含精确 `reference={responseId,sha256}` 和起始 `offset`。可选 length 与 offset 按 UTF-8 字节计算；offset 必须位于字符起点，段尾不截破字符。返回页包含 `content/offset/nextOffset/totalBytes/reference`，按 nextOffset 继续读取完整存档，不重新执行业务。读取要求同一主体、规范化 scopes 和完整授权策略。存档若是 RUNNING 观察，执行的后续状态仍通过 wait-script 读取。
 
 执行请求的 `saveResult: true` 显式保存历史 SQL 结果，成功交付后按实际 `resultReference` 分页读取。结果与执行使用同一 runId；保存或 manifest 提交失败会如实报告，不伪造引用或重新执行查询。单位、NULL和递归值保持原含义。SQL 结果物化限额、显式历史结果保存与完整响应自动存档是独立合同。
 
-`scripting` 声明脚本 JVM 池容量、堆预算、每段程序的正式能力调用上限，以及 `nativeLogBytes` 原生诊断预算，准确字段与值使用完整模板。普通 `System.out/err` 经有序帧归属本次请求，日志采集按自身边界处理；原生 FD2 诊断按 worker 生命周期限额，不作为逐请求精确归属。worker 在同一 Subject＋Scopes 归属内复用，本次临时目录由 `olap.temporaryDirectory` 提供；`File(".")` 仍是稳定 worker 私有根。正常结束释放本次状态和受管资源，不承诺把任意 JVM 全局副作用恢复为新进程。
+`scripting` 声明会话 JVM 容量、堆预算、每次执行的正式能力调用上限，以及 nativeLogBytes 原生诊断预算，准确字段与值使用完整模板。会话语言状态与根目录持续存在，内部请求资源按执行释放；普通 System.out/err 进入当前执行的有序输出，原生 FD2 留在进程生命周期的私有诊断，不混作用户打印。服务不承诺任意 JVM 全局副作用自动恢复为新进程。
 
-脚本报告的 `workerOutcome` 是借用时的启动或复用，归还时的实际处置由 `workerDisposition=RETAINED/RETIRED` 和 `recycleReasons` 给出。新增、未确认结束且归属未知的平台线程触发保守退役；JVM 已确认结束的候选不计作残留，未取样或读取失败仍按未知处理。这不认定线程泄漏；线程身份、状态、daemon、上下文类加载器和必要堆栈仅保存在关联 request/worker 的有界私有诊断中，公开报告不返回线程堆栈。
+workerOutcome／workerDisposition／recycleReasons 描述实际进程处理，执行和会话状态分别读取。正常语言历史类加载器不逐片段关闭。新增、未确认结束且归属未知的平台线程仍使会话不可继续；JVM 已确认结束的候选不计作残留，未取样或读取失败按未知处理。这不认定线程泄漏；线程身份、状态、daemon、上下文类加载器及必要堆栈仅进入关联 request/worker 的有界私有诊断。
 
 `limits` 分别声明输入预算、直接响应阈值、并发、背压、来源工作进程、原生内存和 SQL 结果预算：
 

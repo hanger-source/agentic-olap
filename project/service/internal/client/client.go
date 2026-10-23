@@ -2,6 +2,8 @@ package client
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -165,8 +168,8 @@ func informationStatus(response informationResponse, err error) map[string]any {
 	return map[string]any{"status": "AVAILABLE", "result": response.Result}
 }
 
-func informationConnectors(ctx context.Context, session *mcp.ClientSession, visible map[string]bool) map[string]any {
-	for _, tool := range []string{"describe-script-api", "execute-script"} {
+func informationConnectors(ctx context.Context, session *mcp.ClientSession, visible map[string]bool) (status map[string]any) {
+	for _, tool := range []string{"describe-script-api", "execute-script", "wait-script", "close-script-session"} {
 		if !visible[tool] {
 			return map[string]any{"status": "NOT_EXPOSED", "tool": tool}
 		}
@@ -194,28 +197,76 @@ func informationConnectors(ctx context.Context, session *mcp.ClientSession, visi
 	if !discovered {
 		return map[string]any{"status": "NOT_DISCOVERED", "operation": "read-connector-capabilities"}
 	}
+	identity := make([]byte, 16)
+	if _, err := rand.Read(identity); err != nil {
+		return informationStatus(informationResponse{}, err)
+	}
+	executionID := "info-" + hex.EncodeToString(identity)
+	var script struct {
+		SessionID string `json:"sessionId"`
+		State     string `json:"state"`
+		Success   bool   `json:"success"`
+		Outputs   []struct {
+			Kind  string          `json:"kind"`
+			Value json.RawMessage `json:"value"`
+		} `json:"outputs"`
+	}
+	defer func() {
+		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+		defer cancel()
+		if script.SessionID == "" {
+			// 首次回复可能丢失；只观察原执行，绝不重新提交源码。
+			observed, err := informationRead(cleanup, session, "wait-script", map[string]any{"executionId": executionID, "waitMillis": 0})
+			if err == nil && observed.Result != nil {
+				_ = json.Unmarshal(observed.Result, &script)
+			}
+		}
+		if script.SessionID == "" {
+			return
+		}
+		closed, err := informationRead(cleanup, session, "close-script-session", map[string]any{"sessionId": script.SessionID})
+		if err != nil || closed.Success == nil || !*closed.Success {
+			status["sessionCleanup"] = informationStatus(closed, err)
+			return
+		}
+		var state struct {
+			State string `json:"state"`
+		}
+		if err := json.Unmarshal(closed.Result, &state); err != nil || state.State != "CLOSED" {
+			status["sessionCleanup"] = map[string]any{"status": "NOT_CONFIRMED", "sessionId": script.SessionID, "state": state.State}
+			return
+		}
+		status["sessionClosed"] = true
+	}()
 	response, err := informationRead(ctx, session, "execute-script", map[string]any{
+		"executionId":   executionID,
+		"waitMillis":    int64(1000),
 		"source":        "olap.output(olap.sources.connectorCapabilities(ConnectorCapabilitiesRequest(aggregate = null)))",
 		"sourceName":    "info-connectors.olap.kts",
 		"dslApiVersion": discovery.DSLAPIVersion,
 		"parameters":    map[string]any{},
 	})
+	for err == nil && response.Result != nil {
+		if err = json.Unmarshal(response.Result, &script); err != nil || script.State != "RUNNING" {
+			break
+		}
+		response, err = informationRead(ctx, session, "wait-script", map[string]any{"executionId": executionID, "waitMillis": int64(1000)})
+	}
 	if err != nil || !*response.Success {
-		status := informationStatus(response, err)
+		status = informationStatus(response, err)
 		if response.Result != nil {
 			status["script"] = response.Result
 		}
 		return status
 	}
-	var script struct {
-		Success bool            `json:"success"`
-		Value   json.RawMessage `json:"value"`
-	}
 	if err := json.Unmarshal(response.Result, &script); err != nil || !script.Success {
 		return informationStatus(informationResponse{}, errors.New("connector inspection script did not complete"))
 	}
+	if len(script.Outputs) != 1 || script.Outputs[0].Kind != "VALUE" {
+		return informationStatus(informationResponse{}, errors.New("connector inspection must explicitly emit one formal capability receipt"))
+	}
 	var output anypb.Any
-	if err := protojson.Unmarshal(script.Value, &output); err != nil {
+	if err := protojson.Unmarshal(script.Outputs[0].Value, &output); err != nil {
 		return informationStatus(informationResponse{}, fmt.Errorf("decode connector inspection output: %w", err))
 	}
 	var value query.ScriptValue

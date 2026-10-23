@@ -36,7 +36,7 @@ data class ApiOverview(val formatVersion: String, val dslApiVersion: String, val
 
 /** 结构来自真实公开声明；局部语义规则只读取已知模型自身合同，不执行任意 getter 或工厂。 */
 object ApiDiscovery {
-    const val VERSION = "agentic-olap-kotlin-dsl/v1"
+    const val VERSION = "agentic-olap-kotlin-dsl/v2"
     val imports: List<String> = listOf("com.olap.prototype.dsl.*", "com.olap.prototype.governance.contract.*",
         "com.olap.prototype.governance.contract.GovernanceReadRequests.AssetVersionRequest",
         "com.olap.prototype.governance.contract.GovernanceReadRequests.DefinitionDependenciesRequest",
@@ -104,7 +104,8 @@ object ApiDiscovery {
             }
         }
         CapabilityRegistry.all().forEach { addJava(it.inputType); addJava(it.outputType) }
-        listOf(Calculation::class, QueryComputation.Scope::class, ScriptValue::class, ScriptArguments::class, Caller::class).forEach(::addClass)
+        listOf(Calculation::class, QueryComputation.Scope::class, ScriptValue::class, ScriptArguments::class, Caller::class,
+            OlapEnvironment::class).forEach(::addClass)
         found
     }
     private fun describe(type: KClass<*>): ApiType = ApiType(type.qualifiedName ?: type.java.name,
@@ -134,7 +135,21 @@ object ApiDiscovery {
             LogicUnitRecord::class -> LogicUnitRecord.contract()
             LogicalTableCreateRequest.LogicUnitInput::class -> LogicalTableCreateRequest.LogicUnitInput.contract()
             SetOutputContract.Container::class, SetOutputContract.Array::class, SetOutputContract.Row::class -> SetOutputContract.Container.contract()
-            else -> if (type == ScriptArguments::class || ScriptValue::class.java.isAssignableFrom(type.java)) ScriptValue.contract() else emptyMap()
+            else -> when {
+                type == ScriptArguments::class || ScriptValue::class.java.isAssignableFrom(type.java) -> ScriptValue.contract()
+                type == OlapEnvironment::class || type == OlapClient::class -> mapOf(
+                    "environmentAccess" to "IMPORTED_TOP_LEVEL_PROPERTIES_BOUND_TO_CURRENT_EVALUATION_THREAD",
+                    "declarationVisibility" to "DECLARE_DEPENDENCIES_BEFORE_FUNCTIONS_AND_CLASSES_THAT_USE_THEM",
+                    "lifetime" to "SESSION",
+                    "parameters" to "CURRENT_EXECUTION_IMMUTABLE_SNAPSHOT_GETTER_SAVED_VALUES_REMAIN_SNAPSHOTS",
+                    "capabilityCalls" to "CURRENT_ACTIVE_EVALUATION_THREAD_WITH_TRUSTED_EXECUTION_CONTEXT",
+                    "temporaryDirectory" to "SESSION_PRIVATE_ROOT",
+                    "output" to "EXPLICIT_ORDERED_SNAPSHOT_ACTION_RETURNS_UNIT",
+                    "lastExpression" to "ANY_KOTLIN_VALUE_NO_IMPLICIT_OUTPUT",
+                    "businessEffects" to "FORMAL_CALLS_COMMIT_INDEPENDENTLY_AND_KEEP_THEIR_ACTUAL_EFFECT_REFERENCES",
+                )
+                else -> emptyMap()
+            }
         })
 
     private fun parameter(value: KParameter) = ApiParameter(requireNotNull(value.name), value.type.toString(), value.isOptional, value.isVararg)
@@ -156,7 +171,7 @@ object ApiDiscovery {
         ApiExample("读取后决定", "一次脚本读取获准定义，并用普通 Kotlin 分支处理真实返回。", """
             val page = olap.semantics.metrics(PageInput(offset = 0, limit = 20))
             val selected = page.items.firstOrNull { it.code == parameters.text("metricCode") }
-            if (selected == null) ScriptValue.Null else ScriptValue.Text(selected.id)
+            olap.output(if (selected == null) ScriptValue.Null else ScriptValue.Text(selected.id))
         """.trimIndent()),
         ApiExample("执行并返回回执", "完整 Query 由本次代码构造，执行经正式发布授权和结果交付。", """
             val publication = QueryCapabilityRequest(parameters.text("scenarioId"), parameters.decimal("scenarioVersion").longValueExact(), parameters.text("releaseId"), parameters.text("releaseVersion"))
@@ -166,6 +181,13 @@ object ApiDiscovery {
                 null, emptyMap(), MemberCondition.Unrestricted(), emptyMap(), emptyMap()))
             val receipt = olap.queries.execute(QueryExecutionRequest(QuerySelection.Inline(QueryIntent(publication, computation)), true, "本次分析", null))
             olap.output(receipt)
+        """.trimIndent()),
+        ApiExample("后续片段继续使用", "在同一 sessionId 提交；函数再次调用使用当前执行的参数和正式调用归属。", """
+            fun readSources() = olap.sources.list(EmptyRequest)
+            val originalParameters = parameters
+            val observedSources = readSources()
+            // 后续片段可再次 readSources()；原 observedSources 和 originalParameters 保留当时快照。
+            olap.output(observedSources)
         """.trimIndent())
     )
 }

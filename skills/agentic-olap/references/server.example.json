@@ -15,7 +15,7 @@
       "subjects": ["replace-with-external-token-subject"],
       "scopes": ["olap.manage"],
       "operations": [
-        "describe-script-api", "execute-script", "describe-operation", "list-data-sources", "read-connector-capabilities", "inspect-warehouse", "candidate-values",
+        "describe-script-api", "execute-script", "wait-script", "cancel-script", "read-script-session", "reset-script-session", "close-script-session", "describe-operation", "list-data-sources", "read-connector-capabilities", "inspect-warehouse", "candidate-values",
         "read-governance", "write-governance", "register-source-dataset", "read-query-capability",
         "list-publications", "read-publication",
         "validate-query", "explain-query", "execute-query", "save-query", "update-query", "read-query", "list-queries", "read-deployment-availability",

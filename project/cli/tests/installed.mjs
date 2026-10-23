@@ -5,7 +5,7 @@ import { once } from "node:events";
 import { appendFileSync } from "node:fs";
 import { mkdir, readFile, readdir, writeFile, open } from "node:fs/promises";
 import { createServer } from "node:net";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 
 const [tarballArg, outputArg, mode = "tarball"] = process.argv.slice(2);
@@ -56,35 +56,114 @@ const jdbcUrl = `jdbc:h2:${join(root, "business")}`;
 await writeFile(join(root, "source.sql"), "CREATE TABLE SALES_ORDERS (ORDER_ID BIGINT PRIMARY KEY, AMOUNT DECIMAL(18,2));\nINSERT INTO SALES_ORDERS VALUES (1,100.00),(2,50.00),(3,25.00);\n");
 const prepared = spawnSync(join(packageRoot, "jre/bin/java"), ["-cp", join(h2Directory, drivers[0].file), "org.h2.tools.RunScript", "-url", jdbcUrl, "-user", "sa", "-script", join(root, "source.sql")], { encoding: "utf8" });
 assert.equal(prepared.status, 0, prepared.stderr);
-const call = (operation, payload) => {
-  const result = json(["call", operation, "--payload", JSON.stringify(payload), "--home", home]);
+const cliEnvelope = (operation, payload) => {
+  const invoked = command(["call", operation, "--payload", JSON.stringify(payload), "--home", home]);
+  assert([0, 1].includes(invoked.status), invoked.stderr + invoked.stdout);
+  const result = JSON.parse(invoked.stdout);
   assert.equal(result.isError ?? false, false);
   const response = JSON.parse(result.content[0].text);
   appendFileSync(join(root, "mcp.log"), JSON.stringify({ operation, payload, response }) + "\n");
+  assert.equal(invoked.status, response.success ? 0 : 1, invoked.stderr + invoked.stdout);
+  return response;
+};
+const call = (operation, payload) => {
+  const response = cliEnvelope(operation, payload);
   assert.equal(response.success, true, JSON.stringify(response.error));
   return response.result;
 };
 let dslApiVersion;
 let orderColumnVersion;
-function program(parameters) {
-  const report = call("execute-script", { source: author, sourceName: "installed.olap.kts", dslApiVersion, parameters });
+const scriptPayload = (source, parameters = {}, sourceName = "installed.olap.kts") => ({
+  executionId: randomUUID(), waitMillis: 1000, source, sourceName, dslApiVersion, parameters,
+});
+const outputValues = (report) => report.outputs.filter(event => event.kind === "VALUE").map(event => event.value);
+function outputValue(report) {
+  const values = outputValues(report);
+  assert.equal(values.length, 1, "该作者程序应显式输出一份完整值");
+  return values[0];
+}
+
+// 只读取正式保存的完整消息，保持原成功/失败，不重新提交源码或业务操作。
+async function completeResponse(invoke, response) {
+  if (!response.result?.delivery) return response;
+  assert.equal(response.result.delivery, "SAVED", JSON.stringify(response.result));
+  const { operation, payload } = response.result.read;
+  assert.equal(operation, "read-response");
+  assert.equal(payload.offset, 0);
+  const fragments = [];
+  let offset = payload.offset;
+  let bytes = 0;
+  for (;;) {
+    const pageResponse = await invoke(operation, { ...payload, offset });
+    assert.equal(pageResponse.success, true, JSON.stringify(pageResponse.error));
+    const page = pageResponse.result;
+    assert.equal(page.offset, offset);
+    fragments.push(page.content);
+    bytes += Buffer.byteLength(page.content);
+    if (page.nextOffset === null) {
+      assert.equal(bytes, page.totalBytes);
+      break;
+    }
+    assert.equal(page.nextOffset, bytes);
+    assert(page.nextOffset > offset);
+    offset = page.nextOffset;
+  }
+  const complete = Buffer.from(fragments.join(""));
+  assert.equal(createHash("sha256").update(complete).digest("hex"), payload.reference.sha256);
+  const message = JSON.parse(complete);
+  assert(!message.error, JSON.stringify(message.error));
+  return JSON.parse(message.result.content[0].text);
+}
+
+async function executeScript(invoke, payload) {
+  let sessionId = payload.sessionId;
+  let primaryFailure;
+  try {
+    let response = await invoke("execute-script", payload);
+    let envelope = await completeResponse(invoke, response);
+    sessionId = envelope.result?.sessionId ?? sessionId;
+    assert(sessionId, JSON.stringify(envelope));
+    assert.equal(envelope.result.executionId, payload.executionId);
+    while (envelope.result.state === "RUNNING") {
+      response = await invoke("wait-script", { executionId: payload.executionId, waitMillis: 1000 });
+      envelope = await completeResponse(invoke, response);
+      assert.equal(envelope.result.sessionId, sessionId);
+      assert.equal(envelope.result.executionId, payload.executionId);
+    }
+    return { response, envelope, report: envelope.result };
+  } catch (failure) {
+    primaryFailure = failure;
+    throw failure;
+  } finally {
+    if (!payload.sessionId && sessionId) {
+      try {
+        const closed = await completeResponse(invoke, await invoke("close-script-session", { sessionId }));
+        assert.equal(closed.success, true, JSON.stringify(closed.error));
+        assert.equal(closed.result.sessionId, sessionId);
+        assert.equal(closed.result.state, "CLOSED", "自建会话须确认进程退出后归还槽位");
+      } catch (failure) {
+        if (primaryFailure) throw new AggregateError([primaryFailure, failure], "执行与会话关闭均失败");
+        throw failure;
+      }
+    }
+  }
+}
+
+async function program(parameters) {
+  const { envelope, report } = await executeScript(cliEnvelope, scriptPayload(author, parameters));
+  assert.equal(envelope.success, true, JSON.stringify(envelope.error));
   assert.equal(report.success, true, JSON.stringify(report.diagnostics));
   assert(report.calls.length > 1, "真实安装验收必须在程序中继续调用正式能力");
-  return report.value.object.values;
+  return outputValue(report).object.values;
 }
-function authorContract(source, expected) {
-  const result = command(["call", "execute-script", "--payload", JSON.stringify({
-    source, sourceName: "author-contract.olap.kts", dslApiVersion, parameters: {},
-  }), "--home", home]);
-  const response = JSON.parse(JSON.parse(result.stdout).content[0].text);
+async function authorContract(source, expected) {
+  const { envelope: response } = await executeScript(cliEnvelope, scriptPayload(source, {}, "author-contract.olap.kts"));
   if (!expected) {
-    assert.equal(result.status, 0, result.stderr + result.stdout);
     assert.equal(response.success, true);
     assert.equal(response.result.success, true);
     assert.equal(response.result.calls.length, 1, "合法构造后应继续调用一次真实来源读取");
     return;
   }
-  assert.equal(result.status, 1, "非法作者构造必须拒绝");
   assert.equal(response.success, false);
   assert.equal(response.result.calls.length, 0, "非法构造不得进入后续业务能力调用");
   const diagnostic = response.result.diagnostics.find(item => item.code === expected.code);
@@ -162,7 +241,7 @@ try {
   assert(tools.tools.some(tool => tool.name === "execute-script"));
   const api = call("describe-script-api", {});
   dslApiVersion = api.dslApiVersion;
-  const created = program({ phase: "create" });
+  const created = await program({ phase: "create" });
   const businessLineId = created.businessLineId.text;
   assert(businessLineId);
   await stop();
@@ -182,25 +261,22 @@ try {
   assert.equal(sourceCheck.result.items[0].binding.dataSourceId, "business");
   assert.equal(connectorCheck.status, "AVAILABLE");
   assert(connectorCheck.result.connectors.some(item => item.connectorRef.id === "h2"));
-  const structure = program({ phase: "structure", businessLineId });
+  const structure = await program({ phase: "structure", businessLineId });
   const snapshotId = structure.snapshotId.text;
   const sourceIdentityHash = structure.sourceIdentityHash.text;
   assert.match(sourceIdentityHash, /^[0-9a-f]{64}$/);
   await stop("SIGINT");
 
   await start("structure-reopened");
-  const built = program({ phase: "build", businessLineId, snapshotId });
+  const built = await program({ phase: "build", businessLineId, snapshotId });
   const queryReference = built.query.reference.query;
   orderColumnVersion = built.orderColumnVersion.text;
   const resultReference = built.result.reference.result;
   const continuedReference = built.continuedResult.reference.result;
   verifySalesResult(resultReference);
   verifySalesResult(continuedReference);
-  const invalid = command(["call", "execute-script", "--payload", JSON.stringify({
-    source: "Calculation.Scalar(ScalarValueType.BOOLEAN, true)", sourceName: "invalid.olap.kts", dslApiVersion, parameters: {},
-  }), "--home", home]);
-  assert.equal(invalid.status, 1, "类型错误不能进入正式能力执行");
-  const failed = JSON.parse(JSON.parse(invalid.stdout).content[0].text);
+  const { envelope: failed } = await executeScript(cliEnvelope,
+    scriptPayload("Calculation.Scalar(ScalarValueType.BOOLEAN, true)", {}, "invalid.olap.kts"));
   assert.equal(failed.success, false);
   assert(failed.result.diagnostics.some(diagnostic => diagnostic.stage === "COMPILE"), "应给出脚本编译诊断");
   assert.equal(failed.result.calls.length, 0, "构造类型错误前不得调用业务能力");
@@ -212,10 +288,10 @@ val selected = Calculation.Call("selected", Calculation.Measurement("adopted"), 
     ${field === "measurementSlots" ? 'mapOf("amount" to "amount")' : "emptyMap()"}, emptyMap(), emptyMap(),
     Calculation.Condition(DimensionCondition.Unrestricted()))
 olap.output(olap.sources.list(EmptyRequest))`;
-  for (const field of callRules.emptyMaps) authorContract(measurementCall(field), {
+  for (const field of callRules.emptyMaps) await authorContract(measurementCall(field), {
     code: "MEASUREMENT_BINDING_OVERRIDE", path: [field], expected: "EMPTY_MAP", actual: "NONEMPTY_MAP",
   });
-  authorContract(measurementCall(null));
+  await authorContract(measurementCall(null));
   const memberRules = call("describe-script-api", { type: "com.olap.prototype.member.MemberResult" }).rules.outputRules.quantity;
   assert.equal(memberRules.valueType, "NUMBER");
   assert.equal(memberRules.unitEquations, "EMPTY_MAP");
@@ -226,18 +302,18 @@ val result = MemberResult("observation", "observation", MemberShape.RAW_BAG, emp
     "total" to MemberSourceDefinition.ComputedPropertyOutput("合计", "total", ScalarValueType.${valueType}, "total", quantity)),
     emptyMap(), null, emptyMap(), null)
 olap.output(olap.sources.list(EmptyRequest))`;
-  authorContract(quantityMember(true), {
+  await authorContract(quantityMember(true), {
     code: "MEMBER_QUANTITY_UNIT_EQUATIONS", path: ["outputs", "total", "valueContract", "unitEquations"], expected: "EMPTY_MAP", actual: "NONEMPTY_MAP",
   });
-  authorContract(quantityMember(false, "TEXT"), {
+  await authorContract(quantityMember(false, "TEXT"), {
     code: "MEMBER_QUANTITY_TYPE", path: ["outputs", "total", "valueType"], expected: "NUMBER", actual: "TEXT",
   });
-  authorContract(quantityMember(false));
+  await authorContract(quantityMember(false));
   await stop();
 
   await start("analysis-reopened");
   verifySalesResult(resultReference);
-  const reopened = program({ phase: "reopen", definitionId: queryReference.definitionId, definitionVersion: queryReference.definitionVersion,
+  const reopened = await program({ phase: "reopen", definitionId: queryReference.definitionId, definitionVersion: queryReference.definitionVersion,
     querySha256: queryReference.sha256, resultRunId: resultReference.runId, resultSha256: resultReference.sha256 });
   const repeatedReference = reopened.result.reference.result;
   assert.notEqual(repeatedReference.runId, resultReference.runId);
@@ -264,39 +340,30 @@ olap.output(olap.sources.list(EmptyRequest))`;
     assert(!message.error, JSON.stringify(message.error));
     return JSON.parse(message.result.content[0].text);
   }
-  const scriptPayload = (source, parameters = {}) => ({ source, sourceName: "complete-response.olap.kts", dslApiVersion, parameters });
   const catalog = Array.from({ length: 14 }, (_, table) => ({
     name: `table_${table}`, columns: Array.from({ length: table === 0 ? 114 : 113 }, (_, column) =>
       Object.fromEntries(Array.from({ length: 11 }, (_, property) => [`property_${property}`, property === 10 ? null : `${table}/${column}/${property}`]))),
   }));
-  const ordinary = await rpc("execute-script", scriptPayload(`
+  const ordinary = await executeScript(rpc, scriptPayload(`
 val catalog = parameters["declaredStructure"] as ScriptValue.ArrayValue
 val columns = catalog.values.sumOf { ((it as ScriptValue.ObjectValue).values.getValue("columns") as ScriptValue.ArrayValue).values.size }
 val first = olap.sources.list(EmptyRequest)
 val second = olap.sources.list(EmptyRequest)
 check(first.items == second.items)
-ScriptValue.DecimalValue(columns.toString())`, { declaredStructure: catalog }));
-  assert.equal(ordinary.success, true);
-  assert.equal(ordinary.result.value.decimal, "1583");
-  assert.equal(ordinary.result.workerDisposition, "RETAINED");
-  assert(ordinary.result.calls.every(item => item.success));
-  const inline = await rpc("execute-script", scriptPayload('ScriptValue.Text("small")'));
-  assert.equal(inline.result.value.text, "small");
-  const invalidOutput = await rpc("execute-script", scriptPayload(`
-olap.sources.list(EmptyRequest)
-ScriptValue.Text(0xD800.toChar().toString())`));
-  assert.equal(invalidOutput.success, false);
-  assert.equal(invalidOutput.result.success, false);
-  assert(invalidOutput.result.diagnostics.some(item => item.stage === "OUTPUT" && item.code === "SCRIPT_OUTPUT_REPRESENTATION"));
-  assert.equal(invalidOutput.result.calls.length, 1);
-  assert.equal(invalidOutput.result.calls[0].success, true, "输出表示失败不能抹掉真实完成的能力调用");
-  const escaped = await rpc("execute-script", scriptPayload('ScriptValue.Text("\\u0001".repeat(14000))'));
+olap.output(ScriptValue.DecimalValue(columns.toString()))
+first`, { declaredStructure: catalog }));
+  assert.equal(ordinary.envelope.success, true);
+  assert.equal(outputValue(ordinary.report).decimal, "1583");
+  assert(ordinary.report.calls.every(item => item.success));
+  const escapedRun = await executeScript(rpc, scriptPayload('olap.output(ScriptValue.Text("\\u0001".repeat(14000)))'));
+  const escaped = escapedRun.response;
   assert.equal(escaped.success, true);
   assert.equal(escaped.result.delivery, "SAVED", "最终 JSON/MCP 转义后的大小应触发保存，而非只看 Protobuf");
   const escapedFile = JSON.parse(await readFile(escaped.result.location, "utf8"));
-  assert.equal(JSON.parse(escapedFile.result.content[0].text).result.value.text, "\u0001".repeat(14000));
+  assert.equal(outputValue(JSON.parse(escapedFile.result.content[0].text).result).text, "\u0001".repeat(14000));
   const expectedText = "标签🌟".repeat(20000);
-  const large = await rpc("execute-script", scriptPayload('ScriptValue.Text("标签🌟".repeat(20000))'));
+  const largeRun = await executeScript(rpc, scriptPayload('olap.output(ScriptValue.Text("标签🌟".repeat(20000)))'));
+  const large = largeRun.response;
   assert.equal(large.success, true);
   assert.equal(large.result.delivery, "SAVED");
   const saved = large.result.read.payload.reference;
@@ -321,7 +388,7 @@ ScriptValue.Text(0xD800.toChar().toString())`));
   const complete = Buffer.from(fragments.join(""));
   assert.equal(createHash("sha256").update(complete).digest("hex"), saved.sha256);
   const original = JSON.parse(complete);
-  assert.equal(JSON.parse(original.result.content[0].text).result.value.text, expectedText);
+  assert.equal(outputValue(JSON.parse(original.result.content[0].text).result).text, expectedText);
   assert.deepEqual(complete, await readFile(large.result.location));
   await stop();
 
@@ -330,10 +397,12 @@ ScriptValue.Text(0xD800.toChar().toString())`));
   await writeFile(info.configPath, JSON.stringify(config));
   await start("partial-response");
   const partialCode = `partial_${Date.now()}`;
-  const partial = await rpc("execute-script", scriptPayload(`
+  const partialRun = await executeScript(rpc, scriptPayload(`
 val created = olap.governance.createBusinessLine(BusinessLineCreateRequest(parameters.text("code"), "部分成功", olap.caller.subject, "完整失败回执", olap.caller.subject)).businessLine
 olap.governance.activate(GovernanceVersionActivationRequest(GovernanceActivationObjectType.BUSINESS_LINE, created.id, 1, olap.caller.subject, "明确激活"))
+olap.output(ScriptValue.Text(created.id))
 error("author stopped after the committed write")`, { code: partialCode }));
+  const partial = partialRun.response;
   assert.equal(partial.success, false);
   assert.equal(partial.result.delivery, "SAVED");
   const partialOriginal = JSON.parse(JSON.parse(await readFile(partial.result.location, "utf8")).result.content[0].text);
@@ -341,11 +410,13 @@ error("author stopped after the committed write")`, { code: partialCode }));
   const effects = partialOriginal.result.calls.filter(item => item.success).flatMap(item => item.effects);
   assert.equal(effects.length, 2);
   assert.equal(effects[0].readOperation, "read-asset-version");
-  const recovered = await rpc("execute-script", scriptPayload(`
+  assert.equal(outputValue(partialOriginal.result).text, effects[0].assetVersion.id,
+    "作者异常前已显式输出的精确身份应与真实写效果一致并保留");
+  const recovered = await executeScript(rpc, scriptPayload(`
 val item = olap.semantics.businessLines(GovernanceReadRequests.PageInput(0, 20)).items.single { it.code == parameters.text("code") }
-ScriptValue.Text(item.id)`, { code: partialCode }));
-  assert.equal(recovered.success, true);
-  assert.equal(recovered.result.value.text, effects[0].assetVersion.id);
+olap.output(ScriptValue.Text(item.id))`, { code: partialCode }));
+  assert.equal(recovered.envelope.success, true);
+  assert.equal(outputValue(recovered.report).text, effects[0].assetVersion.id);
   await stop();
   assert(config.auth.grants[0].operations.includes("execute-query"));
   config.auth.grants[0].operations = config.auth.grants[0].operations.filter(operation => operation !== "execute-query");

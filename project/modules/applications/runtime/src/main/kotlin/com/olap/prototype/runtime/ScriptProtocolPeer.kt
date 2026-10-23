@@ -36,6 +36,7 @@ internal class ScriptProtocolPeer(
         val deadline = System.nanoTime() + Math.multiplyExact(remainingMillis, 1_000_000L)
         @Volatile var thread: Thread? = null
         @Volatile var cancelled = false
+        @Volatile var evaluating = false
         fun cancel() { cancelled = true; thread?.interrupt() }
         fun remainingMillis(): Long = TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime()).also {
             if (it <= 0 || cancelled) throw java.util.concurrent.CancellationException("script request deadline ended or request was cancelled")
@@ -55,6 +56,36 @@ internal class ScriptProtocolPeer(
     private val writeLock = Any()
     private val outputScope = InheritableThreadLocal<OutputScope?>()
     private var reader: Thread? = null
+    private var sessionId: String? = null
+
+    /** 稳定端口每次解析当前执行；历史函数不会捕获旧请求或旧期限。 */
+    val transport: CapabilityTransport = CapabilityTransport { operation, bytes -> call(operation, bytes) }
+
+    fun beginEvaluation() {
+        val running = checkNotNull(active.get()) { "session has no active execution" }
+        check(Thread.currentThread() === running.thread && !running.evaluating) { "evaluation must begin on its active execution thread" }
+        running.remainingMillis()
+        running.evaluating = true
+    }
+
+    fun finishEvaluation() { active.get()?.evaluating = false }
+
+    fun requireEvaluation(): String = evaluation().requestId
+
+    fun emit(value: com.google.protobuf.Any) {
+        val running = evaluation()
+        send(Frame.newBuilder().setScriptEmission(ScriptEmission.newBuilder().setRequestId(running.requestId).setOutput(value)).build())
+    }
+
+    private fun evaluation(): Running {
+        val running = active.get()
+        if (running == null || !running.evaluating || Thread.currentThread() !== running.thread) {
+            workerFault(outputScope.get()?.requestId.orEmpty(), "SCRIPT_CAPABILITY_OUTSIDE_ACTIVE_EXECUTION")
+            throw IllegalStateException("formal calls and explicit output require the active session evaluation thread")
+        }
+        running.remainingMillis()
+        return running
+    }
 
     /** 普通流按请求归属；本次产生的子线程保留原scope，不能借用后续请求的日志预算。 */
     fun redirectStandardOutput(): AutoCloseable {
@@ -110,7 +141,7 @@ internal class ScriptProtocolPeer(
         }
     }
 
-    fun serve(handler: (ScriptRequest, CapabilityTransport, () -> Unit) -> ScriptResponse) {
+    fun serve(handler: (ScriptRequest, () -> Unit) -> ScriptResponse) {
         check(reader == null) { "script protocol can only serve once" }
         // 每个串行 worker 只有一个长期阻塞的协议读取器，由进程生命周期直接拥有。
         // 不让共享虚拟线程调度器的惰性载体扩容混入单次脚本资源差集。
@@ -123,38 +154,36 @@ internal class ScriptProtocolPeer(
         }
     }
 
-    private fun execute(next: Inbound.Call, handler: (ScriptRequest, CapabilityTransport, () -> Unit) -> ScriptResponse) {
+    private fun execute(next: Inbound.Call, handler: (ScriptRequest, () -> Unit) -> ScriptResponse) {
         val running = next.running
         running.thread = Thread.currentThread()
         val scope = OutputScope(running.requestId)
         outputScope.set(scope)
         try {
             val response = try {
-                handler(next.request, transport(running)) { running.remainingMillis(); Unit }
+                handler(next.request) { running.remainingMillis(); Unit }
             } finally {
+                running.evaluating = false
                 synchronized(writeLock) { scope.open = false }
                 outputScope.remove()
             }
             Thread.interrupted()
             running.thread = null
             active.compareAndSet(running, null)
-            if (response.recycleWorker) retiring.set(true)
-            send(Frame.newBuilder().setScriptResponse(response.toBuilder().setRecycleWorker(retiring.get())).build())
+            if (!response.sessionUsable) retiring.set(true)
+            send(Frame.newBuilder().setScriptResponse(response.toBuilder().setSessionUsable(!retiring.get())).build())
         } finally {
             synchronized(writeLock) { scope.open = false }
             outputScope.remove()
             running.thread = null
+            running.evaluating = false
             active.compareAndSet(running, null)
             Thread.interrupted()
         }
     }
 
-    private fun transport(running: Running): CapabilityTransport = CapabilityTransport { operation, bytes ->
-        if (active.get() !== running || Thread.currentThread() !== running.thread) {
-            workerFault(running.requestId, "SCRIPT_CAPABILITY_OUTSIDE_ACTIVE_REQUEST")
-            throw IllegalStateException("capability calls must execute synchronously inside the active script request")
-        }
-        running.remainingMillis()
+    private fun call(operation: String, bytes: ByteArray): ByteArray {
+        val running = evaluation()
         CapabilityRegistry.require(operation)
         require(bytes.size <= maximumRequestBytes) { "capability input exceeds request byte budget" }
         val call = Pending(running.requestId, "call-${UUID.randomUUID()}", operation)
@@ -175,7 +204,7 @@ internal class ScriptProtocolPeer(
                     failure.stage, failure.message, failure.fieldPathList.toList(), failure.diagnosticId.takeIf(String::isNotBlank)))
             }
             require(response.hasResult() && !response.hasFailure()) { "successful capability response requires exactly one result" }
-            ProtoBytes.encode(response.result)
+            return ProtoBytes.encode(response.result)
         } finally {
             if (!call.response.isDone) {
                 abandoned.set(AbandonedCall(call.requestId, call.callId))
@@ -193,9 +222,11 @@ internal class ScriptProtocolPeer(
                 when (frame.bodyCase) {
                     Frame.BodyCase.SCRIPT_REQUEST -> {
                         val request = frame.scriptRequest
-                        require(request.requestId.isNotBlank() && request.remainingMillis > 0 &&
+                        require(request.requestId.isNotBlank() && request.sessionId.isNotBlank() && request.remainingMillis > 0 &&
                             request.remainingMillis < Long.MAX_VALUE / 4 / 1_000_000L) { "valid script request identity and deadline are required" }
                         require(request.hasSource() && !request.parametersJson.isEmpty) { "complete script source and parameters are required" }
+                        require(sessionId == null || sessionId == request.sessionId) { "session process cannot change its exact session identity" }
+                        sessionId = request.sessionId
                         if (retiring.get()) { workerFault(request.requestId, "SCRIPT_WORKER_NOT_REUSABLE"); continue }
                         val running = Running(request.requestId, request.remainingMillis)
                         check(active.compareAndSet(null, running)) { "script process already has an active request" }

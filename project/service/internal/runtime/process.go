@@ -24,20 +24,21 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-const protocolVersion = "agentic-olap-runtime/v2"
+const protocolVersion = "agentic-olap-runtime/v3"
 
 type processLaunch struct {
-	Classpath    string
-	Mode         string
-	HeapMiB      int
-	Environment  []string
-	Bootstrap    *pb.Bootstrap
-	MaximumBytes int64
-	LogBytes     int64
-	Work         func(*pb.WorkRequest)
-	Capability   func(*pb.CapabilityRequest)
-	ScriptOutput func(*pb.ScriptOutput)
-	Sandbox      *scriptSandbox
+	Classpath      string
+	Mode           string
+	HeapMiB        int
+	Environment    []string
+	Bootstrap      *pb.Bootstrap
+	MaximumBytes   int64
+	LogBytes       int64
+	Work           func(*pb.WorkRequest)
+	Capability     func(*pb.CapabilityRequest)
+	ScriptOutput   func(*pb.ScriptOutput)
+	ScriptEmission func(*pb.ScriptEmission)
+	Sandbox        *scriptSandbox
 }
 
 type process struct {
@@ -48,14 +49,18 @@ type process struct {
 	transferDirectory string
 	write             chan struct{}
 	mu                sync.Mutex
+	stopping          bool
+	sending           sync.WaitGroup
 	pending           map[string]chan *pb.Response
 	scripts           map[string]chan *pb.ScriptResponse
 	done              chan struct{}
+	readDone          chan struct{}
 	wait              chan error
 	failure           error
 	onWork            func(*pb.WorkRequest)
 	onCapability      func(*pb.CapabilityRequest)
 	onScriptOutput    func(*pb.ScriptOutput)
+	onScriptEmission  func(*pb.ScriptEmission)
 	logs              *processOutputBudget
 	stopOnce          sync.Once
 	finishOnce        sync.Once
@@ -126,10 +131,10 @@ func startProcess(ctx context.Context, cfg Config, launch processLaunch) (*proce
 	p := &process{cmd: cmd, input: input, output: output, maximum: launch.MaximumBytes, transferDirectory: transferDirectory,
 		write: make(chan struct{}, 1), pending: make(map[string]chan *pb.Response),
 		scripts: make(map[string]chan *pb.ScriptResponse),
-		done:    make(chan struct{}), wait: make(chan error, 1), onWork: launch.Work, onCapability: launch.Capability, onScriptOutput: launch.ScriptOutput}
+		done:    make(chan struct{}), readDone: make(chan struct{}), wait: make(chan error, 1), onWork: launch.Work, onCapability: launch.Capability, onScriptOutput: launch.ScriptOutput, onScriptEmission: launch.ScriptEmission}
 	p.write <- struct{}{}
 	if launch.LogBytes > 0 {
-		p.logs = &processOutputBudget{writer: cfg.Stderr, remaining: launch.LogBytes, exceeded: func() {
+		p.logs = &processOutputBudget{writer: cfg.Stderr, maximum: launch.LogBytes, remaining: launch.LogBytes, active: true, exceeded: func() {
 			p.fail(errors.New("SCRIPT_NATIVE_LOG_BUDGET_EXCEEDED"))
 			go p.stop()
 		}}
@@ -182,6 +187,7 @@ func (p *process) register(id string) chan *pb.Response {
 }
 
 func (p *process) read() {
+	defer close(p.readDone)
 	defer p.stop()
 	reader := bufio.NewReader(p.output)
 	for {
@@ -248,6 +254,12 @@ func (p *process) read() {
 				return
 			}
 			p.onScriptOutput(body.ScriptOutput)
+		case *pb.Frame_ScriptEmission:
+			if p.onScriptEmission == nil {
+				p.fail(errors.New("process role cannot emit script values"))
+				return
+			}
+			p.onScriptEmission(body.ScriptEmission)
 		default:
 			p.fail(errors.New("unexpected JVM protocol frame"))
 			return
@@ -264,6 +276,7 @@ func (p *process) script(ctx context.Context, request *pb.ScriptRequest) (*pb.Sc
 	}
 	p.scripts[request.RequestId] = response
 	p.mu.Unlock()
+	defer func() { p.mu.Lock(); delete(p.scripts, request.RequestId); p.mu.Unlock() }()
 	if err := p.send(ctx, &pb.Frame{Body: &pb.Frame_ScriptRequest{ScriptRequest: request}}); err != nil {
 		return nil, err
 	}
@@ -299,12 +312,26 @@ type processOutputBudget struct {
 	mu        sync.Mutex
 	writer    io.Writer
 	remaining int64
+	maximum   int64
+	active    bool
 	exceeded  func()
 }
+
+// 原生日志预算按启动/当前执行边界重新开始，不随长期会话寿命累计；用户输出走执行事件。
+func (b *processOutputBudget) reset() {
+	b.mu.Lock()
+	b.remaining = b.maximum
+	b.active = true
+	b.mu.Unlock()
+}
+func (b *processOutputBudget) idle() { b.mu.Lock(); b.active = false; b.mu.Unlock() }
 
 func (b *processOutputBudget) Write(value []byte) (int, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if !b.active {
+		return b.writer.Write(value)
+	}
 	allowed := int64(len(value))
 	if allowed > b.remaining {
 		allowed = b.remaining
@@ -333,8 +360,16 @@ func (p *process) send(ctx context.Context, frame *pb.Frame) error {
 		return p.err()
 	}
 	defer func() { p.write <- struct{}{} }()
+	p.mu.Lock()
+	if p.stopping {
+		p.mu.Unlock()
+		return errors.New("runtime process is stopping")
+	}
+	p.sending.Add(1)
+	p.mu.Unlock()
 	completed := make(chan error, 1)
 	go func() {
+		defer p.sending.Done()
 		outgoing, err := p.outboundFrame(frame)
 		if err == nil {
 			if int64(proto.Size(outgoing)) > p.maximum {
@@ -362,6 +397,7 @@ func (p *process) send(ctx context.Context, frame *pb.Frame) error {
 
 func (p *process) call(ctx context.Context, request *pb.Request, killOnCancel bool) (*pb.Response, error) {
 	response := p.register(request.RequestId)
+	defer func() { p.mu.Lock(); delete(p.pending, request.RequestId); p.mu.Unlock() }()
 	if err := p.send(ctx, &pb.Frame{Body: &pb.Frame_Request{Request: request}}); err != nil {
 		p.mu.Lock()
 		delete(p.pending, request.RequestId)
@@ -411,11 +447,16 @@ func (p *process) alive() bool {
 
 func (p *process) stop() {
 	p.stopOnce.Do(func() {
+		p.mu.Lock()
+		p.stopping = true
+		p.mu.Unlock()
 		p.input.Close()
 		if p.cmd.Process != nil {
 			terminateProcessGroup(p.cmd)
 		}
 		<-p.wait
+		// 官方 Frame 文件/管道生产者也必须完成，不能在取消已返回后继续写被回收的私有根。
+		p.sending.Wait()
 		p.output.Close()
 		if p.transferDirectory != "" && p.cmd.ProcessState != nil {
 			if err := os.RemoveAll(p.transferDirectory); err != nil {

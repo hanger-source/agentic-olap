@@ -33,6 +33,50 @@ import com.olap.prototype.engine.executable.ExecutableBusinessResult
 import java.math.BigDecimal
 
 // 本例只通过已部署服务的正式能力建模和执行；数据源凭据由服务配置持有。
+fun ScriptValue.objectValues(): Map<String, ScriptValue> = (this as ScriptValue.ObjectValue).values
+fun ScriptValue.arrayValues(): List<ScriptValue> = (this as ScriptValue.ArrayValue).values
+fun Map<String, ScriptValue>.text(name: String): String = (getValue(name) as ScriptValue.Text).value
+fun Map<String, ScriptValue>.optionalText(name: String): String? = when (val value = getValue(name)) {
+    ScriptValue.Null -> null
+    is ScriptValue.Text -> value.value
+    else -> error("外部配置字段 $name 必须为文本或 NULL")
+}
+fun Map<String, ScriptValue>.integer(name: String): Int? = when (val value = getValue(name)) {
+    ScriptValue.Null -> null
+    is ScriptValue.DecimalValue -> value.value.intValueExact()
+    else -> error("外部配置字段 $name 必须为整数或 NULL")
+}
+fun Map<String, ScriptValue>.optionalBoolean(name: String): Boolean? = when (val value = getValue(name)) {
+    ScriptValue.Null -> null
+    is ScriptValue.BooleanValue -> value.value
+    else -> error("外部配置字段 $name 必须为布尔或 NULL")
+}
+fun scalar(value: ResultValueView): String? = when (val result = (value as ResultValueView.Complete).value) {
+    is ExecutableBusinessResult.NullValue -> null
+    is ExecutableBusinessResult.ScalarValue -> result.value
+    else -> error("此结果位置应为标量")
+}
+fun expect(page: ResultPage, expected: Map<String, Map<String, String>>) {
+    val names = page.columns.map { it.symbol.name }
+    val valueNames = expected.values.first().keys
+    val keys = names.filter { it !in valueNames }
+    val actual = page.rows.associate { row ->
+        val values = names.zip(row).associate { (name, value) -> name to scalar(value) }
+        val key = if (keys.isEmpty()) "total" else keys.joinToString("/") { requireNotNull(values[it]) }
+        key to values
+    }
+    check(actual.keys == expected.keys) { "实际人口 ${actual.keys} 不同于明确业务人口 ${expected.keys}" }
+    expected.forEach { (key, values) -> values.forEach { (name, number) ->
+        check(BigDecimal(requireNotNull(actual.getValue(key)[name])).compareTo(BigDecimal(number)) == 0) { "$key/$name 结果不符合业务参照" }
+    } }
+}
+fun money() = MetricValueContract(MetricValueContract.Fixed(MetricValueContract.UnitIdentity("iso4217", "CNY", 1)),
+    MetricValueContract.Exact(), MetricValueContract.Decimal(38, 2, MetricValueContract.Rounding.NONE), emptyMap(), MetricValueContract.Overflow.FAIL)
+
+
+fun sum(keys: List<String>, input: String) = Regroup(ResultGrouping(keys,
+    listOf(ResultAggregate(input, ResultAggregation.Sum(money(), ResultAggregation.NullPolicy.IGNORE), "value", "记录金额合计")), null))
+
 class BusinessExample(val client: OlapClient, val parameters: ScriptArguments, val domain: String) {
     val actor = client.caller.subject
     val governance = client.governance
@@ -153,43 +197,6 @@ class BusinessExample(val client: OlapClient, val parameters: ScriptArguments, v
             RowPopulationContract.calls(population), null), emptyMap(), emptyList())
 }
 
-fun ScriptValue.objectValues(): Map<String, ScriptValue> = (this as ScriptValue.ObjectValue).values
-fun ScriptValue.arrayValues(): List<ScriptValue> = (this as ScriptValue.ArrayValue).values
-fun Map<String, ScriptValue>.text(name: String): String = (getValue(name) as ScriptValue.Text).value
-fun Map<String, ScriptValue>.optionalText(name: String): String? = when (val value = getValue(name)) {
-    ScriptValue.Null -> null
-    is ScriptValue.Text -> value.value
-    else -> error("外部配置字段 $name 必须为文本或 NULL")
-}
-fun Map<String, ScriptValue>.integer(name: String): Int? = when (val value = getValue(name)) {
-    ScriptValue.Null -> null
-    is ScriptValue.DecimalValue -> value.value.intValueExact()
-    else -> error("外部配置字段 $name 必须为整数或 NULL")
-}
-fun Map<String, ScriptValue>.optionalBoolean(name: String): Boolean? = when (val value = getValue(name)) {
-    ScriptValue.Null -> null
-    is ScriptValue.BooleanValue -> value.value
-    else -> error("外部配置字段 $name 必须为布尔或 NULL")
-}
-fun scalar(value: ResultValueView): String? = when (val result = (value as ResultValueView.Complete).value) {
-    is ExecutableBusinessResult.NullValue -> null
-    is ExecutableBusinessResult.ScalarValue -> result.value
-    else -> error("此结果位置应为标量")
-}
-fun expect(page: ResultPage, expected: Map<String, Map<String, String>>) {
-    val names = page.columns.map { it.symbol.name }
-    val valueNames = expected.values.first().keys
-    val keys = names.filter { it !in valueNames }
-    val actual = page.rows.associate { row ->
-        val values = names.zip(row).associate { (name, value) -> name to scalar(value) }
-        val key = if (keys.isEmpty()) "total" else keys.joinToString("/") { requireNotNull(values[it]) }
-        key to values
-    }
-    check(actual.keys == expected.keys) { "实际人口 ${actual.keys} 不同于明确业务人口 ${expected.keys}" }
-    expected.forEach { (key, values) -> values.forEach { (name, number) ->
-        check(BigDecimal(requireNotNull(actual.getValue(key)[name])).compareTo(BigDecimal(number)) == 0) { "$key/$name 结果不符合业务参照" }
-    } }
-}
 fun resume(client: OlapClient, parameters: ScriptArguments, verify: (ResultPage) -> Unit): ScriptValue {
     val queryValues = parameters["query"].objectValues()
     val resultValues = parameters["result"].objectValues()
@@ -202,9 +209,10 @@ fun resume(client: OlapClient, parameters: ScriptArguments, verify: (ResultPage)
         check(receipt.status == QueryExecutionStatus.SUCCEEDED && receipt.saved) { receipt.error.toString() }
         verify(client.results.read(ResultReadRequest(requireNotNull(receipt.resultReference), 0, 200, null)))
     } else check(parameters.text("phase") == "read-result")
-    return ScriptValue.ObjectValue(mapOf("query" to client.output(query), "result" to client.output(result)))
+    return ScriptValue.ObjectValue(mapOf("query" to ScriptValue.QueryReferenceValue(query), "result" to ScriptValue.ResultReferenceValue(result)))
 }
-fun output(client: OlapClient, saved: BusinessExample.Saved): ScriptValue = ScriptValue.ObjectValue(mapOf("query" to client.output(saved.query), "result" to client.output(saved.result)))
+fun references(saved: BusinessExample.Saved): ScriptValue = ScriptValue.ObjectValue(mapOf(
+    "query" to ScriptValue.QueryReferenceValue(saved.query), "result" to ScriptValue.ResultReferenceValue(saved.result)))
 
 fun receiptDefinition(po: Calculation.DimensionSlot, latestFirst: Boolean): MemberSourceDefinition.Computed {
     val outputs = linkedMapOf<String, Calculation.MemberOutput>(
@@ -252,13 +260,6 @@ fun totalDefinition(po: Calculation.DimensionSlot) = MetricCalculation(
     Calculation(listOf(po), emptyList(), listOf(Calculation.MeasurementSlot("amount", emptyMap(), listOf(po), emptyList(), money())), emptyList(), emptyMap(), Calculation.Scope(Calculation.Measures(listOf(Calculation.Call("amount", Calculation.Measurement("amount"), "amount", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()))), listOf("po"), emptyList(), null, null,
         emptyMap(), Calculation.Population(listOf("amount")), null), emptyMap(), listOf(sum(emptyList(), "amount")))),
     "value", emptyList(), money())
-
-fun sum(keys: List<String>, input: String) = Regroup(ResultGrouping(keys,
-    listOf(ResultAggregate(input, ResultAggregation.Sum(money(), ResultAggregation.NullPolicy.IGNORE), "value", "记录金额合计")), null))
-
-fun money() = MetricValueContract(MetricValueContract.Fixed(MetricValueContract.UnitIdentity("iso4217", "CNY", 1)),
-    MetricValueContract.Exact(), MetricValueContract.Decimal(38, 2, MetricValueContract.Rounding.NONE), emptyMap(), MetricValueContract.Overflow.FAIL)
-
 
 fun verifyProcurement(page: ResultPage) = expect(page, mapOf(
     "P-001" to mapOf("purchase" to "100", "latest_effective" to "80", "latest_successful" to "80"),
@@ -327,4 +328,4 @@ fun buildProcurement(): BusinessExample.Saved {
         example.call(metrics.getValue(it)) }, listOf(axis.bound.reference), listOf("purchase"))).also { verifyProcurement(it.page) }
 }
 
-if (parameters.text("phase") == "build") output(olap, buildProcurement()) else resume(olap, parameters, ::verifyProcurement)
+olap.output(if (parameters.text("phase") == "build") references(buildProcurement()) else resume(olap, parameters, ::verifyProcurement))

@@ -180,7 +180,7 @@ func (x ScriptOutput_Stream) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ScriptOutput_Stream.Descriptor instead.
 func (ScriptOutput_Stream) EnumDescriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{23, 0}
+	return file_runtime_proto_rawDescGZIP(), []int{24, 0}
 }
 
 // Both directions use bounded, varint-length-delimited Frame messages on stdio.
@@ -203,6 +203,7 @@ type Frame struct {
 	//	*Frame_ScriptWorkerFault
 	//	*Frame_ScriptOutput
 	//	*Frame_File
+	//	*Frame_ScriptEmission
 	Body          isFrame_Body `protobuf_oneof:"body"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -371,6 +372,15 @@ func (x *Frame) GetFile() *ProtocolFile {
 	return nil
 }
 
+func (x *Frame) GetScriptEmission() *ScriptEmission {
+	if x != nil {
+		if x, ok := x.Body.(*Frame_ScriptEmission); ok {
+			return x.ScriptEmission
+		}
+	}
+	return nil
+}
+
 type isFrame_Body interface {
 	isFrame_Body()
 }
@@ -431,6 +441,10 @@ type Frame_File struct {
 	File *ProtocolFile `protobuf:"bytes,15,opt,name=file,proto3,oneof"`
 }
 
+type Frame_ScriptEmission struct {
+	ScriptEmission *ScriptEmission `protobuf:"bytes,16,opt,name=script_emission,json=scriptEmission,proto3,oneof"`
+}
+
 func (*Frame_Bootstrap) isFrame_Body() {}
 
 func (*Frame_Request) isFrame_Body() {}
@@ -459,13 +473,15 @@ func (*Frame_ScriptOutput) isFrame_Body() {}
 
 func (*Frame_File) isFrame_Body() {}
 
+func (*Frame_ScriptEmission) isFrame_Body() {}
+
 type Bootstrap struct {
 	state                    protoimpl.MessageState `protogen:"open.v1"`
-	Protocol                 string                 `protobuf:"bytes,1,opt,name=protocol,proto3" json:"protocol,omitempty"`                                   // agentic-olap-runtime/v2，版本必须精确一致。
+	Protocol                 string                 `protobuf:"bytes,1,opt,name=protocol,proto3" json:"protocol,omitempty"`                                   // agentic-olap-runtime/v3，版本必须精确一致。
 	DeploymentJson           []byte                 `protobuf:"bytes,2,opt,name=deployment_json,json=deploymentJson,proto3" json:"deployment_json,omitempty"` // metadata mode only; no credential values.
 	LimitsJson               []byte                 `protobuf:"bytes,3,opt,name=limits_json,json=limitsJson,proto3" json:"limits_json,omitempty"`
 	ConnectorManifests       []string               `protobuf:"bytes,4,rep,name=connector_manifests,json=connectorManifests,proto3" json:"connector_manifests,omitempty"`
-	WorkerKind               WorkerKind             `protobuf:"varint,5,opt,name=worker_kind,json=workerKind,proto3,enum=agentic.olap.runtime.v2.WorkerKind" json:"worker_kind,omitempty"`
+	WorkerKind               WorkerKind             `protobuf:"varint,5,opt,name=worker_kind,json=workerKind,proto3,enum=agentic.olap.runtime.v3.WorkerKind" json:"worker_kind,omitempty"`
 	SourceConfigurationsJson []byte                 `protobuf:"bytes,6,opt,name=source_configurations_json,json=sourceConfigurationsJson,proto3" json:"source_configurations_json,omitempty"` // exact selected bindings only.
 	Scripting                *ScriptConfiguration   `protobuf:"bytes,7,opt,name=scripting,proto3" json:"scripting,omitempty"`
 	TransferDirectory        string                 `protobuf:"bytes,8,opt,name=transfer_directory,json=transferDirectory,proto3" json:"transfer_directory,omitempty"`
@@ -1278,7 +1294,7 @@ func (x *SourceBinding) GetSourceIdentityHash() string {
 
 type AcquireWorker struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Kind          WorkerKind             `protobuf:"varint,1,opt,name=kind,proto3,enum=agentic.olap.runtime.v2.WorkerKind" json:"kind,omitempty"`
+	Kind          WorkerKind             `protobuf:"varint,1,opt,name=kind,proto3,enum=agentic.olap.runtime.v3.WorkerKind" json:"kind,omitempty"`
 	Bindings      []*SourceBinding       `protobuf:"bytes,2,rep,name=bindings,proto3" json:"bindings,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1950,6 +1966,7 @@ type ScriptRequest struct {
 	ParametersJson     []byte                 `protobuf:"bytes,4,opt,name=parameters_json,json=parametersJson,proto3" json:"parameters_json,omitempty"`
 	CallerSubject      string                 `protobuf:"bytes,5,opt,name=caller_subject,json=callerSubject,proto3" json:"caller_subject,omitempty"`
 	ExecutionDirectory string                 `protobuf:"bytes,6,opt,name=execution_directory,json=executionDirectory,proto3" json:"execution_directory,omitempty"`
+	SessionId          string                 `protobuf:"bytes,7,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }
@@ -2026,11 +2043,71 @@ func (x *ScriptRequest) GetExecutionDirectory() string {
 	return ""
 }
 
+func (x *ScriptRequest) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+// 输出动作发生时已编码的不可变快照；与打印及完成事实共用同一有序通道。
+type ScriptEmission struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	Output        *anypb.Any             `protobuf:"bytes,2,opt,name=output,proto3" json:"output,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ScriptEmission) Reset() {
+	*x = ScriptEmission{}
+	mi := &file_runtime_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ScriptEmission) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ScriptEmission) ProtoMessage() {}
+
+func (x *ScriptEmission) ProtoReflect() protoreflect.Message {
+	mi := &file_runtime_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ScriptEmission.ProtoReflect.Descriptor instead.
+func (*ScriptEmission) Descriptor() ([]byte, []int) {
+	return file_runtime_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *ScriptEmission) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *ScriptEmission) GetOutput() *anypb.Any {
+	if x != nil {
+		return x.Output
+	}
+	return nil
+}
+
 // 普通脚本输出与完成回执在同一有序通道中交付；原生 JVM stderr 另受进程级限额。
 type ScriptOutput struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
-	Stream        ScriptOutput_Stream    `protobuf:"varint,2,opt,name=stream,proto3,enum=agentic.olap.runtime.v2.ScriptOutput_Stream" json:"stream,omitempty"`
+	Stream        ScriptOutput_Stream    `protobuf:"varint,2,opt,name=stream,proto3,enum=agentic.olap.runtime.v3.ScriptOutput_Stream" json:"stream,omitempty"`
 	Content       []byte                 `protobuf:"bytes,3,opt,name=content,proto3" json:"content,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2038,7 +2115,7 @@ type ScriptOutput struct {
 
 func (x *ScriptOutput) Reset() {
 	*x = ScriptOutput{}
-	mi := &file_runtime_proto_msgTypes[23]
+	mi := &file_runtime_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2050,7 +2127,7 @@ func (x *ScriptOutput) String() string {
 func (*ScriptOutput) ProtoMessage() {}
 
 func (x *ScriptOutput) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[23]
+	mi := &file_runtime_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2063,7 +2140,7 @@ func (x *ScriptOutput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ScriptOutput.ProtoReflect.Descriptor instead.
 func (*ScriptOutput) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{23}
+	return file_runtime_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *ScriptOutput) GetRequestId() string {
@@ -2094,13 +2171,14 @@ type SourceLocation struct {
 	StartColumn   uint32                 `protobuf:"varint,3,opt,name=start_column,json=startColumn,proto3" json:"start_column,omitempty"`
 	EndLine       uint32                 `protobuf:"varint,4,opt,name=end_line,json=endLine,proto3" json:"end_line,omitempty"`
 	EndColumn     uint32                 `protobuf:"varint,5,opt,name=end_column,json=endColumn,proto3" json:"end_column,omitempty"`
+	SnippetId     string                 `protobuf:"bytes,6,opt,name=snippet_id,json=snippetId,proto3" json:"snippet_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *SourceLocation) Reset() {
 	*x = SourceLocation{}
-	mi := &file_runtime_proto_msgTypes[24]
+	mi := &file_runtime_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2112,7 +2190,7 @@ func (x *SourceLocation) String() string {
 func (*SourceLocation) ProtoMessage() {}
 
 func (x *SourceLocation) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[24]
+	mi := &file_runtime_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2125,7 +2203,7 @@ func (x *SourceLocation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SourceLocation.ProtoReflect.Descriptor instead.
 func (*SourceLocation) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{24}
+	return file_runtime_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *SourceLocation) GetSourceName() string {
@@ -2163,6 +2241,13 @@ func (x *SourceLocation) GetEndColumn() uint32 {
 	return 0
 }
 
+func (x *SourceLocation) GetSnippetId() string {
+	if x != nil {
+		return x.SnippetId
+	}
+	return ""
+}
+
 type ScriptDiagnostic struct {
 	state             protoimpl.MessageState `protogen:"open.v1"`
 	Code              string                 `protobuf:"bytes,1,opt,name=code,proto3" json:"code,omitempty"`
@@ -2183,7 +2268,7 @@ type ScriptDiagnostic struct {
 
 func (x *ScriptDiagnostic) Reset() {
 	*x = ScriptDiagnostic{}
-	mi := &file_runtime_proto_msgTypes[25]
+	mi := &file_runtime_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2195,7 +2280,7 @@ func (x *ScriptDiagnostic) String() string {
 func (*ScriptDiagnostic) ProtoMessage() {}
 
 func (x *ScriptDiagnostic) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[25]
+	mi := &file_runtime_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2208,7 +2293,7 @@ func (x *ScriptDiagnostic) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ScriptDiagnostic.ProtoReflect.Descriptor instead.
 func (*ScriptDiagnostic) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{25}
+	return file_runtime_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *ScriptDiagnostic) GetCode() string {
@@ -2299,18 +2384,18 @@ type ScriptResponse struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	RequestId      string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	Success        bool                   `protobuf:"varint,2,opt,name=success,proto3" json:"success,omitempty"`
-	Result         *anypb.Any             `protobuf:"bytes,3,opt,name=result,proto3" json:"result,omitempty"`
 	Diagnostics    []*ScriptDiagnostic    `protobuf:"bytes,4,rep,name=diagnostics,proto3" json:"diagnostics,omitempty"`
 	TimingNanos    map[string]uint64      `protobuf:"bytes,5,rep,name=timing_nanos,json=timingNanos,proto3" json:"timing_nanos,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
-	RecycleWorker  bool                   `protobuf:"varint,6,opt,name=recycle_worker,json=recycleWorker,proto3" json:"recycle_worker,omitempty"`
+	SessionUsable  bool                   `protobuf:"varint,6,opt,name=session_usable,json=sessionUsable,proto3" json:"session_usable,omitempty"`
 	ResourceIssues []*ScriptResourceIssue `protobuf:"bytes,7,rep,name=resource_issues,json=resourceIssues,proto3" json:"resource_issues,omitempty"`
+	State          string                 `protobuf:"bytes,8,opt,name=state,proto3" json:"state,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
 
 func (x *ScriptResponse) Reset() {
 	*x = ScriptResponse{}
-	mi := &file_runtime_proto_msgTypes[26]
+	mi := &file_runtime_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2322,7 +2407,7 @@ func (x *ScriptResponse) String() string {
 func (*ScriptResponse) ProtoMessage() {}
 
 func (x *ScriptResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[26]
+	mi := &file_runtime_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2335,7 +2420,7 @@ func (x *ScriptResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ScriptResponse.ProtoReflect.Descriptor instead.
 func (*ScriptResponse) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{26}
+	return file_runtime_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *ScriptResponse) GetRequestId() string {
@@ -2352,13 +2437,6 @@ func (x *ScriptResponse) GetSuccess() bool {
 	return false
 }
 
-func (x *ScriptResponse) GetResult() *anypb.Any {
-	if x != nil {
-		return x.Result
-	}
-	return nil
-}
-
 func (x *ScriptResponse) GetDiagnostics() []*ScriptDiagnostic {
 	if x != nil {
 		return x.Diagnostics
@@ -2373,9 +2451,9 @@ func (x *ScriptResponse) GetTimingNanos() map[string]uint64 {
 	return nil
 }
 
-func (x *ScriptResponse) GetRecycleWorker() bool {
+func (x *ScriptResponse) GetSessionUsable() bool {
 	if x != nil {
-		return x.RecycleWorker
+		return x.SessionUsable
 	}
 	return false
 }
@@ -2385,6 +2463,13 @@ func (x *ScriptResponse) GetResourceIssues() []*ScriptResourceIssue {
 		return x.ResourceIssues
 	}
 	return nil
+}
+
+func (x *ScriptResponse) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
 }
 
 // 私有服务诊断，不进入公开脚本报告。这里只复制有界值，不持有线程或类加载器。
@@ -2401,7 +2486,7 @@ type ScriptResourceIssue struct {
 
 func (x *ScriptResourceIssue) Reset() {
 	*x = ScriptResourceIssue{}
-	mi := &file_runtime_proto_msgTypes[27]
+	mi := &file_runtime_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2413,7 +2498,7 @@ func (x *ScriptResourceIssue) String() string {
 func (*ScriptResourceIssue) ProtoMessage() {}
 
 func (x *ScriptResourceIssue) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[27]
+	mi := &file_runtime_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2426,7 +2511,7 @@ func (x *ScriptResourceIssue) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ScriptResourceIssue.ProtoReflect.Descriptor instead.
 func (*ScriptResourceIssue) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{27}
+	return file_runtime_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *ScriptResourceIssue) GetCode() string {
@@ -2478,7 +2563,7 @@ type ScriptThreadObservation struct {
 
 func (x *ScriptThreadObservation) Reset() {
 	*x = ScriptThreadObservation{}
-	mi := &file_runtime_proto_msgTypes[28]
+	mi := &file_runtime_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2490,7 +2575,7 @@ func (x *ScriptThreadObservation) String() string {
 func (*ScriptThreadObservation) ProtoMessage() {}
 
 func (x *ScriptThreadObservation) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[28]
+	mi := &file_runtime_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2503,7 +2588,7 @@ func (x *ScriptThreadObservation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ScriptThreadObservation.ProtoReflect.Descriptor instead.
 func (*ScriptThreadObservation) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{28}
+	return file_runtime_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *ScriptThreadObservation) GetId() uint64 {
@@ -2558,7 +2643,7 @@ type ScriptWorkerFault struct {
 
 func (x *ScriptWorkerFault) Reset() {
 	*x = ScriptWorkerFault{}
-	mi := &file_runtime_proto_msgTypes[29]
+	mi := &file_runtime_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2570,7 +2655,7 @@ func (x *ScriptWorkerFault) String() string {
 func (*ScriptWorkerFault) ProtoMessage() {}
 
 func (x *ScriptWorkerFault) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[29]
+	mi := &file_runtime_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2583,7 +2668,7 @@ func (x *ScriptWorkerFault) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ScriptWorkerFault.ProtoReflect.Descriptor instead.
 func (*ScriptWorkerFault) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{29}
+	return file_runtime_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *ScriptWorkerFault) GetRequestId() string {
@@ -2612,7 +2697,7 @@ type CapabilityRequest struct {
 
 func (x *CapabilityRequest) Reset() {
 	*x = CapabilityRequest{}
-	mi := &file_runtime_proto_msgTypes[30]
+	mi := &file_runtime_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2624,7 +2709,7 @@ func (x *CapabilityRequest) String() string {
 func (*CapabilityRequest) ProtoMessage() {}
 
 func (x *CapabilityRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[30]
+	mi := &file_runtime_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2637,7 +2722,7 @@ func (x *CapabilityRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CapabilityRequest.ProtoReflect.Descriptor instead.
 func (*CapabilityRequest) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{30}
+	return file_runtime_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *CapabilityRequest) GetRequestId() string {
@@ -2677,7 +2762,7 @@ type CapabilityFailure struct {
 
 func (x *CapabilityFailure) Reset() {
 	*x = CapabilityFailure{}
-	mi := &file_runtime_proto_msgTypes[31]
+	mi := &file_runtime_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2689,7 +2774,7 @@ func (x *CapabilityFailure) String() string {
 func (*CapabilityFailure) ProtoMessage() {}
 
 func (x *CapabilityFailure) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[31]
+	mi := &file_runtime_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2702,7 +2787,7 @@ func (x *CapabilityFailure) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CapabilityFailure.ProtoReflect.Descriptor instead.
 func (*CapabilityFailure) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{31}
+	return file_runtime_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *CapabilityFailure) GetStage() string {
@@ -2776,7 +2861,7 @@ type CapabilityResponse struct {
 
 func (x *CapabilityResponse) Reset() {
 	*x = CapabilityResponse{}
-	mi := &file_runtime_proto_msgTypes[32]
+	mi := &file_runtime_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2788,7 +2873,7 @@ func (x *CapabilityResponse) String() string {
 func (*CapabilityResponse) ProtoMessage() {}
 
 func (x *CapabilityResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[32]
+	mi := &file_runtime_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2801,7 +2886,7 @@ func (x *CapabilityResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CapabilityResponse.ProtoReflect.Descriptor instead.
 func (*CapabilityResponse) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{32}
+	return file_runtime_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *CapabilityResponse) GetRequestId() string {
@@ -2872,7 +2957,7 @@ type CapabilityEffect struct {
 
 func (x *CapabilityEffect) Reset() {
 	*x = CapabilityEffect{}
-	mi := &file_runtime_proto_msgTypes[33]
+	mi := &file_runtime_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2884,7 +2969,7 @@ func (x *CapabilityEffect) String() string {
 func (*CapabilityEffect) ProtoMessage() {}
 
 func (x *CapabilityEffect) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[33]
+	mi := &file_runtime_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2897,7 +2982,7 @@ func (x *CapabilityEffect) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CapabilityEffect.ProtoReflect.Descriptor instead.
 func (*CapabilityEffect) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{33}
+	return file_runtime_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *CapabilityEffect) GetReadOperation() string {
@@ -3011,7 +3096,7 @@ type CapabilityOwnedMember struct {
 
 func (x *CapabilityOwnedMember) Reset() {
 	*x = CapabilityOwnedMember{}
-	mi := &file_runtime_proto_msgTypes[34]
+	mi := &file_runtime_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3023,7 +3108,7 @@ func (x *CapabilityOwnedMember) String() string {
 func (*CapabilityOwnedMember) ProtoMessage() {}
 
 func (x *CapabilityOwnedMember) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[34]
+	mi := &file_runtime_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3036,7 +3121,7 @@ func (x *CapabilityOwnedMember) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CapabilityOwnedMember.ProtoReflect.Descriptor instead.
 func (*CapabilityOwnedMember) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{34}
+	return file_runtime_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *CapabilityOwnedMember) GetOwner() *governance.DefinitionImpactReference {
@@ -3072,7 +3157,7 @@ type WorkerObservation struct {
 
 func (x *WorkerObservation) Reset() {
 	*x = WorkerObservation{}
-	mi := &file_runtime_proto_msgTypes[35]
+	mi := &file_runtime_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3084,7 +3169,7 @@ func (x *WorkerObservation) String() string {
 func (*WorkerObservation) ProtoMessage() {}
 
 func (x *WorkerObservation) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[35]
+	mi := &file_runtime_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3097,7 +3182,7 @@ func (x *WorkerObservation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkerObservation.ProtoReflect.Descriptor instead.
 func (*WorkerObservation) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{35}
+	return file_runtime_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *WorkerObservation) GetKind() string {
@@ -3132,7 +3217,7 @@ type DeliveryConfirmation struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	RunId            string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
 	Sha256           string                 `protobuf:"bytes,2,opt,name=sha256,proto3" json:"sha256,omitempty"`
-	Status           DeliveryStatus         `protobuf:"varint,3,opt,name=status,proto3,enum=agentic.olap.runtime.v2.DeliveryStatus" json:"status,omitempty"`
+	Status           DeliveryStatus         `protobuf:"varint,3,opt,name=status,proto3,enum=agentic.olap.runtime.v3.DeliveryStatus" json:"status,omitempty"`
 	Bytes            uint64                 `protobuf:"varint,4,opt,name=bytes,proto3" json:"bytes,omitempty"`
 	Rows             uint64                 `protobuf:"varint,5,opt,name=rows,proto3" json:"rows,omitempty"`
 	TimingNanos      map[string]uint64      `protobuf:"bytes,6,rep,name=timing_nanos,json=timingNanos,proto3" json:"timing_nanos,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
@@ -3144,7 +3229,7 @@ type DeliveryConfirmation struct {
 
 func (x *DeliveryConfirmation) Reset() {
 	*x = DeliveryConfirmation{}
-	mi := &file_runtime_proto_msgTypes[36]
+	mi := &file_runtime_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3156,7 +3241,7 @@ func (x *DeliveryConfirmation) String() string {
 func (*DeliveryConfirmation) ProtoMessage() {}
 
 func (x *DeliveryConfirmation) ProtoReflect() protoreflect.Message {
-	mi := &file_runtime_proto_msgTypes[36]
+	mi := &file_runtime_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3169,7 +3254,7 @@ func (x *DeliveryConfirmation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeliveryConfirmation.ProtoReflect.Descriptor instead.
 func (*DeliveryConfirmation) Descriptor() ([]byte, []int) {
-	return file_runtime_proto_rawDescGZIP(), []int{36}
+	return file_runtime_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *DeliveryConfirmation) GetRunId() string {
@@ -3232,23 +3317,24 @@ var File_runtime_proto protoreflect.FileDescriptor
 
 const file_runtime_proto_rawDesc = "" +
 	"\n" +
-	"\rruntime.proto\x12\x17agentic.olap.runtime.v2\x1a\x19google/protobuf/any.proto\x1a\vquery.proto\x1a\x10governance.proto\"\xb2\b\n" +
+	"\rruntime.proto\x12\x17agentic.olap.runtime.v3\x1a\x19google/protobuf/any.proto\x1a\vquery.proto\x1a\x10governance.proto\"\x86\t\n" +
 	"\x05Frame\x12B\n" +
-	"\tbootstrap\x18\x01 \x01(\v2\".agentic.olap.runtime.v2.BootstrapH\x00R\tbootstrap\x12<\n" +
-	"\arequest\x18\x02 \x01(\v2 .agentic.olap.runtime.v2.RequestH\x00R\arequest\x12?\n" +
-	"\bresponse\x18\x03 \x01(\v2!.agentic.olap.runtime.v2.ResponseH\x00R\bresponse\x12I\n" +
-	"\fwork_request\x18\x04 \x01(\v2$.agentic.olap.runtime.v2.WorkRequestH\x00R\vworkRequest\x12L\n" +
-	"\rwork_response\x18\x05 \x01(\v2%.agentic.olap.runtime.v2.WorkResponseH\x00R\fworkResponse\x129\n" +
-	"\x06cancel\x18\x06 \x01(\v2\x1f.agentic.olap.runtime.v2.CancelH\x00R\x06cancel\x12?\n" +
-	"\bshutdown\x18\a \x01(\v2!.agentic.olap.runtime.v2.ShutdownH\x00R\bshutdown\x12O\n" +
-	"\x0escript_request\x18\b \x01(\v2&.agentic.olap.runtime.v2.ScriptRequestH\x00R\rscriptRequest\x12R\n" +
-	"\x0fscript_response\x18\t \x01(\v2'.agentic.olap.runtime.v2.ScriptResponseH\x00R\x0escriptResponse\x12[\n" +
+	"\tbootstrap\x18\x01 \x01(\v2\".agentic.olap.runtime.v3.BootstrapH\x00R\tbootstrap\x12<\n" +
+	"\arequest\x18\x02 \x01(\v2 .agentic.olap.runtime.v3.RequestH\x00R\arequest\x12?\n" +
+	"\bresponse\x18\x03 \x01(\v2!.agentic.olap.runtime.v3.ResponseH\x00R\bresponse\x12I\n" +
+	"\fwork_request\x18\x04 \x01(\v2$.agentic.olap.runtime.v3.WorkRequestH\x00R\vworkRequest\x12L\n" +
+	"\rwork_response\x18\x05 \x01(\v2%.agentic.olap.runtime.v3.WorkResponseH\x00R\fworkResponse\x129\n" +
+	"\x06cancel\x18\x06 \x01(\v2\x1f.agentic.olap.runtime.v3.CancelH\x00R\x06cancel\x12?\n" +
+	"\bshutdown\x18\a \x01(\v2!.agentic.olap.runtime.v3.ShutdownH\x00R\bshutdown\x12O\n" +
+	"\x0escript_request\x18\b \x01(\v2&.agentic.olap.runtime.v3.ScriptRequestH\x00R\rscriptRequest\x12R\n" +
+	"\x0fscript_response\x18\t \x01(\v2'.agentic.olap.runtime.v3.ScriptResponseH\x00R\x0escriptResponse\x12[\n" +
 	"\x12capability_request\x18\n" +
-	" \x01(\v2*.agentic.olap.runtime.v2.CapabilityRequestH\x00R\x11capabilityRequest\x12^\n" +
-	"\x13capability_response\x18\v \x01(\v2+.agentic.olap.runtime.v2.CapabilityResponseH\x00R\x12capabilityResponse\x12\\\n" +
-	"\x13script_worker_fault\x18\r \x01(\v2*.agentic.olap.runtime.v2.ScriptWorkerFaultH\x00R\x11scriptWorkerFault\x12L\n" +
-	"\rscript_output\x18\x0e \x01(\v2%.agentic.olap.runtime.v2.ScriptOutputH\x00R\fscriptOutput\x12;\n" +
-	"\x04file\x18\x0f \x01(\v2%.agentic.olap.runtime.v2.ProtocolFileH\x00R\x04fileB\x06\n" +
+	" \x01(\v2*.agentic.olap.runtime.v3.CapabilityRequestH\x00R\x11capabilityRequest\x12^\n" +
+	"\x13capability_response\x18\v \x01(\v2+.agentic.olap.runtime.v3.CapabilityResponseH\x00R\x12capabilityResponse\x12\\\n" +
+	"\x13script_worker_fault\x18\r \x01(\v2*.agentic.olap.runtime.v3.ScriptWorkerFaultH\x00R\x11scriptWorkerFault\x12L\n" +
+	"\rscript_output\x18\x0e \x01(\v2%.agentic.olap.runtime.v3.ScriptOutputH\x00R\fscriptOutput\x12;\n" +
+	"\x04file\x18\x0f \x01(\v2%.agentic.olap.runtime.v3.ProtocolFileH\x00R\x04file\x12R\n" +
+	"\x0fscript_emission\x18\x10 \x01(\v2'.agentic.olap.runtime.v3.ScriptEmissionH\x00R\x0escriptEmissionB\x06\n" +
 	"\x04body\"\xa1\x03\n" +
 	"\tBootstrap\x12\x1a\n" +
 	"\bprotocol\x18\x01 \x01(\tR\bprotocol\x12'\n" +
@@ -3256,10 +3342,10 @@ const file_runtime_proto_rawDesc = "" +
 	"\vlimits_json\x18\x03 \x01(\fR\n" +
 	"limitsJson\x12/\n" +
 	"\x13connector_manifests\x18\x04 \x03(\tR\x12connectorManifests\x12D\n" +
-	"\vworker_kind\x18\x05 \x01(\x0e2#.agentic.olap.runtime.v2.WorkerKindR\n" +
+	"\vworker_kind\x18\x05 \x01(\x0e2#.agentic.olap.runtime.v3.WorkerKindR\n" +
 	"workerKind\x12<\n" +
 	"\x1asource_configurations_json\x18\x06 \x01(\fR\x18sourceConfigurationsJson\x12J\n" +
-	"\tscripting\x18\a \x01(\v2,.agentic.olap.runtime.v2.ScriptConfigurationR\tscripting\x12-\n" +
+	"\tscripting\x18\a \x01(\v2,.agentic.olap.runtime.v3.ScriptConfigurationR\tscripting\x12-\n" +
 	"\x12transfer_directory\x18\b \x01(\tR\x11transferDirectory\"P\n" +
 	"\fProtocolFile\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
@@ -3272,15 +3358,15 @@ const file_runtime_proto_rawDesc = "" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12)\n" +
 	"\x10remaining_millis\x18\x02 \x01(\x04R\x0fremainingMillis\x12@\n" +
-	"\tprincipal\x18\x03 \x01(\v2\".agentic.olap.runtime.v2.PrincipalR\tprincipal\x12\x1c\n" +
+	"\tprincipal\x18\x03 \x01(\v2\".agentic.olap.runtime.v3.PrincipalR\tprincipal\x12\x1c\n" +
 	"\toperation\x18\x04 \x01(\tR\toperation\x12!\n" +
 	"\fpayload_json\x18\x05 \x01(\fR\vpayloadJson\x12M\n" +
 	"\n" +
-	"capability\x18\x06 \x01(\v2-.agentic.olap.runtime.v2.CapabilityInvocationR\n" +
+	"capability\x18\x06 \x01(\v2-.agentic.olap.runtime.v3.CapabilityInvocationR\n" +
 	"capability\x12I\n" +
-	"\bdelivery\x18\a \x01(\v2-.agentic.olap.runtime.v2.DeliveryConfirmationR\bdelivery\x127\n" +
+	"\bdelivery\x18\a \x01(\v2-.agentic.olap.runtime.v3.DeliveryConfirmationR\bdelivery\x127\n" +
 	"\fworker_model\x18\b \x01(\v2\x14.google.protobuf.AnyR\vworkerModel\x12_\n" +
-	"\x14result_authorization\x18\t \x01(\v2,.agentic.olap.runtime.v2.ResultAuthorizationR\x13resultAuthorization\"\x83\x01\n" +
+	"\x14result_authorization\x18\t \x01(\v2,.agentic.olap.runtime.v3.ResultAuthorizationR\x13resultAuthorization\"\x83\x01\n" +
 	"\x13ResultAuthorization\x12!\n" +
 	"\foperation_id\x18\x01 \x01(\tR\voperationId\x12I\n" +
 	"\treference\x18\x02 \x01(\v2+.agentic.olap.query.v1.QueryResultReferenceR\treference\"\xdf\x04\n" +
@@ -3292,13 +3378,13 @@ const file_runtime_proto_rawDesc = "" +
 	"resultJson\x12\x1d\n" +
 	"\n" +
 	"error_json\x18\x04 \x01(\fR\terrorJson\x12C\n" +
-	"\bartifact\x18\x05 \x01(\v2'.agentic.olap.runtime.v2.ResultArtifactR\bartifact\x12;\n" +
-	"\x05ready\x18\x06 \x01(\v2%.agentic.olap.runtime.v2.RuntimeReadyR\x05ready\x12*\n" +
+	"\bartifact\x18\x05 \x01(\v2'.agentic.olap.runtime.v3.ResultArtifactR\bartifact\x12;\n" +
+	"\x05ready\x18\x06 \x01(\v2%.agentic.olap.runtime.v3.RuntimeReadyR\x05ready\x12*\n" +
 	"\x05model\x18\a \x01(\v2\x14.google.protobuf.AnyR\x05model\x12P\n" +
 	"\x0eworker_failure\x18\b \x01(\v2).agentic.olap.query.v1.WorkerFailureFactsR\rworkerFailure\x12U\n" +
-	"\ftiming_nanos\x18\t \x03(\v22.agentic.olap.runtime.v2.Response.TimingNanosEntryR\vtimingNanos\x12C\n" +
+	"\ftiming_nanos\x18\t \x03(\v22.agentic.olap.runtime.v3.Response.TimingNanosEntryR\vtimingNanos\x12C\n" +
 	"\aeffects\x18\n" +
-	" \x03(\v2).agentic.olap.runtime.v2.CapabilityEffectR\aeffects\x1a>\n" +
+	" \x03(\v2).agentic.olap.runtime.v3.CapabilityEffectR\aeffects\x1a>\n" +
 	"\x10TimingNanosEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01\"\x81\x01\n" +
@@ -3308,15 +3394,15 @@ const file_runtime_proto_rawDesc = "" +
 	"\vdescription\x18\x03 \x01(\tR\vdescription\x12!\n" +
 	"\fpayload_json\x18\x04 \x01(\fR\vpayloadJson\"\x85\x01\n" +
 	"\x10RegisteredSource\x12@\n" +
-	"\abinding\x18\x01 \x01(\v2&.agentic.olap.runtime.v2.SourceBindingR\abinding\x12/\n" +
+	"\abinding\x18\x01 \x01(\v2&.agentic.olap.runtime.v3.SourceBindingR\abinding\x12/\n" +
 	"\x13configuration_index\x18\x02 \x01(\rR\x12configurationIndex\"\xa5\x02\n" +
 	"\fRuntimeReady\x12B\n" +
 	"\n" +
-	"operations\x18\x01 \x03(\v2\".agentic.olap.runtime.v2.OperationR\n" +
+	"operations\x18\x01 \x03(\v2\".agentic.olap.runtime.v3.OperationR\n" +
 	"operations\x12+\n" +
 	"\x11result_operations\x18\x02 \x03(\tR\x10resultOperations\x12#\n" +
 	"\rconnector_api\x18\x03 \x01(\tR\fconnectorApi\x12C\n" +
-	"\asources\x18\x04 \x03(\v2).agentic.olap.runtime.v2.RegisteredSourceR\asources\x12:\n" +
+	"\asources\x18\x04 \x03(\v2).agentic.olap.runtime.v3.RegisteredSourceR\asources\x12:\n" +
 	"\x19authorization_policy_hash\x18\x05 \x01(\tR\x17authorizationPolicyHash\"\x81\x01\n" +
 	"\x0eResultArtifact\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x16\n" +
@@ -3328,8 +3414,8 @@ const file_runtime_proto_rawDesc = "" +
 	"\x0edata_source_id\x18\x01 \x01(\tR\fdataSourceId\x120\n" +
 	"\x14source_identity_hash\x18\x02 \x01(\tR\x12sourceIdentityHash\"\x8c\x01\n" +
 	"\rAcquireWorker\x127\n" +
-	"\x04kind\x18\x01 \x01(\x0e2#.agentic.olap.runtime.v2.WorkerKindR\x04kind\x12B\n" +
-	"\bbindings\x18\x02 \x03(\v2&.agentic.olap.runtime.v2.SourceBindingR\bbindings\"l\n" +
+	"\x04kind\x18\x01 \x01(\x0e2#.agentic.olap.runtime.v3.WorkerKindR\x04kind\x12B\n" +
+	"\bbindings\x18\x02 \x03(\v2&.agentic.olap.runtime.v3.SourceBindingR\bbindings\"l\n" +
 	"\x0eExchangeWorker\x12\x19\n" +
 	"\blease_id\x18\x01 \x01(\tR\aleaseId\x129\n" +
 	"\rcommand_model\x18\x03 \x01(\v2\x14.google.protobuf.AnyR\fcommandModelJ\x04\b\x02\x10\x03\"*\n" +
@@ -3340,9 +3426,9 @@ const file_runtime_proto_rawDesc = "" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x17\n" +
 	"\awork_id\x18\x02 \x01(\tR\x06workId\x12)\n" +
 	"\x10remaining_millis\x18\x03 \x01(\x04R\x0fremainingMillis\x12B\n" +
-	"\aacquire\x18\x04 \x01(\v2&.agentic.olap.runtime.v2.AcquireWorkerH\x00R\aacquire\x12E\n" +
-	"\bexchange\x18\x05 \x01(\v2'.agentic.olap.runtime.v2.ExchangeWorkerH\x00R\bexchange\x12B\n" +
-	"\arelease\x18\x06 \x01(\v2&.agentic.olap.runtime.v2.ReleaseWorkerH\x00R\areleaseB\b\n" +
+	"\aacquire\x18\x04 \x01(\v2&.agentic.olap.runtime.v3.AcquireWorkerH\x00R\aacquire\x12E\n" +
+	"\bexchange\x18\x05 \x01(\v2'.agentic.olap.runtime.v3.ExchangeWorkerH\x00R\bexchange\x12B\n" +
+	"\arelease\x18\x06 \x01(\v2&.agentic.olap.runtime.v3.ReleaseWorkerH\x00R\areleaseB\b\n" +
 	"\x06action\"\xe6\x03\n" +
 	"\fWorkResponse\x12\x1d\n" +
 	"\n" +
@@ -3356,7 +3442,7 @@ const file_runtime_proto_rawDesc = "" +
 	"\x05model\x18\b \x01(\v2\x14.google.protobuf.AnyR\x05model\x12P\n" +
 	"\x0eworker_failure\x18\t \x01(\v2).agentic.olap.query.v1.WorkerFailureFactsR\rworkerFailure\x12Y\n" +
 	"\ftiming_nanos\x18\n" +
-	" \x03(\v26.agentic.olap.runtime.v2.WorkResponse.TimingNanosEntryR\vtimingNanos\x1a>\n" +
+	" \x03(\v26.agentic.olap.runtime.v3.WorkResponse.TimingNanosEntryR\vtimingNanos\x1a>\n" +
 	"\x10TimingNanosEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01J\x04\b\x05\x10\x06\"'\n" +
@@ -3380,26 +3466,32 @@ const file_runtime_proto_rawDesc = "" +
 	"\x06source\x18\x01 \x01(\tR\x06source\x12\x1f\n" +
 	"\vsource_name\x18\x02 \x01(\tR\n" +
 	"sourceName\x12&\n" +
-	"\x0fdsl_api_version\x18\x03 \x01(\tR\rdslApiVersion\"\x99\x02\n" +
+	"\x0fdsl_api_version\x18\x03 \x01(\tR\rdslApiVersion\"\xb8\x02\n" +
 	"\rScriptRequest\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12)\n" +
 	"\x10remaining_millis\x18\x02 \x01(\x04R\x0fremainingMillis\x12=\n" +
-	"\x06source\x18\x03 \x01(\v2%.agentic.olap.runtime.v2.ScriptSourceR\x06source\x12'\n" +
+	"\x06source\x18\x03 \x01(\v2%.agentic.olap.runtime.v3.ScriptSourceR\x06source\x12'\n" +
 	"\x0fparameters_json\x18\x04 \x01(\fR\x0eparametersJson\x12%\n" +
 	"\x0ecaller_subject\x18\x05 \x01(\tR\rcallerSubject\x12/\n" +
-	"\x13execution_directory\x18\x06 \x01(\tR\x12executionDirectory\"\xc7\x01\n" +
+	"\x13execution_directory\x18\x06 \x01(\tR\x12executionDirectory\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\a \x01(\tR\tsessionId\"]\n" +
+	"\x0eScriptEmission\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\x12,\n" +
+	"\x06output\x18\x02 \x01(\v2\x14.google.protobuf.AnyR\x06output\"\xc7\x01\n" +
 	"\fScriptOutput\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12D\n" +
-	"\x06stream\x18\x02 \x01(\x0e2,.agentic.olap.runtime.v2.ScriptOutput.StreamR\x06stream\x12\x18\n" +
+	"\x06stream\x18\x02 \x01(\x0e2,.agentic.olap.runtime.v3.ScriptOutput.StreamR\x06stream\x12\x18\n" +
 	"\acontent\x18\x03 \x01(\fR\acontent\"8\n" +
 	"\x06Stream\x12\x16\n" +
 	"\x12STREAM_UNSPECIFIED\x10\x00\x12\n" +
 	"\n" +
 	"\x06STDOUT\x10\x01\x12\n" +
 	"\n" +
-	"\x06STDERR\x10\x02\"\xad\x01\n" +
+	"\x06STDERR\x10\x02\"\xcc\x01\n" +
 	"\x0eSourceLocation\x12\x1f\n" +
 	"\vsource_name\x18\x01 \x01(\tR\n" +
 	"sourceName\x12\x1d\n" +
@@ -3408,14 +3500,16 @@ const file_runtime_proto_rawDesc = "" +
 	"\fstart_column\x18\x03 \x01(\rR\vstartColumn\x12\x19\n" +
 	"\bend_line\x18\x04 \x01(\rR\aendLine\x12\x1d\n" +
 	"\n" +
-	"end_column\x18\x05 \x01(\rR\tendColumn\"\xb3\x03\n" +
+	"end_column\x18\x05 \x01(\rR\tendColumn\x12\x1d\n" +
+	"\n" +
+	"snippet_id\x18\x06 \x01(\tR\tsnippetId\"\xb3\x03\n" +
 	"\x10ScriptDiagnostic\x12\x12\n" +
 	"\x04code\x18\x01 \x01(\tR\x04code\x12\x14\n" +
 	"\x05stage\x18\x02 \x01(\tR\x05stage\x12\x1a\n" +
 	"\bseverity\x18\x03 \x01(\tR\bseverity\x12\x18\n" +
 	"\amessage\x18\x04 \x01(\tR\amessage\x12C\n" +
-	"\blocation\x18\x05 \x01(\v2'.agentic.olap.runtime.v2.SourceLocationR\blocation\x12Y\n" +
-	"\x12capability_failure\x18\x06 \x01(\v2*.agentic.olap.runtime.v2.CapabilityFailureR\x11capabilityFailure\x12\x1d\n" +
+	"\blocation\x18\x05 \x01(\v2'.agentic.olap.runtime.v3.SourceLocationR\blocation\x12Y\n" +
+	"\x12capability_failure\x18\x06 \x01(\v2*.agentic.olap.runtime.v3.CapabilityFailureR\x11capabilityFailure\x12\x1d\n" +
 	"\n" +
 	"field_path\x18\a \x03(\tR\tfieldPath\x12\x1a\n" +
 	"\bexpected\x18\b \x01(\tR\bexpected\x12\x16\n" +
@@ -3423,16 +3517,16 @@ const file_runtime_proto_rawDesc = "" +
 	"\bresource\x18\n" +
 	" \x01(\tR\bresource\x12\x14\n" +
 	"\x05limit\x18\v \x01(\x04R\x05limit\x12\x1a\n" +
-	"\bobserved\x18\f \x01(\x04R\bobserved\"\xdf\x03\n" +
+	"\bobserved\x18\f \x01(\x04R\bobserved\"\xc7\x03\n" +
 	"\x0eScriptResponse\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x18\n" +
-	"\asuccess\x18\x02 \x01(\bR\asuccess\x12,\n" +
-	"\x06result\x18\x03 \x01(\v2\x14.google.protobuf.AnyR\x06result\x12K\n" +
-	"\vdiagnostics\x18\x04 \x03(\v2).agentic.olap.runtime.v2.ScriptDiagnosticR\vdiagnostics\x12[\n" +
-	"\ftiming_nanos\x18\x05 \x03(\v28.agentic.olap.runtime.v2.ScriptResponse.TimingNanosEntryR\vtimingNanos\x12%\n" +
-	"\x0erecycle_worker\x18\x06 \x01(\bR\rrecycleWorker\x12U\n" +
-	"\x0fresource_issues\x18\a \x03(\v2,.agentic.olap.runtime.v2.ScriptResourceIssueR\x0eresourceIssues\x1a>\n" +
+	"\asuccess\x18\x02 \x01(\bR\asuccess\x12K\n" +
+	"\vdiagnostics\x18\x04 \x03(\v2).agentic.olap.runtime.v3.ScriptDiagnosticR\vdiagnostics\x12[\n" +
+	"\ftiming_nanos\x18\x05 \x03(\v28.agentic.olap.runtime.v3.ScriptResponse.TimingNanosEntryR\vtimingNanos\x12%\n" +
+	"\x0esession_usable\x18\x06 \x01(\bR\rsessionUsable\x12U\n" +
+	"\x0fresource_issues\x18\a \x03(\v2,.agentic.olap.runtime.v3.ScriptResourceIssueR\x0eresourceIssues\x12\x14\n" +
+	"\x05state\x18\b \x01(\tR\x05state\x1a>\n" +
 	"\x10TimingNanosEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\x04R\x05value:\x028\x01\"\xd4\x01\n" +
@@ -3440,7 +3534,7 @@ const file_runtime_proto_rawDesc = "" +
 	"\x04code\x18\x01 \x01(\tR\x04code\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12%\n" +
 	"\x0eobserved_count\x18\x03 \x01(\rR\robservedCount\x12J\n" +
-	"\athreads\x18\x04 \x03(\v20.agentic.olap.runtime.v2.ScriptThreadObservationR\athreads\x12\x1c\n" +
+	"\athreads\x18\x04 \x03(\v20.agentic.olap.runtime.v3.ScriptThreadObservationR\athreads\x12\x1c\n" +
 	"\ttruncated\x18\x05 \x01(\bR\ttruncated\"\xb3\x01\n" +
 	"\x17ScriptThreadObservation\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x12\n" +
@@ -3458,7 +3552,7 @@ const file_runtime_proto_rawDesc = "" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x17\n" +
 	"\acall_id\x18\x02 \x01(\tR\x06callId\x12M\n" +
 	"\n" +
-	"invocation\x18\x03 \x01(\v2-.agentic.olap.runtime.v2.CapabilityInvocationR\n" +
+	"invocation\x18\x03 \x01(\v2-.agentic.olap.runtime.v3.CapabilityInvocationR\n" +
 	"invocation\"\xfa\x01\n" +
 	"\x11CapabilityFailure\x12\x14\n" +
 	"\x05stage\x18\x01 \x01(\tR\x05stage\x12\x12\n" +
@@ -3477,12 +3571,12 @@ const file_runtime_proto_rawDesc = "" +
 	"\x14operation_request_id\x18\x03 \x01(\tR\x12operationRequestId\x12\x18\n" +
 	"\asuccess\x18\x04 \x01(\bR\asuccess\x12,\n" +
 	"\x06result\x18\x05 \x01(\v2\x14.google.protobuf.AnyR\x06result\x12D\n" +
-	"\afailure\x18\x06 \x01(\v2*.agentic.olap.runtime.v2.CapabilityFailureR\afailure\x12C\n" +
-	"\aeffects\x18\a \x03(\v2).agentic.olap.runtime.v2.CapabilityEffectR\aeffects\"\xf3\x03\n" +
+	"\afailure\x18\x06 \x01(\v2*.agentic.olap.runtime.v3.CapabilityFailureR\afailure\x12C\n" +
+	"\aeffects\x18\a \x03(\v2).agentic.olap.runtime.v3.CapabilityEffectR\aeffects\"\xf3\x03\n" +
 	"\x10CapabilityEffect\x12%\n" +
 	"\x0eread_operation\x18\x01 \x01(\tR\rreadOperation\x12\\\n" +
 	"\rasset_version\x18\x02 \x01(\v25.agentic.olap.governance.v1.DefinitionImpactReferenceH\x00R\fassetVersion\x12S\n" +
-	"\fowned_member\x18\x03 \x01(\v2..agentic.olap.runtime.v2.CapabilityOwnedMemberH\x00R\vownedMember\x12d\n" +
+	"\fowned_member\x18\x03 \x01(\v2..agentic.olap.runtime.v3.CapabilityOwnedMemberH\x00R\vownedMember\x12d\n" +
 	"\arelease\x18\x04 \x01(\v2H.agentic.olap.governance.v1.GovernanceReadRequestsReleaseIdentityRequestH\x00R\arelease\x12+\n" +
 	"\x10source_discovery\x18\x05 \x01(\tH\x00R\x0fsourceDiscovery\x12=\n" +
 	"\x05query\x18\x06 \x01(\v2%.agentic.olap.query.v1.QueryReferenceH\x00R\x05query\x12\x1b\n" +
@@ -3502,11 +3596,11 @@ const file_runtime_proto_rawDesc = "" +
 	"\x14DeliveryConfirmation\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x16\n" +
 	"\x06sha256\x18\x02 \x01(\tR\x06sha256\x12?\n" +
-	"\x06status\x18\x03 \x01(\x0e2'.agentic.olap.runtime.v2.DeliveryStatusR\x06status\x12\x14\n" +
+	"\x06status\x18\x03 \x01(\x0e2'.agentic.olap.runtime.v3.DeliveryStatusR\x06status\x12\x14\n" +
 	"\x05bytes\x18\x04 \x01(\x04R\x05bytes\x12\x12\n" +
 	"\x04rows\x18\x05 \x01(\x04R\x04rows\x12a\n" +
-	"\ftiming_nanos\x18\x06 \x03(\v2>.agentic.olap.runtime.v2.DeliveryConfirmation.TimingNanosEntryR\vtimingNanos\x12D\n" +
-	"\aworkers\x18\a \x03(\v2*.agentic.olap.runtime.v2.WorkerObservationR\aworkers\x12A\n" +
+	"\ftiming_nanos\x18\x06 \x03(\v2>.agentic.olap.runtime.v3.DeliveryConfirmation.TimingNanosEntryR\vtimingNanos\x12D\n" +
+	"\aworkers\x18\a \x03(\v2*.agentic.olap.runtime.v3.WorkerObservationR\aworkers\x12A\n" +
 	"\x11execution_receipt\x18\b \x01(\v2\x14.google.protobuf.AnyR\x10executionReceipt\x1a>\n" +
 	"\x10TimingNanosEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
@@ -3543,128 +3637,130 @@ func file_runtime_proto_rawDescGZIP() []byte {
 }
 
 var file_runtime_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_runtime_proto_msgTypes = make([]protoimpl.MessageInfo, 41)
+var file_runtime_proto_msgTypes = make([]protoimpl.MessageInfo, 42)
 var file_runtime_proto_goTypes = []any{
-	(WorkerKind)(0),                              // 0: agentic.olap.runtime.v2.WorkerKind
-	(DeliveryStatus)(0),                          // 1: agentic.olap.runtime.v2.DeliveryStatus
-	(ScriptOutput_Stream)(0),                     // 2: agentic.olap.runtime.v2.ScriptOutput.Stream
-	(*Frame)(nil),                                // 3: agentic.olap.runtime.v2.Frame
-	(*Bootstrap)(nil),                            // 4: agentic.olap.runtime.v2.Bootstrap
-	(*ProtocolFile)(nil),                         // 5: agentic.olap.runtime.v2.ProtocolFile
-	(*Principal)(nil),                            // 6: agentic.olap.runtime.v2.Principal
-	(*Request)(nil),                              // 7: agentic.olap.runtime.v2.Request
-	(*ResultAuthorization)(nil),                  // 8: agentic.olap.runtime.v2.ResultAuthorization
-	(*Response)(nil),                             // 9: agentic.olap.runtime.v2.Response
-	(*Operation)(nil),                            // 10: agentic.olap.runtime.v2.Operation
-	(*RegisteredSource)(nil),                     // 11: agentic.olap.runtime.v2.RegisteredSource
-	(*RuntimeReady)(nil),                         // 12: agentic.olap.runtime.v2.RuntimeReady
-	(*ResultArtifact)(nil),                       // 13: agentic.olap.runtime.v2.ResultArtifact
-	(*SourceBinding)(nil),                        // 14: agentic.olap.runtime.v2.SourceBinding
-	(*AcquireWorker)(nil),                        // 15: agentic.olap.runtime.v2.AcquireWorker
-	(*ExchangeWorker)(nil),                       // 16: agentic.olap.runtime.v2.ExchangeWorker
-	(*ReleaseWorker)(nil),                        // 17: agentic.olap.runtime.v2.ReleaseWorker
-	(*WorkRequest)(nil),                          // 18: agentic.olap.runtime.v2.WorkRequest
-	(*WorkResponse)(nil),                         // 19: agentic.olap.runtime.v2.WorkResponse
-	(*Cancel)(nil),                               // 20: agentic.olap.runtime.v2.Cancel
-	(*Shutdown)(nil),                             // 21: agentic.olap.runtime.v2.Shutdown
-	(*CapabilityInvocation)(nil),                 // 22: agentic.olap.runtime.v2.CapabilityInvocation
-	(*ScriptConfiguration)(nil),                  // 23: agentic.olap.runtime.v2.ScriptConfiguration
-	(*ScriptSource)(nil),                         // 24: agentic.olap.runtime.v2.ScriptSource
-	(*ScriptRequest)(nil),                        // 25: agentic.olap.runtime.v2.ScriptRequest
-	(*ScriptOutput)(nil),                         // 26: agentic.olap.runtime.v2.ScriptOutput
-	(*SourceLocation)(nil),                       // 27: agentic.olap.runtime.v2.SourceLocation
-	(*ScriptDiagnostic)(nil),                     // 28: agentic.olap.runtime.v2.ScriptDiagnostic
-	(*ScriptResponse)(nil),                       // 29: agentic.olap.runtime.v2.ScriptResponse
-	(*ScriptResourceIssue)(nil),                  // 30: agentic.olap.runtime.v2.ScriptResourceIssue
-	(*ScriptThreadObservation)(nil),              // 31: agentic.olap.runtime.v2.ScriptThreadObservation
-	(*ScriptWorkerFault)(nil),                    // 32: agentic.olap.runtime.v2.ScriptWorkerFault
-	(*CapabilityRequest)(nil),                    // 33: agentic.olap.runtime.v2.CapabilityRequest
-	(*CapabilityFailure)(nil),                    // 34: agentic.olap.runtime.v2.CapabilityFailure
-	(*CapabilityResponse)(nil),                   // 35: agentic.olap.runtime.v2.CapabilityResponse
-	(*CapabilityEffect)(nil),                     // 36: agentic.olap.runtime.v2.CapabilityEffect
-	(*CapabilityOwnedMember)(nil),                // 37: agentic.olap.runtime.v2.CapabilityOwnedMember
-	(*WorkerObservation)(nil),                    // 38: agentic.olap.runtime.v2.WorkerObservation
-	(*DeliveryConfirmation)(nil),                 // 39: agentic.olap.runtime.v2.DeliveryConfirmation
-	nil,                                          // 40: agentic.olap.runtime.v2.Response.TimingNanosEntry
-	nil,                                          // 41: agentic.olap.runtime.v2.WorkResponse.TimingNanosEntry
-	nil,                                          // 42: agentic.olap.runtime.v2.ScriptResponse.TimingNanosEntry
-	nil,                                          // 43: agentic.olap.runtime.v2.DeliveryConfirmation.TimingNanosEntry
-	(*anypb.Any)(nil),                            // 44: google.protobuf.Any
-	(*query.QueryResultReference)(nil),           // 45: agentic.olap.query.v1.QueryResultReference
-	(*query.WorkerFailureFacts)(nil),             // 46: agentic.olap.query.v1.WorkerFailureFacts
-	(*governance.DefinitionImpactReference)(nil), // 47: agentic.olap.governance.v1.DefinitionImpactReference
-	(*governance.GovernanceReadRequestsReleaseIdentityRequest)(nil), // 48: agentic.olap.governance.v1.GovernanceReadRequestsReleaseIdentityRequest
-	(*query.QueryReference)(nil),                                    // 49: agentic.olap.query.v1.QueryReference
+	(WorkerKind)(0),                              // 0: agentic.olap.runtime.v3.WorkerKind
+	(DeliveryStatus)(0),                          // 1: agentic.olap.runtime.v3.DeliveryStatus
+	(ScriptOutput_Stream)(0),                     // 2: agentic.olap.runtime.v3.ScriptOutput.Stream
+	(*Frame)(nil),                                // 3: agentic.olap.runtime.v3.Frame
+	(*Bootstrap)(nil),                            // 4: agentic.olap.runtime.v3.Bootstrap
+	(*ProtocolFile)(nil),                         // 5: agentic.olap.runtime.v3.ProtocolFile
+	(*Principal)(nil),                            // 6: agentic.olap.runtime.v3.Principal
+	(*Request)(nil),                              // 7: agentic.olap.runtime.v3.Request
+	(*ResultAuthorization)(nil),                  // 8: agentic.olap.runtime.v3.ResultAuthorization
+	(*Response)(nil),                             // 9: agentic.olap.runtime.v3.Response
+	(*Operation)(nil),                            // 10: agentic.olap.runtime.v3.Operation
+	(*RegisteredSource)(nil),                     // 11: agentic.olap.runtime.v3.RegisteredSource
+	(*RuntimeReady)(nil),                         // 12: agentic.olap.runtime.v3.RuntimeReady
+	(*ResultArtifact)(nil),                       // 13: agentic.olap.runtime.v3.ResultArtifact
+	(*SourceBinding)(nil),                        // 14: agentic.olap.runtime.v3.SourceBinding
+	(*AcquireWorker)(nil),                        // 15: agentic.olap.runtime.v3.AcquireWorker
+	(*ExchangeWorker)(nil),                       // 16: agentic.olap.runtime.v3.ExchangeWorker
+	(*ReleaseWorker)(nil),                        // 17: agentic.olap.runtime.v3.ReleaseWorker
+	(*WorkRequest)(nil),                          // 18: agentic.olap.runtime.v3.WorkRequest
+	(*WorkResponse)(nil),                         // 19: agentic.olap.runtime.v3.WorkResponse
+	(*Cancel)(nil),                               // 20: agentic.olap.runtime.v3.Cancel
+	(*Shutdown)(nil),                             // 21: agentic.olap.runtime.v3.Shutdown
+	(*CapabilityInvocation)(nil),                 // 22: agentic.olap.runtime.v3.CapabilityInvocation
+	(*ScriptConfiguration)(nil),                  // 23: agentic.olap.runtime.v3.ScriptConfiguration
+	(*ScriptSource)(nil),                         // 24: agentic.olap.runtime.v3.ScriptSource
+	(*ScriptRequest)(nil),                        // 25: agentic.olap.runtime.v3.ScriptRequest
+	(*ScriptEmission)(nil),                       // 26: agentic.olap.runtime.v3.ScriptEmission
+	(*ScriptOutput)(nil),                         // 27: agentic.olap.runtime.v3.ScriptOutput
+	(*SourceLocation)(nil),                       // 28: agentic.olap.runtime.v3.SourceLocation
+	(*ScriptDiagnostic)(nil),                     // 29: agentic.olap.runtime.v3.ScriptDiagnostic
+	(*ScriptResponse)(nil),                       // 30: agentic.olap.runtime.v3.ScriptResponse
+	(*ScriptResourceIssue)(nil),                  // 31: agentic.olap.runtime.v3.ScriptResourceIssue
+	(*ScriptThreadObservation)(nil),              // 32: agentic.olap.runtime.v3.ScriptThreadObservation
+	(*ScriptWorkerFault)(nil),                    // 33: agentic.olap.runtime.v3.ScriptWorkerFault
+	(*CapabilityRequest)(nil),                    // 34: agentic.olap.runtime.v3.CapabilityRequest
+	(*CapabilityFailure)(nil),                    // 35: agentic.olap.runtime.v3.CapabilityFailure
+	(*CapabilityResponse)(nil),                   // 36: agentic.olap.runtime.v3.CapabilityResponse
+	(*CapabilityEffect)(nil),                     // 37: agentic.olap.runtime.v3.CapabilityEffect
+	(*CapabilityOwnedMember)(nil),                // 38: agentic.olap.runtime.v3.CapabilityOwnedMember
+	(*WorkerObservation)(nil),                    // 39: agentic.olap.runtime.v3.WorkerObservation
+	(*DeliveryConfirmation)(nil),                 // 40: agentic.olap.runtime.v3.DeliveryConfirmation
+	nil,                                          // 41: agentic.olap.runtime.v3.Response.TimingNanosEntry
+	nil,                                          // 42: agentic.olap.runtime.v3.WorkResponse.TimingNanosEntry
+	nil,                                          // 43: agentic.olap.runtime.v3.ScriptResponse.TimingNanosEntry
+	nil,                                          // 44: agentic.olap.runtime.v3.DeliveryConfirmation.TimingNanosEntry
+	(*anypb.Any)(nil),                            // 45: google.protobuf.Any
+	(*query.QueryResultReference)(nil),           // 46: agentic.olap.query.v1.QueryResultReference
+	(*query.WorkerFailureFacts)(nil),             // 47: agentic.olap.query.v1.WorkerFailureFacts
+	(*governance.DefinitionImpactReference)(nil), // 48: agentic.olap.governance.v1.DefinitionImpactReference
+	(*governance.GovernanceReadRequestsReleaseIdentityRequest)(nil), // 49: agentic.olap.governance.v1.GovernanceReadRequestsReleaseIdentityRequest
+	(*query.QueryReference)(nil),                                    // 50: agentic.olap.query.v1.QueryReference
 }
 var file_runtime_proto_depIdxs = []int32{
-	4,  // 0: agentic.olap.runtime.v2.Frame.bootstrap:type_name -> agentic.olap.runtime.v2.Bootstrap
-	7,  // 1: agentic.olap.runtime.v2.Frame.request:type_name -> agentic.olap.runtime.v2.Request
-	9,  // 2: agentic.olap.runtime.v2.Frame.response:type_name -> agentic.olap.runtime.v2.Response
-	18, // 3: agentic.olap.runtime.v2.Frame.work_request:type_name -> agentic.olap.runtime.v2.WorkRequest
-	19, // 4: agentic.olap.runtime.v2.Frame.work_response:type_name -> agentic.olap.runtime.v2.WorkResponse
-	20, // 5: agentic.olap.runtime.v2.Frame.cancel:type_name -> agentic.olap.runtime.v2.Cancel
-	21, // 6: agentic.olap.runtime.v2.Frame.shutdown:type_name -> agentic.olap.runtime.v2.Shutdown
-	25, // 7: agentic.olap.runtime.v2.Frame.script_request:type_name -> agentic.olap.runtime.v2.ScriptRequest
-	29, // 8: agentic.olap.runtime.v2.Frame.script_response:type_name -> agentic.olap.runtime.v2.ScriptResponse
-	33, // 9: agentic.olap.runtime.v2.Frame.capability_request:type_name -> agentic.olap.runtime.v2.CapabilityRequest
-	35, // 10: agentic.olap.runtime.v2.Frame.capability_response:type_name -> agentic.olap.runtime.v2.CapabilityResponse
-	32, // 11: agentic.olap.runtime.v2.Frame.script_worker_fault:type_name -> agentic.olap.runtime.v2.ScriptWorkerFault
-	26, // 12: agentic.olap.runtime.v2.Frame.script_output:type_name -> agentic.olap.runtime.v2.ScriptOutput
-	5,  // 13: agentic.olap.runtime.v2.Frame.file:type_name -> agentic.olap.runtime.v2.ProtocolFile
-	0,  // 14: agentic.olap.runtime.v2.Bootstrap.worker_kind:type_name -> agentic.olap.runtime.v2.WorkerKind
-	23, // 15: agentic.olap.runtime.v2.Bootstrap.scripting:type_name -> agentic.olap.runtime.v2.ScriptConfiguration
-	6,  // 16: agentic.olap.runtime.v2.Request.principal:type_name -> agentic.olap.runtime.v2.Principal
-	22, // 17: agentic.olap.runtime.v2.Request.capability:type_name -> agentic.olap.runtime.v2.CapabilityInvocation
-	39, // 18: agentic.olap.runtime.v2.Request.delivery:type_name -> agentic.olap.runtime.v2.DeliveryConfirmation
-	44, // 19: agentic.olap.runtime.v2.Request.worker_model:type_name -> google.protobuf.Any
-	8,  // 20: agentic.olap.runtime.v2.Request.result_authorization:type_name -> agentic.olap.runtime.v2.ResultAuthorization
-	45, // 21: agentic.olap.runtime.v2.ResultAuthorization.reference:type_name -> agentic.olap.query.v1.QueryResultReference
-	13, // 22: agentic.olap.runtime.v2.Response.artifact:type_name -> agentic.olap.runtime.v2.ResultArtifact
-	12, // 23: agentic.olap.runtime.v2.Response.ready:type_name -> agentic.olap.runtime.v2.RuntimeReady
-	44, // 24: agentic.olap.runtime.v2.Response.model:type_name -> google.protobuf.Any
-	46, // 25: agentic.olap.runtime.v2.Response.worker_failure:type_name -> agentic.olap.query.v1.WorkerFailureFacts
-	40, // 26: agentic.olap.runtime.v2.Response.timing_nanos:type_name -> agentic.olap.runtime.v2.Response.TimingNanosEntry
-	36, // 27: agentic.olap.runtime.v2.Response.effects:type_name -> agentic.olap.runtime.v2.CapabilityEffect
-	14, // 28: agentic.olap.runtime.v2.RegisteredSource.binding:type_name -> agentic.olap.runtime.v2.SourceBinding
-	10, // 29: agentic.olap.runtime.v2.RuntimeReady.operations:type_name -> agentic.olap.runtime.v2.Operation
-	11, // 30: agentic.olap.runtime.v2.RuntimeReady.sources:type_name -> agentic.olap.runtime.v2.RegisteredSource
-	0,  // 31: agentic.olap.runtime.v2.AcquireWorker.kind:type_name -> agentic.olap.runtime.v2.WorkerKind
-	14, // 32: agentic.olap.runtime.v2.AcquireWorker.bindings:type_name -> agentic.olap.runtime.v2.SourceBinding
-	44, // 33: agentic.olap.runtime.v2.ExchangeWorker.command_model:type_name -> google.protobuf.Any
-	15, // 34: agentic.olap.runtime.v2.WorkRequest.acquire:type_name -> agentic.olap.runtime.v2.AcquireWorker
-	16, // 35: agentic.olap.runtime.v2.WorkRequest.exchange:type_name -> agentic.olap.runtime.v2.ExchangeWorker
-	17, // 36: agentic.olap.runtime.v2.WorkRequest.release:type_name -> agentic.olap.runtime.v2.ReleaseWorker
-	44, // 37: agentic.olap.runtime.v2.WorkResponse.model:type_name -> google.protobuf.Any
-	46, // 38: agentic.olap.runtime.v2.WorkResponse.worker_failure:type_name -> agentic.olap.query.v1.WorkerFailureFacts
-	41, // 39: agentic.olap.runtime.v2.WorkResponse.timing_nanos:type_name -> agentic.olap.runtime.v2.WorkResponse.TimingNanosEntry
-	44, // 40: agentic.olap.runtime.v2.CapabilityInvocation.input:type_name -> google.protobuf.Any
-	24, // 41: agentic.olap.runtime.v2.ScriptRequest.source:type_name -> agentic.olap.runtime.v2.ScriptSource
-	2,  // 42: agentic.olap.runtime.v2.ScriptOutput.stream:type_name -> agentic.olap.runtime.v2.ScriptOutput.Stream
-	27, // 43: agentic.olap.runtime.v2.ScriptDiagnostic.location:type_name -> agentic.olap.runtime.v2.SourceLocation
-	34, // 44: agentic.olap.runtime.v2.ScriptDiagnostic.capability_failure:type_name -> agentic.olap.runtime.v2.CapabilityFailure
-	44, // 45: agentic.olap.runtime.v2.ScriptResponse.result:type_name -> google.protobuf.Any
-	28, // 46: agentic.olap.runtime.v2.ScriptResponse.diagnostics:type_name -> agentic.olap.runtime.v2.ScriptDiagnostic
-	42, // 47: agentic.olap.runtime.v2.ScriptResponse.timing_nanos:type_name -> agentic.olap.runtime.v2.ScriptResponse.TimingNanosEntry
-	30, // 48: agentic.olap.runtime.v2.ScriptResponse.resource_issues:type_name -> agentic.olap.runtime.v2.ScriptResourceIssue
-	31, // 49: agentic.olap.runtime.v2.ScriptResourceIssue.threads:type_name -> agentic.olap.runtime.v2.ScriptThreadObservation
-	22, // 50: agentic.olap.runtime.v2.CapabilityRequest.invocation:type_name -> agentic.olap.runtime.v2.CapabilityInvocation
-	44, // 51: agentic.olap.runtime.v2.CapabilityResponse.result:type_name -> google.protobuf.Any
-	34, // 52: agentic.olap.runtime.v2.CapabilityResponse.failure:type_name -> agentic.olap.runtime.v2.CapabilityFailure
-	36, // 53: agentic.olap.runtime.v2.CapabilityResponse.effects:type_name -> agentic.olap.runtime.v2.CapabilityEffect
-	47, // 54: agentic.olap.runtime.v2.CapabilityEffect.asset_version:type_name -> agentic.olap.governance.v1.DefinitionImpactReference
-	37, // 55: agentic.olap.runtime.v2.CapabilityEffect.owned_member:type_name -> agentic.olap.runtime.v2.CapabilityOwnedMember
-	48, // 56: agentic.olap.runtime.v2.CapabilityEffect.release:type_name -> agentic.olap.governance.v1.GovernanceReadRequestsReleaseIdentityRequest
-	49, // 57: agentic.olap.runtime.v2.CapabilityEffect.query:type_name -> agentic.olap.query.v1.QueryReference
-	47, // 58: agentic.olap.runtime.v2.CapabilityOwnedMember.owner:type_name -> agentic.olap.governance.v1.DefinitionImpactReference
-	1,  // 59: agentic.olap.runtime.v2.DeliveryConfirmation.status:type_name -> agentic.olap.runtime.v2.DeliveryStatus
-	43, // 60: agentic.olap.runtime.v2.DeliveryConfirmation.timing_nanos:type_name -> agentic.olap.runtime.v2.DeliveryConfirmation.TimingNanosEntry
-	38, // 61: agentic.olap.runtime.v2.DeliveryConfirmation.workers:type_name -> agentic.olap.runtime.v2.WorkerObservation
-	44, // 62: agentic.olap.runtime.v2.DeliveryConfirmation.execution_receipt:type_name -> google.protobuf.Any
-	63, // [63:63] is the sub-list for method output_type
-	63, // [63:63] is the sub-list for method input_type
-	63, // [63:63] is the sub-list for extension type_name
-	63, // [63:63] is the sub-list for extension extendee
-	0,  // [0:63] is the sub-list for field type_name
+	4,  // 0: agentic.olap.runtime.v3.Frame.bootstrap:type_name -> agentic.olap.runtime.v3.Bootstrap
+	7,  // 1: agentic.olap.runtime.v3.Frame.request:type_name -> agentic.olap.runtime.v3.Request
+	9,  // 2: agentic.olap.runtime.v3.Frame.response:type_name -> agentic.olap.runtime.v3.Response
+	18, // 3: agentic.olap.runtime.v3.Frame.work_request:type_name -> agentic.olap.runtime.v3.WorkRequest
+	19, // 4: agentic.olap.runtime.v3.Frame.work_response:type_name -> agentic.olap.runtime.v3.WorkResponse
+	20, // 5: agentic.olap.runtime.v3.Frame.cancel:type_name -> agentic.olap.runtime.v3.Cancel
+	21, // 6: agentic.olap.runtime.v3.Frame.shutdown:type_name -> agentic.olap.runtime.v3.Shutdown
+	25, // 7: agentic.olap.runtime.v3.Frame.script_request:type_name -> agentic.olap.runtime.v3.ScriptRequest
+	30, // 8: agentic.olap.runtime.v3.Frame.script_response:type_name -> agentic.olap.runtime.v3.ScriptResponse
+	34, // 9: agentic.olap.runtime.v3.Frame.capability_request:type_name -> agentic.olap.runtime.v3.CapabilityRequest
+	36, // 10: agentic.olap.runtime.v3.Frame.capability_response:type_name -> agentic.olap.runtime.v3.CapabilityResponse
+	33, // 11: agentic.olap.runtime.v3.Frame.script_worker_fault:type_name -> agentic.olap.runtime.v3.ScriptWorkerFault
+	27, // 12: agentic.olap.runtime.v3.Frame.script_output:type_name -> agentic.olap.runtime.v3.ScriptOutput
+	5,  // 13: agentic.olap.runtime.v3.Frame.file:type_name -> agentic.olap.runtime.v3.ProtocolFile
+	26, // 14: agentic.olap.runtime.v3.Frame.script_emission:type_name -> agentic.olap.runtime.v3.ScriptEmission
+	0,  // 15: agentic.olap.runtime.v3.Bootstrap.worker_kind:type_name -> agentic.olap.runtime.v3.WorkerKind
+	23, // 16: agentic.olap.runtime.v3.Bootstrap.scripting:type_name -> agentic.olap.runtime.v3.ScriptConfiguration
+	6,  // 17: agentic.olap.runtime.v3.Request.principal:type_name -> agentic.olap.runtime.v3.Principal
+	22, // 18: agentic.olap.runtime.v3.Request.capability:type_name -> agentic.olap.runtime.v3.CapabilityInvocation
+	40, // 19: agentic.olap.runtime.v3.Request.delivery:type_name -> agentic.olap.runtime.v3.DeliveryConfirmation
+	45, // 20: agentic.olap.runtime.v3.Request.worker_model:type_name -> google.protobuf.Any
+	8,  // 21: agentic.olap.runtime.v3.Request.result_authorization:type_name -> agentic.olap.runtime.v3.ResultAuthorization
+	46, // 22: agentic.olap.runtime.v3.ResultAuthorization.reference:type_name -> agentic.olap.query.v1.QueryResultReference
+	13, // 23: agentic.olap.runtime.v3.Response.artifact:type_name -> agentic.olap.runtime.v3.ResultArtifact
+	12, // 24: agentic.olap.runtime.v3.Response.ready:type_name -> agentic.olap.runtime.v3.RuntimeReady
+	45, // 25: agentic.olap.runtime.v3.Response.model:type_name -> google.protobuf.Any
+	47, // 26: agentic.olap.runtime.v3.Response.worker_failure:type_name -> agentic.olap.query.v1.WorkerFailureFacts
+	41, // 27: agentic.olap.runtime.v3.Response.timing_nanos:type_name -> agentic.olap.runtime.v3.Response.TimingNanosEntry
+	37, // 28: agentic.olap.runtime.v3.Response.effects:type_name -> agentic.olap.runtime.v3.CapabilityEffect
+	14, // 29: agentic.olap.runtime.v3.RegisteredSource.binding:type_name -> agentic.olap.runtime.v3.SourceBinding
+	10, // 30: agentic.olap.runtime.v3.RuntimeReady.operations:type_name -> agentic.olap.runtime.v3.Operation
+	11, // 31: agentic.olap.runtime.v3.RuntimeReady.sources:type_name -> agentic.olap.runtime.v3.RegisteredSource
+	0,  // 32: agentic.olap.runtime.v3.AcquireWorker.kind:type_name -> agentic.olap.runtime.v3.WorkerKind
+	14, // 33: agentic.olap.runtime.v3.AcquireWorker.bindings:type_name -> agentic.olap.runtime.v3.SourceBinding
+	45, // 34: agentic.olap.runtime.v3.ExchangeWorker.command_model:type_name -> google.protobuf.Any
+	15, // 35: agentic.olap.runtime.v3.WorkRequest.acquire:type_name -> agentic.olap.runtime.v3.AcquireWorker
+	16, // 36: agentic.olap.runtime.v3.WorkRequest.exchange:type_name -> agentic.olap.runtime.v3.ExchangeWorker
+	17, // 37: agentic.olap.runtime.v3.WorkRequest.release:type_name -> agentic.olap.runtime.v3.ReleaseWorker
+	45, // 38: agentic.olap.runtime.v3.WorkResponse.model:type_name -> google.protobuf.Any
+	47, // 39: agentic.olap.runtime.v3.WorkResponse.worker_failure:type_name -> agentic.olap.query.v1.WorkerFailureFacts
+	42, // 40: agentic.olap.runtime.v3.WorkResponse.timing_nanos:type_name -> agentic.olap.runtime.v3.WorkResponse.TimingNanosEntry
+	45, // 41: agentic.olap.runtime.v3.CapabilityInvocation.input:type_name -> google.protobuf.Any
+	24, // 42: agentic.olap.runtime.v3.ScriptRequest.source:type_name -> agentic.olap.runtime.v3.ScriptSource
+	45, // 43: agentic.olap.runtime.v3.ScriptEmission.output:type_name -> google.protobuf.Any
+	2,  // 44: agentic.olap.runtime.v3.ScriptOutput.stream:type_name -> agentic.olap.runtime.v3.ScriptOutput.Stream
+	28, // 45: agentic.olap.runtime.v3.ScriptDiagnostic.location:type_name -> agentic.olap.runtime.v3.SourceLocation
+	35, // 46: agentic.olap.runtime.v3.ScriptDiagnostic.capability_failure:type_name -> agentic.olap.runtime.v3.CapabilityFailure
+	29, // 47: agentic.olap.runtime.v3.ScriptResponse.diagnostics:type_name -> agentic.olap.runtime.v3.ScriptDiagnostic
+	43, // 48: agentic.olap.runtime.v3.ScriptResponse.timing_nanos:type_name -> agentic.olap.runtime.v3.ScriptResponse.TimingNanosEntry
+	31, // 49: agentic.olap.runtime.v3.ScriptResponse.resource_issues:type_name -> agentic.olap.runtime.v3.ScriptResourceIssue
+	32, // 50: agentic.olap.runtime.v3.ScriptResourceIssue.threads:type_name -> agentic.olap.runtime.v3.ScriptThreadObservation
+	22, // 51: agentic.olap.runtime.v3.CapabilityRequest.invocation:type_name -> agentic.olap.runtime.v3.CapabilityInvocation
+	45, // 52: agentic.olap.runtime.v3.CapabilityResponse.result:type_name -> google.protobuf.Any
+	35, // 53: agentic.olap.runtime.v3.CapabilityResponse.failure:type_name -> agentic.olap.runtime.v3.CapabilityFailure
+	37, // 54: agentic.olap.runtime.v3.CapabilityResponse.effects:type_name -> agentic.olap.runtime.v3.CapabilityEffect
+	48, // 55: agentic.olap.runtime.v3.CapabilityEffect.asset_version:type_name -> agentic.olap.governance.v1.DefinitionImpactReference
+	38, // 56: agentic.olap.runtime.v3.CapabilityEffect.owned_member:type_name -> agentic.olap.runtime.v3.CapabilityOwnedMember
+	49, // 57: agentic.olap.runtime.v3.CapabilityEffect.release:type_name -> agentic.olap.governance.v1.GovernanceReadRequestsReleaseIdentityRequest
+	50, // 58: agentic.olap.runtime.v3.CapabilityEffect.query:type_name -> agentic.olap.query.v1.QueryReference
+	48, // 59: agentic.olap.runtime.v3.CapabilityOwnedMember.owner:type_name -> agentic.olap.governance.v1.DefinitionImpactReference
+	1,  // 60: agentic.olap.runtime.v3.DeliveryConfirmation.status:type_name -> agentic.olap.runtime.v3.DeliveryStatus
+	44, // 61: agentic.olap.runtime.v3.DeliveryConfirmation.timing_nanos:type_name -> agentic.olap.runtime.v3.DeliveryConfirmation.TimingNanosEntry
+	39, // 62: agentic.olap.runtime.v3.DeliveryConfirmation.workers:type_name -> agentic.olap.runtime.v3.WorkerObservation
+	45, // 63: agentic.olap.runtime.v3.DeliveryConfirmation.execution_receipt:type_name -> google.protobuf.Any
+	64, // [64:64] is the sub-list for method output_type
+	64, // [64:64] is the sub-list for method input_type
+	64, // [64:64] is the sub-list for extension type_name
+	64, // [64:64] is the sub-list for extension extendee
+	0,  // [0:64] is the sub-list for field type_name
 }
 
 func init() { file_runtime_proto_init() }
@@ -3687,13 +3783,14 @@ func file_runtime_proto_init() {
 		(*Frame_ScriptWorkerFault)(nil),
 		(*Frame_ScriptOutput)(nil),
 		(*Frame_File)(nil),
+		(*Frame_ScriptEmission)(nil),
 	}
 	file_runtime_proto_msgTypes[15].OneofWrappers = []any{
 		(*WorkRequest_Acquire)(nil),
 		(*WorkRequest_Exchange)(nil),
 		(*WorkRequest_Release)(nil),
 	}
-	file_runtime_proto_msgTypes[33].OneofWrappers = []any{
+	file_runtime_proto_msgTypes[34].OneofWrappers = []any{
 		(*CapabilityEffect_AssetVersion)(nil),
 		(*CapabilityEffect_OwnedMember)(nil),
 		(*CapabilityEffect_Release)(nil),
@@ -3706,7 +3803,7 @@ func file_runtime_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_runtime_proto_rawDesc), len(file_runtime_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   41,
+			NumMessages:   42,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

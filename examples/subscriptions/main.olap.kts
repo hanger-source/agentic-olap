@@ -33,6 +33,103 @@ import com.olap.prototype.engine.executable.ExecutableBusinessResult
 import java.math.BigDecimal
 
 // 本例只通过已部署服务的正式能力建模和执行；数据源凭据由服务配置持有。
+val YUAN = MetricValueContract.UnitIdentity("iso4217", "CNY", 1)
+val CENTS = MetricValueContract.UnitIdentity("example-subscriptions", "CNY-cent", 1)
+
+
+fun ScriptValue.objectValues(): Map<String, ScriptValue> = (this as ScriptValue.ObjectValue).values
+fun ScriptValue.arrayValues(): List<ScriptValue> = (this as ScriptValue.ArrayValue).values
+fun Map<String, ScriptValue>.text(name: String): String = (getValue(name) as ScriptValue.Text).value
+fun Map<String, ScriptValue>.optionalText(name: String): String? = when (val value = getValue(name)) {
+    ScriptValue.Null -> null
+    is ScriptValue.Text -> value.value
+    else -> error("外部配置字段 $name 必须为文本或 NULL")
+}
+fun Map<String, ScriptValue>.integer(name: String): Int? = when (val value = getValue(name)) {
+    ScriptValue.Null -> null
+    is ScriptValue.DecimalValue -> value.value.intValueExact()
+    else -> error("外部配置字段 $name 必须为整数或 NULL")
+}
+fun Map<String, ScriptValue>.optionalBoolean(name: String): Boolean? = when (val value = getValue(name)) {
+    ScriptValue.Null -> null
+    is ScriptValue.BooleanValue -> value.value
+    else -> error("外部配置字段 $name 必须为布尔或 NULL")
+}
+fun scalar(value: ResultValueView): String? = when (val result = (value as ResultValueView.Complete).value) {
+    is ExecutableBusinessResult.NullValue -> null
+    is ExecutableBusinessResult.ScalarValue -> result.value
+    else -> error("此结果位置应为标量")
+}
+fun expect(page: ResultPage, expected: Map<String, Map<String, String>>) {
+    val names = page.columns.map { it.symbol.name }
+    val valueNames = expected.values.first().keys
+    val keys = names.filter { it !in valueNames }
+    val actual = page.rows.associate { row ->
+        val values = names.zip(row).associate { (name, value) -> name to scalar(value) }
+        val key = if (keys.isEmpty()) "total" else keys.joinToString("/") { requireNotNull(values[it]) }
+        key to values
+    }
+    check(actual.keys == expected.keys) { "实际人口 ${actual.keys} 不同于明确业务人口 ${expected.keys}" }
+    expected.forEach { (key, values) -> values.forEach { (name, number) ->
+        check(BigDecimal(requireNotNull(actual.getValue(key)[name])).compareTo(BigDecimal(number)) == 0) { "$key/$name 结果不符合业务参照" }
+    } }
+}
+fun amount(unit: MetricValueContract.UnitIdentity) = MetricValueContract(MetricValueContract.Fixed(unit), MetricValueContract.Exact(),
+    MetricValueContract.Decimal(18, 2, MetricValueContract.Rounding.NONE), emptyMap(), MetricValueContract.Overflow.FAIL)
+fun balance() = MetricValueContract(MetricValueContract.Fixed(YUAN), MetricValueContract.Exact(),
+    MetricValueContract.Decimal(38, 4, MetricValueContract.Rounding.NONE), emptyMap(), MetricValueContract.Overflow.FAIL)
+fun count() = MetricValueContract(MetricValueContract.Fixed(MetricValueContract.ONE), MetricValueContract.Exact(),
+    MetricValueContract.Integer(64), emptyMap(), MetricValueContract.Overflow.FAIL)
+fun average(unit: MetricValueContract.UnitIdentity) = MetricValueContract(MetricValueContract.Fixed(unit),
+    MetricValueContract.Approximate("-1000000", "1000000", "0.000000001", "0.000000001"), MetricValueContract.BinaryFloat(64),
+    mapOf("divide" to MetricValueContract.PreserveUnit(MetricValueContract.BinaryOperator.DIVIDE, MetricValueContract.Operand.LEFT)), MetricValueContract.Overflow.FAIL)
+
+fun slot(name: String, source: MemberResult): Calculation.MemberSlot {
+    val outputs = source.outputs.mapValues { (key, output) ->
+        require(output is MemberSourceDefinition.ScalarOutput) { "本例作者声明的成员槽位只使用标量输出" }
+        when (output) {
+            is MemberSourceDefinition.DimensionOutput, is MemberSourceDefinition.ComputedDimensionOutput -> Calculation.MemberDimension(key, output.valueContract)
+            else -> Calculation.MemberProperty(output.role, output.valueType, output.valueContract)
+        }
+    }
+    return Calculation.MemberSlot(name, source.entity, source.role, source.shape, outputs, null)
+}
+
+fun members(name: String, source: MemberResult) = Calculation.Members(name, name,
+    source.outputs.keys.sorted().map { Calculation.MemberProjection(it, it) }, null, emptyMap(), MemberCondition.Unrestricted())
+fun asOfParameters() = mapOf("as_of" to Calculation.Parameter(Calculation.ParameterKind.SCALAR, "DATE", emptyList(), null, null))
+fun symbol(value: String) = ResultSymbol(value)
+fun literalDate(value: String) = ResultTypedLiteral(ScalarValueType.DATE, value)
+fun op(operator: ResultOperator, vararg values: ResultExpression) = ResultOperation(operator, values.toList())
+
+fun computed(body: Calculation, axes: Map<String, String>, values: Map<String, MetricValueContract>, identity: List<String>, description: String): MemberSourceDefinition.Computed {
+    val outputs = linkedMapOf<String, MemberSourceDefinition.Output>()
+    axes.forEach { (name, symbol) -> outputs[name] = MemberSourceDefinition.ComputedDimensionOutput(name, name,
+        if (name == "day") ScalarValueType.DATE else ScalarValueType.TEXT, name, symbol, null) }
+    values.forEach { (name, contract) -> outputs[name] = MemberSourceDefinition.ComputedPropertyOutput(name, "amount", ScalarValueType.NUMBER, name, contract) }
+    return MemberSourceDefinition.Computed(body, MemberResult("subscription", "subscription", MemberShape.RECORDS, identity,
+        outputs, emptyMap(), "day", emptyMap(), description))
+}
+
+fun row(name: String, axes: List<String>, properties: Map<String, ScalarValueType>, values: Map<String, MetricValueContract>, identity: List<String>): MemberResult {
+    val outputs = linkedMapOf<String, MemberSourceDefinition.Output>()
+    axes.forEach { axis -> outputs[axis] = MemberSourceDefinition.ComputedDimensionOutput(axis, axis,
+        if (axis == "day") ScalarValueType.DATE else ScalarValueType.TEXT, axis, axis, null) }
+    properties.forEach { (property, type) -> outputs[property] = MemberSourceDefinition.ComputedPropertyOutput(property, property, type, property, values[property]) }
+    return MemberResult(name, name, MemberShape.RECORDS, identity, outputs, emptyMap(), if ("day" in axes) "day" else null, emptyMap(),
+        "作者声明的记录合同；实际来源由远程MCP采用绑定")
+}
+
+
+fun sevenDays() = WindowFrameContract.Frame("RANGE", WindowFrameContract.Bound("PRECEDING", 6, "DAY"),
+    WindowFrameContract.Bound("CURRENT_ROW", null, null))
+fun dateRange(start: String, end: String) = Calculation.Range(TemporalWindow(TemporalWindow.ValueType.DATE, TemporalWindow.BOUNDARY, start, end))
+
+fun calendarInputs(usage: MemberResult, calendar: MemberResult) = linkedMapOf(
+    "calendar" to Calculation.InputScope("ROOT", Calculation.Scope(members("calendar", calendar), emptyMap(), emptyList())),
+    "usage" to Calculation.InputScope("RELATION", Calculation.Scope(members("usage", usage), emptyMap(), emptyList())),
+)
+
 class BusinessExample(val client: OlapClient, val parameters: ScriptArguments, val domain: String) {
     val actor = client.caller.subject
     val governance = client.governance
@@ -153,43 +250,6 @@ class BusinessExample(val client: OlapClient, val parameters: ScriptArguments, v
             RowPopulationContract.calls(population), null), emptyMap(), emptyList())
 }
 
-fun ScriptValue.objectValues(): Map<String, ScriptValue> = (this as ScriptValue.ObjectValue).values
-fun ScriptValue.arrayValues(): List<ScriptValue> = (this as ScriptValue.ArrayValue).values
-fun Map<String, ScriptValue>.text(name: String): String = (getValue(name) as ScriptValue.Text).value
-fun Map<String, ScriptValue>.optionalText(name: String): String? = when (val value = getValue(name)) {
-    ScriptValue.Null -> null
-    is ScriptValue.Text -> value.value
-    else -> error("外部配置字段 $name 必须为文本或 NULL")
-}
-fun Map<String, ScriptValue>.integer(name: String): Int? = when (val value = getValue(name)) {
-    ScriptValue.Null -> null
-    is ScriptValue.DecimalValue -> value.value.intValueExact()
-    else -> error("外部配置字段 $name 必须为整数或 NULL")
-}
-fun Map<String, ScriptValue>.optionalBoolean(name: String): Boolean? = when (val value = getValue(name)) {
-    ScriptValue.Null -> null
-    is ScriptValue.BooleanValue -> value.value
-    else -> error("外部配置字段 $name 必须为布尔或 NULL")
-}
-fun scalar(value: ResultValueView): String? = when (val result = (value as ResultValueView.Complete).value) {
-    is ExecutableBusinessResult.NullValue -> null
-    is ExecutableBusinessResult.ScalarValue -> result.value
-    else -> error("此结果位置应为标量")
-}
-fun expect(page: ResultPage, expected: Map<String, Map<String, String>>) {
-    val names = page.columns.map { it.symbol.name }
-    val valueNames = expected.values.first().keys
-    val keys = names.filter { it !in valueNames }
-    val actual = page.rows.associate { row ->
-        val values = names.zip(row).associate { (name, value) -> name to scalar(value) }
-        val key = if (keys.isEmpty()) "total" else keys.joinToString("/") { requireNotNull(values[it]) }
-        key to values
-    }
-    check(actual.keys == expected.keys) { "实际人口 ${actual.keys} 不同于明确业务人口 ${expected.keys}" }
-    expected.forEach { (key, values) -> values.forEach { (name, number) ->
-        check(BigDecimal(requireNotNull(actual.getValue(key)[name])).compareTo(BigDecimal(number)) == 0) { "$key/$name 结果不符合业务参照" }
-    } }
-}
 fun resume(client: OlapClient, parameters: ScriptArguments, verify: (ResultPage) -> Unit): ScriptValue {
     val queryValues = parameters["query"].objectValues()
     val resultValues = parameters["result"].objectValues()
@@ -202,13 +262,10 @@ fun resume(client: OlapClient, parameters: ScriptArguments, verify: (ResultPage)
         check(receipt.status == QueryExecutionStatus.SUCCEEDED && receipt.saved) { receipt.error.toString() }
         verify(client.results.read(ResultReadRequest(requireNotNull(receipt.resultReference), 0, 200, null)))
     } else check(parameters.text("phase") == "read-result")
-    return ScriptValue.ObjectValue(mapOf("query" to client.output(query), "result" to client.output(result)))
+    return ScriptValue.ObjectValue(mapOf("query" to ScriptValue.QueryReferenceValue(query), "result" to ScriptValue.ResultReferenceValue(result)))
 }
-fun output(client: OlapClient, saved: BusinessExample.Saved): ScriptValue = ScriptValue.ObjectValue(mapOf("query" to client.output(saved.query), "result" to client.output(saved.result)))
-
-val YUAN = MetricValueContract.UnitIdentity("iso4217", "CNY", 1)
-val CENTS = MetricValueContract.UnitIdentity("example-subscriptions", "CNY-cent", 1)
-
+fun references(saved: BusinessExample.Saved): ScriptValue = ScriptValue.ObjectValue(mapOf(
+    "query" to ScriptValue.QueryReferenceValue(saved.query), "result" to ScriptValue.ResultReferenceValue(saved.result)))
 
 fun migratedStock(axes: Map<String, Calculation.DimensionSlot>, legacy: MemberResult, current: MemberResult): MemberSourceDefinition.Computed {
     val conversion = MetricValueContract(MetricValueContract.Fixed(YUAN), MetricValueContract.Exact(), balance().result,
@@ -285,15 +342,6 @@ fun dailyMeanMetric(axes: Map<String, Calculation.DimensionSlot>, usage: MemberR
     return MetricCalculation(body, "daily_mean", listOf("day"), mean)
 }
 
-fun calendarInputs(usage: MemberResult, calendar: MemberResult) = linkedMapOf(
-    "calendar" to Calculation.InputScope("ROOT", Calculation.Scope(members("calendar", calendar), emptyMap(), emptyList())),
-    "usage" to Calculation.InputScope("RELATION", Calculation.Scope(members("usage", usage), emptyMap(), emptyList())),
-)
-
-fun sevenDays() = WindowFrameContract.Frame("RANGE", WindowFrameContract.Bound("PRECEDING", 6, "DAY"),
-    WindowFrameContract.Bound("CURRENT_ROW", null, null))
-fun dateRange(start: String, end: String) = Calculation.Range(TemporalWindow(TemporalWindow.ValueType.DATE, TemporalWindow.BOUNDARY, start, end))
-
 fun allocationMetric(axes: Map<String, Calculation.DimensionSlot>, destinations: MemberResult): MetricCalculation {
     val allocated = average(YUAN)
     val body = Calculation(listOf(axes.getValue("subscription"), axes.getValue("destination")), listOf(slot("destinations", destinations)), listOf(Calculation.MeasurementSlot("charges", emptyMap(), listOf(axes.getValue("subscription")), emptyList(), balance())), emptyList(), emptyMap(), Calculation.Scope(Calculation.Measures(listOf(Calculation.Call("charges", Calculation.Measurement("charges"), "value", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()))),
@@ -311,53 +359,6 @@ fun chargesBySubscription(axes: Map<String, Calculation.DimensionSlot>, fact: Me
         Calculation.Measures(listOf(Calculation.Call("charges", Calculation.Fixed(fact), "value", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()))),
             listOf("subscription"), emptyList(), null, null, emptyMap(), Calculation.Population(listOf("charges")), null), emptyMap(), emptyList())),
     "value", listOf("subscription"), balance())
-
-fun slot(name: String, source: MemberResult): Calculation.MemberSlot {
-    val outputs = source.outputs.mapValues { (key, output) ->
-        require(output is MemberSourceDefinition.ScalarOutput) { "本例作者声明的成员槽位只使用标量输出" }
-        when (output) {
-            is MemberSourceDefinition.DimensionOutput, is MemberSourceDefinition.ComputedDimensionOutput -> Calculation.MemberDimension(key, output.valueContract)
-            else -> Calculation.MemberProperty(output.role, output.valueType, output.valueContract)
-        }
-    }
-    return Calculation.MemberSlot(name, source.entity, source.role, source.shape, outputs, null)
-}
-
-fun members(name: String, source: MemberResult) = Calculation.Members(name, name,
-    source.outputs.keys.sorted().map { Calculation.MemberProjection(it, it) }, null, emptyMap(), MemberCondition.Unrestricted())
-fun asOfParameters() = mapOf("as_of" to Calculation.Parameter(Calculation.ParameterKind.SCALAR, "DATE", emptyList(), null, null))
-fun symbol(value: String) = ResultSymbol(value)
-fun literalDate(value: String) = ResultTypedLiteral(ScalarValueType.DATE, value)
-fun op(operator: ResultOperator, vararg values: ResultExpression) = ResultOperation(operator, values.toList())
-
-fun amount(unit: MetricValueContract.UnitIdentity) = MetricValueContract(MetricValueContract.Fixed(unit), MetricValueContract.Exact(),
-    MetricValueContract.Decimal(18, 2, MetricValueContract.Rounding.NONE), emptyMap(), MetricValueContract.Overflow.FAIL)
-fun balance() = MetricValueContract(MetricValueContract.Fixed(YUAN), MetricValueContract.Exact(),
-    MetricValueContract.Decimal(38, 4, MetricValueContract.Rounding.NONE), emptyMap(), MetricValueContract.Overflow.FAIL)
-fun count() = MetricValueContract(MetricValueContract.Fixed(MetricValueContract.ONE), MetricValueContract.Exact(),
-    MetricValueContract.Integer(64), emptyMap(), MetricValueContract.Overflow.FAIL)
-fun average(unit: MetricValueContract.UnitIdentity) = MetricValueContract(MetricValueContract.Fixed(unit),
-    MetricValueContract.Approximate("-1000000", "1000000", "0.000000001", "0.000000001"), MetricValueContract.BinaryFloat(64),
-    mapOf("divide" to MetricValueContract.PreserveUnit(MetricValueContract.BinaryOperator.DIVIDE, MetricValueContract.Operand.LEFT)), MetricValueContract.Overflow.FAIL)
-
-fun computed(body: Calculation, axes: Map<String, String>, values: Map<String, MetricValueContract>, identity: List<String>, description: String): MemberSourceDefinition.Computed {
-    val outputs = linkedMapOf<String, MemberSourceDefinition.Output>()
-    axes.forEach { (name, symbol) -> outputs[name] = MemberSourceDefinition.ComputedDimensionOutput(name, name,
-        if (name == "day") ScalarValueType.DATE else ScalarValueType.TEXT, name, symbol, null) }
-    values.forEach { (name, contract) -> outputs[name] = MemberSourceDefinition.ComputedPropertyOutput(name, "amount", ScalarValueType.NUMBER, name, contract) }
-    return MemberSourceDefinition.Computed(body, MemberResult("subscription", "subscription", MemberShape.RECORDS, identity,
-        outputs, emptyMap(), "day", emptyMap(), description))
-}
-
-fun row(name: String, axes: List<String>, properties: Map<String, ScalarValueType>, values: Map<String, MetricValueContract>, identity: List<String>): MemberResult {
-    val outputs = linkedMapOf<String, MemberSourceDefinition.Output>()
-    axes.forEach { axis -> outputs[axis] = MemberSourceDefinition.ComputedDimensionOutput(axis, axis,
-        if (axis == "day") ScalarValueType.DATE else ScalarValueType.TEXT, axis, axis, null) }
-    properties.forEach { (property, type) -> outputs[property] = MemberSourceDefinition.ComputedPropertyOutput(property, property, type, property, values[property]) }
-    return MemberResult(name, name, MemberShape.RECORDS, identity, outputs, emptyMap(), if ("day" in axes) "day" else null, emptyMap(),
-        "作者声明的记录合同；实际来源由远程MCP采用绑定")
-}
-
 
 fun verifySubscriptions(page: ResultPage) = expect(page, mapOf("东" to mapOf("observation" to "125"), "西" to mapOf("observation" to "75")))
 
@@ -470,4 +471,4 @@ fun buildSubscriptions(): BusinessExample.Saved {
         listOf(axes.getValue("destination").bound.reference))).also { verifySubscriptions(it.page) }
 }
 
-if (parameters.text("phase") == "build") output(olap, buildSubscriptions()) else resume(olap, parameters, ::verifySubscriptions)
+olap.output(if (parameters.text("phase") == "build") references(buildSubscriptions()) else resume(olap, parameters, ::verifySubscriptions))

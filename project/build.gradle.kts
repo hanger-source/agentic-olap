@@ -156,7 +156,7 @@ val writeRuntimeLicenses by tasks.registering {
         val artifacts = listOf(
             project(":runtime").configurations.getByName("runtimeClasspath"),
             project(":runtime").configurations.getByName("scriptBoundaryRuntime"),
-            project(":script-runtime").configurations.getByName("runtimeClasspath"),
+            project(":kotlin-repl").configurations.getByName("runtimeClasspath"),
             project(":dsl-api").configurations.getByName("runtimeClasspath"),
         ).flatMap { it.resolvedConfiguration.resolvedArtifacts }
             .filter { it.id.componentIdentifier is ModuleComponentIdentifier }.distinctBy { it.file.canonicalPath }
@@ -212,14 +212,15 @@ val writeJvmManifest by tasks.registering {
         val classpath = (runtime.configurations.getByName("runtimeClasspath").files + runtimeJar)
             .sortedBy { it.name }.map(::identity)
         require(classpath.isNotEmpty()) { "runtime classpath is empty" }
-        val script = project(":script-runtime")
+        val script = project(":kotlin-repl")
         val scriptJar = script.tasks.named<Jar>("jar").get().archiveFile.get().asFile
         val dsl = project(":dsl-api")
         val dslJar = dsl.tasks.named<Jar>("jar").get().archiveFile.get().asFile
         val boundary = runtime.configurations.getByName("scriptBoundaryRuntime")
         fun scriptFiles(configuration: String) = (script.configurations.getByName(configuration).files +
+            dsl.configurations.getByName("runtimeClasspath").files + dslJar +
             boundary.files + scriptJar + runtimeJar).distinctBy { it.canonicalPath }.sortedBy { it.name }.map(::identity)
-        val scripting = mapOf("dslApiVersion" to "agentic-olap-kotlin-dsl/v1",
+        val scripting = mapOf("dslApiVersion" to "agentic-olap-kotlin-dsl/v2",
             "runtime" to scriptFiles("runtimeClasspath"),
             "dsl" to (dsl.configurations.getByName("runtimeClasspath").files + dslJar).sortedBy { it.name }.map(::identity))
         val drivers = listOf(":connector-h2", ":connector-duckdb").associate { path ->

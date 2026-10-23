@@ -50,7 +50,7 @@ flowchart LR
 2. **管理与发布**：业务 Agent 使用服务管理定义、上下文采用和版本，将批准的语义及其执行依赖冻结为精确发布；高层定义可以继续引用已有定义。
 3. **构造查询**：业务 Agent 发现公开语义，自主组织主计算、独立输入、总体、条件、时间及有序阶段。完整查询可直接执行，也可单独校验；需要复用时显式保存。
 4. **编译与执行**：上游核对发布授权，内核完成语义绑定与计算规划，Calcite 生成 SQL，连接器通过 `SourceAccess` 执行并校验实际输出。
-5. **消费结果**：读取具有类型、业务来源和明确 NULL 含义的结果。小结果直接返回，大结果可显式保存后分页读取。
+5. **消费结果**：读取具有类型、业务来源和明确 NULL 含义的结果。完整 JSON/MCP 消息装得下就直接返回，装不下自动完整保存并交出读取入口。长期保留业务查询结果仍由明确的保存选项管理。
 
 不可变发布固定的是语义定义及其批准范围。它不预先规定每一个业务问题的查询结构；可读的解释依赖也不自动授予私有定义或输出的调用权限。
 
@@ -71,8 +71,12 @@ agentic-olap start
 agentic-olap info
 agentic-olap tools
 agentic-olap call describe-script-api --payload '{}'
-agentic-olap call execute-script --payload '{"source":"olap.output(olap.sources.list(EmptyRequest))","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v1","parameters":{}}'
+agentic-olap call execute-script --payload '{"executionId":"sources-1","waitMillis":1000,"source":"olap.output(olap.sources.list(EmptyRequest))","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v2","parameters":{}}'
 ```
+
+回执包含 `sessionId`、`executionId` 和实际状态。若仍为 `RUNNING`，调用 `wait-script` 等待同一执行；后续代码传同一 `sessionId` 和新的 `executionId`，可继续使用已有对象与函数。同执行身份的重试只观察已有执行，不重复副作用。用完后调用 `close-script-session` 关闭自己建立的会话；语言会话关闭不会删除已保存的定义、发布或结果。
+
+`olap.output` 是明确的输出动作，可以多次调用；普通打印也进入本次执行输出。末表达式可以是任意 Kotlin 对象，不自动转成输出。完整的会话、等待、取消与恢复规则见[AI 使用指引](docs/agent-usage.md)。
 
 Agent 使用说明与完整配置模板位于本仓 [skill](skills/agentic-olap/SKILL.md)，通过 GitHub 安装：
 
@@ -108,7 +112,7 @@ npx skills add hanger-source/agentic-olap --skill agentic-olap
 
 ## 接入 Agent 或应用
 
-服务器提供统一的远程 MCP 入口，内部装配调查、语义管理、治理、发布、查询、执行与结果读取。业务项目将自己的业务 Agent 连接到该服务，由 Agent 使用这些能力建设并消费语义资产。模型与会话由外部客户端持有。下表链接是同一产品各能力的合同说明。
+服务器提供统一的远程 MCP 入口，内部装配调查、语义管理、治理、发布、查询、执行与结果读取。业务项目将自己的业务 Agent 连接到该服务，由 Agent 使用这些能力建设并消费语义资产。服务不运行语言模型；Agent 对话上下文由业务端持有，Kotlin 声明及对象由服务中的隔离 REPL 会话承接。下表链接是同一产品各能力的合同说明。
 
 | 能力 | 提供什么 | 说明 |
 | --- | --- | --- |

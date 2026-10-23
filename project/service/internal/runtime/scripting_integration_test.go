@@ -3,399 +3,454 @@
 package runtime
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strconv"
-	"strings"
-	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
 
 	pb "github.com/hanger-source/agentic-olap/service/internal/protocol"
+	gov "github.com/hanger-source/agentic-olap/service/internal/protocol/governance"
 	query "github.com/hanger-source/agentic-olap/service/internal/protocol/query"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/anypb"
 )
 
-func actualScript(t *testing.T, m *Manager, principal Principal, source string, arguments any) *ScriptReport {
+// 使用同一份真实发行、元数据服务和正式能力回调；两个槽位是本试验的显式部署。
+func actualSessionRuntime(t *testing.T) *Manager {
+	t.Helper()
+	distribution, javaHome := os.Getenv("AGENTIC_OLAP_DISTRIBUTION"), os.Getenv("JAVA_HOME")
+	if distribution == "" || javaHome == "" {
+		t.Fatal("AGENTIC_OLAP_DISTRIBUTION and JAVA_HOME must name the actual built distribution and JDK")
+	}
+	directory := t.TempDir()
+	log, err := os.Create(filepath.Join(directory, "runtime.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	deployment, err := json.Marshal(map[string]any{
+		"dataRoot": filepath.Join(directory, "data"), "connectors": []string{}, "dataSources": []any{},
+		"auth": map[string]any{"grants": []any{map[string]any{
+			"subjects": []string{trialPrincipal.Subject}, "scopes": trialPrincipal.Scopes,
+			"operations":  []string{"inspect-warehouse", "list-data-sources"},
+			"dataSources": []string{}, "subjectAreas": []string{}, "releases": []string{}, "allGovernanceAssets": false,
+		}}},
+		"history":   map[string]any{"enabled": false, "retentionDays": 1},
+		"scripting": map[string]any{"workerCount": 2, "jvmHeapMiB": 768, "maxCalls": 100, "nativeLogBytes": 1048576},
+		"limits": map[string]any{
+			"requestSeconds": 60, "startupSeconds": 60, "maxInFlight": 1, "workerCount": 1,
+			"catalogEntriesPerWorker": 2, "requestBytes": 8192, "inputDepth": 16, "inputNodes": 200000,
+			"inputFileBytes": 33554432, "inputFiles": 64, "responseBytes": 33554432,
+			"pendingOutputBytes": 67108864, "workerJvmHeapMiB": 512, "nativeMemoryBytes": 268435456,
+			"catalogBytes": 33554432, "sqlBytes": 4194304, "parameters": 10000,
+			"resultRows": 100000, "resultValues": 1000000, "resultBytes": 16777216, "resultDepth": 64,
+		},
+	})
+	if err != nil {
+		log.Close()
+		t.Fatal(err)
+	}
+	m, err := New(Config{Java: filepath.Join(javaHome, "bin", "java"), Distribution: distribution,
+		WorkDir: directory, Deployment: deployment, Stderr: log})
+	if err != nil {
+		log.Close()
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		pids := runtimePIDs(m)
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if err := m.Close(ctx); err != nil {
+			t.Errorf("runtime shutdown failed: %v", err)
+		}
+		for _, pid := range pids {
+			requireProcessExited(t, pid)
+		}
+		log.Close()
+		if t.Failed() {
+			content, _ := os.ReadFile(log.Name())
+			const maximum = 8 * 1024
+			if len(content) > maximum {
+				content = content[len(content)-maximum:]
+			}
+			t.Logf("actual runtime diagnostics (full log %s):\n%s", log.Name(), content)
+		}
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	if err := m.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
+func sessionSubmission(t *testing.T, m *Manager, sessionID, executionID, source string, arguments any) ScriptSubmission {
 	t.Helper()
 	parameters, err := json.Marshal(arguments)
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	return ScriptSubmission{SessionID: sessionID, ExecutionID: executionID, WaitMillis: 60000,
+		Source: source, SourceName: executionID + ".olap.kts", DSLAPIVersion: m.classpaths.DSLAPIVersion, Parameters: parameters}
+}
+
+func submitSession(t *testing.T, m *Manager, request ScriptSubmission) *ScriptReport {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	report, err := m.Script(ctx, principal, ScriptSubmission{Source: source, SourceName: "trial.olap.kts", DSLAPIVersion: m.classpaths.DSLAPIVersion, Parameters: parameters},
-		func(ctx context.Context, invocation *pb.CapabilityInvocation) (Reply, error) {
-			return m.CallCapability(ctx, principal, invocation)
-		})
+	report, err := m.Script(ctx, trialPrincipal, request, func(ctx context.Context, invocation *pb.CapabilityInvocation) (Reply, error) {
+		return m.CallCapability(ctx, trialPrincipal, invocation)
+	})
 	if err != nil {
-		t.Fatalf("actual script failed outside the program: %v; report=%+v", err, report)
+		t.Fatalf("actual script submission failed: %v; report=%+v", err, report)
 	}
 	return report
 }
 
-func actualScriptValue(t *testing.T, report *ScriptReport) *query.ScriptValue {
+func awaitSessionExecution(t *testing.T, m *Manager, executionID string) *ScriptReport {
 	t.Helper()
-	if !report.Success {
-		t.Fatalf("actual program failed: %+v", report.Diagnostics)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	report, err := m.WaitScript(ctx, trialPrincipal, executionID, 60000)
+	if err != nil {
+		t.Fatalf("actual script wait failed: %v; report=%+v", err, report)
 	}
-	var envelope anypb.Any
-	if err := protojson.Unmarshal(report.Value, &envelope); err != nil {
-		t.Fatal(err)
+	if report.State == "RUNNING" {
+		t.Fatalf("execution did not finish within its deployed deadline: %+v", report)
 	}
-	var value query.ScriptValue
-	if err := envelope.UnmarshalTo(&value); err != nil {
-		t.Fatal(err)
-	}
-	return &value
+	return report
 }
 
-func actualScriptProcess(t *testing.T, m *Manager, id string) (int, string) {
+func requireCompletedSession(t *testing.T, report *ScriptReport) {
+	t.Helper()
+	if !report.Success || report.State != "COMPLETED" || !report.SessionUsable || report.WorkerDisposition != "RETAINED" {
+		t.Fatalf("actual session did not complete and remain usable: %+v", report)
+	}
+}
+
+func sessionValues(t *testing.T, report *ScriptReport) []*query.ScriptValue {
+	t.Helper()
+	values := []*query.ScriptValue{}
+	for index, output := range report.Outputs {
+		if output.Sequence != uint64(index+1) {
+			t.Fatalf("output sequence does not preserve actual delivery order: %+v", report.Outputs)
+		}
+		if output.Kind != "VALUE" {
+			continue
+		}
+		var envelope anypb.Any
+		if err := protojson.Unmarshal(output.Value, &envelope); err != nil {
+			t.Fatal(err)
+		}
+		var value query.ScriptValue
+		if err := envelope.UnmarshalTo(&value); err != nil {
+			t.Fatal(err)
+		}
+		values = append(values, &value)
+	}
+	return values
+}
+
+func actualScriptProcess(t *testing.T, m *Manager, workerID string) (int, string) {
 	t.Helper()
 	m.scripts.mu.Lock()
 	defer m.scripts.mu.Unlock()
 	for _, slot := range m.scripts.slots {
-		if slot.worker != nil && slot.worker.id == id {
+		if slot.worker != nil && slot.worker.id == workerID {
 			return slot.worker.process.cmd.Process.Pid, slot.worker.directory
 		}
 	}
-	t.Fatalf("actual script worker %q is not in the bounded pool", id)
+	t.Fatalf("actual session worker %q is not present", workerID)
 	return 0, ""
 }
 
 func requireProcessExited(t *testing.T, pid int) {
 	t.Helper()
 	if err := syscall.Kill(pid, 0); !errors.Is(err, syscall.ESRCH) {
-		t.Fatalf("script JVM %d remains after retirement: %v", pid, err)
+		t.Errorf("script JVM %d remains after confirmed retirement: %v", pid, err)
 	}
 }
 
 func waitForScriptFile(t *testing.T, directory, name string) {
 	t.Helper()
-	until := time.Now().Add(20 * time.Second)
+	until := time.Now().Add(45 * time.Second)
 	for time.Now().Before(until) {
-		entries, _ := os.ReadDir(directory)
-		for _, entry := range entries {
-			if entry.IsDir() {
-				if _, err := os.Stat(filepath.Join(directory, entry.Name(), name)); err == nil {
-					return
-				}
-			}
+		if _, err := os.Stat(filepath.Join(directory, name)); err == nil {
+			return
 		}
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatalf("actual script never reached %s", name)
+	t.Fatalf("actual evaluation never reached %s", filepath.Join(directory, name))
 }
 
-func TestActualScriptReuseKeepsRequestsAndPrincipalOwnershipSeparate(t *testing.T) {
-	m := actualRuntime(t, 4)
-	first := actualScript(t, m, trialPrincipal, `
-val requestLocal = parameters.text("value")
-java.nio.file.Files.writeString(olap.temporaryDirectory.resolve("owned"), requestLocal)
-ScriptValue.ObjectValue(mapOf("subject" to ScriptValue.Text(olap.caller.subject), "directory" to ScriptValue.Text(olap.temporaryDirectory.toString()), "value" to ScriptValue.Text(requestLocal)))`, map[string]any{"value": "first"})
-	value := actualScriptValue(t, first).GetObject().GetValues()
-	if value["subject"].GetText() != trialPrincipal.Subject || value["value"].GetText() != "first" {
-		t.Fatalf("script did not receive this request's caller and arguments: %v", value)
-	}
-	if _, err := os.Stat(value["directory"].GetText()); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("request temporary directory remains after delivery: %v", err)
-	}
-	pid, _ := actualScriptProcess(t, m, first.WorkerID)
-	second := actualScript(t, m, trialPrincipal, `ScriptValue.Text(parameters.text("value"))`, map[string]any{"value": "second"})
-	if actualScriptValue(t, second).GetText() != "second" || second.WorkerID != first.WorkerID {
-		t.Fatal("same principal did not reuse the worker with fresh arguments")
-	}
-	actualPID, _ := actualScriptProcess(t, m, second.WorkerID)
-	if actualPID != pid {
-		t.Fatal("reported reuse replaced the actual JVM")
-	}
-	compileFailure := actualScript(t, m, trialPrincipal, `ScriptValue.Text(requestLocal)`, map[string]any{})
-	if compileFailure.Success || compileFailure.WorkerID != first.WorkerID {
-		t.Fatal("previous variables leaked, or an ordinary compiler rejection retired the worker")
-	}
-	businessFailure := actualScript(t, m, trialPrincipal, `
-olap.sources.inspect(SourceInspection.Describe(SourceBindingRef("forbidden", "0".repeat(64)), com.olap.prototype.warehouse.inspection.WarehouseTableRef(null, "public", "forbidden")))
-ScriptValue.Null`, map[string]any{})
-	if businessFailure.Success || businessFailure.WorkerID != first.WorkerID || len(businessFailure.Calls) != 1 || businessFailure.Calls[0].Success {
-		t.Fatal("formal business refusal was lost or caused unconditional worker retirement")
-	}
-	outputMarker := fmt.Sprintf("script-output-order-%d", time.Now().UnixNano())
-	multiple := actualScript(t, m, trialPrincipal, `
-repeat(3) {
-    println("${parameters.text("marker")}:$it:stdout")
-    System.err.println("${parameters.text("marker")}:$it:stderr")
-    val observed = olap.sources.inspect(SourceInspection.Capabilities)
-    require(observed is SourceInspectionResult.Capabilities && observed.operations.isNotEmpty())
-}
-ScriptValue.BooleanValue(true)`, map[string]any{"marker": outputMarker})
-	if !actualScriptValue(t, multiple).GetBoolean() || multiple.WorkerID != first.WorkerID || len(multiple.Calls) != 3 {
-		t.Fatal("formal repeated source calls did not continue inside the same script worker")
-	}
-	for _, call := range multiple.Calls {
-		if !call.Success || call.RequestID == "" {
-			t.Fatalf("formal capability did not return its actual service receipt: %+v", call)
-		}
-	}
-	log, err := os.ReadFile(filepath.Join(m.cfg.WorkDir, "runtime.log"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	position := 0
-	for index := range 3 {
-		for _, stream := range []string{"stdout", "stderr"} {
-			line := []byte(fmt.Sprintf("%s:%d:%s\n", outputMarker, index, stream))
-			found := bytes.Index(log[position:], line)
-			if found < 0 {
-				t.Fatalf("completed script output did not reach its actual log in order: %s", line)
-			}
-			position += found + len(line)
-		}
-	}
-	afterOutput := actualScript(t, m, trialPrincipal, `ScriptValue.BooleanValue(true)`, map[string]any{})
-	if !actualScriptValue(t, afterOutput).GetBoolean() || afterOutput.WorkerID != first.WorkerID {
-		t.Fatal("ordered script output was mistaken for idle worker output or left the worker unusable")
-	}
-	changedScopes := Principal{Subject: trialPrincipal.Subject, Scopes: []string{"runtime-test", "extra-scope"}}
-	otherScopes := actualScript(t, m, changedScopes, `ScriptValue.Text(olap.caller.subject)`, map[string]any{})
-	actualScriptValue(t, otherScopes)
-	if otherScopes.WorkerID == first.WorkerID {
-		t.Fatal("different scopes reused the previous isolation owner")
-	}
-	requireProcessExited(t, pid)
-	otherPID, _ := actualScriptProcess(t, m, otherScopes.WorkerID)
-	otherSubject := actualScript(t, m, Principal{Subject: "other-subject", Scopes: changedScopes.Scopes}, `ScriptValue.Text(olap.caller.subject)`, map[string]any{})
-	if actualScriptValue(t, otherSubject).GetText() != "other-subject" || otherSubject.WorkerID == otherScopes.WorkerID {
-		t.Fatal("different subject reused the previous isolation owner")
-	}
-	requireProcessExited(t, otherPID)
-}
-
-func TestActualCloseWaitsForColdScriptStartupAndCleanup(t *testing.T) {
-	m := actualRuntime(t, 2)
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+func closeActualSession(t *testing.T, m *Manager, sessionID string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	completed := make(chan struct {
-		report *ScriptReport
-		err    error
-	}, 1)
-	go func() {
-		report, err := m.Script(ctx, trialPrincipal, ScriptSubmission{
-			Source: "Thread.sleep(60_000)\nScriptValue.BooleanValue(true)", SourceName: "cold-start.olap.kts",
-			DSLAPIVersion: m.classpaths.DSLAPIVersion, Parameters: json.RawMessage(`{}`)},
-			func(ctx context.Context, invocation *pb.CapabilityInvocation) (Reply, error) {
-				return m.CallCapability(ctx, trialPrincipal, invocation)
-			})
-		completed <- struct {
-			report *ScriptReport
-			err    error
-		}{report, err}
-	}()
-	root := filepath.Join(m.cfg.WorkDir, "scripting")
-	directory, pid := "", 0
-	until := time.Now().Add(20 * time.Second)
-	for time.Now().Before(until) && pid == 0 {
-		m.scripts.mu.Lock()
-		starting := m.scripts.slots[0].borrowed && m.scripts.slots[0].worker == nil
-		m.scripts.mu.Unlock()
-		if starting {
-			entries, _ := os.ReadDir(root)
-			for _, entry := range entries {
-				if !entry.IsDir() {
-					continue
-				}
-				candidate, err := filepath.EvalSymlinks(filepath.Join(root, entry.Name()))
-				if err != nil {
-					continue
-				}
-				processes, err := exec.Command("ps", "-axww", "-o", "pid=,command=").Output()
-				if err != nil {
-					t.Fatal(err)
-				}
-				for _, line := range strings.Split(string(processes), "\n") {
-					if !strings.Contains(line, "com.olap.prototype.runtime.ScriptMainKt") || !strings.Contains(line, "-Duser.home="+candidate) {
-						continue
-					}
-					fields := strings.Fields(line)
-					observed, err := strconv.Atoi(fields[0])
-					if err != nil {
-						t.Fatal(err)
-					}
-					m.scripts.mu.Lock()
-					stillStarting := m.scripts.slots[0].borrowed && m.scripts.slots[0].worker == nil
-					m.scripts.mu.Unlock()
-					if stillStarting {
-						directory, pid = candidate, observed
-						break
-					}
-				}
+	session, err := m.CloseScriptSession(ctx, trialPrincipal, sessionID)
+	if err != nil || session.State != "CLOSED" || session.Usable {
+		t.Errorf("actual session did not close: %v; session=%+v", err, session)
+	}
+}
+
+func TestActualPersistentScriptSessions(t *testing.T) {
+	m := actualSessionRuntime(t)
+
+	t.Run("language_history_formal_objects_and_explicit_outputs", func(t *testing.T) {
+		first := submitSession(t, m, sessionSubmission(t, m, "", "history-setup", `
+val originalParameters = parameters
+val observedSources = olap.sources.list(EmptyRequest)
+data class Holder<T>(val value: T)
+val heldSources = Holder(observedSources)
+fun <T> Holder<T>.unwrap(): T = value
+fun AvailableSources.sourceCount(): Int = items.size
+fun currentLabel(): String = parameters.text("label")
+fun readCurrentSources() = olap.sources.list(EmptyRequest)
+fun selectedLabel(): String = "first"
+fun selectedThroughOldHelper(): String = selectedLabel()
+heldSources`, map[string]any{"label": "first"}))
+		requireCompletedSession(t, first)
+		t.Cleanup(func() { closeActualSession(t, m, first.SessionID) })
+		if len(first.Outputs) != 0 || len(first.Calls) != 1 || !first.Calls[0].Success {
+			t.Fatalf("an arbitrary last expression became output, or the formal read was lost: %+v", first)
+		}
+		pid, directory := actualScriptProcess(t, m, first.WorkerID)
+		second := submitSession(t, m, sessionSubmission(t, m, first.SessionID, "history-continue", `
+check(originalParameters.text("label") == "first")
+check(currentLabel() == "second")
+check(heldSources.unwrap().sourceCount() == 0)
+println("before-formal-output")
+olap.output(heldSources.unwrap())
+System.err.println("between-formal-outputs")
+olap.output(readCurrentSources())
+olap.output(ScriptValue.Text(originalParameters.text("label") + ":" + currentLabel()))
+olap.output(ScriptValue.Text(olap.temporaryDirectory.toString()))
+Holder(Any())`, map[string]any{"label": "second"}))
+		requireCompletedSession(t, second)
+		if second.WorkerID != first.WorkerID || len(second.Calls) != 1 || !second.Calls[0].Success || second.Calls[0].RequestID == first.Calls[0].RequestID {
+			t.Fatalf("historical helper did not use the current formal execution: %+v", second)
+		}
+		actualPID, _ := actualScriptProcess(t, m, second.WorkerID)
+		if actualPID != pid {
+			t.Fatal("continuing the same session replaced its actual JVM")
+		}
+		values := sessionValues(t, second)
+		if len(values) != 4 || values[2].GetText() != "first:second" || values[3].GetText() != directory {
+			t.Fatalf("parameter snapshots, current getters or session directory differ: %v", values)
+		}
+		for _, value := range values[:2] {
+			reply := value.GetRegisteredReply()
+			if reply == nil || reply.OperationId != "list-data-sources" || reply.Content == nil {
+				t.Fatalf("saved or current formal object lost its registered origin: %v", value)
+			}
+			var sources gov.AvailableSources
+			if err := reply.Content.UnmarshalTo(&sources); err != nil || len(sources.Items) != 0 {
+				t.Fatalf("formal source reply was not retained exactly: %v; %v", err, &sources)
 			}
 		}
-		if pid == 0 {
-			time.Sleep(20 * time.Millisecond)
+		if len(second.Outputs) != 6 || second.Outputs[0].Kind != "STDOUT" || string(second.Outputs[0].Content) != "before-formal-output\n" || second.Outputs[1].Kind != "VALUE" || second.Outputs[2].Kind != "STDERR" || string(second.Outputs[2].Content) != "between-formal-outputs\n" {
+			t.Fatalf("printing and explicit snapshots lost their actual order: %+v", second.Outputs)
 		}
-	}
-	if pid == 0 {
-		t.Fatal("did not observe the real cold script JVM before worker publication")
-	}
-	shutdown, stop := context.WithTimeout(context.Background(), 10*time.Second)
-	defer stop()
-	if err := m.Close(shutdown); err != nil {
-		t.Fatal(err)
-	}
-	m.mu.Lock()
-	active := len(m.scriptRuns)
-	m.mu.Unlock()
-	if active != 0 {
-		t.Fatal("Close returned while the cold script call still owned runtime state")
-	}
-	if _, err := os.Stat(directory); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("Close returned before its cold script directory was reclaimed: %v", err)
-	}
-	requireProcessExited(t, pid)
-	select {
-	case result := <-completed:
-		if result.err == nil || result.report == nil || result.report.Success {
-			t.Fatalf("cold script startup did not terminate with runtime shutdown: %+v %v", result.report, result.err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("cold script call did not return after Close reclaimed its actual JVM")
-	}
-}
 
-func TestActualScriptWorkerReleasesInstancesLoadersAndReturnedModels(t *testing.T) {
-	m := actualRuntime(t, 2)
-	key := fmt.Sprintf("agentic.olap.lifetime-trial.%d", time.Now().UnixNano())
-	workerID := ""
-	for generation := range 12 {
-		source := fmt.Sprintf(`
-val generation = %d
-val key = parameters.text("key")
-@Suppress("UNCHECKED_CAST")
-val references = System.getProperties().computeIfAbsent(key) {
-    java.util.concurrent.ConcurrentLinkedQueue<Pair<String, java.lang.ref.WeakReference<Any>>>()
-} as java.util.concurrent.ConcurrentLinkedQueue<Pair<String, java.lang.ref.WeakReference<Any>>>
-val response = olap.sources.inspect(SourceInspection.Capabilities)
-val holder = object { val client = olap; val arguments = parameters; val result = response }
-references.add("$generation:instance" to java.lang.ref.WeakReference<Any>(holder))
-references.add("$generation:classloader" to java.lang.ref.WeakReference<Any>(holder.javaClass.classLoader))
-references.add("$generation:client" to java.lang.ref.WeakReference<Any>(olap))
-references.add("$generation:parameters" to java.lang.ref.WeakReference<Any>(parameters))
-references.add("$generation:response" to java.lang.ref.WeakReference<Any>(response))
-olap.output(response)`, generation)
-		report := actualScript(t, m, trialPrincipal, source, map[string]any{"key": key})
-		if actualScriptValue(t, report).GetRegisteredReply() == nil {
-			t.Fatal("lifetime trial did not deliver its real registered response")
+		rejected := submitSession(t, m, sessionSubmission(t, m, first.SessionID, "history-compile-error", `val incomplete =`, map[string]any{}))
+		if rejected.State != "COMPILE_FAILED" || rejected.Success || !rejected.SessionUsable || rejected.WorkerID != first.WorkerID || len(rejected.Outputs) != 0 || len(rejected.Calls) != 0 {
+			t.Fatalf("ordinary compiler rejection damaged the session or executed code: %+v", rejected)
 		}
-		if workerID != "" && report.WorkerID != workerID {
-			t.Fatal("lifetime trial replaced the worker instead of observing release in a reused JVM")
+		after := submitSession(t, m, sessionSubmission(t, m, first.SessionID, "history-after-compile-error", `
+olap.output(ScriptValue.Text(originalParameters.text("label") + ":" + currentLabel()))
+olap.output(heldSources.unwrap())`, map[string]any{"label": "third"}))
+		requireCompletedSession(t, after)
+		if after.WorkerID != first.WorkerID || len(sessionValues(t, after)) != 2 || sessionValues(t, after)[0].GetText() != "first:third" {
+			t.Fatalf("successful history was not usable after a compiler rejection: %+v", after)
 		}
-		workerID = report.WorkerID
-	}
-	observed := actualScript(t, m, trialPrincipal, `
-val key = parameters.text("key")
-@Suppress("UNCHECKED_CAST")
-val references = System.getProperties().remove(key) as java.util.concurrent.ConcurrentLinkedQueue<Pair<String, java.lang.ref.WeakReference<Any>>>
-System.gc()
-Thread.sleep(250)
-ScriptValue.ObjectValue(mapOf(
-    "observed" to ScriptValue.DecimalValue(references.size.toString()),
-    "alive" to ScriptValue.ArrayValue(references.mapNotNull { (label, reference) -> if (reference.get() == null) null else ScriptValue.Text(label) })
-))`, map[string]any{"key": key})
-	fields := actualScriptValue(t, observed).GetObject().GetValues()
-	if observed.WorkerID != workerID || fields["observed"].GetDecimal() != "60" {
-		t.Fatal("lifetime observation did not inspect the preceding real executions")
-	}
-	if alive := fields["alive"].GetArray().GetValues(); len(alive) != 0 {
-		t.Fatalf("completed scripts remain strongly reachable after finite GC: %v", alive)
-	}
-}
 
-func TestActualUnresponsiveAndBackgroundScriptsCannotKeepWorkerOrBorrowLaterAuthority(t *testing.T) {
-	m := actualRuntime(t, 2)
-	warm := actualScript(t, m, trialPrincipal, `ScriptValue.BooleanValue(true)`, map[string]any{})
-	actualScriptValue(t, warm)
-	pid, directory := actualScriptProcess(t, m, warm.WorkerID)
-	cooperative, stopCooperative := context.WithCancel(context.Background())
-	defer stopCooperative()
-	cooperated := make(chan error, 1)
-	go func() {
-		_, err := m.Script(cooperative, trialPrincipal, ScriptSubmission{Source: `
-java.nio.file.Files.writeString(olap.temporaryDirectory.resolve("sleep-started"), "started")
-try { Thread.sleep(60_000) } catch (_: InterruptedException) { }
-ScriptValue.BooleanValue(true)`, SourceName: "cooperative.olap.kts", DSLAPIVersion: m.classpaths.DSLAPIVersion, Parameters: json.RawMessage(`{}`)},
-			func(ctx context.Context, input *pb.CapabilityInvocation) (Reply, error) {
-				return m.CallCapability(ctx, trialPrincipal, input)
-			})
-		cooperated <- err
-	}()
-	waitForScriptFile(t, directory, "sleep-started")
-	stopCooperative()
-	select {
-	case err := <-cooperated:
-		if !errors.Is(err, context.Canceled) {
-			t.Fatalf("cooperative cancellation lost caller outcome: %v", err)
+		// 官方语言的重声明绑定需要实际观察，不能从宿主接口推断旧 helper 会重绑。
+		redeclared := submitSession(t, m, sessionSubmission(t, m, first.SessionID, "history-redeclaration", `
+fun selectedLabel(): String = "second"
+olap.output(ScriptValue.Text("direct=" + selectedLabel() + ";old-helper=" + selectedThroughOldHelper()))`, map[string]any{}))
+		t.Logf("official redeclaration observation: state=%s usable=%t outputs=%v diagnostics=%v", redeclared.State, redeclared.SessionUsable, sessionValues(t, redeclared), redeclared.Diagnostics)
+		historyAvailable := redeclared.SessionUsable
+		if !redeclared.SessionUsable {
+			// 不猜测官方历史是否可恢复；显式 reset 后独立观察普通运行异常。
+			ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+			reset, err := m.ResetScriptSession(ctx, trialPrincipal, first.SessionID)
+			cancel()
+			if err != nil || reset.State != "READY" {
+				t.Fatalf("cannot prepare an independent runtime-error observation: %v; %+v", err, reset)
+			}
 		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("cooperative script did not return within the cancellation grace")
-	}
-	afterCooperative := actualScript(t, m, trialPrincipal, `ScriptValue.BooleanValue(true)`, map[string]any{})
-	if !actualScriptValue(t, afterCooperative).GetBoolean() || afterCooperative.WorkerID != warm.WorkerID {
-		t.Fatal("cooperative cancellation unconditionally discarded a clean worker")
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	finished := make(chan error, 1)
-	go func() {
-		_, err := m.Script(ctx, trialPrincipal, ScriptSubmission{Source: `java.nio.file.Files.writeString(olap.temporaryDirectory.resolve("loop-started"), "started")
-while (true) { }`, SourceName: "loop.olap.kts", DSLAPIVersion: m.classpaths.DSLAPIVersion, Parameters: json.RawMessage(`{}`)},
-			func(ctx context.Context, input *pb.CapabilityInvocation) (Reply, error) {
-				return m.CallCapability(ctx, trialPrincipal, input)
-			})
-		finished <- err
-	}()
-	defer cancel()
-	waitForScriptFile(t, directory, "loop-started")
-	cancel()
-	select {
-	case err := <-finished:
-		if !errors.Is(err, context.Canceled) {
-			t.Fatalf("infinite program did not preserve caller cancellation: %v", err)
+		runtimeFailure := submitSession(t, m, sessionSubmission(t, m, first.SessionID, "history-runtime-error", `
+olap.output(ScriptValue.Text("emitted-before-error"))
+error("actual-history-runtime-error")`, map[string]any{}))
+		if runtimeFailure.State != "RUNTIME_FAILED" || runtimeFailure.Success || len(sessionValues(t, runtimeFailure)) != 1 || sessionValues(t, runtimeFailure)[0].GetText() != "emitted-before-error" {
+			t.Fatalf("runtime failure erased prior explicit output or reported completion: %+v", runtimeFailure)
 		}
-	case <-time.After(8 * time.Second):
-		t.Fatal("unresponsive script was not forcibly reaped")
-	}
-	requireProcessExited(t, pid)
-	clean := actualScript(t, m, trialPrincipal, `ScriptValue.BooleanValue(true)`, map[string]any{})
-	if !actualScriptValue(t, clean).GetBoolean() || clean.WorkerID == warm.WorkerID {
-		t.Fatal("next request reused the unresponsive process")
-	}
-	var escapedCalls atomic.Int32
-	background, err := m.Script(context.Background(), trialPrincipal, ScriptSubmission{Source: `
-Thread {
-    Thread.sleep(500)
-    runCatching { olap.sources.inspect(SourceInspection.Capabilities) }
-}.start()
-ScriptValue.BooleanValue(true)`, SourceName: "background.olap.kts", DSLAPIVersion: m.classpaths.DSLAPIVersion, Parameters: json.RawMessage(`{}`)},
-		func(ctx context.Context, input *pb.CapabilityInvocation) (Reply, error) {
-			escapedCalls.Add(1)
-			return m.CallCapability(ctx, trialPrincipal, input)
+		t.Logf("official runtime-error continuation observation: usable=%t diagnostics=%v", runtimeFailure.SessionUsable, runtimeFailure.Diagnostics)
+		if runtimeFailure.SessionUsable && historyAvailable {
+			continued := submitSession(t, m, sessionSubmission(t, m, first.SessionID, "history-after-runtime-error", `olap.output(ScriptValue.Text(originalParameters.text("label")))`, map[string]any{}))
+			t.Logf("official history after runtime error: state=%s usable=%t outputs=%v diagnostics=%v", continued.State, continued.SessionUsable, sessionValues(t, continued), continued.Diagnostics)
+			requireCompletedSession(t, continued)
+			if values := sessionValues(t, continued); len(values) != 1 || values[0].GetText() != "first" {
+				t.Fatalf("an available session lost untouched history after a runtime error: %v", values)
+			}
+		}
+	})
+
+	t.Run("isolated_jvms_waiting_and_execution_deduplication", func(t *testing.T) {
+		first := submitSession(t, m, sessionSubmission(t, m, "", "isolation-first", `
+val sessionLabel = "first-session"
+val firstSessionOnly = "private-first"
+var completedRuns = 0`, map[string]any{}))
+		requireCompletedSession(t, first)
+		t.Cleanup(func() { closeActualSession(t, m, first.SessionID) })
+		second := submitSession(t, m, sessionSubmission(t, m, "", "isolation-second", `
+val sessionLabel = "second-session"
+olap.output(ScriptValue.Text(sessionLabel))`, map[string]any{}))
+		requireCompletedSession(t, second)
+		t.Cleanup(func() { closeActualSession(t, m, second.SessionID) })
+		firstPID, directory := actualScriptProcess(t, m, first.WorkerID)
+		secondPID, _ := actualScriptProcess(t, m, second.WorkerID)
+		if first.SessionID == second.SessionID || first.WorkerID == second.WorkerID || firstPID == secondPID {
+			t.Fatal("two sessions share an actual language environment or JVM")
+		}
+		isolated := submitSession(t, m, sessionSubmission(t, m, second.SessionID, "isolation-forbidden-variable", `olap.output(ScriptValue.Text(firstSessionOnly))`, map[string]any{}))
+		if isolated.State != "COMPILE_FAILED" || !isolated.SessionUsable {
+			t.Fatalf("the second session saw the first session's declarations: %+v", isolated)
+		}
+		other := submitSession(t, m, sessionSubmission(t, m, second.SessionID, "isolation-second-continue", `olap.output(ScriptValue.Text(sessionLabel))`, map[string]any{}))
+		requireCompletedSession(t, other)
+		if other.WorkerID != second.WorkerID || len(sessionValues(t, other)) != 1 || sessionValues(t, other)[0].GetText() != "second-session" {
+			t.Fatalf("continuing the second JVM changed its own session: %+v", other)
+		}
+
+		request := sessionSubmission(t, m, first.SessionID, "waited-once", `
+java.nio.file.Files.writeString(olap.temporaryDirectory.resolve("execution-entered"), "entered")
+while (!java.nio.file.Files.exists(olap.temporaryDirectory.resolve("execution-release"))) Thread.sleep(10)
+completedRuns += 1
+olap.output(ScriptValue.DecimalValue(completedRuns.toString()))`, map[string]any{})
+		request.WaitMillis = 0
+		running := submitSession(t, m, request)
+		if running.State != "RUNNING" || running.Success {
+			t.Fatalf("waitMillis=0 did not return the ongoing execution: %+v", running)
+		}
+		waitForScriptFile(t, directory, "execution-entered")
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+		waiting, err := m.WaitScript(ctx, trialPrincipal, request.ExecutionID, 1000)
+		cancel()
+		if !errors.Is(err, context.DeadlineExceeded) || waiting.State != "RUNNING" {
+			t.Fatalf("ending an observer wait did not preserve the ongoing execution: %v; %+v", err, waiting)
+		}
+		retry := submitSession(t, m, request)
+		if retry.RequestID != running.RequestID || retry.SessionID != running.SessionID || retry.State != "RUNNING" {
+			t.Fatalf("retry created a second execution instead of observing the first: %+v", retry)
+		}
+		conflict := request
+		conflict.Source += "\nprintln(\"a different request\")"
+		_, err = m.Script(context.Background(), trialPrincipal, conflict, func(ctx context.Context, invocation *pb.CapabilityInvocation) (Reply, error) {
+			return m.CallCapability(ctx, trialPrincipal, invocation)
 		})
-	if err != nil {
-		t.Fatalf("completed program failed before its background resource decision: %v", err)
-	}
-	actualScriptValue(t, background)
-	next := actualScript(t, m, Principal{Subject: "another-owner", Scopes: []string{"runtime-test"}}, `ScriptValue.BooleanValue(true)`, map[string]any{})
-	if !actualScriptValue(t, next).GetBoolean() || next.WorkerID == background.WorkerID || escapedCalls.Load() != 0 {
-		t.Fatal("background callback escaped its request or kept the worker for another principal")
-	}
-	if len(background.Calls) != 0 {
-		t.Fatalf("expired callback became an authorized call: %s", fmt.Sprint(background.Calls))
-	}
+		var refusal *ScriptError
+		if !errors.As(err, &refusal) || refusal.Code != "SCRIPT_EXECUTION_CONFLICT" {
+			t.Fatalf("different input reused an execution identity: %v", err)
+		}
+		idle, err := m.ReadScriptSession(context.Background(), trialPrincipal, second.SessionID)
+		if err != nil || idle.State != "READY" || idle.WorkerID != second.WorkerID {
+			t.Fatalf("another execution changed the idle session's fixed worker: %v; %+v", err, idle)
+		}
+		next := sessionSubmission(t, m, first.SessionID, "isolation-final-state", `
+olap.output(ScriptValue.Text(sessionLabel))
+olap.output(ScriptValue.DecimalValue(completedRuns.toString()))`, map[string]any{})
+		if err := os.WriteFile(filepath.Join(directory, "execution-release"), []byte("release"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		completed := awaitSessionExecution(t, m, request.ExecutionID)
+		// 最小准入部署中，完成屏障必须已经释放容量，下一片段无需重试或等待。
+		state := submitSession(t, m, next)
+		requireCompletedSession(t, completed)
+		requireCompletedSession(t, state)
+		if completed.RequestID != running.RequestID || completed.WorkerID != first.WorkerID || len(sessionValues(t, completed)) != 1 || sessionValues(t, completed)[0].GetDecimal() != "1" {
+			t.Fatalf("observing and retrying changed execution count or ownership: %+v", completed)
+		}
+		completedRetry := submitSession(t, m, request)
+		if completedRetry.RequestID != completed.RequestID || !completedRetry.Success || sessionValues(t, completedRetry)[0].GetDecimal() != "1" {
+			t.Fatalf("completed retry re-executed the program: %+v", completedRetry)
+		}
+		values := sessionValues(t, state)
+		if len(values) != 2 || values[0].GetText() != "first-session" || values[1].GetDecimal() != "1" {
+			t.Fatalf("persistent state shows a duplicated execution or cross-session leak: %v", values)
+		}
+		actualFirstPID, _ := actualScriptProcess(t, m, first.WorkerID)
+		actualSecondPID, _ := actualScriptProcess(t, m, second.WorkerID)
+		if actualFirstPID != firstPID || actualSecondPID != secondPID {
+			t.Fatal("ordinary continuation replaced a session's fixed JVM")
+		}
+	})
+
+	t.Run("reset_and_close_stop_active_code_and_discard_history", func(t *testing.T) {
+		first := submitSession(t, m, sessionSubmission(t, m, "", "control-history", `val historyBeforeReset = "old-history"`, map[string]any{}))
+		requireCompletedSession(t, first)
+		t.Cleanup(func() { closeActualSession(t, m, first.SessionID) })
+		oldPID, oldDirectory := actualScriptProcess(t, m, first.WorkerID)
+		request := sessionSubmission(t, m, first.SessionID, "control-reset-running", `
+java.nio.file.Files.writeString(olap.temporaryDirectory.resolve("reset-entered"), "entered")
+while (true) { }`, map[string]any{})
+		request.WaitMillis = 0
+		submitSession(t, m, request)
+		waitForScriptFile(t, oldDirectory, "reset-entered")
+		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+		reset, err := m.ResetScriptSession(ctx, trialPrincipal, first.SessionID)
+		cancel()
+		if err != nil || reset.State != "READY" || !reset.Usable || reset.WorkerID == first.WorkerID {
+			t.Fatalf("reset did not finish with a new ready language environment: %v; %+v", err, reset)
+		}
+		requireProcessExited(t, oldPID)
+		if _, err := os.Stat(oldDirectory); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("reset returned before the old session directory was removed: %v", err)
+		}
+		stopped := awaitSessionExecution(t, m, request.ExecutionID)
+		if stopped.Success || stopped.WorkerDisposition != "RETIRED" || stopped.SessionUsable {
+			t.Fatalf("stopped old execution claims a retained environment: %+v", stopped)
+		}
+		absent := submitSession(t, m, sessionSubmission(t, m, first.SessionID, "control-history-absent", `olap.output(ScriptValue.Text(historyBeforeReset))`, map[string]any{}))
+		if absent.State != "COMPILE_FAILED" || !absent.SessionUsable {
+			t.Fatalf("reset replayed prior declarations or damaged the new environment: %+v", absent)
+		}
+		fresh := submitSession(t, m, sessionSubmission(t, m, first.SessionID, "control-fresh-history", `
+val historyAfterReset = "fresh-history"
+olap.output(ScriptValue.Text(historyAfterReset))`, map[string]any{}))
+		requireCompletedSession(t, fresh)
+		if fresh.WorkerID != reset.WorkerID || len(sessionValues(t, fresh)) != 1 || sessionValues(t, fresh)[0].GetText() != "fresh-history" {
+			t.Fatalf("reset did not retain its new JVM and fresh history: %+v", fresh)
+		}
+		newPID, newDirectory := actualScriptProcess(t, m, fresh.WorkerID)
+		if newPID == oldPID {
+			t.Fatal("reset reused the old process")
+		}
+		closeRequest := sessionSubmission(t, m, first.SessionID, "control-close-running", `
+java.nio.file.Files.writeString(olap.temporaryDirectory.resolve("close-entered"), "entered")
+while (true) { }`, map[string]any{})
+		closeRequest.WaitMillis = 0
+		submitSession(t, m, closeRequest)
+		waitForScriptFile(t, newDirectory, "close-entered")
+		closeActualSession(t, m, first.SessionID)
+		requireProcessExited(t, newPID)
+		if _, err := os.Stat(newDirectory); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("close returned before the old session directory was removed: %v", err)
+		}
+		closedExecution := awaitSessionExecution(t, m, closeRequest.ExecutionID)
+		if closedExecution.Success || closedExecution.WorkerDisposition != "RETIRED" {
+			t.Fatalf("closed execution still claims a live worker: %+v", closedExecution)
+		}
+		closedSubmission := sessionSubmission(t, m, first.SessionID, "control-after-close", `olap.output(ScriptValue.Text("must-not-run"))`, map[string]any{})
+		_, err = m.Script(context.Background(), trialPrincipal, closedSubmission, func(ctx context.Context, invocation *pb.CapabilityInvocation) (Reply, error) {
+			return m.CallCapability(ctx, trialPrincipal, invocation)
+		})
+		var refusal *ScriptError
+		if !errors.As(err, &refusal) || refusal.Code != "SCRIPT_SESSION_CLOSED" {
+			t.Fatalf("closed history accepted another execution: %v", err)
+		}
+	})
 }

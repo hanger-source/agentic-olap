@@ -107,7 +107,7 @@ func ReadDistribution(root string) (Distribution, error) {
 	if err := ReadJSON(filepath.Join(root, "distribution.json"), &manifest); err != nil {
 		return manifest, err
 	}
-	if manifest.FormatVersion != "agentic-olap-distribution/v3" || manifest.Version == "" || manifest.Runtime.MainClass == "" || len(manifest.Runtime.Classpath) == 0 || manifest.Scripting.DSLAPIVersion != "agentic-olap-kotlin-dsl/v1" || len(manifest.Scripting.Runtime) == 0 || len(manifest.Scripting.DSL) == 0 {
+	if manifest.FormatVersion != "agentic-olap-distribution/v3" || manifest.Version == "" || manifest.Runtime.MainClass == "" || len(manifest.Runtime.Classpath) == 0 || manifest.Scripting.DSLAPIVersion != "agentic-olap-kotlin-dsl/v2" || len(manifest.Scripting.Runtime) == 0 || len(manifest.Scripting.DSL) == 0 {
 		return manifest, errors.New("服务发行清单不完整")
 	}
 	files := append([]Identity{{Path: manifest.Service.Path, SHA256: manifest.Service.SHA256}}, manifest.Runtime.Classpath...)

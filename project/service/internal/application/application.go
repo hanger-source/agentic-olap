@@ -96,8 +96,8 @@ func (a *Application) Invoke(ctx context.Context, p runtime.Principal, operation
 			return Envelope{Success: true, Result: result, Error: json.RawMessage("null")}, err
 		}
 	}
-	if operation == "execute-script" {
-		return a.script(ctx, p, payload)
+	if scriptOperation(operation) {
+		return a.script(ctx, p, operation, payload)
 	}
 	for _, name := range a.Runtime.Ready().ResultOperations {
 		if name == operation {
@@ -115,40 +115,6 @@ func (a *Application) Invoke(ctx context.Context, p runtime.Principal, operation
 		return a.availability(ctx, reply)
 	}
 	return envelope(reply), nil
-}
-func (a *Application) script(ctx context.Context, p runtime.Principal, raw json.RawMessage) (Envelope, error) {
-	var submission runtime.ScriptSubmission
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&submission); err != nil {
-		return Envelope{}, &wire.InputError{Cause: err}
-	}
-	authorized, err := a.Runtime.Call(ctx, p, "authorize-script", []byte(`{}`))
-	if err != nil {
-		return Envelope{}, err
-	}
-	if !authorized.Success {
-		return envelope(authorized), nil
-	}
-	report, err := a.Runtime.Script(ctx, p, submission, func(callCtx context.Context, invocation *pb.CapabilityInvocation) (runtime.Reply, error) {
-		return a.InvokeCapability(callCtx, p, invocation)
-	})
-	if report == nil {
-		return Envelope{}, err
-	}
-	return scriptEnvelope(report)
-}
-
-func scriptEnvelope(report *runtime.ScriptReport) (Envelope, error) {
-	encoded, err := json.Marshal(report)
-	if err != nil {
-		return Envelope{}, err
-	}
-	response := Envelope{RequestID: report.RequestID, Success: report.Success, Result: encoded, Error: json.RawMessage("null")}
-	if !report.Success {
-		response.Error, _ = json.Marshal(map[string]any{"stage": "SCRIPT", "code": "SCRIPT_NOT_COMPLETED", "message": "script did not complete; inspect diagnostics and actual capability calls"})
-	}
-	return response, nil
 }
 func (a *Application) InvokeCapability(ctx context.Context, p runtime.Principal, invocation *pb.CapabilityInvocation) (runtime.Reply, error) {
 	if invocation == nil {

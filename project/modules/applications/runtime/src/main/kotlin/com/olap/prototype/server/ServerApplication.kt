@@ -89,7 +89,12 @@ internal class ServerApplication private constructor(private val plugins: Connec
                     .mapValues { it.value.description() })
             }
             "authorize-script" -> {
-                fields(payload, emptySet()); authorization.operation(request.principal, "execute-script")
+                fields(payload, setOf("operation"))
+                val selected = text(payload, "operation")
+                require(selected in setOf("execute-script", "wait-script", "cancel-script", "read-script-session", "reset-script-session", "close-script-session")) {
+                    "explicit script lifecycle operation is required"
+                }
+                authorization.operation(request.principal, selected)
                 return mapOf("authorized" to true)
             }
         }
@@ -168,9 +173,16 @@ internal class ServerApplication private constructor(private val plugins: Connec
             check(put(name, Operation(readOnly, description, payload, permission, handler)) == null)
         }
         add("describe-script-api", "读取实际Kotlin API、构造器、封闭变体与完整脚本示例。", mapOf("operation" to "optional exact operation", "type" to "optional fully qualified public type"), handler = ::describeApi)
-        add("execute-script", "在隔离JVM中编译并运行整段kts；各次正式调用分别授权和记录。",
-            mapOf("source" to "complete kts source", "sourceName" to "diagnostic filename", "dslApiVersion" to "exact deployed DSL version",
-                "parameters" to "bounded ordinary JSON object; exact limits and counting rules: describe-script-api type=com.olap.prototype.dsl.ScriptArguments, rules"), false)
+        add("execute-script", "在持续 Kotlin 会话求值代码；首次可建立会话。执行身份去重，正式调用各自授权与记录。",
+            mapOf("sessionId" to "optional exact session; omit to establish one", "executionId" to "required caller execution identity; identical retries observe the existing execution",
+                "source" to "complete Kotlin snippet", "sourceName" to "diagnostic .kts display name", "dslApiVersion" to "exact deployed DSL version",
+                "parameters" to "current immutable ordinary parameter snapshot; deployment JSON budgets apply",
+                "waitMillis" to "wait duration only; zero returns current state, later waits do not restart or extend execution"), false)
+        add("wait-script", "等待已有执行，不重放源码、不刷新执行期限。", mapOf("executionId" to "exact caller execution identity", "waitMillis" to "maximum wait in milliseconds; zero reads current state"))
+        add("cancel-script", "请求停止已有执行；保留实际调用和输出，来源取消结局独立报告。", mapOf("executionId" to "exact caller execution identity"), false)
+        add("read-script-session", "读取本人的语言会话状态，不执行代码。", mapOf("sessionId" to "exact owned session"))
+        add("reset-script-session", "停止当前执行并确认旧进程退出后重建语言上下文；不重放业务。", mapOf("sessionId" to "exact owned session"), false)
+        add("close-script-session", "停止当前执行并确认进程退出后关闭会话，保留持久业务资产。", mapOf("sessionId" to "exact owned session"), false)
         add("describe-operation", "读取获准操作的输入说明。", mapOf("operation" to "exact operation"), handler = { r,p ->
             fields(p, setOf("operation")); val selected = text(p,"operation")
             val operation = operations[selected] ?: throw ProducerContractException("operation is not registered")
