@@ -7,6 +7,7 @@ import com.olap.prototype.connector.loader.DeployedSources
 import com.olap.prototype.contract.ProducerContractException
 import com.olap.prototype.dsl.*
 import com.olap.prototype.protocol.Response
+import com.olap.prototype.protocol.CapabilityEffect
 import com.olap.prototype.protocol.ResultArtifact
 import com.olap.prototype.query.QueryExplanationContent
 import com.olap.prototype.query.contract.*
@@ -60,11 +61,11 @@ internal class ServerQueries(private val queries: JdbcQueryDefinitionRepository,
             QueryResultArtifact.prepare(SavedQueryResultRecord(SavedQueryResultRecord.FORMAT, run.runId,
                 selected.intent.publication, publication.entry.catalogHash, QueryCapabilityHash.requireValid(publication.entry.capability),
                 selected.intent, selected.reference, run.acceptedAt, Instant.now(), receipt, executed.payload?.explanation,
-                executed.payload?.diagnostics?.let { QueryExecutionDiagnostics(it.sql, it.aliasMapping, it.auditReport) }, run.intentHash), limits.inputFileBytes.toLong())
+                executed.payload?.diagnostics?.let { QueryExecutionDiagnostics(it.sql, it.aliasMapping, it.auditReport) }, run.intentHash))
         } } catch (failure: Exception) { usage.resultFailed(run.runId, "result artifact preparation failed"); throw failure }
         request.work.timed("METADATA_REMEMBER_RESULT") { results.remember(request, prepared, receipt) }
         return Response.newBuilder().setRequestId(request.work.requestId).setSuccess(true)
-            .setModel(QueryCapabilityCodec.encodeResult("execute-query", receipt.copy(result = null), limits.responseBytes))
+            .setModel(QueryCapabilityCodec.encodeResult("execute-query", receipt.copy(result = null)))
             .setArtifact(ResultArtifact.newBuilder().setRunId(prepared.runId).setSha256(prepared.sha256)
                 .setContent(ByteString.copyFrom(prepared.content)).setRows(prepared.rows).setSave(input.saveResult)).build()
     }
@@ -198,8 +199,11 @@ internal class ServerQueries(private val queries: JdbcQueryDefinitionRepository,
             val previous = definitions(request).requireByIdAndVersion(requireNotNull(command.definitionId), requireNotNull(command.sourceVersion))
             authorization.publication(request.principal, operation, publications.require(previous.intent.publication))
         }
-        return definitionResult(if (operation == "save-query") definitions(request).save(command, request.principal.subject)
+        val result = definitionResult(if (operation == "save-query") definitions(request).save(command, request.principal.subject)
         else definitions(request).update(requireNotNull(command.definitionId), command, request.principal.subject))
+        request.completedEffects.add(CapabilityEffect.newBuilder().setReadOperation("read-query")
+            .setQuery(QueryProto.toProto(result.reference)).build())
+        return result
     }
     fun read(request: ServerRequest, input: QueryVersionRequest): QueryDefinitionResult = definitionResult(requireQuery(request, input.queryReference).also {
         authorization.publication(request.principal, "read-query", publications.require(it.intent.publication))

@@ -7,33 +7,19 @@ import java.util.Collections
 sealed interface ScriptValue {
     data object Null : ScriptValue
     data class BooleanValue(val value: Boolean) : ScriptValue
-    data class Text(val value: String) : ScriptValue {
-        init { limit(ScriptValueException.Reason.TEXT_LENGTH, "UTF16_CODE_UNITS", MAX_TEXT, value.length.toLong()) }
-    }
+    data class Text(val value: String) : ScriptValue
     class DecimalValue(val value: BigDecimal) : ScriptValue {
         constructor(value: String) : this(decimal(value))
-        init {
-            limit(ScriptValueException.Reason.DECIMAL_PRECISION, "PRECISION", MAX_TEXT, value.precision().toLong())
-            limit(ScriptValueException.Reason.DECIMAL_SCALE, "ABS_SCALE", MAX_TEXT, kotlin.math.abs(value.scale().toLong()))
-        }
         override fun equals(other: Any?): Boolean = other is DecimalValue && value == other.value
         override fun hashCode(): Int = value.hashCode()
     }
     class ArrayValue(values: List<ScriptValue>) : ScriptValue {
         val values: List<ScriptValue> = java.util.List.copyOf(values)
-        init { checkSize(this.values) }
         override fun equals(other: Any?): Boolean = other is ArrayValue && values == other.values
         override fun hashCode(): Int = values.hashCode()
     }
     class ObjectValue(values: Map<String, ScriptValue>) : ScriptValue {
         val values: Map<String, ScriptValue> = Collections.unmodifiableMap(values.toSortedMap())
-        init {
-            this.values.keys.forEach { key ->
-                if (key.isBlank()) throw ScriptValueException(ScriptValueException.Reason.OBJECT_KEY_BLANK, emptyList(), "NON_BLANK_KEY", "BLANK_KEY")
-                limit(ScriptValueException.Reason.OBJECT_KEY_LENGTH, "KEY_UTF16_CODE_UNITS", MAX_KEY, key.length.toLong())
-            }
-            checkSize(this.values.values)
-        }
         override fun equals(other: Any?): Boolean = other is ObjectValue && values == other.values
         override fun hashCode(): Int = values.hashCode()
     }
@@ -52,49 +38,29 @@ sealed interface ScriptValue {
     class RegisteredModel internal constructor(val operationId: String, content: ByteArray) : ScriptValue {
         private val bytes = content.copyOf()
         val content: ByteArray get() = bytes.copyOf()
+        val contentSize: Int get() = bytes.size
         init { require(operationId.isNotBlank()) }
         override fun equals(other: Any?): Boolean = other is RegisteredModel && operationId == other.operationId && bytes.contentEquals(other.bytes)
         override fun hashCode(): Int = 31 * operationId.hashCode() + bytes.contentHashCode()
     }
     companion object {
-        private const val MAX_TEXT = 1_000_000
-        private const val MAX_NODES = 10_000
-        private const val MAX_DEPTH = 32
-        private const val MAX_KEY = 256
-
         fun contract(): Map<String, Any> = mapOf(
             "appliesTo" to listOf("SCRIPT_ARGUMENTS", "ORDINARY_SCRIPT_RESULTS"),
-            "structure" to mapOf("maximumDescendantNodes" to MAX_NODES, "maximumDescendantDepth" to MAX_DEPTH,
-                "containerIncluded" to false, "objectKeysCounted" to false, "nullCounted" to true,
-                "containersCounted" to true, "directChildDepth" to 1, "rejectionCount" to "FIRST_EXCESS",
-                "scope" to "EACH_CONTAINER_AND_ALL_SCRIPT_ARGUMENTS"),
-            "text" to mapOf("maximumUtf16CodeUnits" to MAX_TEXT),
-            "objectKeys" to mapOf("nonBlank" to true, "maximumUtf16CodeUnits" to MAX_KEY),
-            "decimal" to mapOf("maximumPrecision" to MAX_TEXT, "maximumAbsoluteScale" to MAX_TEXT),
-            "deploymentBudgets" to "JSON_INPUT_AND_PROTOBUF_OUTPUT_BUDGETS_APPLY_INDEPENDENTLY",
+            "representation" to mapOf("decimal" to "EXACT_JAVA_BIG_DECIMAL_VALUE_AND_SCALE",
+                "text" to "JVM_STRING", "objectKeys" to "ANY_STRING_INCLUDING_EMPTY_AND_WHITESPACE",
+                "collections" to "IMMUTABLE_DEFENSIVE_COPY",
+                "violationCode" to "SCRIPT_VALUE_DECIMAL_REPRESENTATION"),
+            "modelCapacity" to "NO_FIXED_NODE_DEPTH_TEXT_KEY_OR_DECIMAL_CAPACITY_LIMITS",
+            "inputBudget" to mapOf("owner" to "ACTUAL_JSON_INPUT_LIMITS_BEFORE_SCRIPT_EVALUATION",
+                "rootDepth" to 1, "rootCounted" to true, "containersCounted" to true, "nullCounted" to true,
+                "objectKeysCounted" to false, "rejectionCount" to "FIRST_EXCESS"),
+            "outputDelivery" to "COMPLETE_INLINE_RESPONSE_WHEN_IT_FITS_OTHERWISE_AUTOMATIC_COMPLETE_FILE_DELIVERY",
+            "intermediateValues" to "JVM_EXECUTION_RESOURCES_APPLY_WITHOUT_A_SEPARATE_FIXED_MODEL_LIMIT",
         )
 
         private fun decimal(value: String): BigDecimal = try { BigDecimal(value) }
-            catch (_: NumberFormatException) { throw ScriptValueException(ScriptValueException.Reason.DECIMAL_SYNTAX,
-                emptyList(), "DECIMAL_TEXT", "INVALID_DECIMAL") }
-
-        private fun limit(reason: ScriptValueException.Reason, measure: String, maximum: Int, observed: Long) {
-            if (observed > maximum) throw ScriptValueException(reason, emptyList(), "$measure<=$maximum", observed.toString())
-        }
-
-        private fun checkSize(values: Collection<ScriptValue>) {
-            var nodes = 0
-            fun visit(value: ScriptValue, depth: Int) {
-                limit(ScriptValueException.Reason.DEPTH, "DESCENDANT_DEPTH", MAX_DEPTH, depth.toLong())
-                limit(ScriptValueException.Reason.NODE_COUNT, "DESCENDANT_NODES", MAX_NODES, (++nodes).toLong())
-                when (value) {
-                    is ArrayValue -> value.values.forEach { visit(it, depth + 1) }
-                    is ObjectValue -> value.values.values.forEach { visit(it, depth + 1) }
-                    else -> Unit
-                }
-            }
-            values.forEach { visit(it, 1) }
-        }
+            catch (_: NumberFormatException) { throw ScriptValueException(ScriptValueException.Reason.DECIMAL_REPRESENTATION,
+                emptyList(), "JAVA_BIG_DECIMAL_TEXT", "UNREPRESENTABLE_DECIMAL") }
     }
 }
 

@@ -1,5 +1,25 @@
 # Agentic OLAP · 版本与变更
 
+## 0.14.0
+
+普通脚本值的表示与部署预算分别拥有明确边界。`ScriptValue` 不设置固定的节点、深度、文本、键或十进制容量阈值，完整目录可以正常通过 `parameters` 提交。实际 JSON 输入由 `requestBytes/inputNodes/inputDepth` 检查，根值为第 1 层且计节点，容器、标量和 NULL 都计节点，键不计，节点与深度在首次越界拒绝。`describe-script-api` 的 `rules.deploymentBudgets` 和 `describe-operation` 对 `execute-script` 返回的 `resourceBudgets` 披露实际部署限额与计数语义；资源诊断交出具体资源、限额、观察值和字段路径。
+
+官方 SDK 生成的完整最终 JSON/MCP 消息不超过 `limits.responseBytes` 时直接返回，超过时自动完整保存在 `dataRoot/responses`，当前消息交出简短提示、`location` 和携带精确引用的 `read-response` payload。读取使用 `reference={responseId,sha256}`，按字节 `offset/length` 分段，以 `nextOffset` 继续且不截破 UTF-8 字符。服务不截断、删减或重执行业务操作，不要求预先保存，不增加存储配额或审批；成功保持成功，失败响应完整保存后仍保留原失败。普通值与正式回执使用正式 Protobuf 编码和实际消息读取，未配对的 UTF-16 代理项作为表示错误拒绝，精确十进制及真实回执保持原样。内部完整 Protobuf 帧可通过私有文件交接，管道帧阈值只选择承载方式，不使大返回失败。
+
+SQL 结果物化继续受 `resultRows/resultValues/resultBytes/resultDepth` 约束；执行请求的 `saveResult=true` 用于显式保留历史业务结果和精确 `resultReference`。这些合同与最终消息的自动完整保存分别成立。
+
+完整响应的读取核对原主体、规范化 scopes 和包括认证域在内的完整授权配置；授权环境变化明确拒绝，不重新执行业务。分页按实际 JSON-RPC 身份和官方 MCP 编码选择长度，以完整 UTF-8 字符推进。
+
+集合的结果、展开、排序及文本化能力缺失统一返回 `NATIVE_COMPILATION_CAPABILITY_MISSING`，给出实际能力和操作，不再退成通用 worker 错误。连接器说明区分零输入关系、一行 NULL／空数组和 OUTER 人口，并明确类型描述符与来源读基础的调查边界；不增加后端专用 SPI 或短路执行。
+
+`LogicUnit` 的标量 `logicType` 与容器 `valueShape` 恰好选一个，容器类型收窄为正式 `SetOutputContract.Container` 的 ARRAY／ROW。普通金额字段使用 NUMBER；单位、算术和结果容量留在数量合同。类型发现披露模型自身的局部规则，构造拒绝保留稳定错误、字段、实际形态与源码位置。
+
+治理写能力及保存、修订查询从实际成功结果交出有界精确引用，并关联到 `calls[].effects`。后续脚本失败或完整结果编码失败时，当次响应仍保留已完成效果的坐标；引用不赋予额外读取权限，不切换到 latest。每次写入维持自己的事务，失败不自动回滚或重放；空 effects 不证明没有副作用，响应内引用不提供断线或进程退出后的持久恢复。
+
+脚本报告区分借用时的 `workerOutcome` 与实际归还时的 `workerDisposition=RETAINED/RETIRED`，并给出 `recycleReasons`。固定的阻塞协议读取器由 worker 直接拥有一个平台线程，避免共享虚拟线程调度器的载体惰性创建混入求值差集。求值基线以外且归属未知的平台线程仍触发保守退役；关联 request/worker 的线程身份、状态、daemon、上下文类加载器和必要堆栈进入有界私有诊断，公开报告不返回线程堆栈。这类观察不认定线程泄漏，也不覆盖虚拟线程。
+
+连接器 API 保持 `agentic-olap-connector/v12-kotlin-native-collection-placement-calcite-1.42`，脚本 DSL 保持 `agentic-olap-kotlin-dsl/v1`，Query intent 保持 `v7`，存储格式保持 `16`。源码、skill、JVM SDK 和 npm 产品使用 0.14.0 的同轮构件，持久根不自动转换。
+
 ## 0.12.2
 
 Agent 通过 MCP 的 `describe-script-api` 发现正式 Kotlin 类型与能力，包括公开的 companion 常量与工厂，通过 `execute-script` 提交完整 kts。脚本在进程内构造和组合语义对象，调用调查、治理、发布、查询和结果能力时使用具体 Protobuf 消息；反射模型编码、JSON 作者输入和编译包中转退出主链。完整查询可以直接执行，保存查询仍是显式复用行为。

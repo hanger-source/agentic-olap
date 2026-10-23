@@ -17,22 +17,64 @@ type InputError struct{ Cause error }
 
 func (e *InputError) Error() string { return e.Cause.Error() }
 func (e *InputError) Unwrap() error { return e.Cause }
+func (e *InputError) Code() string {
+	var budget *jsonInputResourceError
+	if errors.As(e.Cause, &budget) {
+		return "JSON_INPUT_RESOURCE_LIMIT"
+	}
+	return "INVALID_REQUEST"
+}
+func (e *InputError) Stage() string {
+	var budget *jsonInputResourceError
+	if errors.As(e.Cause, &budget) {
+		return "DECODE_DOCUMENT"
+	}
+	return "DECODE_INPUT"
+}
+func (e *InputError) Details() map[string]any {
+	var budget *jsonInputResourceError
+	if !errors.As(e.Cause, &budget) {
+		return map[string]any{}
+	}
+	return map[string]any{
+		"resource": budget.resource, "limit": budget.limit, "observed": budget.observed,
+		"fieldPath": append([]any{}, budget.fieldPath...),
+		"expected":  fmt.Sprintf("%s<=%d", budget.resource, budget.limit), "actual": strconv.FormatInt(budget.observed, 10),
+	}
+}
+
+type jsonInputResourceError struct {
+	resource        string
+	limit, observed int64
+	fieldPath       []any
+}
+
+func (e *jsonInputResourceError) Error() string {
+	return fmt.Sprintf("JSON input resource %s exceeds limit %d at %v: observed %d", e.resource, e.limit, e.fieldPath, e.observed)
+}
+
+func inputResourceError(resource string, limit, observed int64, fieldPath []any) error {
+	return &jsonInputResourceError{resource: resource, limit: limit, observed: observed, fieldPath: append([]any{}, fieldPath...)}
+}
 
 func Decode(raw []byte, depth, nodes int) (any, error) {
+	if depth <= 0 || nodes <= 0 {
+		return nil, errors.New("JSON input budgets must be positive")
+	}
 	if !utf8.Valid(raw) {
 		return nil, errors.New("JSON must be UTF-8")
 	}
 	d := json.NewDecoder(bytes.NewReader(raw))
 	d.UseNumber()
-	remaining := nodes
-	var read func(int) (any, error)
-	read = func(level int) (any, error) {
-		remaining--
-		if remaining < 0 {
-			return nil, errors.New("INPUT_NODES_EXCEEDED")
+	observedNodes := int64(0)
+	var read func(int64, []any) (any, error)
+	read = func(level int64, path []any) (any, error) {
+		if level > int64(depth) {
+			return nil, inputResourceError("JSON_INPUT_DEPTH", int64(depth), level, path)
 		}
-		if level > depth {
-			return nil, errors.New("INPUT_DEPTH_EXCEEDED")
+		observedNodes++
+		if observedNodes > int64(nodes) {
+			return nil, inputResourceError("JSON_INPUT_NODES", int64(nodes), observedNodes, path)
 		}
 		t, err := d.Token()
 		if err != nil {
@@ -54,7 +96,7 @@ func Decode(raw []byte, depth, nodes int) (any, error) {
 					if _, exists := m[k]; exists {
 						return nil, errors.New("duplicate JSON field")
 					}
-					v, err := read(level + 1)
+					v, err := read(level+1, append(path, k))
 					if err != nil {
 						return nil, err
 					}
@@ -67,7 +109,7 @@ func Decode(raw []byte, depth, nodes int) (any, error) {
 			case '[':
 				a := []any{}
 				for d.More() {
-					v, err := read(level + 1)
+					v, err := read(level+1, append(path, len(a)))
 					if err != nil {
 						return nil, err
 					}
@@ -83,7 +125,7 @@ func Decode(raw []byte, depth, nodes int) (any, error) {
 		}
 		return t, nil
 	}
-	v, err := read(1)
+	v, err := read(1, nil)
 	if err != nil {
 		return nil, err
 	}

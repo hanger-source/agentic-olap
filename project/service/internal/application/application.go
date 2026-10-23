@@ -59,6 +59,9 @@ func (a *Application) Operations(ctx context.Context, p runtime.Principal) (map[
 	if value.Operations == nil {
 		return nil, errors.New("operation discovery is incomplete")
 	}
+	if len(value.Operations) != 0 {
+		value.Operations["read-response"] = responseReadOperation()
+	}
 	return value.Operations, nil
 }
 func (a *Application) Invoke(ctx context.Context, p runtime.Principal, operation string, payload json.RawMessage) (Envelope, error) {
@@ -68,6 +71,30 @@ func (a *Application) Invoke(ctx context.Context, p runtime.Principal, operation
 	}
 	if _, err := wire.Object(payload, a.Config.Limits.InputDepth, a.Config.Limits.InputNodes); err != nil {
 		return Envelope{}, &wire.InputError{Cause: err}
+	}
+	if operation == "read-response" {
+		return a.ReadResponse(ctx, p, payload)
+	}
+	if operation == "describe-operation" {
+		var request struct {
+			Operation string `json:"operation"`
+		}
+		decoder := json.NewDecoder(bytes.NewReader(payload))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&request); err != nil {
+			return Envelope{}, &wire.InputError{Cause: err}
+		}
+		if request.Operation == "read-response" {
+			operations, err := a.Operations(ctx, p)
+			if err != nil {
+				return Envelope{}, err
+			}
+			if _, ok := operations["read-response"]; !ok {
+				return Envelope{}, errors.New("response read is not authorized")
+			}
+			result, err := json.Marshal(responseReadOperation())
+			return Envelope{Success: true, Result: result, Error: json.RawMessage("null")}, err
+		}
 	}
 	if operation == "execute-script" {
 		return a.script(ctx, p, payload)
@@ -109,9 +136,13 @@ func (a *Application) script(ctx context.Context, p runtime.Principal, raw json.
 	if report == nil {
 		return Envelope{}, err
 	}
-	encoded, encodeErr := json.Marshal(report)
-	if encodeErr != nil {
-		return Envelope{}, encodeErr
+	return scriptEnvelope(report)
+}
+
+func scriptEnvelope(report *runtime.ScriptReport) (Envelope, error) {
+	encoded, err := json.Marshal(report)
+	if err != nil {
+		return Envelope{}, err
 	}
 	response := Envelope{RequestID: report.RequestID, Success: report.Success, Result: encoded, Error: json.RawMessage("null")}
 	if !report.Success {
@@ -180,7 +211,7 @@ func (a *Application) read(ctx context.Context, p runtime.Principal, operation s
 		return reply, err
 	}
 	authorized := new(q.QueryResultReference)
-	if err = anypb.UnmarshalTo(reply.Model, authorized, proto.UnmarshalOptions{RecursionLimit: a.Config.Limits.InputDepth}); err != nil {
+	if err = anypb.UnmarshalTo(reply.Model, authorized, proto.UnmarshalOptions{RecursionLimit: len(reply.Model.Value) + 1}); err != nil {
 		return reply, err
 	}
 	if !proto.Equal(authorized, ref.Proto()) {
@@ -202,7 +233,7 @@ func (a *Application) deliver(ctx context.Context, p runtime.Principal, reply ru
 	if reply.Model == nil {
 		return reply, &DeliveryFailure{ref.RunID, errors.New("execution omitted its declared receipt")}
 	}
-	if err := anypb.UnmarshalTo(reply.Model, receipt, proto.UnmarshalOptions{RecursionLimit: a.Config.Limits.InputDepth}); err != nil {
+	if err := anypb.UnmarshalTo(reply.Model, receipt, proto.UnmarshalOptions{RecursionLimit: len(reply.Model.Value) + 1}); err != nil {
 		return reply, &DeliveryFailure{ref.RunID, err}
 	}
 	confirmation := &pb.DeliveryConfirmation{RunId: ref.RunID, Sha256: ref.SHA256, Bytes: uint64(len(artifact.Content)), Rows: artifact.Rows, ExecutionReceipt: reply.Model, TimingNanos: map[string]uint64{}}
@@ -248,9 +279,6 @@ func (a *Application) deliver(ctx context.Context, p runtime.Principal, reply ru
 		delivered.Saved = true
 	} else {
 		delivered.Result = record.Receipt.Result
-	}
-	if proto.Size(delivered) > a.Config.Limits.ResponseBytes {
-		return failed(errors.New("direct result exceeds capacity; request explicit saving"))
 	}
 	storeStarted := time.Now()
 	if artifact.Save {

@@ -26,7 +26,7 @@ import com.olap.prototype.warehouse.contract.SourceConfiguration
 import java.util.concurrent.TimeUnit
 
 /** 显式监督者工作端口；没有进程句柄、池、凭据读取或运行配置生成。 */
-class RemoteWorkers(private val peer: ProtocolPeer, private val maximumModelBytes: Int, private val maximumDepth: Int) {
+class RemoteWorkers(private val peer: ProtocolPeer) {
     private val log = org.slf4j.LoggerFactory.getLogger(RemoteWorkers::class.java)
     enum class Kind { QUERY, ENGINE, INSPECTION, SOURCE_INSPECTION, CANDIDATE_VALUES }
 
@@ -63,40 +63,40 @@ class RemoteWorkers(private val peer: ProtocolPeer, private val maximumModelByte
             require(kind == Kind.ENGINE) { "engine command requires an engine worker lease" }
             val input = request.timed("${kind.name}_WORKER_ENCODE") { QueryWorkerProto.toProto(command) }
             val response = exchangeModel(input, input.kindCase.name)
-            return request.timed("${kind.name}_WORKER_DECODE") { QueryWorkerProto.fromProto(ProtoBytes.unpack(response,
-                com.olap.prototype.wire.query.EngineWorkerResult.getDefaultInstance(), maximumModelBytes, maximumDepth)) }
+            return request.timed("${kind.name}_WORKER_DECODE") { QueryWorkerProto.fromProto(ProtoBytes.unpackResponse(response,
+                com.olap.prototype.wire.query.EngineWorkerResult.getDefaultInstance())) }
         }
         fun query(command: QueryWorkerCommand): QueryWorkerResult {
             require(kind == Kind.QUERY) { "query command requires a query worker lease" }
             val input = request.timed("${kind.name}_WORKER_ENCODE") { QueryWorkerProto.toProto(command) }
             val response = exchangeModel(input, input.kindCase.name)
-            return request.timed("${kind.name}_WORKER_DECODE") { QueryWorkerProto.fromProto(ProtoBytes.unpack(response,
-                com.olap.prototype.wire.query.QueryWorkerResult.getDefaultInstance(), maximumModelBytes, maximumDepth)) }
+            return request.timed("${kind.name}_WORKER_DECODE") { QueryWorkerProto.fromProto(ProtoBytes.unpackResponse(response,
+                com.olap.prototype.wire.query.QueryWorkerResult.getDefaultInstance())) }
         }
         fun inspect(command: SourceInspection): SourceInspectionResult {
             require(kind == Kind.INSPECTION) { "inspection requires its own worker lease" }
             val input = request.timed("${kind.name}_WORKER_ENCODE") { GovernanceProto.toProto(command) }
             val response = exchangeModel(input, "INSPECT")
-            return request.timed("${kind.name}_WORKER_DECODE") { GovernanceProto.fromProto(ProtoBytes.unpack(response,
-                com.olap.prototype.wire.governance.SourceInspectionResult.getDefaultInstance(), maximumModelBytes, maximumDepth)) }
+            return request.timed("${kind.name}_WORKER_DECODE") { GovernanceProto.fromProto(ProtoBytes.unpackResponse(response,
+                com.olap.prototype.wire.governance.SourceInspectionResult.getDefaultInstance())) }
         }
         fun source(command: SourceWorkerCommand): SourceWorkerResult {
             require(kind == Kind.SOURCE_INSPECTION) { "source investigation requires its own worker lease" }
             val input = request.timed("${kind.name}_WORKER_ENCODE") { SourceWorkerProto.toProto(command) }
             val response = exchangeModel(input, input.kindCase.name)
-            return request.timed("${kind.name}_WORKER_DECODE") { SourceWorkerProto.fromProto(ProtoBytes.unpack(response,
-                com.olap.prototype.wire.query.SourceWorkerResult.getDefaultInstance(), maximumModelBytes, maximumDepth)) }
+            return request.timed("${kind.name}_WORKER_DECODE") { SourceWorkerProto.fromProto(ProtoBytes.unpackResponse(response,
+                com.olap.prototype.wire.query.SourceWorkerResult.getDefaultInstance())) }
         }
         fun candidate(command: CandidateWorkerCommand): CandidateWorkerResult {
             require(kind == Kind.CANDIDATE_VALUES) { "candidate command requires its own worker lease" }
             val input = request.timed("${kind.name}_WORKER_ENCODE") { CandidateWorkerProto.toProto(command) }
             val response = exchangeModel(input, input.kindCase.name)
-            return request.timed("${kind.name}_WORKER_DECODE") { CandidateWorkerProto.fromProto(ProtoBytes.unpack(response,
-                com.olap.prototype.wire.query.CandidateWorkerResult.getDefaultInstance(), maximumModelBytes, maximumDepth)) }
+            return request.timed("${kind.name}_WORKER_DECODE") { CandidateWorkerProto.fromProto(ProtoBytes.unpackResponse(response,
+                com.olap.prototype.wire.query.CandidateWorkerResult.getDefaultInstance())) }
         }
         private fun exchangeModel(command: com.google.protobuf.Message, action: String): com.google.protobuf.Any {
             check(!released) { "worker lease is closed" }
-            val packed = request.timed("${kind.name}_WORKER_PACK") { ProtoBytes.pack(command, maximumModelBytes) }
+            val packed = request.timed("${kind.name}_WORKER_PACK") { ProtoBytes.pack(command) }
             val reply = request.timed("${kind.name}_WORKER_$action") { peer.work(request.requestId, request.remainingMillis(),
                 WorkRequest.newBuilder().setExchange(ExchangeWorker.newBuilder().setLeaseId(id).setCommandModel(packed))) }
             reply.timingNanosMap.forEach { (stage, nanos) -> request.timingNanos.merge("${kind.name}_WORKER_${action}_$stage", nanos, Long::plus) }

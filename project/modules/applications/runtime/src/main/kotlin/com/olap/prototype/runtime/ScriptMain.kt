@@ -30,7 +30,6 @@ fun main(args: Array<String>) {
     val configuration = frame.bootstrap.scripting
     require(frame.bootstrap.deploymentJson.isEmpty && frame.bootstrap.sourceConfigurationsJson.isEmpty &&
         frame.bootstrap.connectorManifestsCount == 0) { "script process cannot receive deployment, source or plugin configuration" }
-    val outputBytes = positiveInt(configuration.maximumOutputBytes, "maximum output bytes")
     val requestBytes = positiveInt(configuration.maximumRequestBytes, "maximum request bytes")
     val depth = positiveInt(configuration.maximumInputDepth.toLong(), "input depth")
     val parameters = JsonStructure.Limits(requestBytes.toLong(), depth,
@@ -38,16 +37,17 @@ fun main(args: Array<String>) {
     val runtime = ScriptRuntime(ScriptEnvironment(configuration.dslApiVersion, configuration.compilationClasspathList.map { Path.of(it) },
         ScriptLimits(maximumSourceBytes = positiveInt(configuration.maximumSourceBytes, "maximum source bytes"))))
     val workerDirectory = Path.of("").toAbsolutePath().toRealPath()
-    ScriptProtocolPeer(protocolInput, protocolOutput, positiveInt(configuration.maximumFrameBytes, "maximum frame bytes"), requestBytes, outputBytes, depth).use { peer ->
+    ScriptProtocolPeer(protocolInput, protocolOutput, positiveInt(configuration.maximumFrameBytes, "maximum frame bytes"), requestBytes, depth,
+        Path.of(frame.bootstrap.transferDirectory)).use { peer ->
         peer.redirectStandardOutput().use {
             peer.send(Frame.newBuilder().setResponse(Response.newBuilder().setRequestId("bootstrap").setSuccess(true)).build())
-            peer.serve { request, transport, checkActive -> executeScript(request, transport, runtime, configuration.dslApiVersion, parameters, outputBytes, workerDirectory, checkActive) }
+            peer.serve { request, transport, checkActive -> executeScript(request, transport, runtime, configuration.dslApiVersion, parameters, workerDirectory, checkActive) }
         }
     }
 }
 
 private fun executeScript(request: ScriptRequest, transport: CapabilityTransport, runtime: ScriptRuntime,
-                          dslVersion: String, parametersLimit: JsonStructure.Limits, outputBytes: Int, workerDirectory: Path,
+                          dslVersion: String, parametersLimit: JsonStructure.Limits, workerDirectory: Path,
                           checkActive: () -> Unit): ScriptResponse {
     val response = ScriptResponse.newBuilder().setRequestId(request.requestId)
     try {
@@ -59,29 +59,34 @@ private fun executeScript(request: ScriptRequest, transport: CapabilityTransport
             "script execution directory must be inside its worker private root"
         }
         val parameters = scriptParameters(request.parametersJson.toByteArray(), parametersLimit)
-        val client = OlapClients.connect(transport, CapabilityProtos(parametersLimit.bytes.toInt(), outputBytes, parametersLimit.depth), Caller(request.callerSubject), executionDirectory)
+        val client = OlapClients.connect(transport, CapabilityProtos(parametersLimit.bytes.toInt(), parametersLimit.depth), Caller(request.callerSubject), executionDirectory)
         val result = runtime.run(RuntimeSource(request.source.source, request.source.sourceName), client, parameters, checkActive)
         response.setSuccess(result.successful).setRecycleWorker(result.recycleWorker).addAllDiagnostics(result.diagnostics.map(::diagnostic))
             .putTimingNanos("SCRIPT_COMPILE", result.compilationNanos).putTimingNanos("SCRIPT_EVALUATE", result.evaluationNanos)
+        response.addAllResourceIssues(result.resourceIssues.map { issue -> ScriptResourceIssue.newBuilder()
+            .setCode(issue.code).setMessage(issue.message).setObservedCount(issue.observedCount).setTruncated(issue.truncated)
+            .addAllThreads(issue.threads.map { thread -> ScriptThreadObservation.newBuilder().setId(thread.id).setName(thread.name)
+                .setState(thread.state).setDaemon(thread.daemon).setContextClassLoader(thread.contextClassLoader).addAllStack(thread.stack).build() }).build() })
         if (result.successful) {
-            val value = QueryProto.scriptValue(requireNotNull(result.value), outputBytes, parametersLimit.depth)
-            val encoded = if (value.serializedSize in 0..outputBytes) ProtoBytes.pack(value, outputBytes) else null
-            if (encoded == null || encoded.serializedSize > outputBytes) response.setSuccess(false).addDiagnostics(
-                ScriptDiagnostic.newBuilder().setCode("SCRIPT_OUTPUT_LIMIT").setStage("OUTPUT").setSeverity("ERROR")
-                    .setMessage("script output exceeds its configured Protobuf byte budget"))
-            else response.setResult(encoded)
+            val value = QueryProto.scriptValue(requireNotNull(result.value))
+            response.setResult(ProtoBytes.pack(value))
         }
     } catch (failure: Exception) {
         System.err.println("script request failed: requestId=${request.requestId}")
         failure.printStackTrace(System.err)
         val diagnostic = ScriptDiagnostic.newBuilder().setSeverity("ERROR").setMessage((failure.message ?: failure.javaClass.simpleName).take(4_096))
         if (failure is java.util.concurrent.CancellationException) diagnostic.setCode("CANCELLED").setStage("SCRIPT")
-        else if (failure is JsonDocumentException) diagnostic.setCode(failure.code).setStage(failure.stage)
-            .addAllFieldPath(failure.fieldPath.map(Any::toString)).setExpected(failure.expected).setActual(failure.actual)
+        else if (failure is JsonDocumentException) {
+            diagnostic.setCode(failure.code).setStage(failure.stage)
+                .addAllFieldPath(failure.fieldPath.map(Any::toString)).setExpected(failure.expected).setActual(failure.actual)
+            failure.resource?.let { diagnostic.setResource(it.name).setLimit(requireNotNull(failure.limit)).setObserved(requireNotNull(failure.observed)) }
+        }
+        else if (failure is ScriptOutputRepresentationException) diagnostic.setCode("SCRIPT_OUTPUT_REPRESENTATION").setStage("OUTPUT")
+            .addAllFieldPath(failure.fieldPath).setExpected("WELL_FORMED_UNICODE_TEXT").setActual("UNPAIRED_UTF16_SURROGATE")
         else if (failure is ScriptValueException) diagnostic.setCode(failure.code).setStage("SCRIPT_PARAMETERS")
             .addAllFieldPath(failure.fieldPath.map(Any::toString)).setExpected(failure.expected).setActual(failure.actual)
         else diagnostic.setCode("SCRIPT_REQUEST_REJECTED").setStage("SCRIPT_INPUT_OR_OUTPUT")
-        response.clearResult().setSuccess(false).addDiagnostics(diagnostic)
+        response.addDiagnostics(diagnostic)
     }
     return response.build()
 }

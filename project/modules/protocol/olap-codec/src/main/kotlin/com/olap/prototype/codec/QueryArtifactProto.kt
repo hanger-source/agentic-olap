@@ -17,9 +17,9 @@ object QueryArtifactProto {
     fun fromProto(v: WRecord): SavedQueryResultRecord { require(v.hasPublication() && v.hasIntent() && v.hasReceipt()); return SavedQueryResultRecord(v.formatVersion, v.runId,
         QueryProto.fromProto(v.publication), v.catalogHash, v.capabilityHash, QueryProto.fromProto(v.intent), if (v.hasQueryReference()) QueryProto.fromProto(v.queryReference) else null,
         Instant.parse(v.startedAt), Instant.parse(v.completedAt), QueryProto.fromProto(v.receipt), if (v.hasExplanation()) QueryExplanationProto.fromProto(v.explanation) else null, if (v.hasDiagnostics()) fromProto(v.diagnostics) else null, v.intentHash) }
-    fun encode(record: SavedQueryResultRecord, maximumBytes: Int): ByteArray {
-        val bytes = ProtoBytes.encode(toProto(record), maximumBytes)
-        return ProtoBytes.encode(WArtifact.newBuilder().setFormatVersion(FORMAT).setSha256(ProtoBytes.digest(bytes)).setRecordBytes(com.google.protobuf.ByteString.copyFrom(bytes)).build(), maximumBytes)
+    fun encode(record: SavedQueryResultRecord): ByteArray {
+        val bytes = ProtoBytes.encode(toProto(record))
+        return ProtoBytes.encode(WArtifact.newBuilder().setFormatVersion(FORMAT).setSha256(ProtoBytes.digest(bytes)).setRecordBytes(com.google.protobuf.ByteString.copyFrom(bytes)).build())
     }
     fun decode(bytes: ByteArray, maximumBytes: Int, maximumDepth: Int = 128): SavedQueryResultRecord {
         val artifact = ProtoBytes.decode(bytes, WArtifact.getDefaultInstance(), maximumBytes, maximumDepth)

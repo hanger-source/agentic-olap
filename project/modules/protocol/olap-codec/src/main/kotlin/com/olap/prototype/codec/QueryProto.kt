@@ -101,5 +101,5 @@ object QueryProto {
     fun fromProto(v: WListRequest): QueryListRequest { require(v.hasCoordinate()); return QueryListRequest(fromProto(v.coordinate), v.offset, v.limit) }
     fun toProto(v: QueryDefinitionPage): WDefinitionPage = WDefinitionPage.newBuilder().addAllItems(v.items.map(::toProto)).apply { v.nextOffset?.let(::setNextOffset) }.build()
     fun fromProto(v: WDefinitionPage) = QueryDefinitionPage(v.itemsList.map(::fromProto), if (v.hasNextOffset()) v.nextOffset else null)
-    fun scriptValue(v: ScriptValue, maximumBytes: Int, maximumDepth: Int) = QueryScriptProto.toProto(v, maximumBytes, maximumDepth)
+    fun scriptValue(v: ScriptValue) = QueryScriptProto.toProto(v)
 }

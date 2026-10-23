@@ -2,14 +2,21 @@ package runtime
 
 import (
 	"bufio"
+	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"regexp"
 	"sync"
+	"syscall"
 	"time"
 
 	pb "github.com/hanger-source/agentic-olap/service/internal/protocol"
@@ -34,26 +41,54 @@ type processLaunch struct {
 }
 
 type process struct {
-	cmd            *exec.Cmd
-	input          io.WriteCloser
-	output         io.ReadCloser
-	maximum        int64
-	write          chan struct{}
-	mu             sync.Mutex
-	pending        map[string]chan *pb.Response
-	scripts        map[string]chan *pb.ScriptResponse
-	done           chan struct{}
-	wait           chan error
-	failure        error
-	onWork         func(*pb.WorkRequest)
-	onCapability   func(*pb.CapabilityRequest)
-	onScriptOutput func(*pb.ScriptOutput)
-	logs           *processOutputBudget
-	stopOnce       sync.Once
-	finishOnce     sync.Once
+	cmd               *exec.Cmd
+	input             io.WriteCloser
+	output            io.ReadCloser
+	maximum           int64
+	transferDirectory string
+	write             chan struct{}
+	mu                sync.Mutex
+	pending           map[string]chan *pb.Response
+	scripts           map[string]chan *pb.ScriptResponse
+	done              chan struct{}
+	wait              chan error
+	failure           error
+	onWork            func(*pb.WorkRequest)
+	onCapability      func(*pb.CapabilityRequest)
+	onScriptOutput    func(*pb.ScriptOutput)
+	logs              *processOutputBudget
+	stopOnce          sync.Once
+	finishOnce        sync.Once
 }
 
 func startProcess(ctx context.Context, cfg Config, launch processLaunch) (*process, *pb.Response, error) {
+	if launch.Bootstrap == nil {
+		return nil, nil, errors.New("runtime bootstrap is required")
+	}
+	transferParent := cfg.WorkDir
+	if launch.Sandbox != nil {
+		transferParent = launch.Sandbox.Directory
+	}
+	transferDirectory, err := os.MkdirTemp(transferParent, "protocol-transfer-")
+	if err != nil {
+		return nil, nil, err
+	}
+	createdTransferDirectory := transferDirectory
+	started := false
+	defer func() {
+		if !started {
+			_ = os.RemoveAll(createdTransferDirectory)
+		}
+	}()
+	transferDirectory, err = filepath.EvalSymlinks(transferDirectory)
+	if err != nil {
+		return nil, nil, err
+	}
+	transferDirectory, err = filepath.Abs(transferDirectory)
+	if err != nil {
+		return nil, nil, err
+	}
+	launch.Bootstrap.TransferDirectory = transferDirectory
 	arguments := []string{}
 	if launch.HeapMiB > 0 {
 		arguments = append(arguments, fmt.Sprintf("-Xmx%dm", launch.HeapMiB))
@@ -88,7 +123,7 @@ func startProcess(ctx context.Context, cfg Config, launch processLaunch) (*proce
 		return nil, nil, err
 	}
 	cmd.Stdout = protocolWriter
-	p := &process{cmd: cmd, input: input, output: output, maximum: launch.MaximumBytes,
+	p := &process{cmd: cmd, input: input, output: output, maximum: launch.MaximumBytes, transferDirectory: transferDirectory,
 		write: make(chan struct{}, 1), pending: make(map[string]chan *pb.Response),
 		scripts: make(map[string]chan *pb.ScriptResponse),
 		done:    make(chan struct{}), wait: make(chan error, 1), onWork: launch.Work, onCapability: launch.Capability, onScriptOutput: launch.ScriptOutput}
@@ -106,6 +141,7 @@ func startProcess(ctx context.Context, cfg Config, launch processLaunch) (*proce
 		protocolWriter.Close()
 		return nil, nil, err
 	}
+	started = true
 	protocolWriter.Close()
 	go p.read()
 	go func() {
@@ -161,6 +197,9 @@ func (p *process) read() {
 					err = fmt.Errorf("invalid runtime protobuf frame: bytes=%d prefix=%x: %w", length, payload[:min(8, len(payload))], err)
 				}
 			}
+		}
+		if err == nil && frame.GetFile() != nil {
+			frame, err = p.consumeFrame(frame.GetFile())
 		}
 		if err != nil {
 			p.fail(err)
@@ -286,9 +325,6 @@ func (p *process) send(ctx context.Context, frame *pb.Frame) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if int64(proto.Size(frame)) > p.maximum {
-		return errors.New("runtime protocol frame exceeds byte budget")
-	}
 	select {
 	case <-p.write:
 	case <-ctx.Done():
@@ -298,7 +334,17 @@ func (p *process) send(ctx context.Context, frame *pb.Frame) error {
 	}
 	defer func() { p.write <- struct{}{} }()
 	completed := make(chan error, 1)
-	go func() { _, err := protodelim.MarshalTo(p.input, frame); completed <- err }()
+	go func() {
+		outgoing, err := p.outboundFrame(frame)
+		if err == nil {
+			if int64(proto.Size(outgoing)) > p.maximum {
+				err = errors.New("protocol transfer reference exceeds pipe frame budget")
+			} else {
+				_, err = protodelim.MarshalTo(p.input, outgoing)
+			}
+		}
+		completed <- err
+	}()
 	select {
 	case err := <-completed:
 		if err != nil {
@@ -371,8 +417,118 @@ func (p *process) stop() {
 		}
 		<-p.wait
 		p.output.Close()
+		if p.transferDirectory != "" && p.cmd.ProcessState != nil {
+			if err := os.RemoveAll(p.transferDirectory); err != nil {
+				fmt.Fprintln(p.cmd.Stderr, "protocol transfer directory cleanup failed:", p.transferDirectory, err)
+			}
+		}
 		p.fail(errors.New("runtime process stopped by owner"))
 	})
+}
+
+var protocolFileName = regexp.MustCompile(`^frame-[0-9a-f]{32}\.pb$`)
+var protocolFileSHA256 = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
+// The file contains the same complete official Frame that would use the pipe.
+func (p *process) outboundFrame(frame *pb.Frame) (*pb.Frame, error) {
+	if frame.GetFile() != nil {
+		return nil, errors.New("protocol file references cannot be nested")
+	}
+	if int64(proto.Size(frame)) <= p.maximum {
+		return frame, nil
+	}
+	if frame.GetBootstrap() != nil {
+		return nil, errors.New("bootstrap must fit the initial inline protocol handshake")
+	}
+	if p.transferDirectory == "" {
+		return nil, errors.New("runtime process has no private protocol transfer directory")
+	}
+	identity := make([]byte, 16)
+	if _, err := rand.Read(identity); err != nil {
+		return nil, err
+	}
+	name := "frame-" + hex.EncodeToString(identity) + ".pb"
+	partial := filepath.Join(p.transferDirectory, name+".part")
+	destination := filepath.Join(p.transferDirectory, name)
+	content, err := proto.Marshal(frame)
+	if err != nil {
+		return nil, err
+	}
+	file, err := os.OpenFile(partial, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0600)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = file.Close(); _ = os.Remove(partial) }()
+	digest := sha256.New()
+	count, err := io.Copy(io.MultiWriter(file, digest), bytes.NewReader(content))
+	if err != nil {
+		return nil, err
+	}
+	if err = file.Close(); err != nil {
+		return nil, err
+	}
+	if err = os.Rename(partial, destination); err != nil {
+		return nil, err
+	}
+	return &pb.Frame{Body: &pb.Frame_File{File: &pb.ProtocolFile{Name: name, Bytes: uint64(count), Sha256: hex.EncodeToString(digest.Sum(nil))}}}, nil
+}
+
+func (p *process) consumeFrame(reference *pb.ProtocolFile) (*pb.Frame, error) {
+	if p.transferDirectory == "" {
+		return nil, errors.New("runtime process has no private protocol transfer directory")
+	}
+	if !protocolFileName.MatchString(reference.Name) || reference.Bytes == 0 || !protocolFileSHA256.MatchString(reference.Sha256) {
+		return nil, errors.New("protocol file requires an exact private basename, byte length and SHA-256")
+	}
+	path := filepath.Join(p.transferDirectory, reference.Name)
+	before, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !before.Mode().IsRegular() || uint64(before.Size()) != reference.Bytes {
+		return nil, errors.New("protocol transfer file differs from its declared regular file")
+	}
+	file, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	opened, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !opened.Mode().IsRegular() || !os.SameFile(before, opened) || opened.Size() != before.Size() {
+		return nil, errors.New("protocol transfer file identity changed while opening")
+	}
+	defer func() {
+		current, err := os.Lstat(path)
+		if err == nil && current.Mode().IsRegular() && os.SameFile(opened, current) {
+			if err := os.Remove(path); err != nil {
+				fmt.Fprintln(p.cmd.Stderr, "protocol transfer file cleanup failed:", path, err)
+			}
+		}
+	}()
+	digest := sha256.New()
+	content, err := io.ReadAll(io.TeeReader(io.NewSectionReader(file, 0, opened.Size()), digest))
+	if err != nil {
+		return nil, err
+	}
+	after, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !after.Mode().IsRegular() || !os.SameFile(opened, after) || after.Size() != opened.Size() ||
+		uint64(len(content)) != reference.Bytes || hex.EncodeToString(digest.Sum(nil)) != reference.Sha256 {
+		return nil, errors.New("protocol transfer file identity or content changed")
+	}
+	frame := new(pb.Frame)
+	if err := (proto.UnmarshalOptions{RecursionLimit: len(content) + 1}).Unmarshal(content, frame); err != nil {
+		return nil, err
+	}
+	if frame.GetFile() != nil {
+		return nil, errors.New("protocol file references cannot be nested")
+	}
+	return frame, nil
 }
 
 func baselineEnvironment() []string {

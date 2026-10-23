@@ -35,7 +35,7 @@ agentic-olap call execute-script --payload '{"source":"olap.output(olap.sources.
 | --- | --- |
 | 部署配置 | `server.json`，可直接编辑 JSON，重启后生效 |
 | 本地令牌 | `access-token`，首次生成至少256位随机值，文件权限0600 |
-| 持久数据 | `data/`，持有元数据、保存结果及使用记录 |
+| 持久数据 | `data/`，持有元数据、保存结果、使用记录及 `responses/` 中自动完整保存的响应 |
 | 连接信息 | `info` 输出 `url/configPath/dataRoot/tokenPath/authMode`、安装目录与版本，并从 MCP 读取服务版本、获准连接器和来源；不打印令牌值 |
 | 显式取得令牌 | `agentic-olap token`，供自己的 MCP 客户端注入 Authorization Bearer |
 | 尚未初始化 | `info`、`token`、默认本地 `tools/call` 明确失败，先执行 `start` |
@@ -132,10 +132,28 @@ agentic-olap call list-publications --payload '{"subjectAreaId":"实际主题域
 
 定义、采用、发布、保存查询和使用记录各有精确身份。修改定义不会把旧引用切成最新版本；业务数据可以持续变化，同一语义查询的新运行不覆盖旧结果。查询不要求先保存。
 
-大结果在执行时显式选择 `saveResult: true`，成功交付后按返回引用分页读取。结果与执行使用同一 runId；保存或 manifest 提交失败会如实报告，不伪造引用或重新执行查询。单位、NULL和递归值保持原含义。
+官方 SDK 生成的完整最终 JSON/MCP 消息不超过 `limits.responseBytes` 时直接返回，超过时自动完整保存在 `dataRoot/responses`。当前消息给出简短提示、`location` 和 `read.operation/read.payload`；无需预先选择保存，不截断、删减或重执行业务，不新增存储配额或审批。成功保持成功，失败消息完整保存后仍保留原失败。
 
-`scripting` 声明脚本 JVM 池容量、堆预算、每段程序的正式能力调用上限，以及 `nativeLogBytes` 原生诊断预算，准确字段与值使用完整模板。普通 `System.out/err` 经有序帧受本次响应预算限制；原生 FD2 诊断按 worker 生命周期限额，不作为逐请求精确归属。worker 在同一 Subject＋Scopes 归属内复用，本次临时目录由 `olap.temporaryDirectory` 提供；`File(".")` 仍是稳定 worker 私有根。正常结束释放本次状态和受管资源，不承诺把任意 JVM 全局副作用恢复为新进程。
+将短提示的 `read.payload` 原样作为 `read-response` 的 payload，其中包含精确 `reference={responseId,sha256}` 和起始 `offset`。可选 `length` 与 `offset` 均按 UTF-8 字节计算；`offset` 必须位于字符起点，段尾不截破字符。返回页包含 `content/offset/nextOffset/totalBytes/location/reference/format`，按 `nextOffset` 继续即可读完整存档，不重新执行业务。
 
-`limits` 声明请求、并发、背压、来源工作进程、原生内存及结果预算。结果采用共同 `resultRows/resultValues/resultBytes/resultDepth`，`pendingOutputBytes` 须容纳一个完整输出帧。工作进程按需使用，预算不是每个进程可以同时无限占用资源的承诺。预算调整由服务配置决定，业务 Agent 不会自行扩大。
+执行请求的 `saveResult: true` 显式保存历史 SQL 结果，成功交付后按实际 `resultReference` 分页读取。结果与执行使用同一 runId；保存或 manifest 提交失败会如实报告，不伪造引用或重新执行查询。单位、NULL和递归值保持原含义。SQL 结果物化限额、显式历史结果保存与完整响应自动存档是独立合同。
+
+`scripting` 声明脚本 JVM 池容量、堆预算、每段程序的正式能力调用上限，以及 `nativeLogBytes` 原生诊断预算，准确字段与值使用完整模板。普通 `System.out/err` 经有序帧归属本次请求，日志采集按自身边界处理；原生 FD2 诊断按 worker 生命周期限额，不作为逐请求精确归属。worker 在同一 Subject＋Scopes 归属内复用，本次临时目录由 `olap.temporaryDirectory` 提供；`File(".")` 仍是稳定 worker 私有根。正常结束释放本次状态和受管资源，不承诺把任意 JVM 全局副作用恢复为新进程。
+
+脚本报告的 `workerOutcome` 是借用时的启动或复用，归还时的实际处置由 `workerDisposition=RETAINED/RETIRED` 和 `recycleReasons` 给出。新增且归属未知的平台线程触发保守退役，不认定线程泄漏；线程身份、状态、daemon、上下文类加载器和必要堆栈仅保存在关联 request/worker 的有界私有诊断中，公开报告不返回线程堆栈。
+
+`limits` 分别声明输入预算、直接响应阈值、并发、背压、来源工作进程、原生内存和 SQL 结果预算：
+
+| 字段 | 检查边界 |
+| --- | --- |
+| `requestBytes/inputNodes/inputDepth` | 实际 JSON 输入。根为第 1 层且计节点，容器、标量和 NULL 计节点，键不计；节点和深度在首次越界拒绝 |
+| `responseBytes` | 官方 SDK 生成的完整最终 JSON/MCP 消息的直接返回阈值。超过时自动完整存档并给出位置和 `read-response`，不据此把原执行改为失败 |
+| `resultRows/resultValues/resultBytes/resultDepth` | SQL 业务结果物化。与 JSON 输入及完整消息交付独立，不以 `resultDepth` 限制普通 `ScriptValue` |
+
+普通值模型不另设固定的节点、深度、文本、键或十进制容量阈值，结构目录通过 `parameters` 是正常输入路径。普通值与正式能力回执使用正式 Protobuf 编码和实际消息读取，不设置独立响应深度门槛。完整内部 Protobuf 帧超过管道帧阈值时通过进程私有文件交接同一消息；`pendingOutputBytes` 约束在途管道帧和背压，不作为完整业务返回的容量上限。工作进程按需使用，预算不是每个进程可以同时无限占用资源的承诺；预算调整由部署方决定，业务 Agent 不会自行扩大。诊断与计数细节见[普通参数与返回值容量](../../../docs/agent-usage.md#普通参数与返回值容量)。
+
+`describe-script-api` 读取 `ScriptArguments/ScriptValue` 及其子类型时，`rules.deploymentBudgets` 返回实际部署限额与计数语义；`describe-operation` 选择 `execute-script` 时，`resourceBudgets` 返回同一组部署事实。业务客户端据此判断当前服务的边界。
+
+治理写入及保存／修订查询的 `calls[].effects` 仅支持在当次响应中按精确引用继续读取，权限保持原有边界。程序后续失败不撤销已提交效果，也不自动重试或回滚；空 `effects` 不代表没有副作用。断线或进程退出后的持久恢复不由这些响应内引用提供。
 
 持久根在所有写入进程停止后整体备份，恢复时使用匹配版本的运行构件和精确连接器。业务数据库按自己的生命周期备份；不要复制运行中元数据库的单个文件或编辑内部存储来绕过版本合同。

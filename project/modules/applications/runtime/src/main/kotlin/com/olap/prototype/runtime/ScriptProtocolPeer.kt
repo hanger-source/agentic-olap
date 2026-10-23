@@ -10,6 +10,7 @@ import com.olap.prototype.protocol.*
 import java.io.InputStream
 import java.io.OutputStream
 import java.io.PrintStream
+import java.nio.file.Path
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.LinkedBlockingQueue
@@ -23,9 +24,10 @@ internal class ScriptProtocolPeer(
     private val output: OutputStream,
     private val maximumFrameBytes: Int,
     private val maximumRequestBytes: Int,
-    private val maximumResponseBytes: Int,
     private val maximumDepth: Int,
+    transferRoot: Path,
 ) : AutoCloseable {
+    private val files = ProtocolFiles(transferRoot)
     private sealed interface Inbound {
         data class Call(val request: ScriptRequest, val running: Running) : Inbound
         data class End(val failure: Throwable?) : Inbound
@@ -100,13 +102,19 @@ internal class ScriptProtocolPeer(
 
     fun send(frame: Frame) {
         check(!closed.get()) { "script protocol is closed" }
-        require(frame.serializedSize <= maximumFrameBytes) { "script protocol response exceeds frame budget" }
-        synchronized(writeLock) { frame.writeDelimitedTo(output); output.flush() }
+        synchronized(writeLock) {
+            val outgoing = files.outbound(frame, maximumFrameBytes)
+            require(outgoing.serializedSize <= maximumFrameBytes) { "protocol transfer reference exceeds pipe frame budget" }
+            outgoing.writeDelimitedTo(output)
+            output.flush()
+        }
     }
 
     fun serve(handler: (ScriptRequest, CapabilityTransport, () -> Unit) -> ScriptResponse) {
         check(reader == null) { "script protocol can only serve once" }
-        reader = Thread.ofVirtual().name("script-protocol-reader").start { readLoop() }
+        // 每个串行 worker 只有一个长期阻塞的协议读取器，由进程生命周期直接拥有。
+        // 不让共享虚拟线程调度器的惰性载体扩容混入单次脚本资源差集。
+        reader = Thread.ofPlatform().daemon(true).name("script-protocol-reader").start { readLoop() }
         while (!closed.get()) {
             when (val next = inbound.take()) {
                 is Inbound.End -> { next.failure?.let { throw it }; return }
@@ -167,7 +175,7 @@ internal class ScriptProtocolPeer(
                     failure.stage, failure.message, failure.fieldPathList.toList(), failure.diagnosticId.takeIf(String::isNotBlank)))
             }
             require(response.hasResult() && !response.hasFailure()) { "successful capability response requires exactly one result" }
-            ProtoBytes.encode(response.result, maximumResponseBytes)
+            ProtoBytes.encode(response.result)
         } finally {
             if (!call.response.isDone) {
                 abandoned.set(AbandonedCall(call.requestId, call.callId))
@@ -181,7 +189,7 @@ internal class ScriptProtocolPeer(
         var failure: Throwable? = null
         try {
             while (!closed.get()) {
-                val frame = readFrame(input, maximumFrameBytes) ?: break
+                val frame = files.read(input, maximumFrameBytes) ?: break
                 when (frame.bodyCase) {
                     Frame.BodyCase.SCRIPT_REQUEST -> {
                         val request = frame.scriptRequest
@@ -237,22 +245,7 @@ internal class ScriptProtocolPeer(
 
     companion object {
         fun readFrame(input: InputStream, maximum: Int): Frame? {
-            val first = input.read()
-            if (first < 0) return null
-            var length = (first and 127).toLong()
-            var next = first
-            var shift = 7
-            while (next and 128 != 0) {
-                require(shift < 35) { "invalid protobuf frame length" }
-                next = input.read()
-                require(next >= 0) { "truncated protobuf frame length" }
-                length = length or ((next and 127).toLong() shl shift)
-                shift += 7
-            }
-            require(length in 1..maximum.toLong()) { "script protocol frame exceeds byte budget" }
-            val bytes = input.readNBytes(length.toInt())
-            require(bytes.size == length.toInt()) { "truncated protobuf frame" }
-            return Frame.parseFrom(bytes)
+            return ProtocolFiles.readPipeFrame(input, maximum)
         }
     }
 }

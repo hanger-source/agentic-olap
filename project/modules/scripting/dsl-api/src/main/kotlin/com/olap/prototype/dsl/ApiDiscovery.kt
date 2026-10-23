@@ -5,6 +5,9 @@ import com.olap.prototype.dsl.transport.CapabilityContract
 import com.olap.prototype.query.QueryComputation
 import com.olap.prototype.calculation.Calculation
 import com.olap.prototype.member.MemberResult
+import com.olap.prototype.governance.contract.LogicUnitRecord
+import com.olap.prototype.governance.contract.LogicalTableCreateRequest
+import com.olap.prototype.query.SetOutputContract
 import java.lang.reflect.Type
 import kotlin.reflect.KClass
 import kotlin.reflect.KFunction
@@ -128,6 +131,9 @@ object ApiDiscovery {
         when (type) {
             Calculation.Call::class -> Calculation.Call.contract()
             MemberResult::class -> MemberResult.contract()
+            LogicUnitRecord::class -> LogicUnitRecord.contract()
+            LogicalTableCreateRequest.LogicUnitInput::class -> LogicalTableCreateRequest.LogicUnitInput.contract()
+            SetOutputContract.Container::class, SetOutputContract.Array::class, SetOutputContract.Row::class -> SetOutputContract.Container.contract()
             else -> if (type == ScriptArguments::class || ScriptValue::class.java.isAssignableFrom(type.java)) ScriptValue.contract() else emptyMap()
         })
 

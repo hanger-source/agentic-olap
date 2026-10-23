@@ -86,6 +86,12 @@ SDK 的 JAR、POM 由插件工程的 Gradle 从 JitPack 匿名取得，第三方
 
 序号从 1 开始，实际元素的 `ordinal` 必须非 NULL；不直接暴露原生数组下界，不凭元素或所有 ROW 字段为 NULL 推断缺行。映射不得自行过滤、去重、归约、复制输入或改变求值作用域；生成与取值针对同一条输入记录的同一绑定数组。运行验证须覆盖真实表行与聚合输入、空／NULL 数组、整体 NULL ROW、字段全 NULL 的非空 ROW、重复元素及位置规范化。其他后端上的通用 fixture 或常量数组成功不替代目标后端的正式 Query 验收。
 
+零条输入关系与一条输入记录上的 NULL／空数组是不同人口。带分组键的聚合在零条输入时不产生分组；集合聚合的 typed NULL 分支保留该聚合声明的空输入含义，不会创建分组。INNER 展开不制造输入记录，OUTER 只保留实际存在的输入记录。插件不能用预先 COUNT、跳过执行、额外分组、删除透传列或外围 SQL 改写来掩盖来源错误。
+
+`COLLECTION_RESULTS/EXPANSION/SORT/TEXT` 与投影式 OUTER 的能力缺失均在来源提交前使用 `NATIVE_COMPILATION_CAPABILITY_MISSING` 拒绝，保留实际缺少的 `capability` 和触发编译的 `operation`。插件声明支持后，原生 ARRAY／ROW 类型、聚合结果描述符、SRF 放置与字段读取仍须共同成立；`InputProjection` 提供放置入口，不代替来源的类型保证。
+
+调查原生描述符或集合执行错误时，沿同一次正式请求保留插件及来源的精确引用、完整出站 SQL 与实际参数、来源请求身份、原生错误阶段与 SQLSTATE，以及来源实际提供的读基础。类型定位以传入 `expandCollection` 的有序 `outputType`、ARRAY 的完整 `componentType`、`RexFieldAccess.referenceExpr.type/field.index` 和插件的 cast／字段映射为准；需要来源执行计划或原生类型描述符时，由连接器取得来源证据。不同请求在 Unknown 读基础下观察到的空人口、非空成功或同 SQL 的不同结果，不能单独证明核心类型错误、原生类型普遍不可用或唯一的空人口根因。
+
 `ROW_FIELD` 的逻辑字段索引仍由内核验证。需要原生匿名字段名或专用字段运算的插件，可以在 `SqlDialect.prepareUnparse(RexNode)` 处理 `RexFieldAccess`：此时保有 `referenceExpr.type`、`field.index` 和结果类型，再转换为插件自己的有类型 Rex 调用及 SQL AST。不要等普通 SQL 标识符已经生成后解析 `EXPR$N`，也不能把逻辑字段名普遍替换成某个后端的 `fN`。
 
 `textIdentityEquals(builder,left,right)` 返回两个真实文本操作数的完整精确身份 BOOLEAN 比较，保留 NULL 三值逻辑，不要求产生二进制中间值。原生等号只有在插件能够兑现类型、编码及 collation 的适用保证时才可直接使用。后端是否保留 HashJoin、过滤下推及运行时过滤，由实际执行计划确认；此映射不授予插件改写业务人口、LEFT 补空或重复度的权限。

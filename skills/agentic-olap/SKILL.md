@@ -4,7 +4,7 @@ description: 使用 Agentic OLAP 服务调查业务数据、建设和复用可�
 license: Apache-2.0
 metadata:
   author: hanger
-  version: "0.13.1"
+  version: "0.14.0"
   repository: https://github.com/hanger-source/agentic-olap
 ---
 
@@ -44,6 +44,8 @@ agentic-olap call describe-script-api --payload '{"type":"com.olap.prototype.cal
 
 `operation/type` 二选一，完整名称按实际返回继续读取。类型的 `kind=OBJECT` 表示直接使用对象，例如 `EmptyRequest`，不调用构造器。`functions/companion` 的 `access` 给出实际公开访问表达式，例如 `MetricValueContract.ONE`；嵌套类型的 `enclosingType` 可继续发现外层对象及工厂，例如 `RowPopulationContract.calls/contract`。结构发现不执行任意 getter 或工厂；`rules` 读取已知模型自身声明的局部语义合同，包括测量调用不可覆盖槽位及成员数量出口的要求。`describe-operation` 仅描述 MCP 工具的外层提交合同。不要从旧 JSON 节点表、方法名或历史版本猜当前作者输入，也不需要阅读源码才能正常构造模型。
 
+`LogicUnitInput.rules.valueTypeRules` 要求标量 `logicType` 与容器 `valueShape` 恰好选一个：标量的 `valueShape=null`；容器的 `logicType=null`，形状为正式 `SetOutputContract.Container` 的 ARRAY／ROW。普通金额字段使用 `LogicType.NUMBER`，数量合同中的单位、算术和结果容量不填入字段的容器形状。
+
 `execute-script` 一次提交完整 kts 程序。先从概览取得精确版本，再调用：
 
 ~~~sh
@@ -66,9 +68,13 @@ CLI 的 `--payload` 是参数对象；直接用 MCP SDK 时，arguments 包为 `
 
 作者身份用只读 `olap.caller.subject`，不从参数伪造。`olap.temporaryDirectory` 是本次提交的受管临时子目录；`File(".")` 仍是稳定 worker 私有根，不表示本次目录。脚本池在同一 Subject＋Scopes 归属内复用；每次提交重新建立执行状态与受管资源，不承诺任意 JVM 全局副作用自动清为全新状态。
 
-末表达式返回 `olap.output(response)`、`olap.output(reference)`、普通 `ScriptValue` 或 `Unit`。正式回执须来自本次真实能力调用；普通值支持精确十进制、布尔、文本、NULL 和有限集合，不能返回任意 JVM 对象。整段程序不是跨所有调用的一个事务；后续失败不会撤销前面已完成的写入或查询，不盲目重放。
+报告中的 `workerOutcome` 是借用时的启动／复用结果；`workerDisposition=RETAINED/RETIRED` 和 `recycleReasons` 描述实际归还结局。新增且归属未知的平台线程会触发保守退役，不能据此断言线程泄漏；有界线程证据只进入私有诊断，公开报告不返回线程堆栈。
 
-普通参数和普通返回值的容量由 `describe-script-api` 的 `ScriptArguments/ScriptValue.rules` 披露：每容器及全部参数最多 10,000 个后代值、32 层，子容器与 NULL 计数、键不计；文本、键和十进制另有限制，部署输入／输出预算同时生效。`SCRIPT_VALUE_*` 诊断给出路径、要求和实际计数或错误形态；参数转换失败时正文尚未执行。完整大目录可在 kts 内直接构造正式结构模型并调用登记，保留所有事实，同时满足源码及调用预算；不将结构编码成文本、不自动拆分写入。计数细节与大结构用法见[普通参数与返回值容量](../../docs/agent-usage.md#普通参数与返回值容量)。
+末表达式返回 `olap.output(response)`、`olap.output(reference)`、普通 `ScriptValue` 或 `Unit`。正式回执须来自本次真实能力调用；普通值支持精确十进制、布尔、文本、NULL 和不可变数组、对象，不能返回任意 JVM 对象。整段程序不是跨所有调用的一个事务；后续失败不会撤销前面已完成的写入或查询，不盲目重放。
+
+普通值模型没有固定的节点、深度、文本、键或十进制容量阈值；目录等结构事实正常放入 `parameters`，脚本据此构造正式模型。用 `describe-script-api` 读取 `ScriptArguments/ScriptValue` 的 `rules.deploymentBudgets`，或读取 `describe-operation` 对 `execute-script` 披露的 `resourceBudgets`，取得实际输入预算与直接响应阈值。JSON 输入遵守 `requestBytes/inputNodes/inputDepth`：根为第 1 层且计节点，容器、标量与 NULL 计节点，键不计，节点与深度在首次越界拒绝。普通值与正式能力回执按正式 Protobuf 和实际返回体编码、读取，不设置独立输出容量或深度门槛。SQL 的 `resultRows/resultValues/resultBytes/resultDepth` 约束业务结果物化。不要为容量而默认展开源码、把目录编码成文本或自动拆分写入。表示、输入预算与交付细节见[普通参数与返回值容量](../../docs/agent-usage.md#普通参数与返回值容量)。
+
+失败响应的 `calls[].effects` 保留治理写入及保存／修订查询的精确效果引用；用其 `readOperation` 在原权限下读取实际版本，不从最终 `value=null` 推断前面未提交，不选 latest。空 `effects` 不证明无副作用，失败也不自动回滚或重试；该引用只服务本次响应内恢复，不承诺断线或退出后的持久恢复。状态与 worker 报告的边界见[脚本回执与继续执行](../../docs/agent-usage.md#脚本回执与继续执行)。
 
 ## 按业务含义建设与组合
 
@@ -88,7 +94,9 @@ CLI 的 `--payload` 是参数对象；直接用 MCP SDK 时，arguments 包为 `
 
 `validate/explain/execute` 独立使用。解释按实际合同返回人口、资格、粒度、阶段和关系计划；未取得的来源统计保持未知。查询可直接执行，计算交给引擎，不在外围重算业务指标。
 
-保存查询用于复用模型；`QueryDefinitionResult` 返回 `definition/reference`，执行保存版本时用真实精确 `reference`。保存结果用于交付，执行显式选择 `saveResult=true`，只用实际返回的 `resultReference` 分页读取。保留精确数值、NULL、单位和 ROW／ARRAY。
+官方 SDK 生成的完整最终 JSON/MCP 消息不超过 `responseBytes` 时直接返回，超过时自动完整保存在 `dataRoot/responses`。当前消息给出简短提示、`location` 和 `read.operation/read.payload`；将实际 `read.payload` 原样用于 `read-response`，其中的 `reference={responseId,sha256}` 是精确存档引用。读取按字节 `offset` 和可选 `length` 分段，必须从 UTF-8 字符起点开始，段尾不截破字符；按返回的 `nextOffset` 继续。服务不截断删减，不要求预先保存，不重执行业务，也不增加存储配额或审批。成功保持成功，失败响应完整保存后仍保留原失败。
+
+保存查询用于复用模型；`QueryDefinitionResult` 返回 `definition/reference`，执行保存版本时用真实精确 `reference`。执行的 `saveResult=true` 显式保存历史 SQL 结果，只用实际返回的 `resultReference` 分页读取；它与完整响应自动存档及 SQL 结果物化限额分别成立。保留精确数值、NULL、单位和 ROW／ARRAY。
 
 分别读取执行、来源结局和结果交付。停止等待不等于来源取消；UNKNOWN 不能包装成成功。交付失败时先读运行状态，不盲目重跑。定义冻结不冻结动态数据；历史结果按保存字节读取，重跑是否能固定读基础由来源能力决定。
 

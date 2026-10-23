@@ -5,6 +5,7 @@ import { once } from "node:events";
 import { appendFileSync } from "node:fs";
 import { mkdir, readFile, readdir, writeFile, open } from "node:fs/promises";
 import { createServer } from "node:net";
+import { createHash } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 
 const [tarballArg, outputArg, mode = "tarball"] = process.argv.slice(2);
@@ -233,6 +234,110 @@ olap.output(olap.sources.list(EmptyRequest))`;
   assert.notEqual(repeatedReference.runId, resultReference.runId);
   verifySalesResult(repeatedReference);
   await stop();
+
+  // 同一已安装产品，穿过真实脚本 JVM、Protobuf、MCP 和重启读取边界。
+  config.limits.responseBytes = 65536;
+  config.limits.pendingOutputBytes = 131072;
+  await writeFile(info.configPath, JSON.stringify(config));
+  await start("complete-response");
+  const token = (await readFile(config.auth.tokenFile, "utf8")).trim();
+  let responseSequence = 0;
+  async function rpc(operation, payload, id = `delivery-${++responseSequence}`) {
+    const response = await fetch(info.url, { method: "POST", headers: {
+      Authorization: `Bearer ${token}`, "Content-Type": "application/json",
+      Accept: "application/json, text/event-stream", "MCP-Protocol-Version": "2025-11-25",
+    }, body: JSON.stringify({ jsonrpc: "2.0", id, method: "tools/call", params: { name: operation, arguments: { payload } } }) });
+    assert.equal(response.status, 200);
+    const bytes = Buffer.from(await response.arrayBuffer());
+    assert(bytes.length <= config.limits.responseBytes, "最终 JSON-RPC 消息应在内联范围内");
+    const message = JSON.parse(bytes);
+    assert.equal(message.id, id);
+    assert(!message.error, JSON.stringify(message.error));
+    return JSON.parse(message.result.content[0].text);
+  }
+  const scriptPayload = (source, parameters = {}) => ({ source, sourceName: "complete-response.olap.kts", dslApiVersion, parameters });
+  const catalog = Array.from({ length: 14 }, (_, table) => ({
+    name: `table_${table}`, columns: Array.from({ length: table === 0 ? 114 : 113 }, (_, column) =>
+      Object.fromEntries(Array.from({ length: 11 }, (_, property) => [`property_${property}`, property === 10 ? null : `${table}/${column}/${property}`]))),
+  }));
+  const ordinary = await rpc("execute-script", scriptPayload(`
+val catalog = parameters["declaredStructure"] as ScriptValue.ArrayValue
+val columns = catalog.values.sumOf { ((it as ScriptValue.ObjectValue).values.getValue("columns") as ScriptValue.ArrayValue).values.size }
+val first = olap.sources.list(EmptyRequest)
+val second = olap.sources.list(EmptyRequest)
+check(first.items == second.items)
+ScriptValue.DecimalValue(columns.toString())`, { declaredStructure: catalog }));
+  assert.equal(ordinary.success, true);
+  assert.equal(ordinary.result.value.decimal, "1583");
+  assert.equal(ordinary.result.workerDisposition, "RETAINED");
+  assert(ordinary.result.calls.every(item => item.success));
+  const inline = await rpc("execute-script", scriptPayload('ScriptValue.Text("small")'));
+  assert.equal(inline.result.value.text, "small");
+  const escaped = await rpc("execute-script", scriptPayload('ScriptValue.Text("\\u0001".repeat(14000))'));
+  assert.equal(escaped.success, true);
+  assert.equal(escaped.result.delivery, "SAVED", "最终 JSON/MCP 转义后的大小应触发保存，而非只看 Protobuf");
+  const escapedFile = JSON.parse(await readFile(escaped.result.location, "utf8"));
+  assert.equal(JSON.parse(escapedFile.result.content[0].text).result.value.text, "\u0001".repeat(14000));
+  const expectedText = "标签🌟".repeat(20000);
+  const large = await rpc("execute-script", scriptPayload('ScriptValue.Text("标签🌟".repeat(20000))'));
+  assert.equal(large.success, true);
+  assert.equal(large.result.delivery, "SAVED");
+  const saved = large.result.read.payload.reference;
+  // 接近消息容量的合法请求 ID 仍可缩页，不能把读取页再保存成下一份档案。
+  const longPage = await rpc("read-response", { reference: saved, offset: 0 }, "r".repeat(64000));
+  assert.equal(longPage.success, true);
+  assert.equal(typeof longPage.result.content, "string");
+  await stop();
+  await start("response-reopened");
+  const fragments = [];
+  let offset = 0;
+  for (;;) {
+    const response = await rpc("read-response", { reference: saved, offset });
+    assert.equal(response.success, true);
+    const page = response.result;
+    assert.equal(page.offset, offset);
+    fragments.push(page.content);
+    if (page.nextOffset === null) break;
+    assert(page.nextOffset > offset);
+    offset = page.nextOffset;
+  }
+  const complete = Buffer.from(fragments.join(""));
+  assert.equal(createHash("sha256").update(complete).digest("hex"), saved.sha256);
+  const original = JSON.parse(complete);
+  assert.equal(JSON.parse(original.result.content[0].text).result.value.text, expectedText);
+  assert.deepEqual(complete, await readFile(large.result.location));
+  await stop();
+
+  // 正式写已完成后本地作者失败，完整档案保留失败状态及可正式读回的效果坐标。
+  config.limits.responseBytes = 1536;
+  await writeFile(info.configPath, JSON.stringify(config));
+  await start("partial-response");
+  const partialCode = `partial_${Date.now()}`;
+  const partial = await rpc("execute-script", scriptPayload(`
+val created = olap.governance.createBusinessLine(BusinessLineCreateRequest(parameters.text("code"), "部分成功", olap.caller.subject, "完整失败回执", olap.caller.subject)).businessLine
+olap.governance.activate(GovernanceVersionActivationRequest(GovernanceActivationObjectType.BUSINESS_LINE, created.id, 1, olap.caller.subject, "明确激活"))
+error("author stopped after the committed write")`, { code: partialCode }));
+  assert.equal(partial.success, false);
+  assert.equal(partial.result.delivery, "SAVED");
+  const partialOriginal = JSON.parse(JSON.parse(await readFile(partial.result.location, "utf8")).result.content[0].text);
+  assert.equal(partialOriginal.success, false);
+  const effects = partialOriginal.result.calls.filter(item => item.success).flatMap(item => item.effects);
+  assert.equal(effects.length, 2);
+  assert.equal(effects[0].readOperation, "read-asset-version");
+  const recovered = await rpc("execute-script", scriptPayload(`
+val item = olap.semantics.businessLines(GovernanceReadRequests.PageInput(0, 20)).items.single { it.code == parameters.text("code") }
+ScriptValue.Text(item.id)`, { code: partialCode }));
+  assert.equal(recovered.success, true);
+  assert.equal(recovered.result.value.text, effects[0].assetVersion.id);
+  await stop();
+  assert(config.auth.grants[0].operations.includes("execute-query"));
+  config.auth.grants[0].operations = config.auth.grants[0].operations.filter(operation => operation !== "execute-query");
+  await writeFile(info.configPath, JSON.stringify(config));
+  await start("response-authority-changed");
+  const refused = await rpc("read-response", { reference: saved, offset: 0 });
+  assert.equal(refused.success, false);
+  assert.equal(refused.error.code, "SAVED_RESPONSE_AUTHORIZATION_CHANGED");
+  await stop();
   const report = {
     version: command(["--version"]).stdout.trim(), target, mode,
     package: packageMetadata.name + "@" + packageMetadata.version, dslApiVersion,
@@ -240,6 +345,8 @@ olap.output(olap.sources.list(EmptyRequest))`;
     analysisPersistentRead: true, contextRevision: { scenarioId: built.scenarioId.text, scenarioVersion: 2, releaseId: "installed-sales", releaseVersion: "2" },
     sourceIdentityHash, queryReference, runIds: [resultReference.runId, continuedReference.runId, repeatedReference.runId],
     expected: { sales_amount: "175.00", order_count: "3" }, systemToolsPath: environment.PATH,
+    completeResponseDelivery: { parameterColumns: 1583, escapedJSONSaved: true, internalFileFrame: true,
+      restartRead: true, completeSHA256: saved.sha256, partialWriteRecovered: true, authorityChangeRefused: true },
   };
   await writeFile(join(root, "report.json"), JSON.stringify(report, null, 2) + "\n");
   console.log(JSON.stringify(report));

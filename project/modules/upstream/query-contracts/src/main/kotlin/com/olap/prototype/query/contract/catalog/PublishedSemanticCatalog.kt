@@ -249,12 +249,12 @@ data class PublishedSemanticCatalog(
         val version: Long,
         val displayName: String,
         val valueType: ScalarValueType?,
-        val valueShape: SetOutputContract.Shape?,
+        val valueShape: SetOutputContract.Container?,
     ) {
         init {
             CatalogValues.text(id); CatalogValues.version(version); CatalogValues.text(displayName)
             require((valueType == null) != (valueShape == null)) { "LogicUnit meaning requires one scalar or container type" }
-            valueShape?.let { SetOutputContract.requireSourceContainer(it) }
+            valueShape?.let { SetOutputContract.requireSourceContainer(it, listOf("valueShape")) }
         }
     }
 

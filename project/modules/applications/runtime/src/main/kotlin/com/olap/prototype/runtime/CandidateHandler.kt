@@ -165,7 +165,7 @@ internal class CandidateHandler(private val connectors: ConnectorRegistry, priva
 
     private fun executeDimension(plan: DimensionPlan, limit: Int, control: WarehouseExecutionControl): CandidatePage {
         val provider = sources.requireProvider(JdbcSourceRequirement.requireSingleBinding(plan.sourceRequirements))
-        val result = provider.execute(plan.request, control, ResultMaterializationLimits(201, 201, budgets.io.responseBytes.toLong(), 1),
+        val result = provider.execute(plan.request, control, ResultMaterializationLimits(201, 201, budgets.materialization.bytes, 1),
             budgets.nativeMemoryBytes) { _, _ -> }
         return candidateResult(result, provider.bindingRef, plan.request.operation, control) { frame ->
             require(frame.columns.size == 1) { "candidate plan requires exactly one output column" }
@@ -187,7 +187,7 @@ internal class CandidateHandler(private val connectors: ConnectorRegistry, priva
 
     private fun executeMember(plan: MemberPlan, limit: Int, control: WarehouseExecutionControl): CandidatePage {
         val result = SourceExecutableSqlExecutor(sources::requireProvider,
-            ResultMaterializationLimits(201, 201, budgets.io.responseBytes.toLong(), 1), budgets.nativeMemoryBytes, null)
+            ResultMaterializationLimits(201, 201, budgets.materialization.bytes, 1), budgets.nativeMemoryBytes, null)
             .execute(plan.lowering, OlapQueryContext(plan.requestId), control)
         return candidateResult(result, JdbcSourceRequirement.requireSingleBinding(plan.sourceRequirements), "execute-query", control) { frame ->
             ExecutableBusinessResults.produce(frame, plan.lowering.outputContract, plan.lowering.compilationSupport)

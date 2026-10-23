@@ -14,7 +14,7 @@ import (
 
 func (a *Application) typedAvailability(ctx context.Context, reply runtime.Reply) (runtime.Reply, error) {
 	view := new(g.DeploymentAvailability)
-	if err := anypb.UnmarshalTo(reply.Model, view, proto.UnmarshalOptions{RecursionLimit: a.Config.Limits.InputDepth}); err != nil {
+	if err := anypb.UnmarshalTo(reply.Model, view, proto.UnmarshalOptions{RecursionLimit: len(reply.Model.Value) + 1}); err != nil {
 		return reply, err
 	}
 	for _, check := range view.Checks {

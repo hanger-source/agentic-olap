@@ -146,7 +146,7 @@ func (m *Manager) Start(ctx context.Context) error {
 		p.stop()
 		return errors.New("metadata omitted runtime readiness")
 	}
-	m.ready = Ready{Operations: make(map[string]Operation), ResultOperations: append([]string(nil), response.Ready.ResultOperations...), ConnectorAPI: response.Ready.ConnectorApi}
+	m.ready = Ready{Operations: make(map[string]Operation), ResultOperations: append([]string(nil), response.Ready.ResultOperations...), ConnectorAPI: response.Ready.ConnectorApi, AuthorizationPolicyHash: response.Ready.AuthorizationPolicyHash}
 	for _, op := range response.Ready.Operations {
 		if op.Name == "" || m.ready.Operations[op.Name].Description != "" {
 			p.stop()
@@ -189,7 +189,7 @@ func (m *Manager) Start(ctx context.Context) error {
 func (m *Manager) Ready() Ready {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	result := Ready{Operations: make(map[string]Operation), ResultOperations: append([]string(nil), m.ready.ResultOperations...), ConnectorAPI: m.ready.ConnectorAPI}
+	result := Ready{Operations: make(map[string]Operation), ResultOperations: append([]string(nil), m.ready.ResultOperations...), ConnectorAPI: m.ready.ConnectorAPI, AuthorizationPolicyHash: m.ready.AuthorizationPolicyHash}
 	for name, operation := range m.ready.Operations {
 		operation.Payload = append(json.RawMessage(nil), operation.Payload...)
 		result.Operations[name] = operation
@@ -218,7 +218,7 @@ func (m *Manager) ConfirmDelivery(ctx context.Context, principal Principal, deli
 	if delivery == nil || delivery.RunId == "" || delivery.Status == pb.DeliveryStatus_DELIVERY_STATUS_UNSPECIFIED {
 		return Reply{}, errors.New("exact delivery confirmation is required")
 	}
-	if err := validateProto(delivery.ExecutionReceipt, m.deployment.Limits.ResponseBytes); err != nil {
+	if err := validateRegisteredProto(delivery.ExecutionReceipt); err != nil {
 		return Reply{}, err
 	}
 	return m.call(ctx, principal, &pb.Request{Operation: "complete-result-delivery", Delivery: delivery})
@@ -264,7 +264,7 @@ func (m *Manager) call(ctx context.Context, principal Principal, request *pb.Req
 	if err != nil {
 		return Reply{RequestID: id}, err
 	}
-	reply := Reply{RequestID: id, Success: response.Success, Result: response.ResultJson, Error: response.ErrorJson, Model: response.Model}
+	reply := Reply{RequestID: id, Success: response.Success, Result: response.ResultJson, Error: response.ErrorJson, Model: response.Model, Effects: response.Effects}
 	reply.TimingNanos = map[string]int64{"RUNTIME_ADMISSION": admitted.Sub(started).Nanoseconds(), "RUNTIME_METADATA_EXCHANGE": time.Since(admitted).Nanoseconds()}
 	state.mu.Lock()
 	reply.Workers = append([]WorkerAcquisition{}, state.workers...)
@@ -393,7 +393,7 @@ func (m *Manager) performWork(ctx context.Context, state *requestState, request 
 		}
 		id := fmt.Sprintf("worker-%d", m.sequence.Add(1))
 		command := &pb.Request{RequestId: id, RemainingMillis: remainingMillis(ctx), Operation: "worker-command"}
-		if err := validateProto(action.Exchange.CommandModel, m.deployment.Limits.FrameBytes); err != nil {
+		if err := validateRegisteredProto(action.Exchange.CommandModel); err != nil {
 			return err
 		}
 		command.WorkerModel = action.Exchange.CommandModel

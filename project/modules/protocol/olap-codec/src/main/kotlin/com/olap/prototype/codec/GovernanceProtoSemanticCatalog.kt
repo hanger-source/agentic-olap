@@ -454,7 +454,7 @@ internal fun PublishedSemanticCatalogLogicUnitMeaningFromProto(value: com.olap.p
     version = value.getVersion(),
     displayName = value.getDisplayName(),
     valueType = if (value.hasValueType()) com.olap.prototype.query.ScalarValueType.valueOf(value.getValueType()) else null,
-    valueShape = if (value.hasValueShape()) SemanticProto.fromProto(value.getValueShape()) as com.olap.prototype.query.SetOutputContract.Shape else null
+    valueShape = if (value.hasValueShape()) com.olap.prototype.query.SetOutputContract.requireSourceContainer(SemanticProto.fromProto(value.getValueShape()), listOf("valueShape")) else null
 )
 
 internal fun PublishedSemanticCatalogMemberDefinitionToProto(value: com.olap.prototype.query.contract.catalog.PublishedSemanticCatalog.MemberDefinition): com.olap.prototype.wire.governance.PublishedSemanticCatalogMemberDefinition = com.olap.prototype.wire.governance.PublishedSemanticCatalogMemberDefinition.newBuilder().apply { when (value) {

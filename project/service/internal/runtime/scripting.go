@@ -55,33 +55,61 @@ type ScriptSubmission struct {
 }
 
 type ScriptCallReceipt struct {
-	CallID       string `json:"callId"`
-	OperationID  string `json:"operationId"`
-	RequestID    string `json:"requestId"`
-	State        string `json:"state"`
-	Success      bool   `json:"success"`
-	Stage        string `json:"stage,omitempty"`
-	Code         string `json:"code,omitempty"`
-	ElapsedNanos int64  `json:"elapsedNanos"`
+	CallID       string        `json:"callId"`
+	OperationID  string        `json:"operationId"`
+	RequestID    string        `json:"requestId"`
+	State        string        `json:"state"`
+	Success      bool          `json:"success"`
+	Stage        string        `json:"stage,omitempty"`
+	Code         string        `json:"code,omitempty"`
+	ElapsedNanos int64         `json:"elapsedNanos"`
+	Effects      ScriptEffects `json:"effects"`
+}
+
+// 效果仍由正式 Protobuf 合同拥有；公开 JSON 不暴露生成代码的 oneof 包装。
+type ScriptEffects []*pb.CapabilityEffect
+
+func (effects ScriptEffects) MarshalJSON() ([]byte, error) {
+	values := make([]json.RawMessage, 0, len(effects))
+	for _, effect := range effects {
+		value, err := protojson.Marshal(effect)
+		if err != nil {
+			return nil, err
+		}
+		values = append(values, value)
+	}
+	return json.Marshal(values)
 }
 
 type ScriptReport struct {
-	RequestID     string                 `json:"requestId"`
-	WorkerID      string                 `json:"workerId"`
-	WorkerOutcome string                 `json:"workerOutcome"`
-	Success       bool                   `json:"success"`
-	Value         json.RawMessage        `json:"value"`
-	Diagnostics   []*pb.ScriptDiagnostic `json:"diagnostics"`
-	Calls         []ScriptCallReceipt    `json:"calls"`
-	TimingNanos   map[string]int64       `json:"timingNanos"`
+	RequestID         string                 `json:"requestId"`
+	WorkerID          string                 `json:"workerId"`
+	WorkerOutcome     string                 `json:"workerOutcome"`
+	WorkerDisposition string                 `json:"workerDisposition,omitempty"`
+	RecycleReasons    []string               `json:"recycleReasons"`
+	Success           bool                   `json:"success"`
+	Value             json.RawMessage        `json:"value"`
+	Diagnostics       []*pb.ScriptDiagnostic `json:"diagnostics"`
+	Calls             []ScriptCallReceipt    `json:"calls"`
+	TimingNanos       map[string]int64       `json:"timingNanos"`
 }
 
 // 查询回执须经过应用层的保存和交付确认，不能从来源 worker 直接返回脚本。
 type CapabilityHandler func(context.Context, *pb.CapabilityInvocation) (Reply, error)
 
 func validateProto(value *anypb.Any, maximum int64) error {
-	if value == nil || int64(proto.Size(value)) > maximum || !strings.HasPrefix(value.TypeUrl, "type.googleapis.com/agentic.olap.") {
+	if err := validateRegisteredProto(value); err != nil {
+		return err
+	}
+	if int64(proto.Size(value)) > maximum {
 		return errors.New("bounded registered Protobuf message is required")
+	}
+	return nil
+}
+
+func validateRegisteredProto(value *anypb.Any) error {
+	if value == nil || !strings.HasPrefix(value.TypeUrl, "type.googleapis.com/agentic.olap.") {
+		return errors.New("registered formal Protobuf message is required")
 	}
 	return nil
 }
@@ -123,6 +151,7 @@ func (s *scriptCalls) finish(index int, reply *pb.CapabilityResponse, elapsed ti
 	defer s.mu.Unlock()
 	value := &s.receipts[index]
 	value.RequestID, value.Success, value.State, value.ElapsedNanos = reply.OperationRequestId, reply.Success, "COMPLETED", elapsed.Nanoseconds()
+	value.Effects = reply.Effects
 	if reply.Failure != nil {
 		value.Stage, value.Code = reply.Failure.Stage, reply.Failure.Code
 	}
@@ -172,7 +201,7 @@ func (m *Manager) Script(ctx context.Context, principal Principal, submission Sc
 	m.scriptWait.Add(1)
 	m.mu.Unlock()
 	defer func() { m.mu.Lock(); delete(m.scriptRuns, id); m.mu.Unlock(); m.scriptWait.Done() }()
-	report := &ScriptReport{RequestID: id, Calls: []ScriptCallReceipt{}, Diagnostics: []*pb.ScriptDiagnostic{}, TimingNanos: map[string]int64{}}
+	report := &ScriptReport{RequestID: id, RecycleReasons: []string{}, Calls: []ScriptCallReceipt{}, Diagnostics: []*pb.ScriptDiagnostic{}, TimingNanos: map[string]int64{}}
 	fail := func(cause error) (*ScriptReport, error) {
 		report.Success = false
 		code := "SCRIPT_RUNTIME_FAILED"
@@ -194,25 +223,43 @@ func (m *Manager) Script(ctx context.Context, principal Principal, submission Sc
 	report.WorkerID, report.WorkerOutcome = worker.id, outcome
 	report.TimingNanos["SCRIPT_WORKER_STARTUP"] = startup.Nanoseconds()
 	report.TimingNanos["SCRIPT_WORKER_QUEUE"] = time.Since(queued).Nanoseconds() - startup.Nanoseconds()
-	recycle := true
-	defer func() { m.releaseScript(slot, worker, recycle) }()
+	recycleReasons := []string{"SCRIPT_EXECUTION_NOT_COMPLETED"}
+	defer func() {
+		releasing := time.Now()
+		report.WorkerDisposition, report.RecycleReasons = m.releaseScript(slot, worker, recycleReasons)
+		report.TimingNanos["SCRIPT_WORKER_RELEASE"] = time.Since(releasing).Nanoseconds()
+		report.TimingNanos["SCRIPT_TOTAL"] = time.Since(started).Nanoseconds()
+	}()
 	directory, err := worker.executionDirectory()
 	if err != nil {
+		recycleReasons = []string{"SCRIPT_EXECUTION_DIRECTORY_FAILED"}
 		return fail(err)
 	}
 	defer func() {
 		if err := os.RemoveAll(directory); err != nil {
 			slog.Error("script directory cleanup failed", "requestId", id, "error", err)
-			recycle = true
+			recycleReasons = appendScriptReason(recycleReasons, "SCRIPT_EXECUTION_DIRECTORY_CLEANUP_FAILED")
 		}
 	}()
 	calls := &scriptCalls{id: id, maximum: m.deployment.Scripting.MaxCalls, seen: map[string]bool{}, receipts: []ScriptCallReceipt{}}
 	if err = worker.bind(&scriptExecution{ctx: parent, id: id, calls: calls, invoke: invoke, outputRemaining: m.deployment.Limits.ResponseBytes}); err != nil {
+		recycleReasons = []string{"SCRIPT_WORKER_BIND_FAILED"}
 		return fail(err)
 	}
 	slog.Info("script started", "requestId", id, "sourceName", submission.SourceName, "workerId", worker.id, "workerOutcome", outcome)
 	response, runErr := worker.process.script(parent, &pb.ScriptRequest{RequestId: id, RemainingMillis: remainingMillis(parent), Source: &pb.ScriptSource{Source: submission.Source, SourceName: submission.SourceName, DslApiVersion: submission.DSLAPIVersion}, ParametersJson: submission.Parameters, CallerSubject: principal.Subject, ExecutionDirectory: directory})
-	recycle = response == nil || response.GetRecycleWorker() || !worker.process.alive()
+	recycleReasons = []string{}
+	if response == nil {
+		recycleReasons = append(recycleReasons, "SCRIPT_RESPONSE_MISSING")
+	} else {
+		for _, issue := range response.GetResourceIssues() {
+			recycleReasons = appendScriptReason(recycleReasons, issue.Code)
+			worker.log.Warn("script resource observation", "requestId", id, "workerId", worker.id, "resourceIssue", issue)
+		}
+		if response.GetRecycleWorker() && len(recycleReasons) == 0 {
+			recycleReasons = append(recycleReasons, "SCRIPT_WORKER_RECYCLE_REQUESTED")
+		}
+	}
 	if runErr != nil {
 		cancel()
 	}
@@ -228,14 +275,14 @@ func (m *Manager) Script(ctx context.Context, principal Principal, submission Sc
 		report.TimingNanos[stage] = int64(nanos)
 	}
 	if response.Success {
-		if err := validateProto(response.Result, m.deployment.Limits.ResponseBytes); err != nil {
+		if err := validateRegisteredProto(response.Result); err != nil {
 			return fail(err)
 		}
-		bytes, err := protojson.MarshalOptions{}.Marshal(response.Result)
+		raw, err := protojson.MarshalOptions{}.Marshal(response.Result)
 		if err != nil {
 			return fail(err)
 		}
-		report.Value = bytes
+		report.Value = raw
 	}
 	report.TimingNanos["SCRIPT_TOTAL"] = time.Since(started).Nanoseconds()
 	slog.Info("script completed", "requestId", id, "success", report.Success, "calls", len(report.Calls))
@@ -254,6 +301,7 @@ func (m *Manager) invokeScriptCapability(ctx context.Context, request *pb.Capabi
 	reply.Failure = &pb.CapabilityFailure{OperationId: request.Invocation.OperationId, CallId: request.CallId}
 	result, err := invoke(ctx, request.Invocation)
 	reply.OperationRequestId = result.RequestID
+	reply.Effects = result.Effects
 	if err != nil {
 		reply.Failure.Stage, reply.Failure.Code, reply.Failure.Message = "APPLICATION", "CAPABILITY_DELIVERY_FAILED", "capability did not complete; inspect its exact request and run"
 		return reply
@@ -287,7 +335,7 @@ func (m *Manager) invokeScriptCapability(ctx context.Context, request *pb.Capabi
 		}
 		return reply
 	}
-	if err := validateProto(result.Model, m.deployment.Limits.ResponseBytes); err != nil {
+	if err := validateRegisteredProto(result.Model); err != nil {
 		reply.Failure.Stage, reply.Failure.Code, reply.Failure.Message = "PROTOCOL", "CAPABILITY_RESULT_CONTRACT_INVALID", "application omitted its declared Protobuf result"
 		return reply
 	}
@@ -312,7 +360,7 @@ func (m *Manager) scriptDirectory() (string, error) {
 }
 
 func (m *Manager) startScriptProcess(ctx context.Context, directory string, callback func(*pb.CapabilityRequest), output func(*pb.ScriptOutput)) (*process, error) {
-	configuration := &pb.ScriptConfiguration{DslApiVersion: m.classpaths.DSLAPIVersion, CompilationClasspath: m.classpaths.DSL, MaximumSourceBytes: uint64(m.deployment.Limits.InputBytes), MaximumOutputBytes: uint64(m.deployment.Limits.ResponseBytes), MaximumFrameBytes: uint64(m.deployment.Limits.FrameBytes), MaximumInputDepth: m.deployment.Limits.InputDepth, MaximumInputNodes: m.deployment.Limits.InputNodes}
+	configuration := &pb.ScriptConfiguration{DslApiVersion: m.classpaths.DSLAPIVersion, CompilationClasspath: m.classpaths.DSL, MaximumSourceBytes: uint64(m.deployment.Limits.InputBytes), MaximumFrameBytes: uint64(m.deployment.Limits.FrameBytes), MaximumInputDepth: m.deployment.Limits.InputDepth, MaximumInputNodes: m.deployment.Limits.InputNodes}
 	configuration.MaximumRequestBytes = uint64(m.deployment.Limits.InputBytes)
 	files := append(strings.Split(m.classpaths.Script, string(filepath.ListSeparator)), m.classpaths.DSL...)
 	startup, cancel := context.WithTimeout(ctx, time.Duration(m.deployment.Limits.StartupSeconds*float64(time.Second)))

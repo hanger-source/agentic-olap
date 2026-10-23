@@ -252,7 +252,7 @@ internal fun ExecutableLogicUnitFromProto(value: com.olap.prototype.wire.governa
     logicUnitId = value.getLogicUnitId(),
     logicUnitVersion = value.getLogicUnitVersion(),
     valueType = if (value.hasValueType()) com.olap.prototype.query.ScalarValueType.valueOf(value.getValueType()) else null,
-    valueShape = if (value.hasValueShape()) SemanticProto.fromProto(value.getValueShape()) as com.olap.prototype.query.SetOutputContract.Shape else null,
+    valueShape = if (value.hasValueShape()) com.olap.prototype.query.SetOutputContract.requireSourceContainer(SemanticProto.fromProto(value.getValueShape()), listOf("valueShape")) else null,
     topologyId = if (value.hasTopologyId()) value.getTopologyId() else null,
     topologyVersion = if (value.hasTopologyVersion()) value.getTopologyVersion() else null,
     logicUnitCode = value.getLogicUnitCode(),

@@ -43,6 +43,25 @@ data class ScriptDiagnostic(
     val actualKind: String? = null,
 )
 
+/** 有界私有现场，只记录平台线程事实；不持有线程或类加载器，也不据此认定资源创建者。 */
+data class ScriptThreadObservation(
+    val id: Long,
+    val name: String,
+    val state: String,
+    val daemon: Boolean,
+    val contextClassLoader: String,
+    val stack: List<String>,
+)
+
+/** observedCount 是观察时的总量；threads 仅为有限样本，truncated 表示细节不完整。 */
+data class ScriptResourceIssue(
+    val code: String,
+    val message: String,
+    val observedCount: Int = 0,
+    val threads: List<ScriptThreadObservation> = emptyList(),
+    val truncated: Boolean = false,
+)
+
 data class ScriptRunResult(
     val successful: Boolean,
     val value: ScriptValue?,
@@ -50,8 +69,11 @@ data class ScriptRunResult(
     val compilationNanos: Long,
     val evaluationNanos: Long,
     val sourceSha256: String,
-    val recycleWorker: Boolean = false,
-)
+    val resourceIssues: List<ScriptResourceIssue> = emptyList(),
+) {
+    val recycleWorker: Boolean get() = resourceIssues.isNotEmpty()
+    val recycleReasons: List<String> get() = resourceIssues.map { it.code }.distinct()
+}
 
 internal fun digest(bytes: ByteArray): String =
     MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }

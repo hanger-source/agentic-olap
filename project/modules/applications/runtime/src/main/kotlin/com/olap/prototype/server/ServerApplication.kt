@@ -36,7 +36,7 @@ internal class ServerApplication private constructor(private val plugins: Connec
     private val database: PlatformDatabase, private val config: JsonNode,
     private val limits: JsonResourceLimits, workers: RemoteWorkers) : AutoCloseable {
     private val mapper = OlapJsonUtils.mapper()
-    private val capabilityProtos = CapabilityProtos(limits.requestBytes, limits.responseBytes, limits.inputDepth)
+    private val capabilityProtos = CapabilityProtos(limits.requestBytes, limits.inputDepth)
     private val configured = mapper.treeToValue(config.required("dataSources"), Array<SourceConfiguration>::class.java).toList()
     private val deployed = DeployedSources(configured, plugins.registry)
     private val authorization = ServerAuthorization(mapper.convertValue(config.required("auth").required("grants"),
@@ -70,7 +70,8 @@ internal class ServerApplication private constructor(private val plugins: Connec
         operations = registeredOperations()
     }
 
-    fun ready(): RuntimeReady = RuntimeReady.newBuilder().setConnectorApi(OlapConnector.API_VERSION).apply {
+    fun ready(): RuntimeReady = RuntimeReady.newBuilder().setConnectorApi(OlapConnector.API_VERSION)
+        .setAuthorizationPolicyHash(ProtoBytes.digest(mapper.writeValueAsBytes(config.required("auth")))).apply {
         operations.forEach { (name, operation) -> addOperations(com.olap.prototype.protocol.Operation.newBuilder()
             .setName(name).setReadOnly(operation.readOnly).setDescription(operation.description)
             .setPayloadJson(com.google.protobuf.ByteString.copyFrom(mapper.writeValueAsBytes(operation.payload)))) }
@@ -128,13 +129,13 @@ internal class ServerApplication private constructor(private val plugins: Connec
     fun completeDelivery(request: ServerRequest, confirmation: DeliveryConfirmation): Response =
         Response.newBuilder().setRequestId(request.work.requestId).setSuccess(true)
             .setModel(capabilityProtos.encodeResult("execute-query", results.completeDelivery(request, confirmation,
-                capabilityProtos.decodeResult("execute-query", ProtoBytes.encode(confirmation.executionReceipt, limits.responseBytes)) as QueryExecutionReceipt))).build()
+                capabilityProtos.decodeResult("execute-query", ProtoBytes.encode(confirmation.executionReceipt)) as QueryExecutionReceipt))).build()
 
     fun authorizeResult(request: ServerRequest, input: ResultAuthorization): Response {
         require(input.operationId in resultReaders && input.hasReference()) { "exact result read authorization is required" }
         val selected = results.authorize(request, QueryProto.fromProto(input.reference), input.operationId)
         return Response.newBuilder().setRequestId(request.work.requestId).setSuccess(true)
-            .setModel(ProtoBytes.pack(QueryProto.toProto(selected), limits.responseBytes)).build()
+            .setModel(ProtoBytes.pack(QueryProto.toProto(selected))).build()
     }
 
     private fun describeApi(request: ServerRequest, payload: JsonNode): Any {
@@ -146,12 +147,21 @@ internal class ServerApplication private constructor(private val plugins: Connec
                 authorization.operation(request.principal, CapabilityRegistry.require(operation).permission)
                 ApiDiscovery.operation(operation)
             }
-            payload.has("type") -> ApiDiscovery.type(text(payload, "type"))
+            payload.has("type") -> ApiDiscovery.type(text(payload, "type")).let { type ->
+                if (type.name == ScriptArguments::class.qualifiedName || type.name.startsWith("com.olap.prototype.dsl.ScriptValue"))
+                    type.copy(rules = type.rules + ("deploymentBudgets" to scriptBudgets())) else type
+            }
             else -> ApiDiscovery.overview().let { view -> view.copy(operations = view.operations.filter {
                 authorization.matching(request.principal, it.permission).isNotEmpty()
             }) }
         }
     }
+    private fun scriptBudgets(): Map<String, Any> = mapOf(
+        "requestBytes" to limits.requestBytes, "inputNodes" to limits.inputNodes, "inputDepth" to limits.inputDepth,
+        "responseBytes" to limits.responseBytes,
+        "inputCounting" to "ROOT_DEPTH_1_ROOT_CONTAINERS_AND_NULL_COUNTED_OBJECT_KEYS_NOT_COUNTED",
+        "transport" to "FINAL_MCP_JSON_BYTES_INLINE_OR_AUTOMATIC_COMPLETE_FILE_WITH_READ_RESPONSE",
+    )
     private fun registeredOperations(): Map<String, Operation> = buildMap {
         fun add(name: String, description: String, payload: Map<String,String> = emptyMap(),
             readOnly: Boolean = true, permission: String = name, handler: ((ServerRequest,JsonNode)->Any)? = null) {
@@ -164,7 +174,8 @@ internal class ServerApplication private constructor(private val plugins: Connec
         add("describe-operation", "读取获准操作的输入说明。", mapOf("operation" to "exact operation"), handler = { r,p ->
             fields(p, setOf("operation")); val selected = text(p,"operation")
             val operation = operations[selected] ?: throw ProducerContractException("operation is not registered")
-            authorization.operation(r.principal, operation.permission); operation.description()
+            authorization.operation(r.principal, operation.permission)
+            if (selected == "execute-script") operation.description() + ("resourceBudgets" to scriptBudgets()) else operation.description()
         })
         add("list-data-sources", "列出获准来源的精确身份与能力，不返回凭据。", handler = {r,p -> fields(p,emptySet());sources.list(r,SourceEmptyRequest)})
         add("list-publications", "分页发现获准发布。", handler = publications::list)

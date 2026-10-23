@@ -3,12 +3,26 @@ package com.olap.prototype.query
 import com.olap.prototype.calculation.Calculation
 import com.olap.prototype.calculation.CalculationBindings
 import com.olap.prototype.calculation.MetricDefinition
+import com.olap.prototype.contract.InputContractException
 import com.olap.prototype.metric.MetricValueContract
 
 /** 集合按共同语义槽位合并；重复规则属于SetOp，技术类型合并属于Calcite。 */
 data class SetOutputContract(val name: String, val shape: Shape) {
     init { PostOperationContract.requireAlias(name) }
     sealed interface Shape
+    /** 来源容器的顶层形态；数量和属性仅能作为递归叶子。 */
+    sealed interface Container : Shape {
+        companion object {
+            fun contract(): Map<String, Any> = mapOf("sourceContainerRules" to mapOf(
+                "topLevel" to listOf("ARRAY", "ROW"),
+                "nestedContainers" to listOf("ARRAY", "ROW"),
+                "leaves" to mapOf("PROPERTY" to "DECLARED_SCALAR_PROPERTY", "QUANTITY" to "FIXED_UNIT_REQUIRED"),
+                "forbiddenLeaves" to listOf("DIMENSION", "DIMENSION_SLOT", "MEMBER_DIMENSION", "SCALAR"),
+                "violationCodes" to mapOf("topLevel" to InputContractException.Rule.SOURCE_CONTAINER_KIND.code,
+                    "leaf" to InputContractException.Rule.SOURCE_CONTAINER_LEAF.code,
+                    "quantityUnit" to InputContractException.Rule.SOURCE_CONTAINER_QUANTITY_UNIT.code)))
+        }
+    }
     data class Dimension(val dimension: ScopedInputContract.DimensionRef) : Shape
     data class DimensionSlot(val slot: String) : Shape { init { ScopedInputContract.requireId(slot) } }
     data class MemberDimension(val slot: String, val dimensionId: String, val dimensionVersion: Long, val role: String) : Shape {
@@ -21,13 +35,13 @@ data class SetOutputContract(val name: String, val shape: Shape) {
     data class Quantity(val valueContract: MetricValueContract) : Shape {
         init { val result = valueContract.result; require(result !is MetricValueContract.Decimal || result.rounding == MetricValueContract.Rounding.NONE) { "set quantities require lossless common output capacity; round each branch explicitly before the set" } }
     }
-    class Row(fields: List<Shape>) : Shape {
+    class Row(fields: List<Shape>) : Container {
         val fields: List<Shape> = java.util.List.copyOf(fields)
         init { require(this.fields.isNotEmpty()) { "set row must declare its ordinal fields" } }
         override fun equals(other: Any?): Boolean = other is Row && fields == other.fields
         override fun hashCode(): Int = fields.hashCode()
     }
-    data class Array(val element: Shape) : Shape
+    data class Array(val element: Shape) : Container
     fun adopted(bindings: CalculationBindings): SetOutputContract = SetOutputContract(name, adopted(shape, bindings))
 
     class Branch(val value: QueryValue, outputs: Map<QueryStageAnalysis.SymbolId, String>, meanings: Map<QueryStageAnalysis.SymbolId, QueryStageAnalysis.Symbol>, projected: Map<String, QueryValue>) {
@@ -120,18 +134,39 @@ data class SetOutputContract(val name: String, val shape: Shape) {
     }
 
     companion object {
-        fun requireSourceContainer(shape: Shape) {
-            require(shape is Array || shape is Row) { "container property requires an ARRAY or ROW shape" }
-            requireSourceFields(shape)
+        fun requireSourceContainer(shape: Shape, path: List<Any> = emptyList()): Container {
+            if (shape !is Container) throw InputContractException.violation(InputContractException.Rule.SOURCE_CONTAINER_KIND,
+                path, "source container requires an ARRAY or ROW shape", "ARRAY_OR_ROW", sourceShapeKind(shape))
+            requireSourceFields(shape, path)
+            return shape
         }
-        private fun requireSourceFields(shape: Shape) {
+        private fun requireSourceFields(shape: Shape, path: List<Any>) {
             when (shape) {
-                is Array -> requireSourceFields(shape.element)
-                is Row -> shape.fields.forEach(::requireSourceFields)
+                is Array -> requireSourceFields(shape.element, path + "element")
+                is Row -> shape.fields.forEachIndexed { index, field -> requireSourceFields(field, path + listOf("fields", index)) }
                 is Property -> Unit
-                is Quantity -> require(shape.valueContract.unit is MetricValueContract.Fixed) { "source container quantities require an explicit fixed unit" }
-                else -> throw IllegalArgumentException("source container cannot manufacture semantic dimension identity")
+                is Quantity -> if (shape.valueContract.unit !is MetricValueContract.Fixed) throw InputContractException.violation(
+                    InputContractException.Rule.SOURCE_CONTAINER_QUANTITY_UNIT, path + listOf("valueContract", "unit"),
+                    "source container quantities require an explicit fixed unit", "FIXED_UNIT", when (shape.valueContract.unit) {
+                        is MetricValueContract.EventDimension -> "EVENT_DIMENSION_UNIT"
+                        is MetricValueContract.SlotDimension -> "SLOT_DIMENSION_UNIT"
+                        is MetricValueContract.AnalysisDimension -> "ANALYSIS_DIMENSION_UNIT"
+                        is MetricValueContract.Fixed -> "FIXED_UNIT"
+                    })
+                else -> throw InputContractException.violation(InputContractException.Rule.SOURCE_CONTAINER_LEAF,
+                    path, "source container leaves require a property or a quantity with a fixed unit",
+                    "PROPERTY_OR_FIXED_QUANTITY_OR_CONTAINER", sourceShapeKind(shape))
             }
+        }
+        private fun sourceShapeKind(shape: Shape): String = when (shape) {
+            is Array -> "ARRAY"
+            is Row -> "ROW"
+            is Property -> "PROPERTY"
+            is Quantity -> "QUANTITY"
+            is Dimension -> "DIMENSION"
+            is DimensionSlot -> "DIMENSION_SLOT"
+            is MemberDimension -> "MEMBER_DIMENSION"
+            is Scalar -> "SCALAR"
         }
         private fun adopted(shape: Shape, bindings: CalculationBindings): Shape = when (shape) {
             is DimensionSlot -> Dimension(requireNotNull(bindings.dimensions[shape.slot]) { "set dimension slot is not adopted" }.reference)

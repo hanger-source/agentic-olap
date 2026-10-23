@@ -32,9 +32,10 @@ class ScriptRuntime(private val environment: ScriptEnvironment) {
         var result: ScriptRunResult
         try { result = program(source, olap, parameters, resources, checkCancellation) }
         finally { resources.close(); running.set(false) }
-        return result.copy(recycleWorker = resources.recycleWorker,
-            diagnostics = result.diagnostics + resources.failures.map { ScriptDiagnostic("SCRIPT_RESOURCE_NOT_RELEASED", ScriptPhase.OUTPUT,
-                ScriptSeverity.WARNING, it, source.sourceName) })
+        val resourceIssues = resources.resourceIssues
+        return result.copy(resourceIssues = resourceIssues,
+            diagnostics = result.diagnostics + resourceIssues.map { ScriptDiagnostic(it.code, ScriptPhase.OUTPUT,
+                ScriptSeverity.WARNING, it.message, source.sourceName) })
     }
 
     private fun program(source: ScriptSource, olap: OlapClient, parameters: ScriptArguments, resources: ScriptExecutionResources, checkCancellation: () -> Unit): ScriptRunResult {

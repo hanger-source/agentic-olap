@@ -83,7 +83,7 @@ func (s Store) Page(ctx context.Context, request proto.Message) (proto.Message, 
 	if err = ctx.Err(); err != nil {
 		return nil, err
 	}
-	return result, s.budget(result)
+	return result, nil
 }
 func runSummary(record *q.SavedQueryResultRecord) *q.ResultRunSummary {
 	r := record.Receipt
@@ -190,9 +190,6 @@ func (s Store) rows(ctx context.Context, ref Reference, record *q.SavedQueryResu
 	for _, i := range indexes {
 		page.Columns = append(page.Columns, columns[i])
 	}
-	if err = s.budget(page); err != nil {
-		return nil, err
-	}
 	start := min(int(r.Offset), len(rows))
 	end := min(start+int(r.Limit), len(rows))
 	for i := start; i < end; i++ {
@@ -211,14 +208,6 @@ func (s Store) rows(ctx context.Context, ref Reference, record *q.SavedQueryResu
 			row.Values = append(row.Values, value)
 		}
 		page.Rows = append(page.Rows, row)
-		if err = s.budget(page); err != nil {
-			page.Rows = page.Rows[:len(page.Rows)-1]
-			if len(page.Rows) == 0 {
-				return nil, err
-			}
-			page.NextOffset = proto.Int32(int32(i))
-			return page, nil
-		}
 	}
 	if end < len(rows) {
 		page.NextOffset = proto.Int32(int32(end))
@@ -303,14 +292,6 @@ func (s Store) valuePage(ref Reference, record *q.SavedQueryResultRecord, r *q.R
 				return nil, e
 			}
 			selected.Values = append(selected.Values, child)
-			if e = s.budget(page); e != nil {
-				selected.Values = selected.Values[:len(selected.Values)-1]
-				if len(selected.Values) == 0 {
-					return nil, e
-				}
-				page.NextOffset = proto.Int32(int32(i))
-				return page, nil
-			}
 		}
 	}
 	if end < length {

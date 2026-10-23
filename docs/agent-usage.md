@@ -25,6 +25,8 @@ agentic-olap call describe-script-api --payload '{"type":"com.olap.prototype.cal
 
 `Calculation.Call` 的 `rules.targetRules.MEASUREMENT` 说明：目标为已采用测量时，`dimensionSlots` 和 `measurementSlots` 必须为空，即使父映射看似相同也拒绝覆盖。`MemberResult` 的 `rules.outputRules.quantity` 说明：具有数量合同的标量出口必须为 `NUMBER`，出口的 `unitEquations` 必须为空；单位推导仍在计算体中声明，成员出口只声明推导后数量事实。类型发现直接返回这些约束，无需构造非法模型或查询源码。
 
+`LogicalTableCreateRequest.LogicUnitInput` 的 `rules.valueTypeRules` 披露字段类型选择：标量使用非空 `logicType`、`valueShape=null`；容器使用 `logicType=null` 和 `SetOutputContract.Container`，顶层只允许 ARRAY／ROW，两者恰好选一个。普通金额字段使用 `LogicType.NUMBER`，不把 `SetOutputContract.Quantity` 填到字段的容器形状中。单位、算术与结果容量由相应数量合同拥有。容器字段的时间、主键、外键和可过滤标记不得为 true，内部形状继续服从类型发现披露的容器规则。
+
 `OBJECT` 使用对象本身，例如 `EmptyRequest`，无需 `()`。嵌套类型的 `enclosingType` 指向外层公开声明，可以继续读取其工厂；字段、参数和返回类型也沿实际完整名称继续发现。例如 `RowPopulationContract.Selection` 的外层对象公开 `calls` 和 `contract`，`MetricValueContract` 的伴生对象公开 `ONE`、`PERCENT`。未知类型或操作明确拒绝，不从名字猜字段或版本。
 
 `describe-operation` 描述 MCP 工具本身，例如 `execute-script` 的提交封套、参数与预算；`describe-script-api` 描述脚本中可调用的方法和正式业务模型。前者不代替后者。
@@ -54,27 +56,35 @@ agentic-olap call execute-script --payload '{"source":"olap.output(olap.sources.
 
 - `olap.output(response)`：返回本次正式调用真实产生的回执；
 - `olap.output(reference)`：返回正式精确引用；
-- 普通 `ScriptValue`：精确十进制、布尔、文本、NULL 或有限数组、对象；
+- 普通 `ScriptValue`：精确十进制、布尔、文本、NULL 或不可变数组、对象；
 - `Unit`：没有输出，按 NULL 返回。
 
 不能把任意 JVM 对象作为结果。脚本日志与最终返回值分别处理。程序完成不等于每条查询的来源执行成功，仍须读取正式回执的状态。
 
 ### 普通参数与返回值容量
 
-`describe-script-api` 读取 `com.olap.prototype.dsl.ScriptArguments` 或 `com.olap.prototype.dsl.ScriptValue` 的 `rules`，可取得普通值模型自身的容量与计数规则。这些限制同时用于参数和普通返回值，独立于部署的 JSON 输入字节、节点和深度预算，以及 Protobuf 输出字节和深度预算；各项都必须成立。
+`describe-script-api` 读取 `com.olap.prototype.dsl.ScriptArguments`、`com.olap.prototype.dsl.ScriptValue` 或其子类型的 `rules`，可取得表示规则及预算归属；`rules.deploymentBudgets` 给出当前服务实际配置的输入预算、直接响应阈值与计数语义。`describe-operation` 选择 `execute-script` 时也通过 `resourceBudgets` 披露这些部署事实。普通值模型没有固定的节点、深度、文本长度、键长度、十进制 precision 或 scale 容量阈值。文本和对象键保持字符串，空键及空白键有效；十进制须能由 JVM `BigDecimal` 精确表示。数组与对象持有防御性不可变副本。普通值及正式回执使用正式 Protobuf 编码和实际消息读取；中间值与编码使用进程执行资源。
 
-| 普通值限制 | 规则 |
+| 预算边界 | 规则 |
 | --- | --- |
-| 每个数组或对象 | 所有后代值合计最多 10,000 个；容器自身不计，后代中的容器、标量与 NULL 都计，对象键不计 |
-| 全部参数 | `ScriptArguments` 将所有参数作为一个对象检查；拆成多个顶层参数名仍计算总量 |
-| 后代深度 | 最多 32 层；直接子值为第 1 层 |
-| 单个文本 | 最多 1,000,000 个 UTF-16 code units |
-| 对象键 | 非空白，最多 256 个 UTF-16 code units |
-| 十进制 | precision 与绝对 scale 各不超过 1,000,000，保留精确十进制 |
+| JSON 输入 | `limits.requestBytes/inputNodes/inputDepth` 检查实际输入文档；根值为第 1 层且计一个节点，容器、标量和 NULL 都计节点，对象键不计节点。节点及深度检查在首次越界停止 |
+| 完整消息交付 | 官方 SDK 生成的最终完整 JSON/MCP 消息不超过 `limits.responseBytes` 时直接返回；超过时自动完整保存到 `dataRoot/responses`，当前消息提供位置与正式分段读取入口 |
+| 正式能力回执 | 按操作对应的具体 Protobuf 类型和实际返回体解码，不借用输入深度，也不设置独立输出容量或深度门槛 |
+| SQL 业务结果 | `resultRows/resultValues/resultBytes/resultDepth` 约束查询结果物化，独立于普通参数及完整消息交付；`resultDepth` 不作为普通 `ScriptValue` 的深度限制 |
 
-合法 JSON 超出普通值容量时，诊断保留 `SCRIPT_VALUE_NODE_COUNT`、`SCRIPT_VALUE_DEPTH`、`SCRIPT_VALUE_TEXT_LENGTH`、`SCRIPT_VALUE_OBJECT_KEY_BLANK/LENGTH` 或 `SCRIPT_VALUE_DECIMAL_SYNTAX/PRECISION/SCALE`。`field_path` 指向失败的值或容器，根值的空路径在 Protobuf JSON 中可以省略；`expected` 给出要求，`actual` 只给计数或错误形态。节点与深度在首次越界即停止：例如 `DESCENDANT_NODES<=10000`、`actual="10001"` 表示首次越界计数，不是完整树的总量。对象键错误定位其容器，不回显键内容。参数转换失败的阶段为 `SCRIPT_PARAMETERS`，此时脚本正文尚未运行，能力调用列表为空；程序中直接构造普通值失败则保留求值阶段与源码位置。
+每次 MCP HTTP 请求承载一份 JSON-RPC 请求；多步业务由同一段 kts 组织，不支持 JSON-RPC batch。工具调用的大响应保留原成功／失败封套并给出读取入口。协议初始化、工具发现等响应没有通用提示结果类型，超限时使用 JSON-RPC 交付提示 `-32001`，在 `error.data` 给出原 `originalSuccess` 及保存位置、读取入口；不会把工具列表替换为空列表。
 
-普通参数适合日期、精确引用文本、选择项与容量内的结构事实。较大的完整目录可在 kts 中直接构造 `WarehouseColumnMetadata`、`SourceStructureRegistrationRequest.Table` 等正式 Kotlin 模型，再调用 `olap.governance.registerSourceStructure` 并返回正式回执。模型字段不需要先包装为 `ScriptValue`；完整列、NULL、约束和结构来源仍须保留。此方式仍受源码、编译、正式调用消息与运行预算约束，不表示任意大目录都能一次提交。不要把目录编码成字符串绕过普通值检查，也不自动分批执行写入；结构登记成功与后续业务查询成功分别判断。
+JSON 输入预算拒绝使用 `JSON_INPUT_RESOURCE_LIMIT`；诊断给出 `resource/limit/observed`、字段路径及期望与实际形态。`observed` 对节点与深度表示首次越界的观察值，不是完整树总量。普通十进制无法精确表示时使用 `SCRIPT_VALUE_DECIMAL_REPRESENTATION`，不解释为 precision 或 scale 额度不足。未配对的 UTF-16 代理项使用 `SCRIPT_OUTPUT_REPRESENTATION`，避免编码时替换文本或对象键。参数解码失败时脚本正文尚未执行，能力调用列表为空；后续失败不抹去已经完成的调用。
+
+日期、精确引用、选择项和完整结构目录都可以通过 `parameters` 正常提交，脚本读取这些值后构造正式请求。结构事实保持列、NULL、约束和来源，不需要为通过普通值检查而展开到源码或编码成字符串。遇到真实部署预算拒绝时按实际资源和范围处理，不自动拆分写入或扩大配置；结构登记成功与后续业务查询成功分别判断。
+
+### 脚本回执与继续执行
+
+`success/value/diagnostics` 描述整段程序的结局，`calls` 逐项保留实际正式调用的操作、请求、状态与耗时。程序失败时最终 `value` 可以为 NULL，之前的调用仍各自成立。治理写能力及 `save-query/update-query` 从本次实际成功结果产生 `calls[].effects`：根资产带精确类型、身份和版本；成员带精确 owner 版本、成员种类与身份；发布、来源发现快照和保存查询分别使用各自的正式引用，并给出 `readOperation`。可用的 `status` 是该次写结果观察到的状态，不代表整段脚本成功，也不承诺未来读取时状态不变。
+
+引用只帮助在本次响应内定位已完成效果，读取仍须经过原有权限。嵌套列和成员从精确根版本的正式读取入口分页取得，不复制完整结果模型，不选择 latest。空 `effects` 不证明没有副作用：例如来源集合登记和查询使用备注仍会写入各自记录。查询历史不能代替治理写入追溯。本合同不提供断线或进程退出后的持久恢复；失败不自动重试、回滚或重放整段程序。
+
+`workerOutcome` 是借用 worker 时的启动或复用结果，`workerDisposition=RETAINED/RETIRED` 是本次实际归还时的保留或退役结局，`recycleReasons` 说明退役原因。编译或业务拒绝不直接等于 worker 故障。发现求值基线以外且归属未知的平台线程时，服务保守退役 worker；该观察不证明线程泄漏，不覆盖虚拟线程。关联 request/worker 的线程身份、状态、daemon、上下文类加载器和必要堆栈仅进入有数量与长度上限的私有诊断，公开脚本报告不携带线程堆栈。
 
 ## 定义建设与持续复用
 
@@ -241,7 +251,21 @@ else olap.output(olap.results.read(ResultReadRequest(result, 0, 100, null)))
 
 执行、来源结局与结果交付分别读取。停止等待且未确认来源结局时保留 UNKNOWN，不报告来源已经取消。执行或交付失败后，先读取状态和来源请求标识，不盲目重跑。
 
-小结果可直接返回；需要持久化或分页时执行请求显式选择 `saveResult=true`。只有实际成功交付才给出精确 `resultReference`。用 `olap.results` 的正式方法，或保留的结构化 MCP 结果读取工具，读取行、元数据、递归值和概要。长值返回正式 `ResultValueReference`，其路径由 ROW／ARRAY 成员序号组成；元数据用 `ResultMetadataSection` 等正式选择器读取，均不是服务器路径。
+完整最终 JSON/MCP 消息不超过 `limits.responseBytes` 时直接返回，超过时服务自动把该消息全部保存在 `dataRoot/responses`。当前消息给出简短提示、服务器 `location` 和可直接调用的 `read.operation/read.payload`；将其中 `read.payload` 原样传给 `read-response` 即可。它含精确 `reference={responseId,sha256}` 及起始 `offset`，无需预先选择保存，不截断、删减或重执行业务操作，不引入存储配额或审批。原执行成功仍为成功；失败响应也完整保存，原失败状态保持。
+
+`read-response` 的 payload 形状如下，引用值须从实际短提示原样复制：
+
+~~~json
+{
+  "reference": {"responseId": "实际 responseId", "sha256": "实际 sha256"},
+  "offset": 0,
+  "length": 4096
+}
+~~~
+
+`offset` 和可选 `length` 按 UTF-8 字节计算；`offset` 必须位于字符起点，每段结尾不截破字符。返回页含 `content`、`offset`、`nextOffset`、`totalBytes`、`location`、`reference` 和 `format`，后续按 `nextOffset` 继续读取。各段 `content` 是原完整消息的 UTF-8 文本；分段交付不改写存档，也不重新执行业务。
+
+SQL 结果的历史保存由执行请求显式选择 `saveResult=true`，与上述完整响应自动保存独立。实际保存交付成立后才给出精确 `resultReference`。用 `olap.results` 的正式方法，或保留的结构化 MCP 结果读取工具，读取行、元数据、递归值和概要。长值返回正式 `ResultValueReference`，其路径由 ROW／ARRAY 成员序号组成；元数据用 `ResultMetadataSection` 等正式选择器读取，均不是服务器路径。
 
 结果保留数值位宽、精确十进制、单位、NULL、ROW 和 ARRAY。列摘要直接给出名称与类型概要；复杂数量、来源和容器信息按实际引用继续读取，不能先转 DOUBLE 或字符串再声称无损。
 

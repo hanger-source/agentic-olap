@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -90,47 +91,30 @@ func (s *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bearer is not authorized", http.StatusUnauthorized)
 		return
 	}
-	r = r.WithContext(context.WithValue(ctx, principalKey{}, p))
-	buffer := &responseBuffer{header: make(http.Header), limit: s.config.Limits.ResponseBytes}
-	s.sdk.ServeHTTP(buffer, r)
-	if buffer.failure != nil {
-		http.Error(w, "response exceeds the deployed transport budget", http.StatusInternalServerError)
+	rawRequest, err := io.ReadAll(http.MaxBytesReader(w, r.Body, int64(s.config.Limits.RequestBytes)))
+	_ = r.Body.Close()
+	if err != nil {
+		http.Error(w, "request body could not be read within the deployed input budget", http.StatusRequestEntityTooLarge)
 		return
 	}
-	for key, values := range buffer.header {
-		w.Header()[key] = values
+	if trimmed := bytes.TrimSpace(rawRequest); len(trimmed) != 0 && trimmed[0] == '[' {
+		http.Error(w, "MCP JSON-RPC batch requests are not supported; submit one complete request", http.StatusBadRequest)
+		return
 	}
-	status := buffer.status
-	if status == 0 {
-		status = http.StatusOK
+	var rpc struct {
+		ID     json.RawMessage `json:"id"`
+		Method string          `json:"method"`
 	}
-	w.WriteHeader(status)
-	if _, err = w.Write(buffer.body.Bytes()); err != nil {
-		slog.Warn("HTTP response delivery failed", "error", err)
-	}
+	_ = json.Unmarshal(rawRequest, &rpc) // Invalid messages remain the SDK's responsibility.
+	state := &responseState{method: rpc.Method, id: rpc.ID}
+	ctx = context.WithValue(context.WithValue(ctx, principalKey{}, p), responseStateKey{}, state)
+	ctx = application.WithMCPResponseID(ctx, rpc.ID)
+	r = r.WithContext(ctx)
+	r.Body = io.NopCloser(bytes.NewReader(rawRequest))
+	buffer := &responseBuffer{header: make(http.Header), limit: s.config.Limits.ResponseBytes, store: s.app.ResponseStore()}
+	s.sdk.ServeHTTP(buffer, r)
+	s.deliver(w, buffer, state, p)
 }
-
-type responseBuffer struct {
-	header        http.Header
-	body          bytes.Buffer
-	status, limit int
-	failure       error
-}
-
-func (b *responseBuffer) Header() http.Header { return b.header }
-func (b *responseBuffer) WriteHeader(status int) {
-	if b.status == 0 {
-		b.status = status
-	}
-}
-func (b *responseBuffer) Write(p []byte) (int, error) {
-	if b.body.Len()+len(p) > b.limit {
-		b.failure = errors.New("response budget exceeded")
-		return 0, b.failure
-	}
-	return b.body.Write(p)
-}
-func (b *responseBuffer) Flush() {}
 func (s *HTTP) session(r *http.Request) *mcp.Server {
 	principal := r.Context().Value(principalKey{}).(runtime.Principal)
 	operations, err := s.app.Operations(r.Context(), principal)
@@ -142,6 +126,11 @@ func (s *HTTP) session(r *http.Request) *mcp.Server {
 	server.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, request mcp.Request) (mcp.Result, error) {
 			result, err := next(ctx, method, request)
+			if state, ok := r.Context().Value(responseStateKey{}).(*responseState); ok {
+				if method != "tools/call" || err != nil {
+					state.success = err == nil
+				}
+			}
 			if err != nil || method != "tools/list" {
 				return result, err
 			}
@@ -159,7 +148,7 @@ func (s *HTTP) session(r *http.Request) *mcp.Server {
 			return page, nil
 		}
 	})
-	for operation, contract := range s.app.Runtime.Ready().Operations {
+	for operation, contract := range operations {
 		if operation == "ready" || operation == "authorize-result" || operation == "complete-result-delivery" || operation == "operation-discovery" {
 			continue
 		}
@@ -189,6 +178,9 @@ func (s *HTTP) session(r *http.Request) *mcp.Server {
 			if err != nil {
 				response = failure(operation, err)
 			}
+			if state, ok := r.Context().Value(responseStateKey{}).(*responseState); ok {
+				state.operation, state.requestID, state.success = operation, response.RequestID, response.Success
+			}
 			raw, encodeErr := json.Marshal(response)
 			if encodeErr != nil {
 				return nil, encodeErr
@@ -216,10 +208,10 @@ func failure(operation string, err error) application.Envelope {
 		code, message, stage = "CLIENT_WAIT_CANCELLED", "客户端已停止等待；操作实际结局尚未确认，请核对运行记录", "CLIENT_WAIT"
 		references["clientOutcome"] = "CANCELLED"
 	} else if errors.As(err, &input) {
-		code, message = "INVALID_REQUEST", "请求或结果不符合公开合同，请读取准确操作描述"
-		switch input.Cause.Error() {
-		case "INPUT_DEPTH_EXCEEDED", "INPUT_NODES_EXCEEDED":
-			code = input.Cause.Error()
+		code, stage, references = input.Code(), input.Stage(), input.Details()
+		message = "请求不符合公开合同，请读取准确操作描述"
+		if code == "JSON_INPUT_RESOURCE_LIMIT" {
+			message = "JSON 输入超出本次实际结构预算，请按资源项、限制、观测值和路径修正"
 		}
 	}
 	if stage == "CLIENT_WAIT" && (operation == "execute-query" || operation == "candidate-values") {

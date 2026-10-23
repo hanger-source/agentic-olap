@@ -1,11 +1,9 @@
 package com.olap.prototype.runtime
 
-import com.google.protobuf.ByteString
 import com.olap.prototype.protocol.*
-import com.olap.prototype.util.OlapJsonUtils
-import java.io.BufferedInputStream
 import java.io.InputStream
 import java.io.OutputStream
+import java.nio.file.Path
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
@@ -18,7 +16,9 @@ class ProtocolPeer(
     private val input: InputStream,
     private val output: OutputStream,
     private val maximumBytes: Int,
+    transferRoot: Path,
 ) : AutoCloseable {
+    private val files = ProtocolFiles(transferRoot)
     private val callbacks = ConcurrentHashMap<String, CompletableFuture<WorkResponse>>()
     private val active = ConcurrentHashMap<String, Running>()
     private val executor = Executors.newVirtualThreadPerTaskExecutor()
@@ -33,7 +33,7 @@ class ProtocolPeer(
 
     fun serve(handler: (Request) -> Response) {
         while (!closed.get()) {
-            val frame = readFrame(input, maximumBytes) ?: break
+            val frame = files.read(input, maximumBytes) ?: break
             when (frame.bodyCase) {
                 Frame.BodyCase.REQUEST -> {
                     val request = frame.request
@@ -49,12 +49,7 @@ class ProtocolPeer(
                             val response = handler(request)
                             // 不在领域提交后再次核取消并伪造未执行结果。
                             Thread.interrupted()
-                            val frame = Frame.newBuilder().setResponse(response).build()
-                            if (frame.serializedSize > maximumBytes) {
-                                send(Frame.newBuilder().setResponse(Response.newBuilder()
-                                    .setRequestId(request.requestId).setSuccess(false)
-                                    .setErrorJson(ByteString.copyFromUtf8("{\"code\":\"RESPONSE_BYTES_EXCEEDED\"}"))).build())
-                            } else send(frame)
+                            send(Frame.newBuilder().setResponse(response).build())
                         } catch (failure: Throwable) {
                             org.slf4j.LoggerFactory.getLogger(ProtocolPeer::class.java)
                                 .error("runtime protocol request failed: requestId={}", request.requestId, failure)
@@ -99,8 +94,12 @@ class ProtocolPeer(
     }
 
     fun send(frame: Frame) {
-        require(frame.serializedSize <= maximumBytes) { "runtime response exceeds frame budget" }
-        synchronized(writeLock) { frame.writeDelimitedTo(output); output.flush() }
+        synchronized(writeLock) {
+            val outgoing = files.outbound(frame, maximumBytes)
+            require(outgoing.serializedSize <= maximumBytes) { "protocol transfer reference exceeds pipe frame budget" }
+            outgoing.writeDelimitedTo(output)
+            output.flush()
+        }
     }
 
     override fun close() {
@@ -113,22 +112,7 @@ class ProtocolPeer(
 
     companion object {
         fun readFrame(input: InputStream, maximum: Int): Frame? {
-            val first = input.read()
-            if (first < 0) return null
-            var length = (first and 127).toLong()
-            var next = first
-            var shift = 7
-            while (next and 128 != 0) {
-                require(shift < 35) { "invalid protobuf frame length" }
-                next = input.read()
-                require(next >= 0) { "truncated protobuf frame length" }
-                length = length or ((next and 127).toLong() shl shift)
-                shift += 7
-            }
-            require(length in 1..maximum.toLong()) { "protobuf frame exceeds byte budget" }
-            val bytes = input.readNBytes(length.toInt())
-            require(bytes.size == length.toInt()) { "truncated protobuf frame" }
-            return Frame.parseFrom(bytes)
+            return ProtocolFiles.readPipeFrame(input, maximum)
         }
     }
 }

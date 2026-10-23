@@ -81,7 +81,7 @@ class ExecutableCatalog(val manifest: ExecutableCatalogManifest,
         logicUnits.forEach { (key, unit) ->
             requireKey(key, unit.logicUnitId, unit.logicUnitVersion)
             require((unit.valueType == null) != (unit.valueShape == null)) { "logic unit requires one scalar or container type" }
-            unit.valueShape?.let(SetOutputContract::requireSourceContainer)
+            unit.valueShape?.let { SetOutputContract.requireSourceContainer(it, listOf("valueShape")) }
             val binding = requirePhysicalBinding(unit.physicalExecutionBindingId, unit.physicalExecutionBindingVersion)
             requireNotNull(binding.logicUnitBindings[key]) { "logic unit source expression is missing" }
         }

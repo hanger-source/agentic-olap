@@ -4,6 +4,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	pb "github.com/hanger-source/agentic-olap/service/internal/protocol"
 	"google.golang.org/protobuf/types/known/anypb"
 	"io"
 )
@@ -20,9 +21,10 @@ type Operation struct {
 }
 
 type Ready struct {
-	Operations       map[string]Operation
-	ResultOperations []string
-	ConnectorAPI     string
+	Operations              map[string]Operation
+	ResultOperations        []string
+	ConnectorAPI            string
+	AuthorizationPolicyHash string
 }
 
 type ResultArtifact struct {
@@ -42,6 +44,7 @@ type Reply struct {
 	Model       *anypb.Any
 	TimingNanos map[string]int64
 	Workers     []WorkerAcquisition
+	Effects     []*pb.CapabilityEffect
 }
 
 type WorkerAcquisition struct {

@@ -7,20 +7,14 @@ import com.olap.prototype.dsl.ScriptValue
 import com.olap.prototype.dsl.ScriptValueException
 import kotlinx.serialization.json.*
 
-/** 普通 JSON 只存在于 MCP 参数边界，数字从原十进制文本直接构造。 */
+/** 输入预算由 JSON 边界先行核验；普通值只做精确表示，数字不经浮点转换。 */
 internal fun scriptParameters(bytes: ByteArray, limits: JsonStructure.Limits): ScriptArguments {
     val root = JsonStructure.parse(bytes, limits) as? JsonObject
         ?: throw JsonDocumentException(emptyList(), "SCRIPT_ARGUMENT_OBJECT", "NON_OBJECT")
     fun value(node: JsonElement, path: List<Any>): ScriptValue = when (node) {
         JsonNull -> ScriptValue.Null
-        is JsonObject -> {
-            val children = node.mapValues { (name, child) -> value(child, path + name) }
-            at(path) { ScriptValue.ObjectValue(children) }
-        }
-        is JsonArray -> {
-            val children = node.mapIndexed { index, child -> value(child, path + index) }
-            at(path) { ScriptValue.ArrayValue(children) }
-        }
+        is JsonObject -> ScriptValue.ObjectValue(node.mapValues { (name, child) -> value(child, path + name) })
+        is JsonArray -> ScriptValue.ArrayValue(node.mapIndexed { index, child -> value(child, path + index) })
         is JsonPrimitive -> at(path) {
             when {
                 node.isString -> ScriptValue.Text(node.content)
@@ -30,7 +24,7 @@ internal fun scriptParameters(bytes: ByteArray, limits: JsonStructure.Limits): S
         }
     }
     val values = root.mapValues { (name, child) -> value(child, listOf(name)) }
-    return at(emptyList()) { ScriptArguments(values) }
+    return ScriptArguments(values)
 }
 
 private fun <T> at(path: List<Any>, construct: () -> T): T = try { construct() }

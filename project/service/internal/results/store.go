@@ -51,20 +51,15 @@ type Availability struct {
 	Issues    []string  `json:"issues"`
 }
 type Store struct {
-	Directory                          string
-	MaxFileBytes, ResponseBytes, Depth int
+	Directory string
 }
 
 func (s Store) artifact(raw []byte, ref Reference) (*q.SavedQueryResultRecord, error) {
 	if err := ref.Validate(); err != nil {
 		return nil, err
 	}
-	if len(raw) > s.MaxFileBytes || s.Depth < 1 {
-		return nil, errors.New("result artifact exceeds deployed budget")
-	}
-	decode := proto.UnmarshalOptions{RecursionLimit: s.Depth}
 	artifact := new(q.SavedQueryResultArtifact)
-	if err := decode.Unmarshal(raw, artifact); err != nil {
+	if err := (proto.UnmarshalOptions{RecursionLimit: len(raw) + 1}).Unmarshal(raw, artifact); err != nil {
 		return nil, err
 	}
 	if artifact.FormatVersion != ArtifactFormat {
@@ -74,7 +69,7 @@ func (s Store) artifact(raw []byte, ref Reference) (*q.SavedQueryResultRecord, e
 		return nil, errors.New("exact result bytes differ from reference")
 	}
 	record := new(q.SavedQueryResultRecord)
-	if err := decode.Unmarshal(artifact.RecordBytes, record); err != nil {
+	if err := (proto.UnmarshalOptions{RecursionLimit: len(artifact.RecordBytes) + 1}).Unmarshal(artifact.RecordBytes, record); err != nil {
 		return nil, err
 	}
 	if record.FormatVersion != RecordFormat {
@@ -170,7 +165,7 @@ func (s Store) load(ctx context.Context, ref Reference) (*q.SavedQueryResultReco
 	if !os.SameFile(info, opened) {
 		return nil, errors.New("saved result changed while opening")
 	}
-	raw, err := io.ReadAll(io.LimitReader(file, int64(s.MaxFileBytes)+1))
+	raw, err := io.ReadAll(file)
 	if err != nil {
 		return nil, err
 	}
@@ -196,10 +191,4 @@ func (s Store) Inspect(ref Reference) Availability {
 	}
 	status.Issues = append(status.Issues, code)
 	return status
-}
-func (s Store) budget(message proto.Message) error {
-	if s.ResponseBytes < 1 || proto.Size(message) > s.ResponseBytes {
-		return errors.New("selected saved result exceeds the response budget")
-	}
-	return nil
 }

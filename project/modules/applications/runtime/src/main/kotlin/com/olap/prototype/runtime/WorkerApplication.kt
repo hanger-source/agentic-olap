@@ -67,31 +67,31 @@ internal class WorkerApplication(bootstrap: Bootstrap, private val budgets: Runt
             DeadlineExecutionControl(request.remainingMillis).use { control ->
                     require(request.hasWorkerModel() && request.payloadJson.isEmpty) { "workers require their concrete Protobuf command" }
                     val output = when (val actual = role) {
-                        is Role.Engine -> invoke({ QueryWorkerProto.fromProto(ProtoBytes.unpack(request.workerModel,
-                            com.olap.prototype.wire.query.EngineWorkerCommand.getDefaultInstance(), budgets.frameBytes, budgets.io.inputDepth)) }, { command ->
+                        is Role.Engine -> invoke({ QueryWorkerProto.fromProto(ProtoBytes.unpackResponse(request.workerModel,
+                            com.olap.prototype.wire.query.EngineWorkerCommand.getDefaultInstance())) }, { command ->
                             if (command is EngineWorkerCommand.Execute) sourceExecutionStarted = null
                             actual.handler.execute(command, control) { completedReadEvidence = it; sourceExecutionStarted = true }
                         }, QueryWorkerProto::toProto)
-                        is Role.Query -> invoke({ QueryWorkerProto.fromProto(ProtoBytes.unpack(request.workerModel,
-                            com.olap.prototype.wire.query.QueryWorkerCommand.getDefaultInstance(), budgets.frameBytes, budgets.io.inputDepth)) },
+                        is Role.Query -> invoke({ QueryWorkerProto.fromProto(ProtoBytes.unpackResponse(request.workerModel,
+                            com.olap.prototype.wire.query.QueryWorkerCommand.getDefaultInstance())) },
                             { actual.handler.execute(it, control) }, QueryWorkerProto::toProto)
-                        is Role.Inspection -> invoke({ com.olap.prototype.codec.GovernanceProto.fromProto(ProtoBytes.unpack(request.workerModel,
-                            com.olap.prototype.wire.governance.SourceInspection.getDefaultInstance(), budgets.frameBytes, budgets.io.inputDepth)) }, { command ->
+                        is Role.Inspection -> invoke({ com.olap.prototype.codec.GovernanceProto.fromProto(ProtoBytes.unpackResponse(request.workerModel,
+                            com.olap.prototype.wire.governance.SourceInspection.getDefaultInstance())) }, { command ->
                             if (command != com.olap.prototype.source.contract.SourceInspection.Capabilities) sourceExecutionStarted = null
                             actual.handler.execute(command, control)
                         }, com.olap.prototype.codec.GovernanceProto::toProto)
-                        is Role.SourceInspection -> invoke({ SourceWorkerProto.fromProto(ProtoBytes.unpack(request.workerModel,
-                            com.olap.prototype.wire.query.SourceWorkerCommand.getDefaultInstance(), budgets.frameBytes, budgets.io.inputDepth)) }, { command ->
+                        is Role.SourceInspection -> invoke({ SourceWorkerProto.fromProto(ProtoBytes.unpackResponse(request.workerModel,
+                            com.olap.prototype.wire.query.SourceWorkerCommand.getDefaultInstance())) }, { command ->
                             sourceExecutionStarted = null
                             actual.handler.execute(command, control)
                         }, SourceWorkerProto::toProto)
-                        is Role.Values -> invoke({ CandidateWorkerProto.fromProto(ProtoBytes.unpack(request.workerModel,
-                            com.olap.prototype.wire.query.CandidateWorkerCommand.getDefaultInstance(), budgets.frameBytes, budgets.io.inputDepth)) }, { command ->
+                        is Role.Values -> invoke({ CandidateWorkerProto.fromProto(ProtoBytes.unpackResponse(request.workerModel,
+                            com.olap.prototype.wire.query.CandidateWorkerCommand.getDefaultInstance())) }, { command ->
                             if (command is CandidateWorkerCommand.Values) sourceExecutionStarted = null
                             actual.handler.execute(command, control)
                         }, CandidateWorkerProto::toProto)
                     }
-                    val encoded = try { timed("PACK") { ProtoBytes.pack(output, budgets.io.responseBytes) } }
+                    val encoded = try { timed("PACK") { ProtoBytes.pack(output) } }
                     catch (failure: Exception) {
                         val evidence = completedReadEvidence ?: throw failure
                         throw EngineExecutionException("ENCODE_RESULT", "WORKER_RESULT_ENCODING_FAILED",

@@ -2,6 +2,7 @@ package com.olap.prototype.expression
 
 import com.olap.prototype.calculation.Calculation
 import com.olap.prototype.connector.CompilationSupport
+import com.olap.prototype.connector.NativeCompilationCapabilityException
 import com.olap.prototype.contract.JdbcParameter
 import com.olap.prototype.query.PostOperationContract
 import com.olap.prototype.query.PostOperationTraversal
@@ -147,7 +148,8 @@ object CompletedRelationCompiler {
         }
 
         private fun expand(expand: PostOperationContract.ExpandCollection) {
-            require(system.supports(CompilationSupport.Capability.COLLECTION_EXPANSION)) { "connector does not support typed collection expansion" }
+            if (!system.supports(CompilationSupport.Capability.COLLECTION_EXPANSION))
+                throw NativeCompilationCapabilityException(CompilationSupport.Capability.COLLECTION_EXPANSION, expand.operationType)
             val input = b.field(expand.input)
             require(input.type.sqlTypeName == SqlTypeName.ARRAY && input.type.componentType != null) { "EXPAND_COLLECTION requires a determined ARRAY element type" }
             val column = input.index
@@ -189,13 +191,14 @@ object CompletedRelationCompiler {
     private fun hasUniformAllocation(expression: ResultExpression): Boolean = ResultExpressionTree.nodes(expression).any { it is ResultExpression.ResultUniformAllocation }
 
     private fun requireCapabilities(system: SemanticCalciteTypeSystem, analysis: QueryStageAnalysis.Analysis) {
-        val collections = analysis.stages.any { stage -> when (val op = stage.operation) {
+        val collectionStage = analysis.stages.firstOrNull { stage -> when (val op = stage.operation) {
             is PostOperationContract.AggregateOutput -> op.aggregation is ResultAggregation.Collect
             is PostOperationContract.ObserveWindow -> op.aggregation is ResultAggregation.Collect
             is PostOperationContract.Regroup -> op.grouping.aggregates.any { it.aggregation is ResultAggregation.Collect }
             else -> false
         } }
-        require(!collections || system.supports(CompilationSupport.Capability.COLLECTION_RESULTS)) { "collection results have no verified Calcite/JDBC dialect contract" }
+        if (collectionStage != null && !system.supports(CompilationSupport.Capability.COLLECTION_RESULTS))
+            throw NativeCompilationCapabilityException(CompilationSupport.Capability.COLLECTION_RESULTS, collectionStage.operation.operationType)
     }
 
     private fun regroup(b: RelBuilder, grouping: PostOperationContract.ResultGrouping) {

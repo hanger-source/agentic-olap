@@ -1,6 +1,7 @@
 package com.olap.prototype.expression
 
 import com.olap.prototype.connector.CompilationSupport
+import com.olap.prototype.connector.NativeCompilationCapabilityException
 import com.olap.prototype.contract.JdbcParameter
 import com.olap.prototype.metric.MetricValueContract
 import com.olap.prototype.query.ResultExpression
@@ -78,7 +79,8 @@ internal class CompletedExpressionCompiler private constructor(private val b: Re
     private fun collectionSort(sort: ResultExpression.ResultCollectionSort): RexNode {
         val input = emit(sort.expression)
         val system = b.typeFactory.typeSystem as SemanticCalciteTypeSystem
-        require(system.supports(CompilationSupport.Capability.COLLECTION_SORT)) { "connector does not support explicit collection ordering" }
+        if (!system.supports(CompilationSupport.Capability.COLLECTION_SORT))
+            throw NativeCompilationCapabilityException(CompilationSupport.Capability.COLLECTION_SORT, "COLLECTION_SORT")
         val element = input.type.componentType
         require(input.type.sqlTypeName == SqlTypeName.ARRAY && element != null && !element.isStruct && element.componentType == null &&
             element.sqlTypeName !in setOf(SqlTypeName.ANY, SqlTypeName.OTHER, SqlTypeName.NULL)) { "collection ordering requires determined comparable scalar array elements" }
@@ -88,7 +90,8 @@ internal class CompletedExpressionCompiler private constructor(private val b: Re
     private fun collectionText(text: ResultExpression.ResultCollectionText): RexNode {
         val input = emit(text.expression)
         val system = b.typeFactory.typeSystem as SemanticCalciteTypeSystem
-        require(system.supports(CompilationSupport.Capability.COLLECTION_TEXT)) { "connector does not support collection text" }
+        if (!system.supports(CompilationSupport.Capability.COLLECTION_TEXT))
+            throw NativeCompilationCapabilityException(CompilationSupport.Capability.COLLECTION_TEXT, "COLLECTION_TEXT")
         require(input.type.sqlTypeName == SqlTypeName.ARRAY && input.type.componentType?.let(SqlTypeUtil::isCharacter) == true) { "collection text requires a typed text array" }
         return system.nativeSupport.collectionText(b, input, text.delimiter, text.nullText)
     }

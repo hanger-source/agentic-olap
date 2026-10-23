@@ -37,7 +37,7 @@ class PublishedNativeCollectionsTest {
             val labels = SetOutputContract.Array(SetOutputContract.Property("label", ScalarValueType.TEXT))
             val lines = SetOutputContract.Array(SetOutputContract.Row(listOf(SetOutputContract.Property("code", ScalarValueType.TEXT), SetOutputContract.Quantity(GovernanceOrderFixture.money()))))
             val physicalColumns = f.physical.physicalTableColumnSnapshots(f.physicalId, 1).associateBy { it.columnName }
-            fun container(name: String, shape: SetOutputContract.Shape) = LogicalTableCreateRequest.LogicUnitInput(name, name, LogicUnitSourceKind.COLUMN, null, null, shape,
+            fun container(name: String, shape: SetOutputContract.Container) = LogicalTableCreateRequest.LogicUnitInput(name, name, LogicUnitSourceKind.COLUMN, null, null, shape,
                 false, false, false, false, false, listOf(LogicalTableCreateRequest.SourceRefInput(physicalColumns.getValue(name).id, 1, LogicUnitSourceRefRole.DIRECT_SOURCE)))
             val order = LogicalTableCreateRequest.LogicUnitInput("order", "订单", LogicUnitSourceKind.COLUMN, null, LogicType.STRING, null, false, true, false, false, false,
                 listOf(LogicalTableCreateRequest.SourceRefInput(physicalColumns.getValue("order_id").id, 1, LogicUnitSourceRefRole.DIRECT_SOURCE)))

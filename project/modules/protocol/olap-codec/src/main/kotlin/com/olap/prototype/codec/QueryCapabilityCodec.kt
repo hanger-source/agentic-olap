@@ -60,7 +60,7 @@ object QueryCapabilityCodec {
         else -> error("unregistered query operation: $operationId")
     }
 
-    fun encodeResult(operationId: String, result: Any, maximumBytes: Int): ProtoAny = ProtoBytes.pack(when (operationId) {
+    fun encodeResult(operationId: String, result: Any): ProtoAny = ProtoBytes.pack(when (operationId) {
         "execute-query" -> QueryProto.toProto(result as com.olap.prototype.query.contract.QueryExecutionReceipt)
         "validate-query" -> QueryProto.toProto(result as com.olap.prototype.query.contract.QueryValidationResult)
         "explain-query" -> QueryProto.toProto(result as com.olap.prototype.dsl.QueryExplanationResult)
@@ -75,24 +75,24 @@ object QueryCapabilityCodec {
         "search-query-usage" -> QueryUsageProto.toProto(result as com.olap.prototype.query.contract.QueryUsagePage)
         "append-query-usage-note" -> QueryUsageProto.toProto(result as com.olap.prototype.query.contract.QueryUsageNote)
         else -> error("unregistered query operation: $operationId")
-    }, maximumBytes)
+    })
 
-    fun decodeResult(operationId: String, bytes: ByteArray, maximumBytes: Int, maximumDepth: Int): Any {
-        val envelope = ProtoBytes.decode(bytes, ProtoAny.getDefaultInstance(), maximumBytes, maximumDepth)
+    fun decodeResult(operationId: String, bytes: ByteArray): Any {
+        val envelope = ProtoBytes.decodeResponse(bytes, ProtoAny.getDefaultInstance())
         return when (operationId) {
-            "execute-query" -> QueryProto.fromProto(ProtoBytes.unpack(envelope, WReceipt.getDefaultInstance(), maximumBytes, maximumDepth))
-            "validate-query" -> QueryProto.fromProto(ProtoBytes.unpack(envelope, WValidated.getDefaultInstance(), maximumBytes, maximumDepth))
-            "explain-query" -> QueryProto.fromProto(ProtoBytes.unpack(envelope, WExplained.getDefaultInstance(), maximumBytes, maximumDepth))
-            "save-query", "update-query", "read-query" -> QueryProto.fromProto(ProtoBytes.unpack(envelope, WDefinition.getDefaultInstance(), maximumBytes, maximumDepth))
-            "list-queries" -> QueryProto.fromProto(ProtoBytes.unpack(envelope, WDefinitions.getDefaultInstance(), maximumBytes, maximumDepth))
-            "candidate-values" -> CandidateProto.fromProto(ProtoBytes.unpack(envelope, com.olap.prototype.wire.query.CandidateValues.getDefaultInstance(), maximumBytes, maximumDepth))
-            "read-query-result" -> QueryPagingProto.fromProto(ProtoBytes.unpack(envelope, com.olap.prototype.wire.query.ResultPage.getDefaultInstance(), maximumBytes, maximumDepth))
-            "read-query-result-metadata" -> QueryPagingProto.fromProto(ProtoBytes.unpack(envelope, com.olap.prototype.wire.query.ResultMetadataPage.getDefaultInstance(), maximumBytes, maximumDepth))
-            "read-query-result-value" -> QueryPagingProto.fromProto(ProtoBytes.unpack(envelope, com.olap.prototype.wire.query.ResultValuePage.getDefaultInstance(), maximumBytes, maximumDepth))
-            "profile-query-result" -> QueryPagingProto.fromProto(ProtoBytes.unpack(envelope, com.olap.prototype.wire.query.ResultProfile.getDefaultInstance(), maximumBytes, maximumDepth))
-            "read-query-usage" -> QueryUsageProto.fromProto(ProtoBytes.unpack(envelope, com.olap.prototype.wire.query.QueryUsageView.getDefaultInstance(), maximumBytes, maximumDepth))
-            "search-query-usage" -> QueryUsageProto.fromProto(ProtoBytes.unpack(envelope, com.olap.prototype.wire.query.QueryUsagePage.getDefaultInstance(), maximumBytes, maximumDepth))
-            "append-query-usage-note" -> QueryUsageProto.fromProto(ProtoBytes.unpack(envelope, com.olap.prototype.wire.query.QueryUsageNote.getDefaultInstance(), maximumBytes, maximumDepth))
+            "execute-query" -> QueryProto.fromProto(ProtoBytes.unpackResponse(envelope, WReceipt.getDefaultInstance()))
+            "validate-query" -> QueryProto.fromProto(ProtoBytes.unpackResponse(envelope, WValidated.getDefaultInstance()))
+            "explain-query" -> QueryProto.fromProto(ProtoBytes.unpackResponse(envelope, WExplained.getDefaultInstance()))
+            "save-query", "update-query", "read-query" -> QueryProto.fromProto(ProtoBytes.unpackResponse(envelope, WDefinition.getDefaultInstance()))
+            "list-queries" -> QueryProto.fromProto(ProtoBytes.unpackResponse(envelope, WDefinitions.getDefaultInstance()))
+            "candidate-values" -> CandidateProto.fromProto(ProtoBytes.unpackResponse(envelope, com.olap.prototype.wire.query.CandidateValues.getDefaultInstance()))
+            "read-query-result" -> QueryPagingProto.fromProto(ProtoBytes.unpackResponse(envelope, com.olap.prototype.wire.query.ResultPage.getDefaultInstance()))
+            "read-query-result-metadata" -> QueryPagingProto.fromProto(ProtoBytes.unpackResponse(envelope, com.olap.prototype.wire.query.ResultMetadataPage.getDefaultInstance()))
+            "read-query-result-value" -> QueryPagingProto.fromProto(ProtoBytes.unpackResponse(envelope, com.olap.prototype.wire.query.ResultValuePage.getDefaultInstance()))
+            "profile-query-result" -> QueryPagingProto.fromProto(ProtoBytes.unpackResponse(envelope, com.olap.prototype.wire.query.ResultProfile.getDefaultInstance()))
+            "read-query-usage" -> QueryUsageProto.fromProto(ProtoBytes.unpackResponse(envelope, com.olap.prototype.wire.query.QueryUsageView.getDefaultInstance()))
+            "search-query-usage" -> QueryUsageProto.fromProto(ProtoBytes.unpackResponse(envelope, com.olap.prototype.wire.query.QueryUsagePage.getDefaultInstance()))
+            "append-query-usage-note" -> QueryUsageProto.fromProto(ProtoBytes.unpackResponse(envelope, com.olap.prototype.wire.query.QueryUsageNote.getDefaultInstance()))
             else -> error("unregistered query operation: $operationId")
         }
     }

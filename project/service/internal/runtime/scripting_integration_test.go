@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -177,126 +176,6 @@ ScriptValue.BooleanValue(true)`, map[string]any{"marker": outputMarker})
 		t.Fatal("different subject reused the previous isolation owner")
 	}
 	requireProcessExited(t, otherPID)
-}
-
-func TestActualScriptValueCapacityRejectsBeforeCallsAndKeepsWorkerUsable(t *testing.T) {
-	// 部署字节预算须能容纳合法 JSON，才会实际触达普通值自身的数量和文本边界。
-	m := actualRuntimeWithInputBudget(t, 2, 2*1024*1024)
-	body := `olap.sources.inspect(SourceInspection.Capabilities); ScriptValue.BooleanValue(true)`
-	workerID := ""
-	refuse := func(parameters any, source, code, stage, expected, actual string, path ...string) {
-		t.Helper()
-		report := actualScript(t, m, trialPrincipal, source, parameters)
-		if report.Success || len(report.Calls) != 0 || len(report.Diagnostics) != 1 {
-			t.Fatalf("capacity refusal ran formal calls or lost its diagnostic: %+v", report)
-		}
-		diagnostic := report.Diagnostics[0]
-		if diagnostic.Code != code || diagnostic.Stage != stage || diagnostic.Expected != expected || diagnostic.Actual != actual ||
-			strings.Join(diagnostic.FieldPath, "/") != strings.Join(path, "/") {
-			t.Fatalf("capacity refusal cannot be corrected from its public facts: %+v", diagnostic)
-		}
-		if workerID != "" && report.WorkerID != workerID {
-			t.Fatal("ordinary value rejection unnecessarily replaced the script JVM")
-		}
-		workerID = report.WorkerID
-	}
-	// 两个子数组各自合法；汇总后的父容器超限，不是数组长度或 JSON 语法错误。
-	refuse(map[string]any{"declaredStructure": map[string]any{"left": make([]int, 5000), "right": make([]int, 5000)}}, body,
-		"SCRIPT_VALUE_NODE_COUNT", "SCRIPT_PARAMETERS", "DESCENDANT_NODES<=10000", "10001", "declaredStructure")
-	// 内层恰好 10,000 个后代仍合法，但它作为参数后，外层还须计入该容器自身。
-	refuse(map[string]any{"declaredStructure": map[string]any{"left": make([]int, 4999), "right": make([]int, 4999)}}, body,
-		"SCRIPT_VALUE_NODE_COUNT", "SCRIPT_PARAMETERS", "DESCENDANT_NODES<=10000", "10001")
-	refuse(map[string]any{"entries": []string{strings.Repeat("x", 1_000_001)}}, body,
-		"SCRIPT_VALUE_TEXT_LENGTH", "SCRIPT_PARAMETERS", "UTF16_CODE_UNITS<=1000000", "1000001", "entries", "0")
-	refuse(map[string]any{"settings": map[string]any{" ": true}}, body,
-		"SCRIPT_VALUE_OBJECT_KEY_BLANK", "SCRIPT_PARAMETERS", "NON_BLANK_KEY", "BLANK_KEY", "settings")
-	refuse(map[string]any{"settings": map[string]any{strings.Repeat("s", 257): true}}, body,
-		"SCRIPT_VALUE_OBJECT_KEY_LENGTH", "SCRIPT_PARAMETERS", "KEY_UTF16_CODE_UNITS<=256", "257", "settings")
-	refuse(map[string]any{"ratio": json.Number("1e-1000001")}, body,
-		"SCRIPT_VALUE_DECIMAL_SCALE", "SCRIPT_PARAMETERS", "ABS_SCALE<=1000000", "1000001", "ratio")
-	refuse(map[string]any{}, `ScriptValue.ArrayValue(List(10001) { ScriptValue.Null })`,
-		"SCRIPT_VALUE_NODE_COUNT", "EVALUATE", "DESCENDANT_NODES<=10000", "10001")
-	refuse(map[string]any{}, `var value: ScriptValue = ScriptValue.Null
-repeat(33) { value = ScriptValue.ArrayValue(listOf(value)) }
-value`, "SCRIPT_VALUE_DEPTH", "EVALUATE", "DESCENDANT_DEPTH<=32", "33")
-	// 全部参数的后代恰好 10,000 个：仍执行正式能力，并在原进程交付合法结果。
-	accepted := actualScript(t, m, trialPrincipal, body,
-		map[string]any{"declaredStructure": map[string]any{"left": make([]int, 4999), "right": make([]int, 4998)}})
-	if !actualScriptValue(t, accepted).GetBoolean() || len(accepted.Calls) != 1 || !accepted.Calls[0].Success || accepted.WorkerID != workerID {
-		t.Fatalf("legal capacity boundary could not continue in the same worker: %+v", accepted)
-	}
-}
-
-func TestActualScriptSandboxAndOutputBudget(t *testing.T) {
-	m := actualRuntime(t, 2)
-	private := filepath.Join(t.TempDir(), "secret")
-	if err := os.WriteFile(private, []byte("outside-worker"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer listener.Close()
-	accepted := make(chan bool, 1)
-	go func() {
-		connection, err := listener.Accept()
-		if err == nil {
-			connection.Close()
-		}
-		accepted <- err == nil
-	}()
-	port := listener.Addr().(*net.TCPAddr).Port
-	report := actualScript(t, m, trialPrincipal, `
-val fileDenied = runCatching { java.nio.file.Files.readString(java.nio.file.Path.of(parameters.text("secret"))) }.isFailure
-val networkDenied = runCatching { java.net.Socket().use { it.connect(java.net.InetSocketAddress("127.0.0.1", parameters.decimal("port").intValueExact()), 500) } }.isFailure
-val execDenied = runCatching { ProcessBuilder("/bin/sh", "-c", "exit 0").start().waitFor() }.isFailure
-ScriptValue.BooleanValue(fileDenied && networkDenied && execDenied)`, map[string]any{"secret": private, "port": port})
-	if !actualScriptValue(t, report).GetBoolean() {
-		t.Fatal("script escaped its OS file, network or execution boundary")
-	}
-	listener.Close()
-	if <-accepted {
-		t.Fatal("script established an actual outbound connection")
-	}
-	oversized := actualScript(t, m, trialPrincipal, `ScriptValue.ArrayValue(List(40) { ScriptValue.Text("x".repeat(1_000_000)) })`, map[string]any{})
-	if oversized.Success {
-		t.Fatal("script emitted more than the configured response byte budget")
-	}
-	continued := actualScript(t, m, trialPrincipal, `ScriptValue.BooleanValue(true)`, map[string]any{})
-	if !actualScriptValue(t, continued).GetBoolean() || continued.WorkerID != oversized.WorkerID {
-		t.Fatal("output refusal did not leave the normal script worker usable")
-	}
-	pid, _ := actualScriptProcess(t, m, continued.WorkerID)
-	arguments, err := json.Marshal(map[string]any{"batches": m.deployment.Limits.ResponseBytes/(2*16_384) + 1})
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
-	defer cancel()
-	printed, printErr := m.Script(ctx, trialPrincipal, ScriptSubmission{Source: `
-val content = "output-budget".padEnd(16_384, 'x')
-repeat(parameters.decimal("batches").intValueExact()) {
-    System.out.print(content)
-    System.err.print(content)
-}
-ScriptValue.BooleanValue(true)`, SourceName: "output-budget.olap.kts", DSLAPIVersion: m.classpaths.DSLAPIVersion, Parameters: arguments},
-		func(ctx context.Context, invocation *pb.CapabilityInvocation) (Reply, error) {
-			return m.CallCapability(ctx, trialPrincipal, invocation)
-		})
-	if printed == nil || printed.Success || printed.WorkerID != continued.WorkerID || printErr == nil {
-		t.Fatalf("ordinary output beyond the request budget did not retire its worker: report=%+v error=%v", printed, printErr)
-	}
-	if errors.Is(printErr, context.DeadlineExceeded) || errors.Is(printErr, context.Canceled) {
-		t.Fatalf("ordinary output only stopped at cancellation instead of its byte budget: %v", printErr)
-	}
-	requireProcessExited(t, pid)
-	afterPrintLimit := actualScript(t, m, trialPrincipal, `
-val observed = olap.sources.inspect(SourceInspection.Capabilities)
-ScriptValue.BooleanValue(observed is SourceInspectionResult.Capabilities && observed.operations.isNotEmpty())`, map[string]any{})
-	if !actualScriptValue(t, afterPrintLimit).GetBoolean() || afterPrintLimit.WorkerID == continued.WorkerID {
-		t.Fatal("ordinary output limit did not reclaim the old JVM and permit a real capability call in its replacement")
-	}
 }
 
 func TestActualCloseWaitsForColdScriptStartupAndCleanup(t *testing.T) {

@@ -15,7 +15,7 @@ import java.util.Collections
 class PublishedValueTypes(private val assets: ExecutableCatalog) {
     private fun unit(id: String, version: Long): ExecutableLogicUnit = requireNotNull(assets.logicUnits["$id@$version"]) { "exact frozen LogicUnit type is missing" }
     fun logicType(id: String, version: Long): ScalarValueType = unit(id, version).valueType ?: throw ProducerContractException("operation requires a scalar LogicUnit: $id@$version")
-    fun shape(id: String, version: Long): SetOutputContract.Shape? = unit(id, version).valueShape
+    fun shape(id: String, version: Long): SetOutputContract.Container? = unit(id, version).valueShape
     fun dimensions(mappings: List<ReleaseDimensionMapping>, nativeTypes: QueryExecutionTypes): Map<String, String> {
         val result = linkedMapOf<String, String>()
         mappings.forEach { mapping ->

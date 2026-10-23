@@ -264,7 +264,7 @@ func serve(path string) (code int, failure error) {
 	if err != nil {
 		return 1, err
 	}
-	app := &application.Application{Runtime: manager, Config: c, Results: results.Store{Directory: filepath.Join(c.DataRoot, "results"), MaxFileBytes: c.Limits.InputFileBytes, ResponseBytes: c.Limits.ResponseBytes, Depth: 512}}
+	app := &application.Application{Runtime: manager, Config: c, Results: results.Store{Directory: filepath.Join(c.DataRoot, "results")}}
 	handler, err := server.New(c, app, version)
 	if err != nil {
 		return 1, err

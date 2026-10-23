@@ -10,8 +10,7 @@ object QueryResultArtifact {
     const val FORMAT = QueryArtifactProto.FORMAT
     class Prepared internal constructor(val runId: String, val sha256: String, val content: ByteArray, val rows: Long)
 
-    fun prepare(record: SavedQueryResultRecord, maxBytes: Long): Prepared {
-        require(maxBytes in 1..Int.MAX_VALUE.toLong()) { "result artifact requires a bounded byte budget" }
+    fun prepare(record: SavedQueryResultRecord): Prepared {
         require(record.catalogHash.matches(Regex("[0-9a-f]{64}")) && record.capabilityHash.matches(Regex("[0-9a-f]{64}"))) {
             "result provenance requires exact hashes"
         }
@@ -19,7 +18,7 @@ object QueryResultArtifact {
         if (record.receipt.status == QueryExecutionStatus.SUCCEEDED) {
             require(record.receipt.result != null && record.receipt.error == null) { "successful execution requires its validated result" }
         } else require(record.receipt.result == null && record.receipt.error != null) { "failed execution requires its actual failure" }
-        val content = QueryArtifactProto.encode(record, maxBytes.toInt())
+        val content = QueryArtifactProto.encode(record)
         return Prepared(record.runId, SavedQueryResultArtifact.parseFrom(content).sha256, content, record.receipt.rows)
     }
 }

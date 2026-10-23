@@ -2,6 +2,7 @@ syntax = "proto3";
 
 import "google/protobuf/any.proto";
 import "query.proto";
+import "governance.proto";
 
 package agentic.olap.runtime.v2;
 
@@ -26,6 +27,7 @@ message Frame {
     CapabilityResponse capability_response = 11;
     ScriptWorkerFault script_worker_fault = 13;
     ScriptOutput script_output = 14;
+    ProtocolFile file = 15;
   }
 }
 
@@ -46,6 +48,14 @@ message Bootstrap {
   WorkerKind worker_kind = 5;
   bytes source_configurations_json = 6; // exact selected bindings only.
   ScriptConfiguration scripting = 7;
+  string transfer_directory = 8;
+}
+
+// 同一官方完整 Frame 的私有文件交接；阈值只限制管道帧，不限制返回总量。
+message ProtocolFile {
+  string name = 1;
+  uint64 bytes = 2;
+  string sha256 = 3;
 }
 
 message Principal {
@@ -80,6 +90,7 @@ message Response {
   google.protobuf.Any model = 7;
   agentic.olap.query.v1.WorkerFailureFacts worker_failure = 8;
   map<string, int64> timing_nanos = 9;
+  repeated CapabilityEffect effects = 10;
 }
 
 message Operation {
@@ -101,6 +112,7 @@ message RuntimeReady {
   // Kotlin computes binding identity; Go retains original deployment bytes.
   // This avoids a second source-identity hashing implementation in Go.
   repeated RegisteredSource sources = 4;
+  string authorization_policy_hash = 5;
 }
 
 // Kotlin validates the business quantity/type contract and prepares exact bytes.
@@ -176,7 +188,6 @@ message ScriptConfiguration {
   string dsl_api_version = 1;
   repeated string compilation_classpath = 2;
   uint64 maximum_source_bytes = 3;
-  uint64 maximum_output_bytes = 4;
   uint64 maximum_frame_bytes = 5;
   uint32 maximum_input_depth = 6;
   uint64 maximum_input_nodes = 7;
@@ -228,6 +239,9 @@ message ScriptDiagnostic {
   repeated string field_path = 7;
   string expected = 8;
   string actual = 9;
+  string resource = 10;
+  uint64 limit = 11;
+  uint64 observed = 12;
 }
 
 message ScriptResponse {
@@ -237,6 +251,23 @@ message ScriptResponse {
   repeated ScriptDiagnostic diagnostics = 4;
   map<string, uint64> timing_nanos = 5;
   bool recycle_worker = 6;
+  repeated ScriptResourceIssue resource_issues = 7;
+}
+// 私有服务诊断，不进入公开脚本报告。这里只复制有界值，不持有线程或类加载器。
+message ScriptResourceIssue {
+  string code = 1;
+  string message = 2;
+  uint32 observed_count = 3;
+  repeated ScriptThreadObservation threads = 4;
+  bool truncated = 5;
+}
+message ScriptThreadObservation {
+  uint64 id = 1;
+  string name = 2;
+  string state = 3;
+  bool daemon = 4;
+  string context_class_loader = 5;
+  repeated string stack = 6;
 }
 message ScriptWorkerFault { string request_id = 1; string code = 2; }
 
@@ -265,6 +296,25 @@ message CapabilityResponse {
   bool success = 4;
   google.protobuf.Any result = 5;
   CapabilityFailure failure = 6;
+  repeated CapabilityEffect effects = 7;
+}
+
+// 仅由成功写入的 owner 从实际结果投影；引用不授予额外读取权限。
+message CapabilityEffect {
+  string read_operation = 1;
+  oneof reference {
+    agentic.olap.governance.v1.DefinitionImpactReference asset_version = 2;
+    CapabilityOwnedMember owned_member = 3;
+    agentic.olap.governance.v1.GovernanceReadRequestsReleaseIdentityRequest release = 4;
+    string source_discovery = 5;
+    agentic.olap.query.v1.QueryReference query = 6;
+  }
+  optional string status = 7;
+}
+message CapabilityOwnedMember {
+  agentic.olap.governance.v1.DefinitionImpactReference owner = 1;
+  string kind = 2;
+  string id = 3;
 }
 
 enum DeliveryStatus {
