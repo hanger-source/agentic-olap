@@ -21,7 +21,7 @@ agentic-olap sdk --repository
 agentic-olap connectors
 ```
 
-`sdk` 返回本版连接器 API、随包文档、JitPack 仓库地址及正式构件坐标；`--repository` 只输出仓库地址。独立插件工程配置 `maven("https://jitpack.io")`，引用返回的精确坐标；第三方依赖由 `mavenCentral()` 提供。SDK 构件公开下载，无需使用者配置令牌或从 npm 包提取本地 Maven 仓库。连接远程服务时须核对其实际 API。
+`sdk` 返回本版连接器 API、随包文档、JitPack 仓库地址及正式构件坐标；`--repository` 只输出仓库地址。新建或确需重构的独立插件工程配置 `maven("https://jitpack.io")`，采用目标宿主披露的精确坐标；第三方依赖由 `mavenCentral()` 提供。SDK 构件公开下载，无需使用者配置令牌或从 npm 包提取本地 Maven 仓库。连接远程服务时须核对其实际声明，命令返回的是本地安装信息。
 
 JVM 下载缓存默认位于系统用户缓存目录的 `agentic-olap/jvm/sha256`；设置 `AGENTIC_OLAP_CACHE=/absolute/cache` 时使用 `/absolute/cache/jvm/sha256`。缓存按内容摘要保存；安装目录仍持有完整运行文件，启动不依赖缓存目录或 Maven 网络。下载使用系统证书及 `HTTP_PROXY/HTTPS_PROXY/NO_PROXY`。
 
@@ -49,13 +49,15 @@ agentic-olap call execute-script --payload '{"executionId":"sources-1","waitMill
 
 业务连接器由使用者独立提供。在 `info` 指出的配置文件中登记插件 manifest、来源身份、插件参数和凭据引用。来源支持 HTTP 等访问实现，结构可由调查取得，也可通过 MCP 显式登记；catalog 权限不是必备条件。同一来源 ID 可以部署多个不同绑定；从 `list-data-sources` 选择并原样使用其 `sourceIdentityHash`，不按同名来源自动切换。业务 Agent 经 MCP 发现正式 Kotlin API，并以完整 kts 程序调用 `olap.sources/semantics/governance/queries/results`。定义与 Query 由正式构造器产生，写入、执行与结果交付仍走统一服务。服务不启动模型。
 
-源码构建的连接器 API 为 `agentic-olap-connector/v12-kotlin-native-collection-placement-calcite-1.42`，元数据存储格式为 `16`。使用同轮插件及 SDK；安装发行物时遵循该发行声明的接口版本。既有持久根不会被自动改写。
+源码构建的连接器 API 为 `agentic-olap-connector/v12-kotlin-native-collection-placement-calcite-1.42`，元数据存储格式为 `16`。安装发行物时遵循目标宿主声明的接口和运行要求。既有持久根不会被自动改写。
 
 需要独立持久根时，相关命令使用同一 `--home /absolute/path`。已有远程服务的客户端使用 `--url https://your-service/mcp --token-env OLAP_TOKEN`。服务器远程访问使用显式 `start --config /absolute/server.json` 和外部 JWT 认证配置；默认本机令牌模式只允许回环监听。
 
 升级使用同一正式入口：停止当前前台服务，执行 `npm install --global @hanger-source/agentic-olap@目标版本`，再用原 `--home` 或 `--config` 启动。本地服务启动后用 `agentic-olap info` 核对实际运行版本；远程服务通过 `tools` 返回的 `serverInfo.version` 核对。npm 安装不会自动重启已有进程，也不会改写业务配置或转换持久资产格式。
 
-SDK 声明与内置插件随 npm 一起替换，独立插件工程明确采用新的 SDK Maven 版本。升级前核对目标发行的存储格式与连接器 API；精确插件引用发生变化时，需要明确配置对应插件并修订受影响资产，服务不会自动切换旧发布的引用。外部业务插件由使用方提供。所选发布、保存查询和历史结果可以通过 `read-deployment-availability` 核对读取或编译前提，再执行明确选择的业务查询确认；读取可用性本身不连接业务数据库。
+SDK 声明与内置插件随 npm 一起替换。独立插件不因产品版本或 SDK Maven 坐标变化就必须重构：连接器 API 相同，插件所用公共接口的二进制合同及 JVM、Kotlin、Calcite 要求满足目标宿主时，可保留原 manifest、JAR 和完整 `connectorRef`。宿主核验精确字节和 provider 身份，不比较插件构建所用的产品版本。API 字符串相同或装载成功不能替代实际使用能力的查询验证。原插件与来源身份参数未变时，来源绑定不变，无需为产品升级重登记目录或修订资产。
+
+确实更换插件字节或来源身份时，显式配置新精确引用、为目标绑定取得结构证据，再用 `read-asset-definition/read-definition-dependencies/read-definition-impact` 读取精确正文及影响，通过 `revise-physical-table` 和各依赖定义的正式修订／采用入口组织新版本，使用 `read-definition-revision-diff` 核对后激活并 `build-release`。新目录不会改写旧物理版本或发布，也没有自动传播目标绑定的迁移操作。外部业务插件由使用方提供，具体调用见[连接说明](../../skills/agentic-olap/references/connections.md#更换插件与显式采用)。所选发布、保存查询和历史结果可以通过 `read-deployment-availability` 核对读取或编译前提，再执行明确选择的业务查询确认；读取可用性本身不连接业务数据库。
 
 Agent 使用指引通过 GitHub 安装：
 

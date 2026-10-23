@@ -23,6 +23,8 @@ interface SourceAccess : WarehouseSourceInspection, AutoCloseable {
     /**
      * 兑现 request 中全部精确来源保证和关系检查后才交付结果。
      * 原子 statement 内核验必须保证必要检查不因主结果为空、优化器裁剪或结果预算而跳过；
+     * 一次 HTTP 或一个 SQL 外壳本身不证明检查已经执行，常量输入成功不证明真实物理路径可用。
+     * 运输和物化保留主 SQL 的选行、NULL、重复度与行序，不以内部子查询排序推断外层聚合保序。
      * 不满足约束抛出 SourceGuaranteeException，不能兑现则准确拒绝对应能力。
      */
     fun execute(source: SourceConfiguration, request: SourceSqlRequest, control: WarehouseExecutionControl,

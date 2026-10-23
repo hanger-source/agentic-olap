@@ -410,12 +410,21 @@ error("author stopped after the committed write")`, { code: partialCode }));
   const effects = partialOriginal.result.calls.filter(item => item.success).flatMap(item => item.effects);
   assert.equal(effects.length, 2);
   assert.equal(effects[0].readOperation, "read-asset-version");
+  assert.equal(effects[1].readOperation, "read-asset-version");
+  assert.deepEqual(effects[1].assetVersion, effects[0].assetVersion);
   assert.equal(outputValue(partialOriginal.result).text, effects[0].assetVersion.id,
     "作者异常前已显式输出的精确身份应与真实写效果一致并保留");
   const recovered = await executeScript(rpc, scriptPayload(`
-val item = olap.semantics.businessLines(GovernanceReadRequests.PageInput(0, 20)).items.single { it.code == parameters.text("code") }
-olap.output(ScriptValue.Text(item.id))`, { code: partialCode }));
+val id = parameters.text("id")
+val version = parameters.text("version").toLong()
+val snapshot = olap.semantics.asset(GovernanceReadRequests.AssetVersionRequest(parameters.text("assetType"), id, version)) as AssetSnapshot.BusinessLine
+val item = snapshot.value
+check(item.id == id && item.currentVersion == version && item.status == "ACTIVE")
+olap.output(ScriptValue.Text(item.id))`, effects[1].assetVersion));
   assert.equal(recovered.envelope.success, true);
+  assert.deepEqual(recovered.report.calls.map(item => item.operationId), ["read-asset-version"],
+    "恢复只消费真实效果的精确引用，不重放已经完成的创建或激活");
+  assert(recovered.report.calls.every(item => item.success && item.effects.length === 0));
   assert.equal(outputValue(recovered.report).text, effects[0].assetVersion.id);
   await stop();
   assert(config.auth.grants[0].operations.includes("execute-query"));

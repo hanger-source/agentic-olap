@@ -2,7 +2,7 @@
 
 完整 MCP 服务通过来源插件访问数据。使用方提供与其网络、鉴权和查询协议相符的插件，服务负责语义管理、发布、规划、SQL 生成、执行要求检查及结果合同校验。HTTP 查询服务是来源访问实现，不需要数据库端口、JDBC URL、数据库凭据或 catalog 权限。业务公式、资格规则和指标组合仍通过语义定义和 Query 表达。
 
-本文描述源码中的来源访问合同：连接器 API 为 `agentic-olap-connector/v12-kotlin-native-collection-placement-calcite-1.42`，元数据存储格式为 `16`。服务、SDK 与插件须来自同一发行或同轮源码构建，安装发行物时以该发行声明及实际服务合同为准。旧存储格式明确拒绝，服务不会自动改写已有持久根。
+本文描述源码中的来源访问合同：连接器 API 为 `agentic-olap-connector/v12-kotlin-native-collection-placement-calcite-1.42`，元数据存储格式为 `16`。产品运行构件按同一发行装配；独立插件核对目标宿主的连接器合同与实际运行要求，产品版或 SDK 坐标变化本身不要求重构原插件，具体采用规则见[安装与发布](installation-release.md)。旧存储格式明确拒绝，服务不会自动改写已有持久根。
 
 ## 配置来源
 
@@ -81,7 +81,7 @@ JDBC 实现的 `identityParameters` 为 `jdbcUrl`、可选 `username` 和 `drive
 
 源端原生强制约束可以免去同一非空条件的数据扫描，但插件必须核验约束确实作用于本次精确来源和列、覆盖已有数据与本次可读数据，而且在主查询期间不会因 DDL、表替换或连接切换失效。仅约束名称相同、目录返回 `nullable=false`、只约束后续写入、一次历史 catalog 观察或 `DECLARED` 结构都不足以证明这些条件。核验与使用之间的 schema 稳定性应由来源实际机制保证，例如同一受保护事务或 statement 的稳定 schema；不能靠先查目录再独立提交查询推断。源端只兑现非空约束时，也不能据此声明可以为优化器兑现所有冻结 PK／UK 等约束。
 
-插件选择同一原子 statement 进行数据见证或关系检查时，必须有目标来源的真实执行机制保证每项必要检查都会执行并将违例传播为失败，即使主结果为空、优化器裁剪了投影或分支、或者结果读取达到预算。把检查放进可能未被读取的 CTE、投影或交叉连接不构成这种保证；仅声明 statement snapshot 也不证明检查实际执行。没有通用 SQL 包装模板能替所有来源兑现这项责任。插件保持核心主 SQL 的人口、NULL、重复度和求值语义，不用前置 COUNT、跳过空人口或失败后换方案替代核验。
+插件选择同一原子 statement 进行数据见证或关系检查时，必须有目标来源的真实执行机制保证每项必要检查都会执行并将违例传播为失败，即使主结果为空、优化器裁剪了投影或分支、或者结果读取达到预算。把检查放进可能未被读取的 CTE、投影或交叉连接不构成这种保证；一次 HTTP、一个 SQL 外壳或 statement snapshot 声明也不证明检查实际执行。共同返回检查证据和主结果的运输实现，不能因主结果零行而丢失必要证据。没有通用 SQL 包装模板能替所有来源兑现这项责任；物理来源路径被后端拒绝时应保留真实失败，不能把常量输入的成功当作能力已兑现。插件保持核心主 SQL 的人口、NULL、重复度和求值语义，不用前置 COUNT、跳过空人口或失败后换方案替代核验。
 
 发现采用列存在 NULL 时返回 `SourceGuaranteeException("SOURCE_NOT_NULL_VIOLATION")`；精确来源、类型或约束已变化时返回对应 `SOURCE_BINDING_DRIFT`、`SOURCE_COLUMN_TYPE_DRIFT` 或 `SOURCE_CONSTRAINT_DRIFT`。无法核验或无法维持所需一致性时准确拒绝能力或报告保证核验失败，不能报成已发现数据违例。HTTP 插件可用 `SourceExecutionException` 保留实际阶段、请求接受与执行状态；仅能确认查询已提交时，不把状态填成 `NOT_SUBMITTED`。原生异常与完整诊断保留为私有 cause，不把 SQL 或来源原文放入公开消息。
 
@@ -128,6 +128,8 @@ olap.output(olap.sources.connectorCapabilities(
 
 `expandCollection(outputType,tableAlias)` 返回原生展开的放置计划：`CollectionExpansion.Relation` 提供 FROM 生成器，`InputProjection` 提供完整输入上的单个 SELECT-list SRF；取值回调只接收当前作用域的数组和生成值引用，返回完整元素与序号表达式。核心构造输入透传、逐行人口、INNER／OUTER 及输出投影，不向插件开放任意关系改写。FROM 计划用核心 LEFT JOIN 兑现 OUTER；输入投影的 OUTER 要求明确的 `COLLECTION_PROJECTION_OUTER`，由核心绑定存在标记、用 typed singleton NULL 数组保留空／NULL 输入，再补整个元素和序号 NULL。该原生类型与方言组合未兑现时，编译以 `NATIVE_COMPILATION_CAPABILITY_MISSING` 和 `EXPAND_COLLECTION_OUTER` 明确拒绝。实际 NULL 元素仍有从 1 开始的位置，重复度、完整 ROW 和求值作用域不变。完整接口与原生映射范式见[连接器 API](../project/modules/kernel/connector-api/README.md)。常量数组或其他后端的成功不替代真实表行、聚合结果及目标后端正式 Query 的验收。
 
+零条输入关系、已存在记录上的 NULL／空数组、NULL 元素及字段全 NULL 的非空 ROW 分别保留自身含义。固定零行或一行的完整集合外壳可能被常量折叠，不能据此推定物理扫描、原生引擎之间的类型传递或记录描述符同样可用；不同 Unknown 读基础下的空人口失败与非空成功也不能定位唯一根因。插件依据实际原生类型和执行路径调查，不删除元素、序号或输入透传列，不将中间 ARRAY／ROW 压成展示字符串来绕过类型边界。
+
 `textIdentityEquals(builder,left,right)` 接收两个保留真实类型的操作数，为文本身份 EQ、NE、IN 提供完整的 BOOLEAN 比较表达式，遵循 SQL 三值逻辑，不能隐式忽略大小写、尾空格或做 Unicode 归一。原生文本等号是否等价取决于实际类型、编码与 collation；样本相等和估算成本下降都不足以证明普遍等价。插件直接映射完整比较，不必将文本冒充二进制，也不必在 SQL 字符串中寻找操作数。数据库、列或比较策略中影响该保证的条件属于身份与来源保证，不能放入运行参数。这个合同不重新定义所有 CHAR、GROUP BY 或 ORDER BY 行为。
 
 插件的原生 Rex 函数还须诚实声明 NULL 传播，供 Calcite 分析真实过滤条件。返回类型可空不等于严格 NULL 传播；仅当函数严格传播 NULL 且非 NULL 输入不产生 NULL 时，才可用正式 `SqlOperator.getStrongPolicyInference()` 声明 `Strong.Policy.ANY`。内置 DuckDB `ENCODE` 和 H2 `RAWTOHEX/STRINGTOUTF8` 使用这一声明，原生 SQL 与身份比较语义不变。无法证明时，核心仍保留运行关系检查，不据插件函数名或可空类型免除 NULL、人口、重复度与数量边界。
@@ -156,7 +158,9 @@ olap.output(olap.sources.connectorCapabilities(
 
 插件返回 `SourceExecutionResult(frame,readBasis,request)`，其中 `frame` 是 `ResultFrame`。列必须与核心给定别名、顺序和类型一致；技术类型可以来自来源响应，也可以来自使用方明确的类型合同。`JdbcColumnType` 在这里是 SQL 标准类型码、原生类型名、精度、标度和可空性的值对象，不要求 `ResultSetMetaData`、`Connection` 或任何 JDBC 驱动。
 
-请求中的 `ResultValueType.Scalar` 用可空的 `Integer precision/scale` 表达 SQL 类型容量；未指定时为 `null`，不使用负数哨兵，也不能擅自补成零。DECIMAL 必须给出正精度及 `0..precision` 内的小数位。插件按同轮 SDK 编译并明确处理这些可空字段，装载器按精确连接器 API 标识检查接口。
+结果行序由完整主 SQL 的最终排序语义决定，访问实现按来源返回顺序物化，核心继续保留该行列表。窗口内的排序、TopN 的选行顺序和集合内部排序不自动构成最终结果的展示排序；没有最终 `ORDER BY` 时不承诺稳定行序，排序键未区分的并列行不额外确定顺序。`SourceSqlRequest` 不另给独立排序键，列别名映射与输出类型不能当作排序合同。运输封装、分页和预算处理必须保留主 SQL 已有的选行及行序，不把有序子查询包进聚合后就宣称保序，也不解析 SQL 自行重建排序或在客户端重算；不能兑现时准确失败，不交付被重排、少行或截断的成功结果。
+
+请求中的 `ResultValueType.Scalar` 用可空的 `Integer precision/scale` 表达 SQL 类型容量；未指定时为 `null`，不使用负数哨兵，也不能擅自补成零。DECIMAL 必须给出正精度及 `0..precision` 内的小数位。插件明确处理这些可空字段，装载器按精确连接器 API 标识检查接口。
 
 HTTP 服务的分页、截断或未完成状态由插件识别；必须按明确的一致性合同取完或准确失败，不能把一页或已截断的数据当作完整结果返回。
 

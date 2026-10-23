@@ -16,13 +16,15 @@ agentic-olap sdk --repository
 
 `connectors` 返回 npm 已安装插件的实际 `manifestPath`、`connectorRef` 和 API。把返回值用于服务配置，不按连接器 ID 猜目录。文件已随 npm 就位，命令只读取路径与身份，不下载、解压或二次安装，不修改配置、不创建数据源，也不连接业务数据库。
 
-`sdk` 返回本地安装版本、API、随包文档、JitPack 仓库地址和 `artifacts` 中的精确构件坐标，`sdk --repository` 只输出仓库地址。独立插件工程配置 `maven("https://jitpack.io")` 并引用该坐标，第三方依赖使用 `mavenCentral()`。SDK 公开下载，无需令牌或本地 SDK 仓库。`API.md`、`SOURCE-ACCESS.md`、`LOADER.md` 面向插件实现者。使用远程服务时核对 SDK、插件与该服务的实际 API；命令报告本地安装版本，不会把运行中的服务自动升级。
+`sdk` 返回本地安装版本、API、随包文档、JitPack 仓库地址和 `artifacts` 中的精确构件坐标，`sdk --repository` 只输出仓库地址。新建或确需重构的独立插件工程配置 `maven("https://jitpack.io")`，采用目标宿主披露的精确坐标；第三方依赖使用 `mavenCentral()`。SDK 公开下载，无需令牌或本地 SDK 仓库。`API.md`、`SOURCE-ACCESS.md`、`LOADER.md` 面向插件实现者。使用远程服务时核对该服务的实际声明；命令报告本地安装版本，不会把运行中的服务自动升级。
 
 HTTP 或其他后端由使用方提供匹配其 SQL 后端及实际协议的插件；SQL 协议兼容不证明类型、数值、时间或一致性映射已经成立。业务 Agent 通过正式 MCP 使用已配置的来源。
 
 本仓库源码的连接器 API 为 `agentic-olap-connector/v12-kotlin-native-collection-placement-calcite-1.42`；安装发行物时以实际服务及 `agentic-olap sdk` 披露的 API 为准。`connectorRef` 是 manifest 中实际的 `{id,version,sha256}`，数据源逐项引用该完整对象。服务核验 API 和摘要，驱动只由 JDBC 实现核验。
 
-独立插件必须使用 `agentic-olap sdk` 返回的同版正式 Maven 坐标重新构建，并更新插件 manifest 和精确来源绑定。集合展开的 `expandCollection(outputType,tableAlias)` 返回封闭的 `CollectionExpansion.Relation` 或 `InputProjection` 计划：前者映射原生 FROM 关系，后者映射完整输入上的单个 SELECT-list SRF；插件分别提供生成与完整元素／序号取值表达式。核心负责输入透传、INNER／OUTER 人口、重复度与缺行补 NULL，不开放完整输入的任意关系改写。投影式 OUTER 另需 `COLLECTION_PROJECTION_OUTER`，兑现核心的数组长度判断、typed singleton 哨兵、存在标记与整元素 NULL；未兑现时编译明确拒绝。具体合同与实现入口见随 npm 安装的 SDK `API.md`。使用真实表行或聚合结果回放原 Query，常量数组成功不能替代相关展开验收。
+产品版本或 SDK Maven 坐标变化本身不要求重新构建既有插件。原插件与目标宿主的连接器 API 相同、所用公共接口的二进制合同及 JVM、Kotlin、Calcite 要求满足时，可原样保留完整插件组。宿主仍逐项核验原 manifest、JAR 摘要、完整 `connectorRef` 和 provider 身份；不因产品升级改写它们。API 字符串相同和装载成功都不能单独证明尚未调用的分支成立，升级须用原精确插件完成实际使用能力的查询验证。原字节和来源身份配置均未改变时，来源绑定也不变，无需仅为产品版本重登记目录或修订资产。
+
+集合展开的 `expandCollection(outputType,tableAlias)` 返回封闭的 `CollectionExpansion.Relation` 或 `InputProjection` 计划：前者映射原生 FROM 关系，后者映射完整输入上的单个 SELECT-list SRF；插件分别提供生成与完整元素／序号取值表达式。核心负责输入透传、INNER／OUTER 人口、重复度与缺行补 NULL，不开放完整输入的任意关系改写。投影式 OUTER 另需 `COLLECTION_PROJECTION_OUTER`，兑现核心的数组长度判断、typed singleton 哨兵、存在标记与整元素 NULL；未兑现时编译明确拒绝。具体合同与实现入口见随 npm 安装的 SDK `API.md`。使用真实表行或聚合结果回放原 Query，常量数组成功不能替代相关展开验收。
 
 ## 登记数据源
 
@@ -98,7 +100,20 @@ AVG 仍须提供非空数量合同。事实度量的 `aggregationRounding`、完
 
 字段应明确提供类型、顺序与可空性；`autoIncrement/generated` 未知时可以不提供，服务保留未知。`structureProvenance.kind=DECLARED` 表示明确提供的结构，外部目录与数据库观察分别标记来源。声明不等于已经核验的保证；查询实际依赖关系或约束检查时，插件必须兑现检查与计算的一致性。事务快照是实现方式之一；来源也可通过原子 SQL 或不可变数据版本兑现。插件可明确选择安全字面量 SQL 提交，无需假称参数绑定。缺少能力会以 `SOURCE_CAPABILITY_MISSING` 指出来源、操作和能力，只影响实际依赖它的操作。
 
-同一物理表身份的新版本可以显式采用同一稳定业务来源的另一绑定；已有版本和发布仍保留原绑定。旧发布的绑定必须继续部署，缺失时执行明确失败，不自动选用同 ID 的其他绑定。运行参数调整不改变绑定，重启后使用实际部署策略。服务使用存储格式 `16`，不自动改写旧格式持久根，恢复时使用匹配发行构件及精确插件；所选资产可通过 `read-deployment-availability` 分别核验读取和执行前提。
+运行参数调整不改变绑定，重启后使用实际部署策略。服务使用存储格式 `16`，不自动改写旧格式持久根，恢复时使用匹配发行构件及精确插件；所选资产可通过 `read-deployment-availability` 分别核验读取和执行前提。
+
+## 更换插件与显式采用
+
+真正更换插件字节、provider 版本或来源身份参数时，使用实际产物生成的新 manifest 和完整 `connectorRef`；保留原插件组供仍引用它的资产使用。精确插件引用进入 `sourceIdentityHash`，相同连接器 API 不使新旧绑定相等。`list-data-sources` 返回部署后的实际绑定，不能手写旧摘要覆盖新字节。
+
+采用新绑定复用现有治理入口，按当前主体权限执行：
+
+1. 用 `olap.governance.discoverSource`（`discover-source`）或 `registerSourceStructure`（`register-source-structure`）为目标 `dataSourceId/sourceIdentityHash` 取得完整结构证据，再用 `olap.semantics.sourceDiscovery/discoveredTables/discoveredColumns` 读取精确快照、表及字段。
+2. 用 `olap.semantics.definition(AssetVersionRequest)`（`read-asset-definition`）读取旧精确版本的类型化定义；`dependencies`（`read-definition-dependencies`）读取其依赖，`impact(DefinitionImpactRequest)`（`read-definition-impact`）读取受影响的依赖方与路径。读取结果不是统一的 CreateRequest，也不执行修订。
+3. 明确构造完整 `PhysicalTableCreateRequest`，以目标调查的 `schemaHash` 和 `sourceConstraints.discoveredTableId` 采用该绑定，调用 `olap.governance.revisePhysicalTable(GovernanceRevisionRequest(objectId, sourceVersion, definition))`（`revise-physical-table`）。同一物理表身份须保留稳定 `dataSourceId`，服务核验目标证据、完整列集及类型；仅登记新目录不会改变已有物理版本。
+4. 按实际依赖路径明确组织 `reviseLogicalTable/reviseTopology/reviseEvent` 等对应修订及其采用请求，使用每次返回的精确版本；用 `olap.semantics.revisionDiff`（`read-definition-revision-diff`）核对版本差异，经 `olap.governance.activate`（`activate`）和 `buildRelease`（`build-release`）明确激活、发布所选闭包。修订不会自动把依赖方改到新版本。
+
+已有版本和发布保留原绑定。只运行新发布时也须明确选择其发布身份；旧发布所需绑定未部署会返回 `SOURCE_BINDING_NOT_DEPLOYED`，不会按同 ID 选择其他绑定。服务没有把一个目标绑定自动传播到全部资产与发布的迁移操作，影响读取也不承诺自动重写业务定义。完成后对所选发布读取部署可用性，并执行实际 Query 确认。
 
 ## 使用已声明的原生函数
 

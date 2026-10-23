@@ -6,7 +6,12 @@ import com.olap.prototype.contract.JdbcRelationCheck
 import com.olap.prototype.contract.JdbcSourceRequirement
 import com.olap.prototype.connector.SourceCapabilities.Capability
 
-/** 核心已编译的 SQL 与完整结果合同；访问插件不接收业务公式。 */
+/**
+ * 核心已编译的主 SQL 与完整结果合同；访问插件不接收业务公式。
+ * 主 SQL 拥有计算、选行与结果行序语义，列别名和输出类型不是另一份排序键合同。
+ * 协议封装、分页与物化须保留主 SQL 的这些语义，不解析 SQL 后自行重建或聚合重排。
+ * 没有最终排序时不承诺稳定行序，排序键未区分的并列行也不额外确定顺序。
+ */
 class SourceSqlRequest(
     val operation: String,
     val sql: String,

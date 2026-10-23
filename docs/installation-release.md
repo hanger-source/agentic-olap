@@ -31,7 +31,15 @@ dependencies {
 }
 ```
 
-坐标以目标服务的实际声明为准。自有模块的 JAR 和 POM 来自 JitPack，第三方依赖来自 Maven Central。无需下载令牌、查找 GitHub 归档或手工解压。共同合同、Kotlin runtime 和 Calcite 不打入插件 JAR，具体部署边界见[连接器 API](../project/modules/kernel/connector-api/README.md)。业务后端的协议、鉴权、原生类型及 SQL 映射仍由独立插件负责。
+新建或确需重构的插件采用目标宿主实际披露的精确 SDK 坐标。自有模块的 JAR 和 POM 来自 JitPack，第三方依赖来自 Maven Central。无需下载令牌、查找 GitHub 归档或手工解压。共同合同、Kotlin runtime 和 Calcite 不打入插件 JAR，具体部署边界见[连接器 API](../project/modules/kernel/connector-api/README.md)。业务后端的协议、鉴权、原生类型及 SQL 映射仍由独立插件负责。
+
+独立插件的部署按实际变化处理：
+
+- 产品版本或 SDK Maven 坐标变化本身不要求重构。原插件与目标宿主的连接器 API 相同，所用公共接口的二进制合同及 JVM、Kotlin、Calcite 要求满足时，可原样使用完整插件组。装载器核验 manifest、逐 JAR 摘要、组摘要、唯一 provider 及其完整身份，不比较产品发行号或 Maven 构建版本。API 字符串相同和装载成功不单独证明所有尚未调用的分支；升级需验证实际使用的编译和访问能力。
+- 原插件字节、完整 `connectorRef` 和来源身份配置均未改变时，来源绑定不变。宿主产品版本与 SDK 坐标不参与 `sourceIdentityHash`，无需仅为产品升级重登记来源结构或修订依赖资产。
+- 真正更换插件字节、provider 版本或来源身份参数时，使用真实生成的 manifest 与新精确引用，为目标绑定取得结构证据。通过 `read-asset-definition/read-definition-dependencies/read-definition-impact` 读取精确定义与影响，再用 `revise-physical-table` 及对应依赖定义的修订／采用入口显式组织新版本；`read-definition-revision-diff` 供核对差异，`activate/build-release` 明确激活、发布。已有版本与发布保留原引用，缺失精确绑定时失败；不存在自动传播目标绑定的迁移操作。完整调用见[连接说明](../skills/agentic-olap/references/connections.md#更换插件与显式采用)。
+
+产品自身的运行 JAR、脚本环境和内置插件仍按同一发行标签装配。连接器 API 管理插件与宿主之间的正式合同；破坏该边界的接口、所需共享类型或运行要求时必须更新 API 身份，不能只更换产品版本后仍声称原合同成立。SDK 的其他公共定义不因共享一个 Maven 发行版本而自动取得连接器 SPI 的跨版保证。
 
 ## 维护者构建与发布
 

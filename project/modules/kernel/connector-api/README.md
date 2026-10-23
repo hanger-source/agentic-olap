@@ -2,9 +2,11 @@
 
 `connector-api` 为独立后端实现提供共同合同和 Calcite 1.42.0 的公开类型。它不依赖治理、服务应用或内部编译实现。连接器实现已定义语义的原生映射与来源访问，业务指标、对象资格、数量、NULL 与查询组织仍由语义定义和共同内核拥有。
 
-SDK 按精确发行标签发布到 JitPack。`agentic-olap sdk` 返回本版 API、随包文档、Maven 仓库及 `artifacts` 中的完整坐标；`sdk --repository` 只输出仓库地址。构件使用 `com.github.hanger-source.agentic-olap` group，版本为 `v` 加产品版本，公开入口为 `connector-api`，可复用 JDBC 支持为 `warehouse-jdbc`，应用装载器为 `connector-loader`。使用命令返回的精确版本，不使用 SNAPSHOT。API 标识为 `agentic-olap-connector/v12-kotlin-native-collection-placement-calcite-1.42`。
+SDK 按精确发行标签发布到 JitPack。`agentic-olap sdk` 返回本版 API、随包文档、Maven 仓库及 `artifacts` 中的完整坐标；`sdk --repository` 只输出仓库地址。构件使用 `com.github.hanger-source.agentic-olap` group，版本为 `v` 加产品版本，公开入口为 `connector-api`，可复用 JDBC 支持为 `warehouse-jdbc`，应用装载器为 `connector-loader`。新建或确需重新构建的插件使用目标宿主命令返回的精确坐标，不使用 SNAPSHOT。API 标识为 `agentic-olap-connector/v12-kotlin-native-collection-placement-calcite-1.42`。
 
 SDK 的 JAR、POM 由插件工程的 Gradle 从 JitPack 匿名取得，第三方传递依赖从 Maven Central 取得。插件开发仍需 Kotlin/Gradle 工具链；运行产品无需这些构建工具。部署到其他服务前核对该服务的实际 API，不能把本地安装版本当作远程运行版本。
+
+产品版本或 SDK 坐标变化本身不要求重新构建插件。同一连接器 API 下，插件实际使用的公共 ABI 及 JVM、Kotlin、Calcite 要求仍满足时，可以沿用原完整插件组、manifest、`ConnectorRef` 和来源绑定。装载器核验精确字节与接口身份，不比较插件构建时的产品版本；API 字符串相同或装载成功，也不单独证明所有延迟执行分支可用。真正更换构件字节时，生成新的精确引用及来源绑定，通过现有显式治理修订、采用和发布处理变化，不能覆写旧字节或自动切换已有发布。
 
 `OlapConnector` 使用 Kotlin 接口，通过 JVM ServiceLoader 注册；只读属性 `id`、`version`、`apiVersion`、`compilation` 声明实现与编译能力，`access(verifiedIdentity)` 接收装载器核验后的精确身份并返回来源访问实现。发现和纯编译不读取源凭据、不打开业务连接。原生类型、参数、转换、数值失败与标量解码按实际输入类型实现，不支持的映射明确拒绝。
 
@@ -81,7 +83,9 @@ AVG 的类型容量、算术正确性与舍入必须共同成立。`typeSystem.d
 
 `SourceAccess.execute` 拥有本次全部保证。访问层的 `CONSISTENT_READ` 要求检查与计算针对一致数据状态成立，可使用事务快照、原子 statement 或不可变数据版本，不把 `TRANSACTION_SNAPSHOT` 作为所有实现的前置。源端真实强制且覆盖既有数据的约束，也可在核验精确对象并保证执行期间 schema 稳定后兑现相应保证；仅目录 NULL 标记、约束名称、历史调查、DECLARED 或只检查后续写入的约束都不够。仅支持原生非空约束不代表能向优化器提供所有冻结键。内置 JDBC 继续使用数据非空见证，不因新增文档路径跳过扫描。
 
-同一原子 statement 的实现须保证必要检查不会因主结果为空、优化器裁剪、延迟求值或结果预算而跳过，并让违例传播为失败；一次 HTTP、SQL 批次或未被消费的 CTE 不是证明。插件保留核心主 SQL、检查 SQL 及各自参数的语义，不用 COUNT 前置、空人口跳过或运行后切换方式替代保证。发现真实 NULL 抛出 `SourceGuaranteeException("SOURCE_NOT_NULL_VIOLATION")`；能力不足使用 `SourceCapabilityException`，保留实际来源请求和阶段，不把无法核验写成数据已违例。单次执行保证可成立而 `readBasis` 仍为 Unknown；Unknown 不提供可重放版本坐标。完整机制条件与错误边界见[来源访问合同](../../../../docs/source-access.md)。
+同一原子 statement 的实现须保证必要检查不会因主结果为空、优化器裁剪、延迟求值或结果预算而跳过，并让违例传播为失败；一次 HTTP、SQL 外壳、批次或未被消费的 CTE 不是证明。共同交付检查证据和主结果时，零行主结果也不能丢失必要证据。固定输入成功不替代真实物理来源路径；后端拒绝运输形态时保留原失败，不据常量结果声明能力已经兑现。插件保留核心主 SQL、检查 SQL 及各自参数的语义，不用 COUNT 前置、空人口跳过或运行后切换方式替代保证。发现真实 NULL 抛出 `SourceGuaranteeException("SOURCE_NOT_NULL_VIOLATION")`；能力不足使用 `SourceCapabilityException`，保留实际来源请求和阶段，不把无法核验写成数据已违例。单次执行保证可成立而 `readBasis` 仍为 Unknown；Unknown 不提供可重放版本坐标。完整机制条件与错误边界见[来源访问合同](../../../../docs/source-access.md)。
+
+主 SQL 拥有最终结果的选行与行序语义，`SourceSqlRequest` 不另行提供排序键；`aliasMapping/outputTypes` 只是列合同。访问实现按来源返回顺序构造 `ResultFrame.rows`，运输、分页或预算处理不改变已有选行、重复度和排序。窗口排序、TopN 选行或集合内部排序不自动给出最终展示顺序；主 SQL 未给最终排序时不承诺稳定行序，并列键未区分的行也不额外确定顺序。不能仅凭有序子查询的样本认定外层 ARRAY／聚合会保序，也不能解析主 SQL 重建查询或在客户端重排来代替来源保证。
 
 集合结果、逐项展开、排序和文本显示分别声明 `COLLECTION_RESULTS/EXPANSION/SORT/TEXT` 能力。`sortCollection` 映射明确的方向及 NULL 顺序，`collectionText` 映射明确的分隔符与 NULL 替代；不能把数组提前解码成字符串代替这些运算。
 
@@ -94,7 +98,7 @@ AVG 的类型容量、算术正确性与舍入必须共同成立。`typeSystem.d
 
 内核拥有输入人口、输出投影和 INNER／OUTER：NULL 数组或空数组在 INNER 下无记录，在 OUTER 下补一个 NULL 元素及 NULL 序号；实际 NULL 元素有自己的非 NULL 序号，重复元素不丢弃。FROM 计划由核心 LEFT JOIN 并依据真实位置的非空性补整元素 NULL。输入投影计划的 OUTER 另需明确声明 `COLLECTION_PROJECTION_OUTER`：核心用标准 CARDINALITY 绑定存在标记，将 NULL／空数组替换为仅含一个 typed NULL 的同元素类型数组；生成后按存在标记将整个元素和序号置 NULL，原始输入列仍原样透传。该能力要求插件的原生类型与方言兑现 CARDINALITY、typed singleton ARRAY、CASE 和完整 ROW NULL 的组合；接受的类型超出保证时明确拒绝。缺少能力时在提交来源前返回 `NATIVE_COMPILATION_CAPABILITY_MISSING`、`capability=COLLECTION_PROJECTION_OUTER`、`operation=EXPAND_COLLECTION_OUTER`，不将 INNER 非空样本当作 OUTER 证明。
 
-序号从 1 开始，实际元素的 `ordinal` 必须非 NULL；不直接暴露原生数组下界，不凭元素或所有 ROW 字段为 NULL 推断缺行。映射不得自行过滤、去重、归约、复制输入或改变求值作用域；生成与取值针对同一条输入记录的同一绑定数组。运行验证须覆盖真实表行与聚合输入、空／NULL 数组、整体 NULL ROW、字段全 NULL 的非空 ROW、重复元素及位置规范化。其他后端上的通用 fixture 或常量数组成功不替代目标后端的正式 Query 验收。
+序号从 1 开始，实际元素的 `ordinal` 必须非 NULL；不直接暴露原生数组下界，不凭元素或所有 ROW 字段为 NULL 推断缺行。映射不得自行过滤、去重、归约、复制输入或改变求值作用域；生成与取值针对同一条输入记录的同一绑定数组，中间 ARRAY／ROW 保留类型与身份，不能压成展示字符串。运行验证须覆盖真实表行与聚合输入、空／NULL 数组、整体 NULL ROW、字段全 NULL 的非空 ROW、重复元素及位置规范化。其他后端上的通用 fixture 或常量数组成功不替代目标后端的正式 Query 验收；固定零行／一行外壳可能被折叠，不能证明物理扫描或原生引擎之间的集合类型传递已经成立。
 
 零条输入关系与一条输入记录上的 NULL／空数组是不同人口。带分组键的聚合在零条输入时不产生分组；集合聚合的 typed NULL 分支保留该聚合声明的空输入含义，不会创建分组。INNER 展开不制造输入记录，OUTER 只保留实际存在的输入记录。插件不能用预先 COUNT、跳过执行、额外分组、删除透传列或外围 SQL 改写来掩盖来源错误。
 
