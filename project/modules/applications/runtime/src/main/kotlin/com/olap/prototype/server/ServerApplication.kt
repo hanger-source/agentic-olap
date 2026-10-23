@@ -159,7 +159,8 @@ internal class ServerApplication private constructor(private val plugins: Connec
         }
         add("describe-script-api", "读取实际Kotlin API、构造器、封闭变体与完整脚本示例。", mapOf("operation" to "optional exact operation", "type" to "optional fully qualified public type"), handler = ::describeApi)
         add("execute-script", "在隔离JVM中编译并运行整段kts；各次正式调用分别授权和记录。",
-            mapOf("source" to "complete kts source", "sourceName" to "diagnostic filename", "dslApiVersion" to "exact deployed DSL version", "parameters" to "JSON object"), false)
+            mapOf("source" to "complete kts source", "sourceName" to "diagnostic filename", "dslApiVersion" to "exact deployed DSL version",
+                "parameters" to "bounded ordinary JSON object; exact limits and counting rules: describe-script-api type=com.olap.prototype.dsl.ScriptArguments, rules"), false)
         add("describe-operation", "读取获准操作的输入说明。", mapOf("operation" to "exact operation"), handler = { r,p ->
             fields(p, setOf("operation")); val selected = text(p,"operation")
             val operation = operations[selected] ?: throw ProducerContractException("operation is not registered")

@@ -8,11 +8,14 @@ sealed interface ScriptValue {
     data object Null : ScriptValue
     data class BooleanValue(val value: Boolean) : ScriptValue
     data class Text(val value: String) : ScriptValue {
-        init { require(value.length <= MAX_TEXT) { "script text exceeds the output limit" } }
+        init { limit(ScriptValueException.Reason.TEXT_LENGTH, "UTF16_CODE_UNITS", MAX_TEXT, value.length.toLong()) }
     }
     class DecimalValue(val value: BigDecimal) : ScriptValue {
-        constructor(value: String) : this(BigDecimal(value))
-        init { require(value.precision() <= MAX_TEXT && kotlin.math.abs(value.scale().toLong()) <= MAX_TEXT) { "script decimal exceeds the output limit" } }
+        constructor(value: String) : this(decimal(value))
+        init {
+            limit(ScriptValueException.Reason.DECIMAL_PRECISION, "PRECISION", MAX_TEXT, value.precision().toLong())
+            limit(ScriptValueException.Reason.DECIMAL_SCALE, "ABS_SCALE", MAX_TEXT, kotlin.math.abs(value.scale().toLong()))
+        }
         override fun equals(other: Any?): Boolean = other is DecimalValue && value == other.value
         override fun hashCode(): Int = value.hashCode()
     }
@@ -24,7 +27,13 @@ sealed interface ScriptValue {
     }
     class ObjectValue(values: Map<String, ScriptValue>) : ScriptValue {
         val values: Map<String, ScriptValue> = Collections.unmodifiableMap(values.toSortedMap())
-        init { require(this.values.keys.all { it.isNotBlank() && it.length <= 256 }); checkSize(this.values.values) }
+        init {
+            this.values.keys.forEach { key ->
+                if (key.isBlank()) throw ScriptValueException(ScriptValueException.Reason.OBJECT_KEY_BLANK, emptyList(), "NON_BLANK_KEY", "BLANK_KEY")
+                limit(ScriptValueException.Reason.OBJECT_KEY_LENGTH, "KEY_UTF16_CODE_UNITS", MAX_KEY, key.length.toLong())
+            }
+            checkSize(this.values.values)
+        }
         override fun equals(other: Any?): Boolean = other is ObjectValue && values == other.values
         override fun hashCode(): Int = values.hashCode()
     }
@@ -50,10 +59,34 @@ sealed interface ScriptValue {
     companion object {
         private const val MAX_TEXT = 1_000_000
         private const val MAX_NODES = 10_000
+        private const val MAX_DEPTH = 32
+        private const val MAX_KEY = 256
+
+        fun contract(): Map<String, Any> = mapOf(
+            "appliesTo" to listOf("SCRIPT_ARGUMENTS", "ORDINARY_SCRIPT_RESULTS"),
+            "structure" to mapOf("maximumDescendantNodes" to MAX_NODES, "maximumDescendantDepth" to MAX_DEPTH,
+                "containerIncluded" to false, "objectKeysCounted" to false, "nullCounted" to true,
+                "containersCounted" to true, "directChildDepth" to 1, "rejectionCount" to "FIRST_EXCESS",
+                "scope" to "EACH_CONTAINER_AND_ALL_SCRIPT_ARGUMENTS"),
+            "text" to mapOf("maximumUtf16CodeUnits" to MAX_TEXT),
+            "objectKeys" to mapOf("nonBlank" to true, "maximumUtf16CodeUnits" to MAX_KEY),
+            "decimal" to mapOf("maximumPrecision" to MAX_TEXT, "maximumAbsoluteScale" to MAX_TEXT),
+            "deploymentBudgets" to "JSON_INPUT_AND_PROTOBUF_OUTPUT_BUDGETS_APPLY_INDEPENDENTLY",
+        )
+
+        private fun decimal(value: String): BigDecimal = try { BigDecimal(value) }
+            catch (_: NumberFormatException) { throw ScriptValueException(ScriptValueException.Reason.DECIMAL_SYNTAX,
+                emptyList(), "DECIMAL_TEXT", "INVALID_DECIMAL") }
+
+        private fun limit(reason: ScriptValueException.Reason, measure: String, maximum: Int, observed: Long) {
+            if (observed > maximum) throw ScriptValueException(reason, emptyList(), "$measure<=$maximum", observed.toString())
+        }
+
         private fun checkSize(values: Collection<ScriptValue>) {
             var nodes = 0
             fun visit(value: ScriptValue, depth: Int) {
-                require(depth <= 32 && ++nodes <= MAX_NODES) { "script value exceeds structural limits" }
+                limit(ScriptValueException.Reason.DEPTH, "DESCENDANT_DEPTH", MAX_DEPTH, depth.toLong())
+                limit(ScriptValueException.Reason.NODE_COUNT, "DESCENDANT_NODES", MAX_NODES, (++nodes).toLong())
                 when (value) {
                     is ArrayValue -> value.values.forEach { visit(it, depth + 1) }
                     is ObjectValue -> value.values.values.forEach { visit(it, depth + 1) }

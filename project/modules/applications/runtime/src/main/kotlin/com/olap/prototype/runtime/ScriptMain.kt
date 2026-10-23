@@ -3,6 +3,7 @@ package com.olap.prototype.runtime
 import com.olap.prototype.codec.*
 import com.olap.prototype.dsl.OlapClients
 import com.olap.prototype.dsl.Caller
+import com.olap.prototype.dsl.ScriptValueException
 import com.olap.prototype.dsl.transport.CapabilityTransport
 import com.olap.prototype.protocol.*
 import com.olap.prototype.scripting.ScriptDiagnostic as RuntimeDiagnostic
@@ -76,6 +77,8 @@ private fun executeScript(request: ScriptRequest, transport: CapabilityTransport
         val diagnostic = ScriptDiagnostic.newBuilder().setSeverity("ERROR").setMessage((failure.message ?: failure.javaClass.simpleName).take(4_096))
         if (failure is java.util.concurrent.CancellationException) diagnostic.setCode("CANCELLED").setStage("SCRIPT")
         else if (failure is JsonDocumentException) diagnostic.setCode(failure.code).setStage(failure.stage)
+            .addAllFieldPath(failure.fieldPath.map(Any::toString)).setExpected(failure.expected).setActual(failure.actual)
+        else if (failure is ScriptValueException) diagnostic.setCode(failure.code).setStage("SCRIPT_PARAMETERS")
             .addAllFieldPath(failure.fieldPath.map(Any::toString)).setExpected(failure.expected).setActual(failure.actual)
         else diagnostic.setCode("SCRIPT_REQUEST_REJECTED").setStage("SCRIPT_INPUT_OR_OUTPUT")
         response.clearResult().setSuccess(false).addDiagnostics(diagnostic)

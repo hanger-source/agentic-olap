@@ -128,7 +128,7 @@ object ApiDiscovery {
         when (type) {
             Calculation.Call::class -> Calculation.Call.contract()
             MemberResult::class -> MemberResult.contract()
-            else -> emptyMap()
+            else -> if (type == ScriptArguments::class || ScriptValue::class.java.isAssignableFrom(type.java)) ScriptValue.contract() else emptyMap()
         })
 
     private fun parameter(value: KParameter) = ApiParameter(requireNotNull(value.name), value.type.toString(), value.isOptional, value.isVararg)

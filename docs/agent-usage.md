@@ -59,6 +59,23 @@ agentic-olap call execute-script --payload '{"source":"olap.output(olap.sources.
 
 不能把任意 JVM 对象作为结果。脚本日志与最终返回值分别处理。程序完成不等于每条查询的来源执行成功，仍须读取正式回执的状态。
 
+### 普通参数与返回值容量
+
+`describe-script-api` 读取 `com.olap.prototype.dsl.ScriptArguments` 或 `com.olap.prototype.dsl.ScriptValue` 的 `rules`，可取得普通值模型自身的容量与计数规则。这些限制同时用于参数和普通返回值，独立于部署的 JSON 输入字节、节点和深度预算，以及 Protobuf 输出字节和深度预算；各项都必须成立。
+
+| 普通值限制 | 规则 |
+| --- | --- |
+| 每个数组或对象 | 所有后代值合计最多 10,000 个；容器自身不计，后代中的容器、标量与 NULL 都计，对象键不计 |
+| 全部参数 | `ScriptArguments` 将所有参数作为一个对象检查；拆成多个顶层参数名仍计算总量 |
+| 后代深度 | 最多 32 层；直接子值为第 1 层 |
+| 单个文本 | 最多 1,000,000 个 UTF-16 code units |
+| 对象键 | 非空白，最多 256 个 UTF-16 code units |
+| 十进制 | precision 与绝对 scale 各不超过 1,000,000，保留精确十进制 |
+
+合法 JSON 超出普通值容量时，诊断保留 `SCRIPT_VALUE_NODE_COUNT`、`SCRIPT_VALUE_DEPTH`、`SCRIPT_VALUE_TEXT_LENGTH`、`SCRIPT_VALUE_OBJECT_KEY_BLANK/LENGTH` 或 `SCRIPT_VALUE_DECIMAL_SYNTAX/PRECISION/SCALE`。`field_path` 指向失败的值或容器，根值的空路径在 Protobuf JSON 中可以省略；`expected` 给出要求，`actual` 只给计数或错误形态。节点与深度在首次越界即停止：例如 `DESCENDANT_NODES<=10000`、`actual="10001"` 表示首次越界计数，不是完整树的总量。对象键错误定位其容器，不回显键内容。参数转换失败的阶段为 `SCRIPT_PARAMETERS`，此时脚本正文尚未运行，能力调用列表为空；程序中直接构造普通值失败则保留求值阶段与源码位置。
+
+普通参数适合日期、精确引用文本、选择项与容量内的结构事实。较大的完整目录可在 kts 中直接构造 `WarehouseColumnMetadata`、`SourceStructureRegistrationRequest.Table` 等正式 Kotlin 模型，再调用 `olap.governance.registerSourceStructure` 并返回正式回执。模型字段不需要先包装为 `ScriptValue`；完整列、NULL、约束和结构来源仍须保留。此方式仍受源码、编译、正式调用消息与运行预算约束，不表示任意大目录都能一次提交。不要把目录编码成字符串绕过普通值检查，也不自动分批执行写入；结构登记成功与后续业务查询成功分别判断。
+
 ## 定义建设与持续复用
 
 先读取已有定义、精确版本、实际来源和业务资料。构造正式模型本身没有写入；调用 `olap.governance.*` 才执行相应治理命令。例如：

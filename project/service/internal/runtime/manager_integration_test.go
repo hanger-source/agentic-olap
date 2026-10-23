@@ -22,6 +22,10 @@ import (
 // These trials run the actual distribution; they never install a test JVM main
 // or substitute the metadata/worker protocol with a fake process.
 func actualRuntime(t *testing.T, inFlight int) *Manager {
+	return actualRuntimeWithInputBudget(t, inFlight, 8192)
+}
+
+func actualRuntimeWithInputBudget(t *testing.T, inFlight, inputBytes int) *Manager {
 	t.Helper()
 	distribution := os.Getenv("AGENTIC_OLAP_DISTRIBUTION")
 	javaHome := os.Getenv("JAVA_HOME")
@@ -44,7 +48,7 @@ func actualRuntime(t *testing.T, inFlight int) *Manager {
 		"scripting": map[string]any{"workerCount": 1, "jvmHeapMiB": 768, "maxCalls": 100, "nativeLogBytes": 1048576},
 		"limits": map[string]any{
 			"requestSeconds": 30, "startupSeconds": 60, "maxInFlight": inFlight, "workerCount": 1,
-			"catalogEntriesPerWorker": 2, "requestBytes": 8192, "inputDepth": 16, "inputNodes": 200000,
+			"catalogEntriesPerWorker": 2, "requestBytes": inputBytes, "inputDepth": 16, "inputNodes": 200000,
 			"inputFileBytes": 33554432, "inputFiles": 64, "responseBytes": 33554432,
 			"pendingOutputBytes": 67108864, "workerJvmHeapMiB": 512, "nativeMemoryBytes": 268435456,
 			"catalogBytes": 33554432, "sqlBytes": 4194304, "parameters": 10000,
