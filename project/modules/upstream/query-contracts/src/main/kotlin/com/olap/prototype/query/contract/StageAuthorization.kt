@@ -14,6 +14,17 @@ class StageAuthorization(val operationType: String, joinTypes: Set<JoinType>, ag
     override fun equals(other: Any?): Boolean = other is StageAuthorization && operationType == other.operationType && joinTypes == other.joinTypes && aggregations == other.aggregations && expressions == other.expressions
     override fun hashCode(): Int = listOf(operationType, joinTypes, aggregations, expressions).hashCode()
     companion object {
+        fun contract(): Map<String, Any> = mapOf(
+            "operationType" to PostOperationContract.operationTypes(),
+            "collections" to "EXPLICIT_IMMUTABLE_SETS_NO_IMPLICIT_EXPANSION",
+            "equality" to "OPERATION_TYPE_AND_ALL_JOIN_AGGREGATION_EXPRESSION_SETS_ORDER_INDEPENDENT",
+            "currentFactory" to "DEPLOYED_LANGUAGE_CANDIDATE_NOT_AUTOMATIC_AUTHORIZATION",
+            "currentJoinTypes" to "ALL_JOIN_TYPES_FOR_JOIN_INPUT_OTHERWISE_EMPTY",
+            "currentAggregations" to "ALL_RESULT_AGGREGATION_KINDS_FOR_PARTITION_AGGREGATE_REGROUP_WINDOW_AGGREGATE_OBSERVE_WINDOW_OTHERWISE_EMPTY",
+            "currentExpressions" to "ExpressionAuthorization.current()",
+            "scenarioRefresh" to "EXACT_MATCH_WITH_StageAuthorization.current(ruleType)_REQUIRED_NO_SUBSET_OR_SUPERSET",
+            "publishedAuthorization" to "EXACT_FROZEN_SETS_CHECK_EACH_NODE_AND_ARGUMENT_RECURSIVELY_NO_AUTOMATIC_UPGRADE",
+        )
         fun current(operationType: String): StageAuthorization = StageAuthorization(operationType,
             if (operationType == PostOperationContract.JOIN_INPUT) JoinType.entries.toSet() else emptySet(),
             if (operationType in setOf(PostOperationContract.PARTITION_AGGREGATE, PostOperationContract.REGROUP,
@@ -34,6 +45,17 @@ class ExpressionAuthorization(kinds: Set<Kind>, operators: Set<ResultExpression.
     override fun equals(other: Any?): Boolean = other is ExpressionAuthorization && kinds == other.kinds && operators == other.operators && functions == other.functions && castTypes == other.castTypes && literalTypes == other.literalTypes
     override fun hashCode(): Int = listOf(kinds, operators, functions, castTypes, literalTypes).hashCode()
     companion object {
+        fun contract(): Map<String, Any> = mapOf(
+            "collections" to "EXPLICIT_IMMUTABLE_SETS",
+            "equality" to "ALL_FIVE_SETS_MUST_MATCH_ORDER_INDEPENDENT",
+            "currentKinds" to Kind.entries.map { it.name },
+            "currentOperators" to ResultExpression.ResultOperator.entries.map { it.name },
+            "currentFunctions" to ScalarFunction.entries.map { it.name },
+            "currentCastTypes" to SemanticExpression.ValueType.entries.map { it.name },
+            "currentLiteralTypes" to current().literalTypes.map { it.name }.sorted(),
+            "approval" to "MANUAL_CONSTRUCTION_DOES_NOT_CHANGE_THE_OPERATION_ACCEPTANCE_POLICY",
+            "scenarioRefresh" to "FULL_CURRENT_CANDIDATE_REQUIRED_NOT_ONLY_NODES_USED_BY_THIS_QUERY",
+        )
         fun current(): ExpressionAuthorization = ExpressionAuthorization(Kind.entries.toSet(), ResultExpression.ResultOperator.entries.toSet(),
             ScalarFunction.entries.toSet(), SemanticExpression.ValueType.entries.toSet(),
             setOf(ScalarValueType.TEXT, ScalarValueType.NUMBER, ScalarValueType.DATE, ScalarValueType.LOCAL_TIMESTAMP, ScalarValueType.OFFSET_TIMESTAMP))

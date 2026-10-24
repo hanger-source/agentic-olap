@@ -1,5 +1,23 @@
 # Agentic OLAP · 版本与变更
 
+## 0.17.2
+
+主服务、运行管理及必需研发链统一为 Kotlin/JVM。主服务直接拥有 HTTP/MCP、认证、正式治理与查询应用、权威元数据、REPL 会话、工作进程和结果交付；同进程调用使用正式 Kotlin 对象，实际跨进程与持久化边界保留明确 Protobuf。Go 服务、元数据监督者往返和 Go 研发编排退出。
+
+持续 Kotlin REPL 保留变量、函数、正式对象及参数快照，不重放源码。主服务、脚本入口、来源工作入口分别装配 classpath：主服务不加载 REPL 编译器，脚本入口不加载治理实现，来源工作入口不加载 HTTP 服务。macOS 进程组和 Seatbelt 由 Kotlin 平台实现装配，进程启动、取消、退出回收和目录释放属于同一运行管理。
+
+产品继续由一个 macOS arm64 npm 包交付。包内 JRE 运行自包含安装引导，安装阶段从同标签 JitPack 与 Maven Central 取得全部精确运行构件，按长度与 SHA-256 校验，通过内容缓存锁协调并发安装并原子落位；JRE 内部链接校验后物化为归档文件。命令入口直接启动包内 JRE，启动不下载依赖。SDK 继续使用公开 Maven 坐标，skill 继续由同仓库标签交付。
+
+首次本地启动保存的部署配置只包含实际配置字段，不再把派生 URL 写回配置后触发严格读取拒绝。安装用法按正式 Protobuf JSON 读取 `content.run.runId`，退出不存在的双重 `run` 包装。完整安装用法分别观察真实来源、结构登记、定义与发布、查询及结果重启读取，以及大消息保存、部分成功效果恢复和授权变化拒绝；安装报告和 npm 归档保留各自实际状态，标签或 JVM 构建不代替完整产品发行。
+
+Gradle 统一构建、协议生成、SDK 和 npm 装配；独立 Kotlin 研发客户端复用订单、采购和订阅作者程序。HTTP 来源用法复用现有独立 SQL fixture，正式服务通过可选 catalog 拒绝、显式结构登记及 HTTP SourceAccess 完成查询。运行与安装用法属于显式研发入口，不进入产品业务流程。
+
+刷新场景阶段授权的公开合同明确披露既有规则：目标规则必须存在、所属版本处于 DRAFT，作者批准的授权须与部署中该操作的完整合同相等。`SCENARIO_STAGE_RULE_REQUIRED`、`GOVERNANCE_DRAFT_REQUIRED` 和 `STAGE_AUTHORIZATION_APPROVAL_MISMATCH` 分别定位目标、版本状态和批准差异；集合差异交出具体字段及缺失、额外项。服务错误路径以实际请求身份和操作关联运维日志，内部异常、来源 SQL 与凭据保留在私有诊断，不新增业务诊断读取入口。
+
+能力失败的受控明细贯穿脚本调用及诊断，最终 MCP 以可读的 `capabilityFailure.details` 交付，不再丢失字段差异或只暴露内部字节。原生除法绑定及返回类型推导的明确拒绝使用 `NATIVE_ARITHMETIC_MAPPING_UNAVAILABLE`，保留操作和实际输入类型；这项诊断不宣称解决特定后端的除法精度。连接器说明区分中间运算与最终容量、舍入政策，不把结果扩容或补零视为已恢复精度。
+
+连接器 API v12、Kotlin DSL v2、Query v7、存储格式 16 保持不变；内部运行协议为 v4，发行清单为 `agentic-olap-distribution/v4`。语义资产与实际业务来源的可用性仍须按精确插件、授权和来源合同分别判断。
+
 ## 0.16.0
 
 完成关系可以使用 `ResultExpression.ResultNativeCall`，在 JOIN 后的 DERIVE、条件分支及后续组合中调用精确连接器声明的原生标量函数。实参使用已有结果表达式，按声明核对 SCALAR 类型，并绑定当前实际单一来源；物理表实参继续属于来源定义及其采用闭包。定义与 Query 共用该节点、正式 Protobuf 和发布表达式授权。

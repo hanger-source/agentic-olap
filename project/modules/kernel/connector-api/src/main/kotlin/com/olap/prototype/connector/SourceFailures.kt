@@ -11,6 +11,13 @@ class NativeAggregateMappingException(val aggregate: MetricAggregation, val inpu
     val code: String = "NATIVE_AGGREGATE_MAPPING_UNAVAILABLE"
 }
 
+/** 实际原生算子在绑定／返回类型推导时拒绝输入；不公开插件异常原文或业务值。 */
+class NativeArithmeticMappingException(val operation: String, inputTypes: List<String>, cause: Throwable) :
+    IllegalArgumentException("native $operation mapping unavailable for the declared input types", cause) {
+    val inputTypes: List<String> = java.util.List.copyOf(inputTypes)
+    val code: String = "NATIVE_ARITHMETIC_MAPPING_UNAVAILABLE"
+}
+
 /** 原生SQL构造所需的编译保证；不包含查询文本或业务值。 */
 class NativeCompilationCapabilityException(val capability: CompilationSupport.Capability, val operation: String) :
     IllegalArgumentException("native SQL operation $operation requires compilation capability ${capability.name}") {

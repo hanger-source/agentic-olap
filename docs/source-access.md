@@ -97,6 +97,10 @@ JDBC 实现的 `identityParameters` 为 `jdbcUrl`、可选 `username` 和 `drive
 
 如果同一输入类型在不同执行形态上返回不同 scale，须区分只增加尾零的表示差异与原生计算已经不同舍入的情况。宽类型只提供容纳空间，不能补回原生结果已经丢失的信息。插件只有在能兑现统一的实际容量及原生舍入时才能声明映射；已证明的原生输入转换或另一原生策略须通过确定的 SQL AST 映射和相同类型推导表达，保留人口、NULL、权重和错误，不在来源执行失败后切换。
 
+显式 `SUM(x)/COUNT(x)` 使用 `CompilationSupport.division`，不使用 AVG 的 `decimalAverageRounding`。该入口可返回自定义 `SqlOperator`，用实际输入类型推导返回类型并渲染已证明的原生 AST；标准 DECIMAL 除法使用 `typeSystem.deriveDecimalDivideType`，自定义算子可有自己的类型推导。未知或已知不能兑现的精确除法，应在该算子的类型推导中明确拒绝；不能因为原生结果是 numeric、没有变成 DOUBLE，就宣称已经实现数学上的目标精度。实际绑定／推导拒绝返回 `NATIVE_ARITHMETIC_MAPPING_UNAVAILABLE`，披露 `operation=DIVIDE` 和实际 `inputTypes`；没有执行来源 SQL，也不公开插件 cause 原文。
+
+`ResultNumeric` 的最终 DECIMAL 容量与舍入在表达式完成后应用，当前除法入口不接收这份外围输出政策。原生商若已舍入为六位，再 CAST 为 DECIMAL(38,18) 只会补零；结果类型检查和 BigDecimal 读取不能补回位数。`prepareUnparse` 能看到类型，但 CAST 的目标 p／s 不完整表达 HALF_UP 等业务政策。也不能把最终十八位量化提前到所有中间除法，或者将三十八整数位分子窄化为 DECIMAL(38,18) 来换取 scale。若后端策略确实必须按本次目标政策选择，并已证明现有统一运算及类型入口无法表达，应提交该策略及具体缺失信息，再确定通用扩展；不能仅凭存在 typed AST 就宣称问题已经解决。
+
 当前类型推导与聚合发现只接收技术类型，没有本次输入的业务值域及行数合同。最终输出容量、`Approximate.minimum/maximum` 或一次调查范围不能替代受限输入的证明，也不能据此臆定评分为某个区间。先明确后端实际保证及其适用前提，再判断现有表达能否承载；尚未找到可兑现策略，不等于核心缺少一个范围参数。
 
 作者通过 `describe-script-api` 读取 `read-connector-capabilities` 的方法和正式参数，再在脚本中提交具体聚合查询。例如，以下程序使用已获准来源所指的精确连接器读取 BIGINT 全局 AVG 映射：

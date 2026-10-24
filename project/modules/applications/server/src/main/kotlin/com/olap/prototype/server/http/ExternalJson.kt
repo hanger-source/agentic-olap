@@ -41,7 +41,18 @@ object ExternalJson {
                 JsonFormat.printer().usingTypeRegistry(registry.build()).includingDefaultValueFields()
             }
             override fun serialize(value: Message, generator: JsonGenerator, provider: SerializerProvider) {
-                generator.writeRawValue(printer.print(value))
+                val encoded = printer.print(value)
+                if (value is com.olap.prototype.protocol.ScriptDiagnostic && value.hasCapabilityFailure()) {
+                    val document = mapper.readTree(encoded) as com.fasterxml.jackson.databind.node.ObjectNode
+                    val failure = document.required("capabilityFailure") as com.fasterxml.jackson.databind.node.ObjectNode
+                    failure.remove("detailsJson")
+                    if (!value.capabilityFailure.detailsJson.isEmpty) {
+                        val details = mapper.readTree(value.capabilityFailure.detailsJson.toByteArray())
+                        require(details.isObject) { "controlled capability failure details must be an object" }
+                        failure.set<JsonNode>("details", details)
+                    }
+                    generator.writeTree(document)
+                } else generator.writeRawValue(encoded)
             }
         }))
         .registerModule(SimpleModule().addSerializer(com.olap.prototype.server.scripting.ScriptOutput::class.java,

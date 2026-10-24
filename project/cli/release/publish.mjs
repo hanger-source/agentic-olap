@@ -174,6 +174,8 @@ async function checkArchives(directory, metadata, tag) {
   const revisions = new Set();
   for (const item of packages) { const revision = await checkPackage(item.file, item.name, item.version); if (revision) revisions.add(revision); }
   require(revisions.size === 1, '产品必须包含精确源码 revision');
+  const taggedRevision = execFileSync('git', ['rev-parse', `${tag}^{commit}`], { encoding: 'utf8' }).trim();
+  require([...revisions][0] === taggedRevision, 'npm 产品源码 revision 必须与本次精确发行标签一致');
   console.log(JSON.stringify({ version: release.version, archivesChecked: expected.size, revision: [...revisions][0] }));
   return packages[0];
 }

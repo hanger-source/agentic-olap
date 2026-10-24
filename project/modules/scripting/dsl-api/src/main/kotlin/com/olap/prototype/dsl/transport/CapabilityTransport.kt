@@ -18,8 +18,12 @@ interface CapabilityCodec {
 }
 
 /** 宿主已经脱敏的正式失败；脚本异常不会吞掉调用位置和领域诊断。 */
-data class CapabilityFailure(val operationId: String, val callId: String, val code: String, val stage: String,
-    val message: String, val fieldPath: List<String>, val diagnosticId: String?)
+class CapabilityFailure(val operationId: String, val callId: String, val code: String, val stage: String,
+    val message: String, val fieldPath: List<String>, val diagnosticId: String?, detailsJson: ByteArray) {
+    private val detailBytes = detailsJson.copyOf()
+    /** 正式服务已经脱敏的诊断对象字节；保持原样，调用者不能修改保存的快照。 */
+    val detailsJson: ByteArray get() = detailBytes.copyOf()
+}
 class CapabilityFailureException(val failure: CapabilityFailure) : RuntimeException(failure.message)
 
 internal class CapabilityCalls(private val transport: CapabilityTransport, private val codec: CapabilityCodec,

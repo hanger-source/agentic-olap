@@ -64,6 +64,10 @@ internal object WorkerFailures {
                 "stage" to if (failure is EngineExecutionException) failure.stage else "COMPILE_REL",
                 "code" to mappingCause.code, "message" to mappingCause.message,
                 "evidenceContext" to mapOf("aggregate" to mappingCause.aggregate.name, "inputType" to mappingCause.inputType))
+            if (mappingCause is NativeArithmeticMappingException) return mapOf(
+                "stage" to if (failure is EngineExecutionException) failure.stage else "COMPILE_REL",
+                "code" to mappingCause.code, "message" to mappingCause.message,
+                "evidenceContext" to mapOf("operation" to mappingCause.operation, "inputTypes" to mappingCause.inputTypes))
             mappingCause = mappingCause.cause
         }
         if (failure is ProducerContractException) return mapOf("stage" to "CONTRACT_INPUT", "code" to "CONTRACT_VIOLATION", "message" to failure.message)

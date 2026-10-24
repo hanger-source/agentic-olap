@@ -132,6 +132,10 @@ object ApiDiscovery {
         type.java.enumConstants?.map { (it as Enum<*>).name } ?: emptyList(),
         when (type) {
             Calculation.Call::class -> Calculation.Call.contract()
+            com.olap.prototype.governance.contract.ScenarioPipelineRuleContractRefreshRequest::class ->
+                com.olap.prototype.governance.contract.ScenarioPipelineRuleContractRefreshRequest.contract()
+            com.olap.prototype.query.contract.StageAuthorization::class -> com.olap.prototype.query.contract.StageAuthorization.contract()
+            com.olap.prototype.query.contract.ExpressionAuthorization::class -> com.olap.prototype.query.contract.ExpressionAuthorization.contract()
             MemberResult::class -> MemberResult.contract()
             LogicUnitRecord::class -> LogicUnitRecord.contract()
             LogicalTableCreateRequest.LogicUnitInput::class -> LogicalTableCreateRequest.LogicUnitInput.contract()

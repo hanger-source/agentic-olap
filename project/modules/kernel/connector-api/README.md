@@ -49,6 +49,29 @@ AVG 的类型容量、算术正确性与舍入必须共同成立。`typeSystem.d
 
 `deriveAvgAggType` 接收的是输入技术类型，不接收本次数据的最小值、最大值或行数；发现请求中的 `inputType` 也不是业务值域证明。最终数量容量及 `Approximate.minimum/maximum` 不能充当 AVG 的受限输入合同。当前没有从样本、字段名或过滤文本自动推导“安全评分范围”的机制。仅当来源先给出明确可证明的受限策略、而现有正式表达仍无法承载其前提时，才有依据讨论相应扩展；保证未知时保持拒绝。
 
+`CompilationSupport.division` 是来源表达式和完成关系的共同原生 DIVIDE 入口；SAFE_DIVIDE 也使用它，零分母由核心保留为 `NULLIF`。它可以是自定义 `SqlOperator`：返回类型推导接收实际有序输入类型，`unparse` 映射已证明的原生 SQL AST。采用标准 DECIMAL 除法推导时，实际工作类型来自 `typeSystem.deriveDecimalDivideType`；自定义算子也可以提供自己的返回类型推导，不能假设一定调用该类型系统方法。`maximumDeclaredDecimalPrecision` 限制正式数量输出，不等于插件已证明任何中间除法策略，也不替插件决定工作类型。
+
+除法的原生计算与最终数量输出是两个位置。`ResultNumeric` 的 DECIMAL precision／scale／rounding 在该表达式完成后应用；当前 `division` 入口不接收外围 `MetricValueContract`。例如原生 `DECIMAL(38,0) / BIGINT` 已舍入为六位商，再 CAST 成 DECIMAL(38,18)，只会增加尾零，不能兑现要求十八位 HALF_UP 的数学商。外层类型容量、BigDecimal 解码及结果保存都不能恢复已经丢失的信息；原生 AVG 的 `decimalAverageRounding` 与显式 SUM／COUNT 的 DIVIDE 无关。
+
+插件应先确定真实后端对所接受输入类型的中间容量、舍入、NULL、零分母与溢出行为，再用一致的类型推导和 AST 映射表达。统一的原生策略若能兑现接受域，可以使用现有入口；尚无保证的精确输入应由自定义除法算子的返回类型推导明确拒绝，不返回猜测类型或静默转浮点。不能只把返回类型声明为 DECIMAL(38,18)，也不能为增大商的 scale 将一个需要三十八个整数位的分子提前窄化为只有二十个整数位的 DECIMAL(38,18)。
+
+原生除法绑定或返回类型推导明确抛出 `IllegalArgumentException`／`UnsupportedOperationException` 时，核心以 `NATIVE_ARITHMETIC_MAPPING_UNAVAILABLE` 交付拒绝，附 `operation=DIVIDE` 及两个实际 `inputTypes`。错误不包含插件私有 cause 原文，不执行来源 SQL；作者的非数值输入先按表达式合同拒绝。这个错误说明映射没有建立，不将未知算术写成数据已经违例，也不代表核心能够自动验证一个已经返回成功的原生算子。
+
+下面是尚未建立任何原生除法保证时的明确拒绝方式；建立真实映射后，替换的是同一个算子的类型推导和原生 AST 实现，不在运行失败后切换策略：
+
+```kotlin
+override val division: SqlOperator = SqlBinaryOperator(
+    "/", SqlKind.DIVIDE, 60, true,
+    SqlReturnTypeInference { binding ->
+        val inputs = (0 until binding.operandCount).map { binding.getOperandType(it).fullTypeString }
+        throw UnsupportedOperationException("native division mapping is not established for $inputs")
+    },
+    null, OperandTypes.NUMERIC_NUMERIC
+)
+```
+
+方言 `prepareUnparse(RexNode)` 可以观察仍有类型的 AST；目标 CAST 的 precision／scale 不携带完整业务舍入政策。不能靠反查生成 SQL 或猜目标类型重建该政策，也不能把外围输出量化自动应用到所有嵌套除法：`ROUND((a/b)*c,s)` 与先量化 `a/b` 再乘 `c` 并不普遍等价。只有提供了可兑现的后端策略、并具体说明其必须取得而现有入口确实不提供的信息后，才能据此判断需要的通用扩展。核心不以最终类型合规或少量正常值样本替来源证明算术。
+
 只读属性 `CompilationSupport.parameterSubmission` 必须明确声明 `BIND_PARAMETERS` 或 `TYPED_LITERALS`。前者保留有序参数，后者通过 `parameterLiteral` 将已校验值映射成 SQL AST 字面量并保留编译类型 CAST；共同默认映射覆盖参数编码中的精确数值、文本、布尔与时间值，后端特殊映射由插件明确实现。主查询、关系检查和候选值均使用该选择，不做问号文本替换或运行失败后的自动切换。
 
 `CORRELATED_DERIVED_PROJECTION` 声明派生关系的投影能引用外层查询值。普通 `EXISTS` 条件相关不要求这项能力；数量合同的行内求值槽若必须把外层人口条件绑定在派生投影中，则按本次实际构造检查。缺失时在提交 SQL 前抛出 `NativeCompilationCapabilityException`，公开错误 `NATIVE_COMPILATION_CAPABILITY_MISSING` 包含 `capability` 与 `operation=NUMERIC_EVALUATION_BINDING`。插件依据真实后端行为声明，它不代表来源事务或快照能力。内核不删除人口保护、不重复内联检查，也不在执行失败后切换方案。DuckDB 声明此能力；当前 H2 不声明。

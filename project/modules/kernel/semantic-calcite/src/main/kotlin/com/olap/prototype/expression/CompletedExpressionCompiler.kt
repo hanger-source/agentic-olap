@@ -148,11 +148,11 @@ internal class CompletedExpressionCompiler private constructor(private val b: Re
             return if (operator == ResultExpression.ResultOperator.EQ) equal else b.not(equal)
         }
         if (operator == ResultExpression.ResultOperator.SAFE_DIVIDE) return safeDivide(args[0], args[1])
+        if (operator == ResultExpression.ResultOperator.DIVIDE) return SemanticCalciteOperators.divide(b, args[0], args[1])
         val native = when (operator) {
             ResultExpression.ResultOperator.ADD -> Ops.PLUS
             ResultExpression.ResultOperator.SUBTRACT -> Ops.MINUS
             ResultExpression.ResultOperator.MULTIPLY -> Ops.MULTIPLY
-            ResultExpression.ResultOperator.DIVIDE -> SemanticCalciteOperators.division(b)
             ResultExpression.ResultOperator.NEGATE -> Ops.UNARY_MINUS
             ResultExpression.ResultOperator.ABS -> Ops.ABS
             ResultExpression.ResultOperator.GT -> Ops.GREATER_THAN
@@ -168,6 +168,6 @@ internal class CompletedExpressionCompiler private constructor(private val b: Re
         }
         return b.call(native, args)
     }
-    private fun safeDivide(value: RexNode, divisor: RexNode): RexNode = b.call(SemanticCalciteOperators.division(b), value, b.call(Ops.NULLIF, divisor, b.literal(0)))
+    private fun safeDivide(value: RexNode, divisor: RexNode): RexNode = SemanticCalciteOperators.divide(b, value, b.call(Ops.NULLIF, divisor, b.literal(0)))
     private fun parameter(value: Any, type: org.apache.calcite.rel.type.RelDataType): RexNode = SemanticCalciteRexCompiler.parameter(b, parameters, type, value)
 }

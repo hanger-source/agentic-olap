@@ -43,7 +43,7 @@ internal object ScriptDiagnostics {
             .addAllFieldPath(capability.fieldPath).setCapabilityFailure(CapabilityFailure.newBuilder()
                 .setOperationId(capability.operationId).setCallId(capability.callId).setCode(capability.code)
                 .setStage(capability.stage).setMessage(capability.message).addAllFieldPath(capability.fieldPath)
-                .setDiagnosticId(capability.diagnosticId.orEmpty()))
+                .setDiagnosticId(capability.diagnosticId.orEmpty()).setDetailsJson(com.google.protobuf.ByteString.copyFrom(capability.detailsJson)))
         val input = chain.filterIsInstance<InputContractException>().firstOrNull()
         if (input != null) return result.setCode(input.rule.code).setStage(input.rule.stage).setMessage(input.message)
             .addAllFieldPath((input.details["fieldPath"] as? List<*>)?.map { it.toString() } ?: emptyList())

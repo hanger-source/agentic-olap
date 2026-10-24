@@ -216,7 +216,7 @@ internal class ScriptProtocolPeer(
                     "capability failure identity differs from its invocation"
                 }
                 throw CapabilityFailureException(CapabilityFailure(operation, call.callId, failure.code,
-                    failure.stage, failure.message, failure.fieldPathList.toList(), failure.diagnosticId.takeIf(String::isNotBlank)))
+                    failure.stage, failure.message, failure.fieldPathList.toList(), failure.diagnosticId.takeIf(String::isNotBlank), failure.detailsJson.toByteArray()))
             }
             require(response.hasResult() && !response.hasFailure()) { "successful capability response requires exactly one result" }
             return ProtoBytes.encode(response.result)

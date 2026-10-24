@@ -50,10 +50,25 @@ internal object ServerFailures {
         var cause: Throwable? = failure
         while (cause != null && visited.add(cause)) {
             when (cause) {
+                is com.olap.prototype.governance.contract.StageAuthorizationApprovalException -> return Projection("GOVERNANCE_CONTRACT", "STAGE_AUTHORIZATION_APPROVAL_MISMATCH",
+                    requireNotNull(cause.message), mapOf("fieldPath" to listOf("approvedAuthorization"), "scenarioId" to cause.scenarioId,
+                        "scenarioVersion" to cause.scenarioVersion, "ruleType" to cause.ruleType,
+                        "requiredFactory" to "StageAuthorization.current(ruleType)", "comparison" to "EXACT_ALL_SETS_ORDER_INDEPENDENT",
+                        "differences" to cause.differences, "readOperation" to "read-scenario-pipeline-rules"))
+                is com.olap.prototype.governance.contract.ScenarioPipelineRuleRefreshTargetException -> return Projection("GOVERNANCE_CONTRACT", "SCENARIO_STAGE_RULE_REQUIRED",
+                    requireNotNull(cause.message), mapOf("fieldPath" to listOf("ruleType"), "scenarioId" to cause.scenarioId,
+                        "scenarioVersion" to cause.scenarioVersion, "ruleType" to cause.ruleType, "expectedCount" to 1,
+                        "actualCount" to cause.existingRuleCount, "readOperation" to "read-scenario-pipeline-rules"))
+                is com.olap.prototype.governance.contract.GovernanceDraftRequiredException -> return Projection("GOVERNANCE_CONTRACT", "GOVERNANCE_DRAFT_REQUIRED",
+                    requireNotNull(cause.message), mapOf("objectReference" to mapOf("assetType" to cause.assetType, "id" to cause.objectId,
+                        "version" to cause.version), "expectedStatus" to "DRAFT", "actualStatus" to cause.actualStatus,
+                        "readOperation" to "read-asset-version"))
                 is MemberAdoptionConflictException -> return Projection(actualStage, "MEMBER_ADOPTION_CONFLICT", requireNotNull(cause.message),
                     mapOf("source" to cause.source, "expectedDefinition" to cause.expectedDefinition, "actualDefinition" to cause.actualDefinition))
                 is NativeAggregateMappingException -> return Projection(actualStage, cause.code, requireNotNull(cause.message),
                     mapOf("aggregate" to cause.aggregate.name, "inputType" to cause.inputType))
+                is NativeArithmeticMappingException -> return Projection(actualStage, cause.code, requireNotNull(cause.message),
+                    mapOf("operation" to cause.operation, "inputTypes" to cause.inputTypes))
                 is NativeCompilationCapabilityException -> return Projection(actualStage, cause.code, requireNotNull(cause.message),
                     mapOf("capability" to cause.capability.name, "operation" to cause.operation))
                 is com.olap.prototype.governance.contract.ReleaseClosureConflictException -> return Projection(actualStage, cause.code,
@@ -90,11 +105,18 @@ internal object ServerFailures {
             failure is CancellationException -> Projection(actualStage, "CANCELLED", "operation was cancelled", emptyMap())
             failure is RuntimeResourceLimitException -> Projection(actualStage, failure.code, "operation exceeded its resource budget", emptyMap())
             failure is EngineExecutionException && publicSemanticStage(actualStage) -> Projection(actualStage, code, failure.message, emptyMap())
-            else -> Projection(actualStage, code, "operation failed; consult the authorized service diagnostics", emptyMap())
+            else -> Projection(actualStage, code, "operation failed; give the requestId and operation to the service operator to inspect the matching JVM service log", emptyMap())
         }
         return if (failure is EngineExecutionException && failure.sourceReadEvidence != null)
             projected.copy(details = projected.details + ("sourceReadEvidence" to failure.sourceReadEvidence)) else projected
     }
+
+    /** 只交付真实日志检索坐标；不公开私有异常、SQL、路径或凭据，也不虚构诊断读取 API。 */
+    fun correlated(value: Projection, requestId: String, operation: String, logger: String): Projection = value.copy(details = value.details + mapOf(
+        "diagnosticId" to requestId,
+        "serviceDiagnostic" to mapOf("requestId" to requestId, "operation" to operation, "logger" to logger,
+            "location" to "JVM_SERVICE_PROCESS_LOGS_STDOUT_STDERR_OR_CONFIGURED_LOG_DESTINATION",
+            "handoff" to "PROVIDE_THESE_COORDINATES_TO_THE_SERVICE_OPERATOR_NO_PUBLIC_STACK_OR_SQL_READ_ENDPOINT")))
 
     private fun contract(failure: ProducerContractException, stage: String): Projection {
         val code = "CONTRACT_VIOLATION"
@@ -133,6 +155,8 @@ internal object ServerFailures {
                 select(facts, "scope", "inputScope", "requirements", "actualKey", "actualOutputs"))
             code == "NATIVE_AGGREGATE_MAPPING_UNAVAILABLE" -> Projection(actualStage, code,
                 "native aggregate mapping is unavailable for the declared input type", select(facts, "aggregate", "inputType"))
+            code == "NATIVE_ARITHMETIC_MAPPING_UNAVAILABLE" -> Projection(actualStage, code,
+                "native arithmetic mapping is unavailable for the declared input types", select(error.path("evidenceContext"), "operation", "inputTypes"))
             code == "NATIVE_COMPILATION_CAPABILITY_MISSING" -> Projection(actualStage, code,
                 "native SQL operation requires an unsupported compilation capability", select(facts, "capability", "operation"))
             code == "SOURCE_BINDING_CONFLICT" -> Projection(actualStage, code, "one query requires one exact source binding", select(facts, "inputs"))
@@ -146,7 +170,7 @@ internal object ServerFailures {
                 check(error.path("message").isTextual) { "semantic worker failure requires its public contract message" }
                 Projection(actualStage, code, error.path("message").textValue(), emptyMap())
             }
-            else -> Projection(actualStage, code, "operation failed; consult the authorized service diagnostics", emptyMap())
+            else -> Projection(actualStage, code, "worker operation failed; give the requestId and operation to the service operator to inspect the matching JVM service log", emptyMap())
         }
         return failure.sourceReadEvidence?.let {
             projected.copy(details = projected.details + ("sourceReadEvidence" to it))

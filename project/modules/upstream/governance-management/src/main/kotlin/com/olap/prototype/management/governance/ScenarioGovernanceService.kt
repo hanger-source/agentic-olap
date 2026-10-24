@@ -226,9 +226,10 @@ class ScenarioGovernanceService(private val database: PlatformDatabase, private 
         editable(id, version)
         val type = ScenarioPipelineRulePolicy.requireRuleType(request.ruleType, "scenario_pipeline_rule.rule_type")
         val existing = listScenarioPipelineRules(id, version).filter { it.ruleType == type }
-        if (existing.size != 1) throw ProducerContractException("contract refresh requires exactly one existing scenario stage: $type")
+        if (existing.size != 1) throw ScenarioPipelineRuleRefreshTargetException(id, version, type, existing.size)
         val candidate = stageCandidates().first { it.ruleType == type }
-        require(request.approvedAuthorization == candidate.authorization) { "approved stage authorization must match the deployed explicit language candidate: $type" }
+        if (request.approvedAuthorization != candidate.authorization)
+            throw StageAuthorizationApprovalException(id, version, type, request.approvedAuthorization, candidate.authorization)
         existing.single().copy(authorization = candidate.authorization).also(repository::updateScenarioPipelineRuleContract)
     }
 

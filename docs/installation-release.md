@@ -27,7 +27,7 @@ repositories {
     }
 }
 dependencies {
-    compileOnly("com.github.hanger-source.agentic-olap:connector-api:v0.17.1")
+    compileOnly("com.github.hanger-source.agentic-olap:connector-api:v0.17.2")
 }
 ```
 
@@ -54,6 +54,8 @@ dependencies {
 5. 手动运行 **发布 Agentic OLAP**，指定 draft 标签。工作流核验实际归档、文件摘要和完整安装清单，通过 GitHub OIDC 发布一个 npm 产品包，成功后公开 GitHub release。npm 接受提交即记录结果，不轮询 registry。若 npm 已受理而公开 release 失败，直接修正 release 状态，不重复提交 npm。
 
 JitPack 构件完成后才能装配 npm，不能预先猜测远端 JAR 摘要。源码 push、JVM 公开、安装验收和 npm 发布各有实际结果，不能相互替代。三个完整业务用法按需手动运行，不加入 push／PR 的重复业务执行。
+
+Git 标签或 JitPack 构建成功不表示 npm 产品已经交付。正式安装对象是同版本 `@hanger-source/agentic-olap`；维护者使用通过完整安装用法的 tarball 与 `SHA256SUMS` 建立同标签 draft，再经 OIDC 发布并公开 release。发行产物位于 `project/build/npm/tarballs`；工作流中的产品与安装报告分别保存在 `npm-product-darwin-arm64` 和 `installed-darwin-arm64`，安装失败时只保留失败报告。
 
 ```mermaid
 flowchart TD

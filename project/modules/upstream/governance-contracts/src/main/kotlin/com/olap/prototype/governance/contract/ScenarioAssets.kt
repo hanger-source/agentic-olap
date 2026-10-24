@@ -38,7 +38,21 @@ data class ScenarioRelationFilterRecord(val scenarioId: String, val scenarioVers
     init { require(definition.relation.version == scenarioVersion) { "relation filter belongs to its exact scenario version" } }
 }
 data class ScenarioPipelineRuleCreateRequest(val scenarioId: String, val scenarioVersion: Long, val ruleType: String, val sortOrder: Int?)
-data class ScenarioPipelineRuleContractRefreshRequest(val scenarioId: String, val scenarioVersion: Long, val ruleType: String, val approvedAuthorization: StageAuthorization)
+data class ScenarioPipelineRuleContractRefreshRequest(val scenarioId: String, val scenarioVersion: Long, val ruleType: String, val approvedAuthorization: StageAuthorization) {
+    companion object {
+        fun contract(): Map<String, Any> = mapOf(
+            "identity" to "EXACT_EXISTING_SCENARIO_VERSION_AND_RULE_TYPE",
+            "scenarioState" to "DRAFT_REQUIRED_UNDER_PARENT_SUBJECT_AREA_TRANSACTION_LOCK",
+            "existingRule" to "EXACTLY_ONE_EXISTING_RULE_OF_RULE_TYPE_REQUIRED_CREATE_IS_A_SEPARATE_OPERATION",
+            "approvedAuthorization" to "MUST_EQUAL_StageAuthorization.current(ruleType)_IN_FULL",
+            "comparison" to "OPERATION_TYPE_JOIN_TYPES_AGGREGATIONS_AND_ALL_FIVE_EXPRESSION_SETS_ORDER_INDEPENDENT",
+            "subsetOrSuperset" to "REJECTED_EVEN_IF_IT_COVERS_THIS_QUERY_OR_RETAINS_ALL_PREVIOUS_APPROVALS",
+            "previousAuthorization" to "MAY_BE_OLDER_FROZEN_CANDIDATE_NOT_THE_NEW_APPROVAL_BASELINE",
+            "effect" to "ONLY_THIS_EXISTING_DRAFT_RULE_AUTHORIZATION_REPLACED_IDENTITY_STATUS_SORT_ORDER_AND_OTHER_SCENARIOS_UNCHANGED",
+            "publication" to "EXISTING_RELEASES_IMMUTABLE_ACTIVATION_AND_NEW_RELEASE_ARE_SEPARATE_EXPLICIT_OPERATIONS",
+        )
+    }
+}
 data class ScenarioPipelineRuleCreateResult(val rule: ScenarioPipelineRuleRecord)
 data class ScenarioPipelineRuleRecord(val id: String, val scenarioId: String, val scenarioVersion: Long, val ruleType: String, val displayName: String, val authorization: StageAuthorization, val status: String, val sortOrder: Int, val createdAt: Instant) {
     init { ScenarioPipelineRulePolicy.requireScenarioPipelineRule(this) }

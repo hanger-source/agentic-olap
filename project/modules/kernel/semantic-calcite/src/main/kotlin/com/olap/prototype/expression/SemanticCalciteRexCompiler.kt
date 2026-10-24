@@ -102,11 +102,12 @@ class SemanticCalciteRexCompiler(private val builder: RelBuilder, private val pa
             }
             else -> Unit
         }
-        val operator = if (operation in setOf(SemanticExpression.Operator.DIVIDE, SemanticExpression.Operator.SAFE_DIVIDE)) SemanticCalciteOperators.division(builder)
-            else SemanticCalciteOperators.operation(operation)
         requireArity(args, if (operation in setOf(SemanticExpression.Operator.IS_NULL, SemanticExpression.Operator.IS_NOT_NULL, SemanticExpression.Operator.NOT, SemanticExpression.Operator.NEGATE)) 1 else 2)
-        return if (operation == SemanticExpression.Operator.SAFE_DIVIDE)
-            builder.call(operator, args[0], builder.call(Ops.NULLIF, args[1], builder.literal(0))) else builder.call(operator, args)
+        return when (operation) {
+            SemanticExpression.Operator.DIVIDE -> SemanticCalciteOperators.divide(builder, args[0], args[1])
+            SemanticExpression.Operator.SAFE_DIVIDE -> SemanticCalciteOperators.divide(builder, args[0], builder.call(Ops.NULLIF, args[1], builder.literal(0)))
+            else -> builder.call(SemanticCalciteOperators.operation(operation), args)
+        }
     }
 
     companion object {

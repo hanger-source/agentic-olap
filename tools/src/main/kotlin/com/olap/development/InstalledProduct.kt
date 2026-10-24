@@ -76,6 +76,7 @@ internal class InstalledProduct(private val tarballs: Path, private val root: Pa
             orderColumnVersion = built.objectAt("orderColumnVersion").string("text")
             salesResult(result); salesResult(continued)
             authorContracts()
+            val approvals = stageApprovalContracts(businessLineId, built.objectAt("scenarioId").string("text"))
             stop(); start("analysis-reopened"); initializeClient()
             salesResult(result)
             val reopened = program(objectOf("phase" to text("reopen"), "definitionId" to query.getValue("definitionId"),
@@ -90,7 +91,8 @@ internal class InstalledProduct(private val tarballs: Path, private val root: Pa
                 "persistentRead" to bool(true), "actualSourceRead" to bool(true), "declaredStructure" to bool(true), "structurePersistentRead" to bool(true),
                 "analysisPersistentRead" to bool(true), "sourceIdentityHash" to text(sourceIdentityHash), "queryReference" to query,
                 "runIds" to JsonArray(listOf(result.getValue("runId"), continued.getValue("runId"), repeated.getValue("runId"))),
-                "expected" to objectOf("sales_amount" to text("175.00"), "order_count" to text("3")), "completeResponseDelivery" to complete))
+                "expected" to objectOf("sales_amount" to text("175.00"), "order_count" to text("3")),
+                "stageAuthorization" to approvals, "completeResponseDelivery" to complete))
         } catch (failure: Throwable) {
             write(root.resolve("report.json"), objectOf("status" to text("FAILED"), "message" to text(failure.message ?: failure.javaClass.name)))
             throw failure
@@ -181,6 +183,55 @@ internal class InstalledProduct(private val tarballs: Path, private val root: Pa
                 check(diagnostic["stage"] == text("CONTRACT_INPUT") && diagnostic.objectAt("location").getValue("startLine").jsonPrimitive.int > 0)
             }
         }
+    }
+
+    private fun stageApprovalContracts(businessLineId: String, activeScenarioId: String): JsonObject {
+        val rejected = client.script("""
+            val actor = olap.caller.subject
+            val subject = olap.governance.createSubjectArea(SubjectAreaCreateRequest(parameters.text("businessLineId"), 1,
+              parameters.text("code"), "阶段批准", actor, "安装后的授权拒绝与续行", actor)).subjectArea
+            val scenario = olap.governance.createScenario(ScenarioCreateRequest(subject.id, 1, "calculation", "计算", actor, null, actor)).scenario
+            olap.governance.createScenarioPipelineRule(ScenarioPipelineRuleCreateRequest(scenario.id, 1, "DERIVE", 1))
+            olap.output(ScriptValue.Text(scenario.id))
+            val full = StageAuthorization.current("DERIVE")
+            val e = full.expressions
+            val subset = StageAuthorization("DERIVE", full.joinTypes, full.aggregations, ExpressionAuthorization(e.kinds,
+              e.operators - ResultExpression.ResultOperator.MULTIPLY, e.functions, e.castTypes, e.literalTypes))
+            olap.governance.refreshScenarioPipelineRuleContract(ScenarioPipelineRuleContractRefreshRequest(scenario.id, 1, "DERIVE", subset))
+        """.trimIndent(), objectOf("businessLineId" to text(businessLineId),
+            "code" to text("approval_${UUID.randomUUID().toString().replace("-", "")}")), dslVersion, "stage-approval.olap.kts")
+        check(!rejected.envelope.getValue("success").jsonPrimitive.boolean)
+        val diagnostic = rejected.report.array("diagnostics").map { it.jsonObject }
+            .single { it["code"] == text("STAGE_AUTHORIZATION_APPROVAL_MISMATCH") }.objectAt("capabilityFailure")
+        val failedCall = rejected.report.array("calls").map { it.jsonObject }
+            .single { it["operationId"] == text("refresh-scenario-pipeline-rule-contract") }
+        check(diagnostic["fieldPath"] == JsonArray(listOf(text("approvedAuthorization"))))
+        check(diagnostic.objectAt("details").objectAt("differences").objectAt("expressions.operators").array("missing") == JsonArray(listOf(text("MULTIPLY"))))
+        check(diagnostic["diagnosticId"] == failedCall["requestId"] && failedCall.array("effects").isEmpty())
+        check(diagnostic.objectAt("details").objectAt("serviceDiagnostic")["requestId"] == failedCall["requestId"])
+        val scenarioId = rejected.value().string("text")
+        val resumed = client.script("""
+            val id = parameters.text("scenarioId")
+            val before = olap.semantics.scenarioStages(VersionPageInput(id, 1, 0, 20)).items.single()
+            val full = StageAuthorization.current("DERIVE")
+            check(before.authorization == full)
+            olap.governance.refreshScenarioPipelineRuleContract(ScenarioPipelineRuleContractRefreshRequest(id, 1, "DERIVE", full))
+            val after = olap.semantics.scenarioStages(VersionPageInput(id, 1, 0, 20)).items.single()
+            check(before.id == after.id && after.authorization == full)
+            olap.output(ScriptValue.Text(after.id))
+        """.trimIndent(), objectOf("scenarioId" to text(scenarioId)), dslVersion, "stage-approval-resume.olap.kts").succeeded()
+        check(resumed.report.array("calls").all { it.jsonObject["success"] == bool(true) })
+        val active = client.script("""
+            olap.governance.refreshScenarioPipelineRuleContract(ScenarioPipelineRuleContractRefreshRequest(
+              parameters.text("scenarioId"), 2, "DERIVE", StageAuthorization.current("DERIVE")))
+        """.trimIndent(), objectOf("scenarioId" to text(activeScenarioId)), dslVersion, "frozen-stage-approval.olap.kts")
+        check(!active.envelope.getValue("success").jsonPrimitive.boolean)
+        val state = active.report.array("diagnostics").map { it.jsonObject }
+            .single { it["code"] == text("GOVERNANCE_DRAFT_REQUIRED") }.objectAt("capabilityFailure").objectAt("details")
+        check(state["actualStatus"] == text("ACTIVE") && state.objectAt("objectReference")["id"] == text(activeScenarioId))
+        check(active.report.array("calls").single().jsonObject.array("effects").isEmpty())
+        return objectOf("subsetRejected" to bool(true), "unchangedAfterRejection" to bool(true),
+            "explicitApprovalSucceeded" to bool(true), "activeVersionRejected" to bool(true), "diagnosticsDelivered" to bool(true))
     }
 
     private fun completeResponses(): JsonObject {

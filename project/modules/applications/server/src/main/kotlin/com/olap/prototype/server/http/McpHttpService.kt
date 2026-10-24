@@ -197,9 +197,10 @@ class McpHttpService(private val config: Deployment, private val endpoint: Appli
         if (failure is java.util.concurrent.CancellationException || failure is InterruptedException) return ApplicationResponse("mcp-${UUID.randomUUID()}", false,
             error = ApplicationFailure("CLIENT_WAIT", "CLIENT_WAIT_CANCELLED", "客户端停止等待；原操作实际结局需按运行记录确认。",
                 if (operation in setOf("execute-query", "candidate-values")) mapOf("sourceOutcome" to mapOf("state" to "UNKNOWN", "cancellation" to "UNCONFIRMED")) else emptyMap()))
-        val projection = ServerFailures.project(failure, "APPLICATION", "APPLICATION_FAILED")
         val id = "mcp-${UUID.randomUUID()}"
-        System.err.println("service operation failed requestId=$id operation=$operation: $failure")
+        val projection = ServerFailures.correlated(ServerFailures.project(failure, "APPLICATION", "APPLICATION_FAILED"),
+            id, operation, McpHttpService::class.java.name)
+        org.slf4j.LoggerFactory.getLogger(McpHttpService::class.java).warn("service operation failed: requestId={} operation={}", id, operation, failure)
         return ApplicationResponse(id, false, error = ApplicationFailure(projection.stage, projection.code, projection.message, projection.details))
     }
     private suspend fun capture(content: OutgoingContent): ResponseFiles.Capture {

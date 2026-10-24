@@ -1,6 +1,8 @@
 package com.olap.prototype.expression
 
 import com.olap.prototype.member.MemberCondition
+import com.olap.prototype.connector.NativeArithmeticMappingException
+import com.olap.prototype.connector.NativeCompilationCapabilityException
 import org.apache.calcite.avatica.util.TimeUnit
 import org.apache.calcite.avatica.util.TimeUnitRange
 import org.apache.calcite.rex.RexNode
@@ -27,10 +29,22 @@ object SemanticCalciteOperators {
         MemberCondition.Operator.LTE -> builder.call(Ops.LESS_THAN_OR_EQUAL, field, values.first())
     }
 
-    fun division(builder: RelBuilder): SqlOperator {
+    fun divide(builder: RelBuilder, left: RexNode, right: RexNode): RexNode {
+        require(SqlTypeUtil.isNumeric(left.type) && SqlTypeUtil.isNumeric(right.type)) { "division requires two numeric operands" }
         val types = builder.typeFactory.typeSystem as? SemanticCalciteTypeSystem
             ?: error("numeric expression requires the bound semantic type system")
-        return if (types.semantic) Ops.DIVIDE else types.nativeSupport.division
+        if (types.semantic) return builder.call(Ops.DIVIDE, left, right)
+        return try {
+            builder.call(types.nativeSupport.division, left, right)
+        } catch (failure: NativeArithmeticMappingException) {
+            throw failure
+        } catch (failure: NativeCompilationCapabilityException) {
+            throw failure
+        } catch (failure: IllegalArgumentException) {
+            throw NativeArithmeticMappingException("DIVIDE", listOf(left.type.fullTypeString, right.type.fullTypeString), failure)
+        } catch (failure: UnsupportedOperationException) {
+            throw NativeArithmeticMappingException("DIVIDE", listOf(left.type.fullTypeString, right.type.fullTypeString), failure)
+        }
     }
 
     fun codeEquals(builder: RelBuilder, left: RexNode, right: RexNode): RexNode {

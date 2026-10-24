@@ -99,8 +99,9 @@ internal class ServerQueries(private val queries: JdbcQueryDefinitionRepository,
             sourceState = SourceExecutionState.SUCCEEDED
             timings.putAll(payload.stageNanos)
         } catch (failure: Exception) {
-            log.warn("query execution failed: runId={}", run.runId, failure)
-            val projected = ServerFailures.project(failure, "execution", "EXECUTION_FAILED")
+            log.warn("query execution failed: requestId={} operation=execute-query runId={}", request.work.requestId, run.runId, failure)
+            val projected = ServerFailures.correlated(ServerFailures.project(failure, "execution", "EXECUTION_FAILED"),
+                request.work.requestId, "execute-query", ServerQueries::class.java.name)
             errorRecord = mapper.writeValueAsString(projected)
             error = QueryExecutionFailure(projected.stage, projected.code, projected.message,
                 projected.details["diagnosticId"] as? String, (projected.details["fieldPath"] as? List<*>)?.map { it.toString() } ?: emptyList())

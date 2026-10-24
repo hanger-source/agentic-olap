@@ -62,7 +62,10 @@ internal class GovernanceDraftVersions(private val database: PlatformDatabase) {
                 lockIdentity(connection, asset, id)
                 connection.prepareStatement("SELECT version_status FROM ${asset.table}_version WHERE ${asset.column}=? AND version=?").use { statement ->
                     statement.setString(1, id); statement.setLong(2, exact)
-                    statement.executeQuery().use { rows -> if (!rows.next() || rows.getString(1) != "DRAFT") throw ProducerContractException("only a DRAFT version can accept members: $id@$version") }
+                    statement.executeQuery().use { rows ->
+                        val status = if (rows.next()) rows.getString(1) else null
+                        if (status != "DRAFT") throw com.olap.prototype.governance.contract.GovernanceDraftRequiredException(asset.name, id, exact, status)
+                    }
                 }
             }
         } catch (failure: ProducerContractException) { throw failure }

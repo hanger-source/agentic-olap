@@ -83,15 +83,21 @@ class ServerHost(private val deployment: Deployment, distribution: Path) : Appli
                     try { setResult(codecs.encodeResult(invocation.operationId, requireNotNull(response.value))) }
                     catch (failure: Exception) {
                         log.error("capability result encoding failed after application: requestId={} operation={}", response.requestId, invocation.operationId, failure)
+                        val diagnostic = ServerFailures.correlated(ServerFailures.Projection("ENCODE_RESULT", "CAPABILITY_RESULT_ENCODING_FAILED",
+                            "operation completed; result encoding failed; inspect recorded effects without replaying", emptyMap()),
+                            response.requestId, invocation.operationId, ServerHost::class.java.name)
                         setSuccess(false)
-                        setFailure(CapabilityFailure.newBuilder().setStage("ENCODE_RESULT").setCode("CAPABILITY_RESULT_ENCODING_FAILED")
-                            .setMessage("operation completed; result encoding failed; inspect recorded effects without replaying")
+                        setFailure(CapabilityFailure.newBuilder().setStage(diagnostic.stage).setCode(diagnostic.code).setMessage(diagnostic.message)
+                            .setDiagnosticId(response.requestId).setDetailsJson(ByteString.copyFrom(ExternalJson.mapper.writeValueAsBytes(diagnostic.details)))
                             .setOperationId(invocation.operationId))
                     }
                 } else response.error?.let { error ->
                     setFailure(CapabilityFailure.newBuilder().setStage(error.stage).setCode(error.code).setMessage(error.message)
                         .setOperationId(invocation.operationId).setDetailsJson(ByteString.copyFrom(ExternalJson.mapper.writeValueAsBytes(error.details)))
-                        .apply { (error.details["fieldPath"] as? List<*>)?.map(Any?::toString)?.let(::addAllFieldPath) })
+                        .apply {
+                            (error.details["fieldPath"] as? List<*>)?.map(Any?::toString)?.let(::addAllFieldPath)
+                            (error.details["diagnosticId"] as? String)?.let(::setDiagnosticId)
+                        })
                 }
             }.build()
     }
@@ -131,7 +137,8 @@ class ServerHost(private val deployment: Deployment, distribution: Path) : Appli
             }
         } catch (failure: Exception) {
             log.warn("application operation failed: requestId={} operation={}", id, operation, failure)
-            val error = ServerFailures.project(failure, "APPLICATION", "OPERATION_FAILED")
+            val error = ServerFailures.correlated(ServerFailures.project(failure, "APPLICATION", "OPERATION_FAILED"),
+                id, operation, ServerHost::class.java.name)
             return ApplicationResponse(id, false, error = ApplicationFailure(error.stage, error.code,
                 error.message, error.details), effects = effects.toList(), timingNanos = work?.timingNanos?.toMap().orEmpty(),
                 workers = work?.workers?.toList().orEmpty())

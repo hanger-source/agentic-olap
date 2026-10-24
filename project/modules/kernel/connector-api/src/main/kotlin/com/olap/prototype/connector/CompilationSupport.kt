@@ -69,6 +69,13 @@ interface CompilationSupport {
     fun jdbcType(factory: RelDataTypeFactory, column: JdbcColumnType): RelDataType
     val maximumDeclaredDecimalPrecision: Int
     fun supports(capability: Capability): Boolean
+    /**
+     * 原生 DIVIDE（SAFE_DIVIDE 也使用本算子，核心另外保留 NULLIF 的零分母政策）。
+     * 返回类型推导须描述实际中间结果，SQL AST 映射须兑现所接受输入的原生容量及算术；
+     * 不能把有限 scale 的原生商仅标成更宽类型，或依赖外层 CAST 补回已舍入的位数。
+     * 可返回自定义 SqlOperator，在类型推导阶段拒绝尚无保证的精确输入，再在 unparse 映射已证明的策略。
+     * 此入口只有本次运算的有序实参与原生类型，不承诺收到外围数量合同的目标精度或舍入。
+     */
     val division: SqlOperator
     /** SQL 三值逻辑的精确文本身份相等；NULL 不匹配，不能折叠大小写、空白或 Unicode 差异。 */
     fun textIdentityEquals(builder: RelBuilder, left: RexNode, right: RexNode): RexNode
