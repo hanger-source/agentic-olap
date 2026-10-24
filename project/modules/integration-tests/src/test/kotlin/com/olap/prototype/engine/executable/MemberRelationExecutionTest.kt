@@ -35,6 +35,7 @@ import com.olap.prototype.query.PostOperationContract.OrderKey
 import com.olap.prototype.query.PostOperationContract.AncestorClosure
 import com.olap.prototype.query.ResultExpression.*
 import com.olap.prototype.connector.SourceExecutionException
+import com.olap.prototype.contract.InputContractException
 import com.olap.prototype.warehouse.contract.SourceCancellationEvidence
 import com.olap.prototype.warehouse.contract.SourceExecutionState
 import com.olap.prototype.warehouse.contract.SourceFailureCategory
@@ -322,6 +323,90 @@ class MemberRelationExecutionTest {
     } }.sortedWith(compareBy(nullsFirst()) { it.first() })
     private fun measures(calls: List<QueryComputation.Invocation>, inputs: Map<String, QueryComputation.Input>) = QueryComputation.Scope(QueryComputation.Measures(calls, emptyList(), null, emptyMap(),
         DimensionCondition.Unrestricted(), DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(calls.map { it.callId }), null), inputs, emptyList())
+
+    @Test fun retainsSetIdentityWhenQualifyingRawRecordsAndAligningAKeyOnlyPopulation(@TempDir directory: Path) {
+        NativeWarehouse(directory, "duckdb", listOf(
+            "CREATE TABLE orders(id INTEGER PRIMARY KEY, customer INTEGER, period INTEGER, kind INTEGER, amount DECIMAL(18,2))",
+            """INSERT INTO orders VALUES
+                (1,1,1,0,NULL),(2,1,1,0,NULL),(3,2,1,0,NULL),(4,3,1,0,NULL),(5,4,1,0,NULL),
+                (6,1,2,0,NULL),(7,1,2,0,NULL),(8,2,2,0,NULL),(9,3,2,0,NULL),(10,4,2,0,NULL),
+                (11,4,3,0,NULL),
+                (12,1,4,0,10),(13,1,4,0,20),(14,2,4,0,NULL),(15,4,4,0,99),(16,5,4,0,999)
+            """.trimIndent()
+        )).use { warehouse ->
+            val definitions = observationCatalog(warehouse)
+            val original = definitions.members.getValue("orders@1") as MemberSource.Projection
+            fun records(id: String, role: String): MemberSource.Projection {
+                val declaration = original.definition.result
+                val outputs = declaration.outputs + ("customer" to MemberSourceDefinition.DimensionOutput(
+                    "客户", role, ScalarValueType.NUMBER, "customer", 1, "customer_orders", 1, null))
+                return MemberSource.Projection(id, 1, MemberSourceDefinition.Projection(original.definition.event,
+                    MemberResult(declaration.entity, declaration.role, MemberShape.RAW_BAG, emptyList(), outputs,
+                        declaration.filterOperators, null, emptyMap(), null)), original.outputExpressions)
+            }
+            definitions.members["orders@1"] = records("orders", "customer")
+            definitions.members["recipients@1"] = records("recipients", "recipient")
+            val axis = ScopedInputContract.DimensionRef("customers", "1", "customer")
+            val formal = Calculation.MemberSlot("rows", "记录", "observations", MemberShape.RAW_BAG,
+                orderFormal("rows", null).outputs + ("customer" to Calculation.MemberDimension("customer", null)), null)
+            val names = listOf("previous", "active", "current")
+            val aliases = mapOf("previous" to "previous_customer", "active" to "activity_customer", "current" to "current_customer")
+            val outputs = listOf(SetOutputContract("customer", SetOutputContract.DimensionSlot("customer")))
+            fun relation(name: String) = Calculation.Scope(Calculation.Relation(name), emptyMap(), emptyList())
+            fun combine(kind: Calculation.SetKind, left: Calculation.Scope, right: Calculation.Scope) = Calculation.Scope(
+                Calculation.SetCombination(kind, false, listOf(Calculation.SetProjection("left", listOf("customer")),
+                    Calculation.SetProjection("right", listOf("customer"))), outputs),
+                linkedMapOf("left" to Calculation.InputScope("ROOT", left), "right" to Calculation.InputScope("ROOT", right)), emptyList())
+            val cohort = combine(Calculation.SetKind.EXCEPT,
+                combine(Calculation.SetKind.INTERSECT, relation("previous"), relation("active")), relation("current"))
+            val qualified = Calculation.ObjectMeasure(orderRows("rows", memberEquals("period", 4), emptyList()), cohort,
+                listOf(Calculation.ObjectRole(listOf("customer"), Calculation.RecordOutputs("rows", listOf("customer")))))
+            val measured = Calculation.Scope(qualified, emptyMap(), listOf(regroup(listOf("customer"), listOf(
+                reduction("amount", ResultAggregation.Sum(money, ResultAggregation.NullPolicy.IGNORE), "total_amount"),
+                reduction("id", ResultAggregation.Count(false, ResultAggregation.NullPolicy.IGNORE), "records"),
+                reduction("amount", ResultAggregation.Count(false, ResultAggregation.NullPolicy.IGNORE), "non_null_amounts")))))
+            val key = mapOf("customer" to "customer")
+            val aligned = Calculation.AlignMeasurements(linkedMapOf(
+                "cohort" to Calculation.AlignedInput(cohort, key, emptyList()),
+                "measured" to Calculation.AlignedInput(measured, key, listOf("total_amount", "records", "non_null_amounts").map {
+                    Calculation.AlignedValue(it, it, Calculation.NoMatch.PRESERVE_NULL)
+                })), listOf("customer"), Calculation.AlignmentPopulation(Calculation.PopulationKind.BASE, listOf("cohort")))
+            val calculation = Calculation(listOf(customerObservation()), listOf(formal), emptyList(),
+                names.map { Calculation.RelationSlot(it, outputs, listOf("customer")) }, emptyMap(), Calculation.Scope(aligned,
+                    emptyMap(), listOf(Project(listOf("customer", "total_amount", "records", "non_null_amounts")))))
+            val adopted = observationBindings(definitions, mapOf("rows" to orderSource()), emptyMap())
+            val bindings = CalculationBindings(adopted.dimensions, adopted.members, emptyMap(), emptyMap(),
+                names.associateWith { CalculationBindings.RelationParameter() })
+            val actualRelations = names.associateWith { CalculationBindings.LocalRelation(it, mapOf("customer" to aliases.getValue(it))) }
+            fun completed(period: Int, source: String, alias: String) = QueryComputation.Scope(
+                QueryComputation.Members("population", MemberRef(source, 1), emptyMap(), listOf(
+                    QueryComputation.MappedDimension(alias, "customer", axis), QueryComputation.Slot("id", "id")),
+                    null, emptyMap(), memberEquals("period", period), emptyMap(), emptyMap()), emptyMap(), listOf(
+                    regroup(listOf(alias), listOf(reduction("id", ResultAggregation.Count(false, ResultAggregation.NullPolicy.IGNORE), "observations"))),
+                    Project(listOf(alias))))
+            fun query(activitySource: String) = QueryComputation.Scope(
+                QueryComputation.Compute(calculation, bindings, emptyMap(), emptyMap(), actualRelations), linkedMapOf(
+                    "previous" to QueryComputation.Input("ROOT", completed(1, "orders", aliases.getValue("previous"))),
+                    "active" to QueryComputation.Input("ROOT", completed(2, activitySource, aliases.getValue("active"))),
+                    "current" to QueryComputation.Input("ROOT", completed(3, "orders", aliases.getValue("current")))), emptyList())
+            warehouse.finishSetup()
+            val engine = engine(warehouse)
+            // 对象3无测量组；对象2有一条NULL记录。两者的COUNT不能被混成同一个0。
+            assertEquals(listOf(
+                listOf(decimal("1"), decimal("30"), decimal("2"), decimal("2")),
+                listOf(decimal("2"), null, decimal("1"), decimal("0")),
+                listOf(decimal("3"), null, null, null)), numericRows(execute(engine, definitions, query("orders"))))
+
+            // 两个来源都经过真实维度绑定；同一数值、同一DimensionRef不足以消除不同业务role。
+            val failure = assertThrows(EngineExecutionException::class.java) { execute(engine, definitions, query("recipients")) }
+            assertEquals("ANALYZE_STAGES", failure.stage)
+            assertEquals(false, failure.sourceExecutionStarted)
+            val contract = generateSequence<Throwable>(failure) { it.cause }.filterIsInstance<InputContractException>().single()
+            assertEquals(InputContractException.Rule.EXACT_IDENTITY_MEANING_REQUIRED, contract.rule)
+            assertEquals(listOf("input", "computation", "measured", "root", "roles", 0, "objectKeys", 0), contract.details["fieldPath"])
+        }
+    }
+
     @Test fun qualifiesObjectsBeforeMeasurementWithoutChangingCohortsOrCompletedLocalInputs(@TempDir directory: Path) {
         NativeWarehouse(directory, "duckdb", listOf("CREATE TABLE orders(id INTEGER PRIMARY KEY, customer INTEGER, period INTEGER, kind INTEGER, amount DECIMAL(18,2))",
             "INSERT INTO orders VALUES (1,1,1,1,60),(2,1,1,1,40),(3,2,1,1,50),(4,1,2,1,10),(5,2,2,1,120),(6,3,2,1,5)")).use { warehouse ->
