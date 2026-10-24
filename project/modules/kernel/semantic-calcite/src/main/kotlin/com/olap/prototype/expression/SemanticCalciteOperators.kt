@@ -33,18 +33,49 @@ object SemanticCalciteOperators {
         require(SqlTypeUtil.isNumeric(left.type) && SqlTypeUtil.isNumeric(right.type)) { "division requires two numeric operands" }
         val types = builder.typeFactory.typeSystem as? SemanticCalciteTypeSystem
             ?: error("numeric expression requires the bound semantic type system")
-        if (types.semantic) return builder.call(Ops.DIVIDE, left, right)
+        var operands = listOf(left, right)
         return try {
-            builder.call(types.nativeSupport.division, left, right)
+            if (operands.all { SqlTypeUtil.isIntType(it.type) }) {
+                operands = operands.map { decimalInteger(builder, types, it, operands) }
+            }
+            val result = builder.call(if (types.semantic) Ops.DIVIDE else types.nativeSupport.division, operands)
+            val inputTypes = operands.map { it.type.fullTypeString }
+            if (!SqlTypeUtil.isNumeric(result.type)) {
+                throw NativeArithmeticMappingException.rejected("DIVIDE", inputTypes, NativeArithmeticMappingException.Reason.NON_NUMERIC_QUOTIENT)
+            }
+            if (SqlTypeUtil.isIntType(result.type)) {
+                throw NativeArithmeticMappingException.rejected("DIVIDE", inputTypes, NativeArithmeticMappingException.Reason.INTEGRAL_QUOTIENT)
+            }
+            result
         } catch (failure: NativeArithmeticMappingException) {
             throw failure
         } catch (failure: NativeCompilationCapabilityException) {
             throw failure
         } catch (failure: IllegalArgumentException) {
-            throw NativeArithmeticMappingException("DIVIDE", listOf(left.type.fullTypeString, right.type.fullTypeString), failure)
+            throw NativeArithmeticMappingException("DIVIDE", operands.map { it.type.fullTypeString }, failure)
         } catch (failure: UnsupportedOperationException) {
-            throw NativeArithmeticMappingException("DIVIDE", listOf(left.type.fullTypeString, right.type.fullTypeString), failure)
+            throw NativeArithmeticMappingException("DIVIDE", operands.map { it.type.fullTypeString }, failure)
         }
+    }
+
+    /** 整数域的无损嵌入不使用最终输出容量，也不替连接器选择小数商的工作精度。 */
+    private fun decimalInteger(builder: RelBuilder, types: SemanticCalciteTypeSystem, input: RexNode, operands: List<RexNode>): RexNode {
+        val precision = when (input.type.sqlTypeName) {
+            SqlTypeName.TINYINT, SqlTypeName.UTINYINT -> 3
+            SqlTypeName.SMALLINT, SqlTypeName.USMALLINT -> 5
+            SqlTypeName.INTEGER, SqlTypeName.UINTEGER -> 10
+            SqlTypeName.BIGINT -> 19
+            SqlTypeName.UBIGINT -> 20
+            else -> error("integer division normalization requires an integer SQL type")
+        }
+        if (precision > types.getMaxPrecision(SqlTypeName.DECIMAL)) {
+            throw NativeArithmeticMappingException.rejected("DIVIDE", operands.map { it.type.fullTypeString },
+                NativeArithmeticMappingException.Reason.INTEGER_INPUT_CAPACITY_UNAVAILABLE)
+        }
+        val target = builder.typeFactory.createTypeWithNullability(
+            builder.typeFactory.createSqlType(SqlTypeName.DECIMAL, precision, 0), input.type.isNullable)
+        if (!types.semantic) types.nativeSupport.requireNativeCast(target)
+        return builder.rexBuilder.makeCast(target, input)
     }
 
     fun codeEquals(builder: RelBuilder, left: RexNode, right: RexNode): RexNode {
@@ -92,6 +123,13 @@ object SemanticCalciteOperators {
         }
         val types = SemanticCalciteTypeSystem()
         return mapOf("formatVersion" to "olap-semantic-expression-contract/v3", "functions" to descriptions,
+            "division" to mapOf("operators" to listOf("DIVIDE", "SAFE_DIVIDE"),
+                "meaning" to "ARITHMETIC_QUOTIENT_NOT_INTEGER_TRUNCATION",
+                "integerOperands" to "BOTH_INTEGER_INPUTS_LOSSLESS_DECIMAL_FULL_INTEGER_DOMAIN_SCALE_ZERO",
+                "nativeMapping" to "CONNECTOR_ARITHMETIC_DIVISION_NON_INTEGER_SQL_TYPE_OR_EXPLICIT_REJECTION",
+                "outputQuantization" to "EXPLICIT_NUMERIC_CAST_OR_ROUND_AFTER_EXPRESSION_NOT_PUSHED_INTO_SUBEXPRESSIONS",
+                "nativePrecision" to "INTEGER_NORMALIZATION_DOES_NOT_PROVE_FRACTIONAL_PRECISION_OR_SINGLE_ROUNDING",
+                "safeDivideZeroDenominator" to "NULL"),
             "textIdentityEquality" to mapOf("binding" to "CODE_EQUALS_TEXT_OPERANDS_EQ_NE_IN",
                 "meaning" to "EXACT_ENCODED_IDENTITY", "caseFolding" to false, "trimWhitespace" to false,
                 "unicodeNormalization" to "NONE", "nativeMapping" to "CONNECTOR_TEXT_IDENTITY_EQUALS",

@@ -50,6 +50,7 @@ internal object ServerFailures {
         var cause: Throwable? = failure
         while (cause != null && visited.add(cause)) {
             when (cause) {
+                is InputContractException -> return Projection(cause.rule.stage, cause.rule.code, cause.message, cause.details)
                 is com.olap.prototype.governance.contract.StageAuthorizationApprovalException -> return Projection("GOVERNANCE_CONTRACT", "STAGE_AUTHORIZATION_APPROVAL_MISMATCH",
                     requireNotNull(cause.message), mapOf("fieldPath" to listOf("approvedAuthorization"), "scenarioId" to cause.scenarioId,
                         "scenarioVersion" to cause.scenarioVersion, "ruleType" to cause.ruleType,
@@ -68,7 +69,7 @@ internal object ServerFailures {
                 is NativeAggregateMappingException -> return Projection(actualStage, cause.code, requireNotNull(cause.message),
                     mapOf("aggregate" to cause.aggregate.name, "inputType" to cause.inputType))
                 is NativeArithmeticMappingException -> return Projection(actualStage, cause.code, requireNotNull(cause.message),
-                    mapOf("operation" to cause.operation, "inputTypes" to cause.inputTypes))
+                    mapOf("operation" to cause.operation, "inputTypes" to cause.inputTypes, "reason" to cause.reason.name))
                 is NativeCompilationCapabilityException -> return Projection(actualStage, cause.code, requireNotNull(cause.message),
                     mapOf("capability" to cause.capability.name, "operation" to cause.operation))
                 is com.olap.prototype.governance.contract.ReleaseClosureConflictException -> return Projection(actualStage, cause.code,
@@ -156,7 +157,7 @@ internal object ServerFailures {
             code == "NATIVE_AGGREGATE_MAPPING_UNAVAILABLE" -> Projection(actualStage, code,
                 "native aggregate mapping is unavailable for the declared input type", select(facts, "aggregate", "inputType"))
             code == "NATIVE_ARITHMETIC_MAPPING_UNAVAILABLE" -> Projection(actualStage, code,
-                "native arithmetic mapping is unavailable for the declared input types", select(error.path("evidenceContext"), "operation", "inputTypes"))
+                "native arithmetic mapping is unavailable for the declared input types", select(error.path("evidenceContext"), "operation", "inputTypes", "reason"))
             code == "NATIVE_COMPILATION_CAPABILITY_MISSING" -> Projection(actualStage, code,
                 "native SQL operation requires an unsupported compilation capability", select(facts, "capability", "operation"))
             code == "SOURCE_BINDING_CONFLICT" -> Projection(actualStage, code, "one query requires one exact source binding", select(facts, "inputs"))

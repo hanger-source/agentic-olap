@@ -44,7 +44,7 @@ internal class InstalledProduct(private val tarballs: Path, private val root: Pa
             val manifest = read(h2).jsonObject
             val driver = manifest.array("jars").map { it.jsonObject.string("file") }.single { it.matches(Regex("h2-.*\\.jar")) }
             val jdbc = "jdbc:h2:${root.resolve("business")}"
-            Files.writeString(root.resolve("source.sql"), "CREATE TABLE SALES_ORDERS (ORDER_ID BIGINT PRIMARY KEY, AMOUNT DECIMAL(18,2));\nINSERT INTO SALES_ORDERS VALUES (1,100.00),(2,50.00),(3,25.00);\n")
+            Files.writeString(root.resolve("source.sql"), "CREATE TABLE SALES_ORDERS (ORDER_ID BIGINT PRIMARY KEY, AMOUNT DECIMAL(18,2), CALENDAR_DAYS INTEGER);\nINSERT INTO SALES_ORDERS VALUES (1,100.00,30),(2,50.00,30),(3,25.00,30),(4,NULL,31);\n")
             execute(listOf(packageRoot.resolve("jre/bin/java").toString(), "-cp", h2.parent.resolve(driver).toString(), "org.h2.tools.RunScript", "-url", jdbc, "-user", "sa", "-script", root.resolve("source.sql").toString()), root)
             author = Files.readString(workspace.resolve("project/cli/tests/installed.olap.kts"))
             start("initial")
@@ -73,13 +73,16 @@ internal class InstalledProduct(private val tarballs: Path, private val root: Pa
             val query = built.objectAt("query").objectAt("reference").objectAt("query")
             val result = built.objectAt("result").objectAt("reference").objectAt("result")
             val continued = built.objectAt("continuedResult").objectAt("reference").objectAt("result")
+            val numericReference = built.objectAt("numericResult").objectAt("reference").objectAt("result")
             orderColumnVersion = built.objectAt("orderColumnVersion").string("text")
             salesResult(result); salesResult(continued)
+            val numeric = divisionResult(numericReference)
             authorContracts()
             val serialCalls = serialCapabilities(built)
             val approvals = stageApprovalContracts(businessLineId, built.objectAt("scenarioId").string("text"))
             stop(); start("analysis-reopened"); initializeClient()
             salesResult(result)
+            check(divisionResult(numericReference) == numeric)
             val reopened = program(objectOf("phase" to text("reopen"), "definitionId" to query.getValue("definitionId"),
                 "definitionVersion" to query.getValue("definitionVersion"), "querySha256" to query.getValue("sha256"),
                 "resultRunId" to result.getValue("runId"), "resultSha256" to result.getValue("sha256")))
@@ -92,7 +95,7 @@ internal class InstalledProduct(private val tarballs: Path, private val root: Pa
                 "persistentRead" to bool(true), "actualSourceRead" to bool(true), "declaredStructure" to bool(true), "structurePersistentRead" to bool(true),
                 "analysisPersistentRead" to bool(true), "sourceIdentityHash" to text(sourceIdentityHash), "queryReference" to query,
                 "runIds" to JsonArray(listOf(result.getValue("runId"), continued.getValue("runId"), repeated.getValue("runId"))),
-                "expected" to objectOf("sales_amount" to text("175.00"), "order_count" to text("3")),
+                "expected" to objectOf("sales_amount" to text("175.00"), "order_count" to text("4")), "integerDivision" to numeric,
                 "serialCapabilities" to serialCalls, "stageAuthorization" to approvals, "completeResponseDelivery" to complete))
         } catch (failure: Throwable) {
             write(root.resolve("report.json"), objectOf("status" to text("FAILED"), "message" to text(failure.message ?: failure.javaClass.name)))
@@ -132,7 +135,7 @@ internal class InstalledProduct(private val tarballs: Path, private val root: Pa
         check(page.array("columns").map { it.jsonObject.objectAt("symbol").string("name") } == listOf("sales_amount", "order_count"))
         val values = page.array("rows")[0].jsonObject.array("values").map { it.jsonObject.objectAt("complete").objectAt("scalar") }
         check(values[0].string("type") == "DECIMAL" && values[0].string("value").toBigDecimal().compareTo("175".toBigDecimal()) == 0)
-        check(values[1] == objectOf("type" to text("INTEGER"), "value" to text("3")))
+        check(values[1] == objectOf("type" to text("INTEGER"), "value" to text("4")))
         val metadata = client.call("read-query-result-metadata", objectOf("resultReference" to reference, "section" to text("RUN"), "offset" to number(0), "limit" to number(20))).jsonObject
         check(metadata.objectAt("content").objectAt("run").getValue("runId") == reference.getValue("runId"))
         val explanation = client.call("read-query-result-metadata", objectOf("resultReference" to reference, "section" to text("EXPLANATION"),
@@ -141,13 +144,27 @@ internal class InstalledProduct(private val tarballs: Path, private val root: Pa
         val source = explanation.array("sourceConstraints").map { it.jsonObject }.single { it["schema"] == text("PUBLIC") && it["table"] == text("SALES_ORDERS") }
         check(source.array("constraints").map { it.jsonObject }.single { it["kind"] == text("NOT_NULL") }.objectAt("columns") == objectOf("ORDER_ID" to text(orderColumnVersion)))
     }
+    private fun divisionResult(reference: JsonObject): JsonObject {
+        val page = client.call("read-query-result", objectOf("resultReference" to reference, "offset" to number(0), "limit" to number(10))).jsonObject
+        check(page.getValue("totalRows").jsonPrimitive.long == 1L && page.array("rows").size == 1)
+        check(page.array("columns").map { it.jsonObject.objectAt("symbol").string("name") } == listOf("day_sum", "valid_count", "mean_days", "wide_ratio", "zero_ratio"))
+        val complete = page.array("rows").single().jsonObject.array("values").map { it.jsonObject.objectAt("complete") }
+        val values = complete.take(4).map { it.objectAt("scalar") }
+        check(values.map { it.string("type") } == listOf("INTEGER", "INTEGER", "DECIMAL", "DECIMAL"))
+        check(complete.last().keys == setOf("nullValue"))
+        check(values[0].string("value") == "121" && values[1].string("value") == "4")
+        check(values[2].string("value").toBigDecimal().compareTo("30.25".toBigDecimal()) == 0)
+        check(values[3].string("value").toBigDecimal().compareTo("-9.223372036854775808".toBigDecimal()) == 0)
+        return objectOf("resultReference" to reference, "sum" to values[0].getValue("value"), "count" to values[1].getValue("value"),
+            "mean" to values[2].getValue("value"), "wideRatio" to values[3].getValue("value"), "zeroDenominator" to text("NULL"))
+    }
     private fun serialCapabilities(built: JsonObject): JsonObject {
         var session: String? = null
         fun submit(source: String): ScriptResult {
             val id = UUID.randomUUID().toString()
             var payload = objectOf("executionId" to text(id), "waitMillis" to number(1000), "source" to text(source),
                 "sourceName" to text("serial-definitions.olap.kts"), "dslApiVersion" to text(dslVersion),
-                "parameters" to JsonObject(listOf("logicalTableId", "orderUnitId", "amountUnitId").associateWith {
+                "parameters" to JsonObject(listOf("logicalTableId", "orderUnitId", "amountUnitId", "daysUnitId").associateWith {
                     built.objectAt(it).getValue("text")
                 }))
             session?.let { payload = payload.with("sessionId" to text(it)) }
@@ -166,27 +183,27 @@ internal class InstalledProduct(private val tarballs: Path, private val root: Pa
             val declaration = submit("""
                 fun readInstalledFields(tableId: String, unitIds: List<String>) {
                     val table = olap.semantics.definition(GovernanceReadRequests.AssetVersionRequest("LOGICAL_TABLE", tableId, 1)) as GovernanceDefinition.LogicalTable
-                    check(table.record.id == tableId && table.logicUnitCount == 2)
+                    check(table.record.id == tableId && table.logicUnitCount == 3)
                     val units = unitIds.map { id ->
                         val unit = olap.semantics.definition(GovernanceReadRequests.AssetVersionRequest("LOGIC_UNIT", id, 1)) as GovernanceDefinition.LogicUnit
                         check(unit.record.id == id)
                         unit
                     }
-                    check(units.map { it.record.code }.toSet() == setOf("ORDER_ID", "AMOUNT"))
+                    check(units.size == table.logicUnitCount && units.map { it.record.code }.toSet() == setOf("ORDER_ID", "AMOUNT", "CALENDAR_DAYS"))
                 }
             """.trimIndent())
             check(declaration.report.array("calls").isEmpty())
             val reports = (1..4).map {
                 submit("""
-                    repeat(32) { round ->
-                        readInstalledFields(parameters.text("logicalTableId"), listOf(parameters.text("orderUnitId"), parameters.text("amountUnitId")))
-                        if (round % 8 == 7) olap.output(ScriptValue.Text("completed:" + (round + 1)))
+                    repeat(24) { round ->
+                        readInstalledFields(parameters.text("logicalTableId"), listOf(parameters.text("orderUnitId"), parameters.text("amountUnitId"), parameters.text("daysUnitId")))
+                        if (round % 6 == 5) olap.output(ScriptValue.Text("completed:" + (round + 1)))
                     }
                 """.trimIndent()).report.also { report ->
                     check(report["workerId"] == declaration.report["workerId"] && report.getValue("sessionUsable").jsonPrimitive.boolean)
                     val calls = report.array("calls").map { it.jsonObject }
                     check(calls.size == 96 && calls.all { call -> call.string("state") == "COMPLETED" && call.getValue("success").jsonPrimitive.boolean && call.array("effects").isEmpty() })
-                    check(report.array("outputs").map { it.jsonObject.objectAt("value").string("text") } == listOf("completed:8", "completed:16", "completed:24", "completed:32"))
+                    check(report.array("outputs").map { it.jsonObject.objectAt("value").string("text") } == listOf("completed:6", "completed:12", "completed:18", "completed:24"))
                 }
             }
             return objectOf("sessionId" to text(requireNotNull(session)), "fragments" to number(reports.size),

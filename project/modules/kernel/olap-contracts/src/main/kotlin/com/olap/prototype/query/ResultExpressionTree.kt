@@ -20,35 +20,41 @@ object ResultExpressionTree {
     }
 
     fun nodes(expression: ResultExpression): List<ResultExpression> = buildList {
-        fun visit(value: ResultExpression) {
-            add(value)
+        visit(expression, emptyList()) { value, _ -> add(value) }
+    }
+
+    /** 使用正式字段路径访问同一棵树；身份检查不自行复制节点布局。 */
+    fun visit(expression: ResultExpression, path: List<Any>, visitor: (ResultExpression, List<Any>) -> Unit) {
+        fun descend(value: ResultExpression, current: List<Any>) {
+            visitor(value, current)
             when (value) {
-                is ResultCall -> value.arguments.forEach(::visit)
-                is ResultNativeCall -> value.arguments.forEach(::visit)
-                is ResultOperation -> value.operands.forEach(::visit)
-                is ResultRow -> value.operands.forEach(::visit)
+                is ResultCall -> value.arguments.forEachIndexed { index, child -> descend(child, current + listOf("arguments", index)) }
+                is ResultNativeCall -> value.arguments.forEachIndexed { index, child -> descend(child, current + listOf("arguments", index)) }
+                is ResultOperation -> value.operands.forEachIndexed { index, child -> descend(child, current + listOf("operands", index)) }
+                is ResultRow -> value.operands.forEachIndexed { index, child -> descend(child, current + listOf("operands", index)) }
                 is ResultCaseWhen -> {
-                    value.branches.forEach {
-                        visit(it.`when`)
-                        visit(it.then)
+                    value.branches.forEachIndexed { index, branch ->
+                        val branchPath = current + listOf("branches", index)
+                        descend(branch.`when`, branchPath + "when")
+                        descend(branch.then, branchPath + "then")
                     }
-                    visit(value.otherwise)
+                    descend(value.otherwise, current + "otherwise")
                 }
-                is ResultCast -> visit(value.expression)
-                is ResultRowField -> visit(value.expression)
-                is ResultCollectionSort -> visit(value.expression)
-                is ResultCollectionText -> visit(value.expression)
-                is ResultNumeric -> visit(value.expression)
-                is ResultRound -> visit(value.expression)
+                is ResultCast -> descend(value.expression, current + "expression")
+                is ResultRowField -> descend(value.expression, current + "expression")
+                is ResultCollectionSort -> descend(value.expression, current + "expression")
+                is ResultCollectionText -> descend(value.expression, current + "expression")
+                is ResultNumeric -> descend(value.expression, current + "expression")
+                is ResultRound -> descend(value.expression, current + "expression")
                 is ResultWeightedContribution -> {
-                    visit(value.value)
-                    visit(value.weight)
+                    descend(value.value, current + "value")
+                    descend(value.weight, current + "weight")
                 }
-                is ResultUniformAllocation -> visit(value.value)
+                is ResultUniformAllocation -> descend(value.value, current + "value")
                 is ResultArgument, is ResultSymbol, is ResultLiteral, is ResultTypedLiteral, is ResultQuantityLiteral -> Unit
             }
         }
-        visit(expression)
+        descend(expression, path)
     }
 
     fun rewrite(value: ResultExpression, selections: (List<String>) -> List<String>,

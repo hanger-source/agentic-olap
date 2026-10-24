@@ -44,11 +44,16 @@ object PostOperationTraversal {
             else -> Unit
         }
     }
-    fun expressions(operation: ValidatedOperation): List<ResultExpression> = when (operation) {
-        is JoinInput -> listOf(operation.condition)
-        is Derive -> listOf(operation.expression)
-        is PostFilter -> listOf(operation.expression)
-        else -> emptyList()
+    fun expressions(operation: ValidatedOperation): List<ResultExpression> = buildList {
+        expressions(operation) { _, expression -> add(expression) }
+    }
+    fun expressions(operation: ValidatedOperation, visitor: (String, ResultExpression) -> Unit) {
+        when (operation) {
+            is JoinInput -> visitor("condition", operation.condition)
+            is Derive -> visitor("expression", operation.expression)
+            is PostFilter -> visitor("expression", operation.expression)
+            else -> Unit
+        }
     }
     fun valueContracts(operation: ValidatedOperation): List<MetricValueContract> = buildList {
         when (operation) {

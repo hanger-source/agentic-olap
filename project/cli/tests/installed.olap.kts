@@ -8,6 +8,7 @@ import com.olap.prototype.expression.SemanticExpression
 import com.olap.prototype.governance.contract.*
 import com.olap.prototype.metric.*
 import com.olap.prototype.query.*
+import com.olap.prototype.query.ResultExpression.*
 import com.olap.prototype.query.contract.*
 import com.olap.prototype.query.definition.QueryDefinitionCommand
 import com.olap.prototype.source.contract.*
@@ -26,9 +27,9 @@ fun verify(reference: QueryResultReference): ResultPage {
     check(page.totalRows == 1 && page.rows.size == 1 && page.nextOffset == null)
     check(page.columns.map { it.symbol.name } == listOf("sales_amount", "order_count"))
     val (amount, count) = page.rows.single().map(::scalar)
-    // 独立参照来自消费脚本写入的三笔原始订单，不由计算定义推导。
+    // 独立参照来自消费脚本写入的实际订单，不由计算定义推导。
     check(amount.type == ExecutableBusinessResult.ValueKind.DECIMAL && BigDecimal(amount.value).compareTo(BigDecimal("175")) == 0)
-    check(count.type == ExecutableBusinessResult.ValueKind.INTEGER && count.value == "3")
+    check(count.type == ExecutableBusinessResult.ValueKind.INTEGER && count.value == "4")
     return page
 }
 fun execute(intent: QueryIntent, question: String): QueryExecutionReceipt =
@@ -36,8 +37,9 @@ fun execute(intent: QueryIntent, question: String): QueryExecutionReceipt =
         check(it.status == QueryExecutionStatus.SUCCEEDED && it.saved) { it.error.toString() }
         verify(requireNotNull(it.resultReference))
     }
-fun computation(entry: PublishedQueryEntry, unauthorized: Boolean = false): QueryComputation.Scope {
-    val calls = listOf("sales_amount", "order_count").map { code ->
+fun computation(entry: PublishedQueryEntry, unauthorized: Boolean = false,
+    codes: List<String> = listOf("sales_amount", "order_count")): QueryComputation.Scope {
+    val calls = codes.map { code ->
         val instance = entry.capability.metricCandidates.single { it.code == code }.instance
         QueryComputation.Invocation(code, if (unauthorized && code == "sales_amount") MetricInstanceRef("metric-instance-" + "0".repeat(64)) else instance,
             code, emptyMap(), emptyMap(), emptyMap(), DimensionCondition.Unrestricted())
@@ -64,7 +66,8 @@ olap.output(when (parameters.text("phase")) {
         check(discovery.value.tables.any { it.ref.table == "SALES_ORDERS" })
         val columns = listOf(
             WarehouseColumnMetadata("ORDER_ID", -5, "BIGINT", 1, false, 19, 0, null, null, null, null),
-            WarehouseColumnMetadata("AMOUNT", 3, "DECIMAL", 2, true, 18, 2, null, null, null, null)
+            WarehouseColumnMetadata("AMOUNT", 3, "DECIMAL", 2, true, 18, 2, null, null, null, null),
+            WarehouseColumnMetadata("CALENDAR_DAYS", 4, "INTEGER", 3, true, 10, 0, null, null, null, null)
         )
         val table = SourceStructureRegistrationRequest.Table(
             WarehouseTableSummary(WarehouseTableRef(null, "PUBLIC", "SALES_ORDERS"), "TABLE", null), columns,
@@ -84,7 +87,7 @@ olap.output(when (parameters.text("phase")) {
         check(requireNotNull(snapshot.structureProvenance).kind == StructureProvenance.Kind.DECLARED)
         val observed = olap.semantics.discoveredTables(GovernanceReadRequests.SnapshotPageInput(snapshotId, 0, 20)).items.single()
         val columns = olap.semantics.discoveredColumns(GovernanceReadRequests.DiscoveredTablePageInput(observed.id, 0, 20)).items
-        check(columns.size == 2 && columns.all { it.autoIncrement == null && it.generated == null })
+        check(columns.size == 3 && columns.all { it.autoIncrement == null && it.generated == null })
         val physical = olap.governance.createPhysicalTable(PhysicalTableCreateRequest(
             "sales_orders", "SALES_ORDERS", "销售订单", "安装后真实H2订单", "sales", actor, "PUBLIC", "installed-sales", "business", "h2",
             observed.catalogName, observed.schemaName, requireNotNull(observed.schemaHash),
@@ -110,13 +113,22 @@ olap.output(when (parameters.text("phase")) {
             MetricValueContract.Exact(), MetricValueContract.Decimal(38, 2, MetricValueContract.Rounding.NONE), emptyMap(), MetricValueContract.Overflow.FAIL)
         val count = MetricValueContract(MetricValueContract.Fixed(MetricValueContract.ONE), MetricValueContract.Exact(),
             MetricValueContract.Integer(64), emptyMap(), MetricValueContract.Overflow.FAIL)
+        val day = MetricValueContract.UnitIdentity("example", "calendar-day", 1)
+        val days = MetricValueContract(MetricValueContract.Fixed(day), MetricValueContract.Exact(),
+            MetricValueContract.Integer(64), emptyMap(), MetricValueContract.Overflow.FAIL)
         val specifications = listOf(
             Triple("sales_amount", MetricDefinition.FactMeasure(EventRef(event.id, 1), SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT,
                 units.getValue("AMOUNT").id, 1), MetricAggregation.SUM, false, null, emptyMap(), null, amount, MetricValueContract.Rounding.NONE),
                 MetricBusinessMeaning("所有已登记订单的金额之和", "CNY", "订单", listOf("不含退款及状态限定"))),
             Triple("order_count", MetricDefinition.FactMeasure(EventRef(event.id, 1), SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT,
                 units.getValue("ORDER_ID").id, 1), MetricAggregation.COUNT, false, null, emptyMap(), null, count, MetricValueContract.Rounding.NONE),
-                MetricBusinessMeaning("已登记订单记录数", "单", "订单", listOf("不作客户去重")))
+                MetricBusinessMeaning("已登记订单记录数", "单", "订单", listOf("不作客户去重"))),
+            Triple("day_sum", MetricDefinition.FactMeasure(EventRef(event.id, 1), SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT,
+                units.getValue("CALENDAR_DAYS").id, 1), MetricAggregation.SUM, false, null, emptyMap(), null, days, MetricValueContract.Rounding.NONE),
+                MetricBusinessMeaning("订单记录日历天数之和", "日历天", "订单", emptyList())),
+            Triple("valid_count", MetricDefinition.FactMeasure(EventRef(event.id, 1), SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT,
+                units.getValue("CALENDAR_DAYS").id, 1), MetricAggregation.COUNT, false, null, emptyMap(), null, count, MetricValueContract.Rounding.NONE),
+                MetricBusinessMeaning("有非空日历天数的订单数", "单", "订单", emptyList()))
         )
         val metrics = specifications.map { (code, definition, meaning) ->
             olap.governance.createMetric(MetricCreateRequest(code, code, actor, definition, meaning.definition, meaning, actor)).metric.also {
@@ -135,6 +147,7 @@ olap.output(when (parameters.text("phase")) {
         adoptions.forEachIndexed { index, adoption ->
             olap.governance.createScenarioMetricRef(ScenarioMetricRefCreateRequest(scenario.id, 1, adoption.id, 1, true, index + 1))
         }
+        olap.governance.createScenarioPipelineRule(ScenarioPipelineRuleCreateRequest(scenario.id, 1, "DERIVE", 1))
         activate(GovernanceActivationObjectType.SUBJECT_AREA, subject.id)
         olap.governance.buildRelease(SubjectAreaReleaseBuildRequest("installed-sales", "1", "安装后销售口径", subject.id, 1, actor))
         val coordinate = QueryCapabilityRequest(scenario.id, 1, "installed-sales", "1")
@@ -159,6 +172,38 @@ olap.output(when (parameters.text("phase")) {
         val observedRun = olap.results.run(QueryRunRequest(execution.runId, 0, 20)).run
         check(observedRun.receipt?.resultReference == execution.resultReference)
         check(requireNotNull(observedRun.serviceObservation).workers.isNotEmpty())
+        val mean = MetricValueContract(MetricValueContract.Fixed(day), MetricValueContract.Exact(),
+            MetricValueContract.Decimal(28, 18, MetricValueContract.Rounding.HALF_UP), mapOf("days_per_valid_contribution" to
+                MetricValueContract.FixedBinary(MetricValueContract.BinaryOperator.DIVIDE, day, MetricValueContract.ONE, day)), MetricValueContract.Overflow.FAIL)
+        val division = ResultOperation(ResultOperator.DIVIDE, listOf(ResultSymbol("day_sum"), ResultSymbol("valid_count")))
+        val declaredDivision = ResultNumeric(division, mean, "days_per_valid_contribution")
+        val zero = ResultQuantityLiteral(BigDecimal.ZERO, count)
+        val positiveCount = ResultOperation(ResultOperator.GT, listOf(ResultSymbol("valid_count"), zero))
+        fun guarded(value: ResultExpression) = ResultCaseWhen(listOf(ResultCaseBranch(positiveCount, value)), ResultLiteral(null))
+        val dayRoot = computation(publication, codes = listOf("day_sum", "valid_count")).root
+        for ((bad, code, tail) in listOf(
+            Triple(guarded(ResultNumeric(ResultRound(division, 18, MetricValueContract.Rounding.HALF_UP), mean, "days_per_valid_contribution")),
+                "RESULT_UNIT_EQUATION_REQUIRED", listOf("branches", "0", "then", "expression", "expression")),
+            Triple(guarded(ResultRound(declaredDivision, 18, MetricValueContract.Rounding.HALF_UP)),
+                "RESULT_NUMERIC_CONTRACT_REQUIRED", listOf("branches", "0", "then")))) {
+            val invalid = QueryIntent(coordinate, scope(dayRoot) { stage(PostOperationContract.Derive(bad, "mean_days", "平均日历天数")) })
+            val failure = runCatching { olap.queries.validate(QueryValidationRequest(QuerySelection.Inline(invalid))) }.exceptionOrNull()
+            check(failure is CapabilityFailureException && failure.failure.code == code) { "应交付可定位的作者错误：$failure" }
+            check(failure.failure.stage == "ANALYZE_STAGES" && "postOps" in failure.failure.fieldPath && failure.failure.fieldPath.takeLast(tail.size) == tail)
+        }
+        val ratio = MetricValueContract(MetricValueContract.Fixed(MetricValueContract.ONE), MetricValueContract.Exact(),
+            MetricValueContract.Decimal(28, 18, MetricValueContract.Rounding.HALF_UP), mapOf("ratio" to
+                MetricValueContract.FixedBinary(MetricValueContract.BinaryOperator.DIVIDE, MetricValueContract.ONE, MetricValueContract.ONE, MetricValueContract.ONE)),
+            MetricValueContract.Overflow.FAIL)
+        val numericIntent = QueryIntent(coordinate, scope(dayRoot) {
+            stage(PostOperationContract.Derive(guarded(ResultNumeric(ResultRound(declaredDivision, 18, MetricValueContract.Rounding.HALF_UP), mean, null)), "mean_days", "平均日历天数"))
+            stage(PostOperationContract.Derive(ResultNumeric(ResultOperation(ResultOperator.DIVIDE, listOf(
+                ResultQuantityLiteral(BigDecimal("-9223372036854775808"), count), ResultQuantityLiteral(BigDecimal("1000000000000000000"), count))), ratio, "ratio"), "wide_ratio", "完整整数域的商"))
+            stage(PostOperationContract.Derive(ResultNumeric(ResultOperation(ResultOperator.SAFE_DIVIDE, listOf(ResultSymbol("day_sum"), zero)), mean,
+                "days_per_valid_contribution"), "zero_ratio", "零分母保留NULL"))
+        })
+        val numericResult = olap.queries.execute(QueryExecutionRequest(QuerySelection.Inline(numericIntent), true, "同请求整数SUM/COUNT、完整BIGINT域与零分母", null))
+        check(numericResult.status == QueryExecutionStatus.SUCCEEDED && numericResult.saved) { numericResult.error.toString() }
         val carry = olap.semantics.contextSelection(SubjectContextSelectionRequest(subject.id, 1)).selection
         olap.governance.reviseSubjectArea(SubjectContextRevisionRequest(subject.id, 1, subjectDefinition, carry))
         activate(GovernanceActivationObjectType.SUBJECT_AREA, subject.id, 2)
@@ -171,7 +216,8 @@ olap.output(when (parameters.text("phase")) {
             "continuedResult" to ScriptValue.ResultReferenceValue(requireNotNull(continued.resultReference)), "scenarioId" to text(scenario.id),
             "subjectAreaId" to text(subject.id), "orderColumnVersion" to text(orderColumnVersion),
             "logicalTableId" to text(logical.logicalTable.id), "orderUnitId" to text(units.getValue("ORDER_ID").id),
-            "amountUnitId" to text(units.getValue("AMOUNT").id))
+            "amountUnitId" to text(units.getValue("AMOUNT").id), "daysUnitId" to text(units.getValue("CALENDAR_DAYS").id),
+            "numericResult" to ScriptValue.ResultReferenceValue(requireNotNull(numericResult.resultReference)))
     }
     "reopen" -> {
         val query = QueryReference(parameters.text("definitionId"), parameters.text("definitionVersion").toLong(), parameters.text("querySha256"))

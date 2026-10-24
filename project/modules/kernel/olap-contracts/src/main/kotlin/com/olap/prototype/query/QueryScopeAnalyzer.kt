@@ -149,6 +149,7 @@ internal class QueryScopeAnalyzer(
 
     /** 阶段拥有输入快照与可见导入；作用域状态仅在阶段完成后向后传递。 */
     private inner class Transition(private val index: Int, private val operation: PostOperationContract.ValidatedOperation) {
+        private fun expressionPath(name: String): List<Any> = listOf<Any>("input") + scope.path + listOf("postOps", index, name)
         private val before = symbols.values.toList()
         private val imported = mutableListOf<Symbol>()
         private val available = LinkedHashMap(symbols)
@@ -192,34 +193,36 @@ internal class QueryScopeAnalyzer(
             dependencies.forEach { requireSymbol(available, it) }
             val expressionKey = if (operation is PostOperationContract.JoinInput &&
                 !QueryKeys.rightSingleMatch(children.getValue(operation.inputId).analysis, operation, symbols.keys)) UnknownKey.INSTANCE else key
-            PostOperationTraversal.expressions(operation).flatMap { ResultExpressionTree.nodes(it) }.forEach { node ->
-                when (node) {
-                    is ResultExpression.ResultWeightedContribution -> {
-                        val objects = node.observationUnit as? Calculation.ObjectsBy
-                        if (objects != null) {
-                            val identity = objects.keys.map { requireSymbol(available, it).id }.toSet()
-                            require(expressionKey is UniqueKey && identity == expressionKey.columns && objects.keys.all { requireSymbol(available, it).value is QueryValue.Plain }) {
-                                "weighted objects require the complete actual unique identity"
+            PostOperationTraversal.expressions(operation) { name, expression ->
+                ResultExpressionTree.visit(expression, expressionPath(name)) { node, path ->
+                    when (node) {
+                        is ResultExpression.ResultWeightedContribution -> {
+                            val objects = node.observationUnit as? Calculation.ObjectsBy
+                            if (objects != null) {
+                                val identity = objects.keys.map { requireSymbol(available, it).id }.toSet()
+                                require(expressionKey is UniqueKey && identity == expressionKey.columns && objects.keys.all { requireSymbol(available, it).value is QueryValue.Plain }) {
+                                    "weighted objects require the complete actual unique identity"
+                                }
                             }
                         }
-                    }
-                    is ResultExpression.ResultUniformAllocation -> {
-                        require(operation !is PostOperationContract.JoinInput) { "uniform allocation requires a completed association population, not a JOIN predicate" }
-                        val keys = (node.sourceKeys + node.memberKeys).toSet()
-                        val actual = keys.map { requireSymbol(available, it).id }.toSet()
-                        require(expressionKey is UniqueKey && actual.containsAll(expressionKey.columns) && keys.all { requireSymbol(available, it).value is QueryValue.Plain }) {
-                            "uniform allocation requires the complete actual source/member association identity"
+                        is ResultExpression.ResultUniformAllocation -> {
+                            require(operation !is PostOperationContract.JoinInput) { "uniform allocation requires a completed association population, not a JOIN predicate" }
+                            val keys = (node.sourceKeys + node.memberKeys).toSet()
+                            val actual = keys.map { requireSymbol(available, it).id }.toSet()
+                            require(expressionKey is UniqueKey && actual.containsAll(expressionKey.columns) && keys.all { requireSymbol(available, it).value is QueryValue.Plain }) {
+                                "uniform allocation requires the complete actual source/member association identity"
+                            }
+                            QueryValueSemantics.uniformAllocation(QueryValueSemantics.expression(node.value, available, nativeFunctions, path + "value"),
+                                node.sourceKeys.map { requireSymbol(available, it) }, node.memberKeys.map { requireSymbol(available, it) })
                         }
-                        QueryValueSemantics.uniformAllocation(QueryValueSemantics.expression(node.value, available, nativeFunctions),
-                            node.sourceKeys.map { requireSymbol(available, it) }, node.memberKeys.map { requireSymbol(available, it) })
+                        else -> kotlin.Unit
                     }
-                    else -> kotlin.Unit
                 }
             }
         }
 
         private fun joinInput(join: PostOperationContract.JoinInput) {
-            QueryValueSemantics.expression(join.condition, available, nativeFunctions)
+            QueryValueSemantics.expression(join.condition, available, nativeFunctions, expressionPath("condition"))
             if (join.joinType in setOf("SEMI", "ANTI")) return
             val child = children.getValue(join.inputId).analysis
             val retainedPopulation = QueryKeys.rightSingleMatch(child, join, symbols.keys)
@@ -319,7 +322,7 @@ internal class QueryScopeAnalyzer(
             if (unique != null && !symbols.values.map { it.id }.toSet().containsAll(unique.columns)) key = UnknownKey.INSTANCE
         }
         private fun filter(filter: PostOperationContract.PostFilter) {
-            QueryValueSemantics.expression(filter.expression, available, nativeFunctions)
+            QueryValueSemantics.expression(filter.expression, available, nativeFunctions, expressionPath("expression"))
             key = selectedGroupingKey(filter.expression, key)
             val rewritten = refineUnits(filter.expression, index)
             val unique = key as? UniqueKey
@@ -327,7 +330,7 @@ internal class QueryScopeAnalyzer(
         }
         private fun appendOutput(output: PostOperationContract.OutputOperation) {
             add(symbols, symbol(output.outputAlias, OperationOrigin(scope, index, 0, operation.operationType),
-                dependencies.map { requireSymbol(available, it).id }.toSet().toList(), selectedStock(outputValue(output, available, key, nativeFunctions)), sameObservation(output, available)))
+                dependencies.map { requireSymbol(available, it).id }.toSet().toList(), selectedStock(outputValue(output, available, key, nativeFunctions, expressionPath("expression"))), sameObservation(output, available)))
             if (output is PostOperationContract.ObserveWindow && output.domain == PostOperationContract.ObservationDomain.ROWS)
                 key = QueryKeys.key((output.partitionBy + output.orderKeys.map { it.symbol }).distinct(), symbols)
         }
@@ -445,8 +448,8 @@ internal class QueryScopeAnalyzer(
         private fun add(symbols: MutableMap<String, Symbol>, value: Symbol) { require(symbols.putIfAbsent(value.name, value) == null) { "conflicting output symbol: ${value.name}" } }
 
         private fun outputValue(operation: PostOperationContract.OutputOperation, symbols: Map<String, Symbol>, key: Key,
-            nativeFunctions: Map<ResultExpression.ResultNativeCall, NativeScalarFunction>): QueryValue = when (operation) {
-            is PostOperationContract.Derive -> QueryValueSemantics.expression(operation.expression, symbols, nativeFunctions)
+            nativeFunctions: Map<ResultExpression.ResultNativeCall, NativeScalarFunction>, fieldPath: List<Any>): QueryValue = when (operation) {
+            is PostOperationContract.Derive -> QueryValueSemantics.expression(operation.expression, symbols, nativeFunctions, fieldPath)
             is PostOperationContract.Rank, is PostOperationContract.OrderedRank -> QueryAggregationSemantics.count()
             is PostOperationContract.Cumulative -> QueryAggregationSemantics.window(operation.aggregation, requireSymbol(symbols, operation.input).value,
                 operation.partitionBy.map { requireSymbol(symbols, it) }, orders(symbols, listOf(PostOperationContract.OrderKey(operation.orderBy, operation.direction, if (operation.direction == "ASC") "LAST" else "FIRST"))),

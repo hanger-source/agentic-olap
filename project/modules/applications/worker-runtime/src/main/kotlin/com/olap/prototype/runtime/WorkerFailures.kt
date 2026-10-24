@@ -49,12 +49,12 @@ internal object WorkerFailures {
         if (failure is ProtoStringRepresentationException) return representation(failure, null)
         if (kind == WorkerKind.SOURCE_INSPECTION || kind == WorkerKind.INSPECTION)
             return SourceInspectionFailure.project(failure)
-        if (failure is InputContractException) return mapOf("stage" to failure.rule.stage, "code" to failure.rule.code,
-            "message" to failure.message, "evidenceContext" to failure.details)
         val mappingSeen = Collections.newSetFromMap(IdentityHashMap<Throwable, Boolean>())
         var mappingCause: Throwable? = failure
         while (mappingCause != null && mappingSeen.add(mappingCause)) {
             if (mappingCause is ProtoStringRepresentationException) return representation(mappingCause, failure as? EngineExecutionException)
+            if (mappingCause is InputContractException) return mapOf("stage" to mappingCause.rule.stage, "code" to mappingCause.rule.code,
+                "message" to mappingCause.message, "evidenceContext" to mappingCause.details)
             if (mappingCause is NativeCompilationCapabilityException) return mapOf(
                 "stage" to if (failure is EngineExecutionException) failure.stage else "RENDER_SQL",
                 "code" to mappingCause.code, "message" to mappingCause.message,
@@ -67,7 +67,8 @@ internal object WorkerFailures {
             if (mappingCause is NativeArithmeticMappingException) return mapOf(
                 "stage" to if (failure is EngineExecutionException) failure.stage else "COMPILE_REL",
                 "code" to mappingCause.code, "message" to mappingCause.message,
-                "evidenceContext" to mapOf("operation" to mappingCause.operation, "inputTypes" to mappingCause.inputTypes))
+                "evidenceContext" to mapOf("operation" to mappingCause.operation, "inputTypes" to mappingCause.inputTypes,
+                    "reason" to mappingCause.reason.name))
             mappingCause = mappingCause.cause
         }
         if (failure is ProducerContractException) return mapOf("stage" to "CONTRACT_INPUT", "code" to "CONTRACT_VIOLATION", "message" to failure.message)

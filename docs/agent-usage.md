@@ -147,6 +147,46 @@ olap.output(result)
 
 数量合同分别声明单位、算术保证、结果容量与溢出行为。`COUNT` 的单位必须是 `MetricValueContract.Fixed(MetricValueContract.ONE)`：它产生无量纲计数，不能改成自定义的“订单”或“访客”单位。数的是哪类对象、是否去重以及选择哪批人口，由事件、输入、`distinct` 和计算人口表达。
 
+结果算术的局部规则从 `ResultExpression.ResultNumeric`、`ResultRound`、`ResultOperation` 和 `ResultOperator` 的 `rules` 读取。`ResultNumeric` 提供当前位置可见的数量声明；声明可以传给 CASE 的结果分支、ROUND、CAST 或算术操作数，内层 NUMERIC 则使用自己的声明。单位方程的作用域更窄：`unitEquation` 只供这个 NUMERIC **直接包住的算术节点**使用，不穿透 ROUND、CASE、CAST、函数或操作数。乘除双方均为单位 ONE 时可省略方程，其他乘除必须在实际算术位置显式声明。
+
+ROUND 在分析子表达式之前，就需要当前位置可见的数量合同。因此 `ResultRound(ResultNumeric(...), scale, rounding)` 中的内层 NUMERIC 不能给外层 ROUND 补合同；外层已有 NUMERIC 声明时，也可以经 CASE 的结果分支传给 ROUND，不要求所有 ROUND 都紧贴一个 NUMERIC。
+
+例如，已经按同一贡献人口完成 `day_sum` 与 `valid_count` 后，可以这样明确声明有单位的商及其量化。下面的天数单位由业务明确采用；两个符号必须来自前序阶段，分母为单位 ONE 的精确 Integer64 计数。
+
+~~~kotlin
+val day = MetricValueContract.UnitIdentity("example", "calendar-day", 1)
+val countContract = MetricValueContract(
+    MetricValueContract.Fixed(MetricValueContract.ONE), MetricValueContract.Exact(),
+    MetricValueContract.Integer(64), emptyMap(), MetricValueContract.Overflow.FAIL
+)
+val meanContract = MetricValueContract(
+    MetricValueContract.Fixed(day), MetricValueContract.Exact(),
+    MetricValueContract.Decimal(28, 18, MetricValueContract.Rounding.HALF_UP),
+    mapOf("days_per_count" to MetricValueContract.FixedBinary(
+        MetricValueContract.BinaryOperator.DIVIDE, day, MetricValueContract.ONE, day
+    )), MetricValueContract.Overflow.FAIL
+)
+val quotient = ResultNumeric(
+    ResultOperation(ResultOperator.DIVIDE, listOf(ResultSymbol("day_sum"), ResultSymbol("valid_count"))),
+    meanContract, "days_per_count"
+)
+val rounded = ResultNumeric(
+    ResultRound(quotient, 18, MetricValueContract.Rounding.HALF_UP), meanContract, null
+)
+val meanDays = PostOperationContract.Derive(
+    ResultCaseWhen(listOf(ResultCaseBranch(
+        ResultOperation(ResultOperator.GT, listOf(
+            ResultSymbol("valid_count"), ResultQuantityLiteral(java.math.BigDecimal.ZERO, countContract)
+        )), rounded
+    )), ResultLiteral(null)), "mean_days", "平均日历天数"
+)
+Unit
+~~~
+
+内层 NUMERIC 的方程用于 DIVIDE，外层 NUMERIC 为 ROUND 提供数量合同；N 不大于零时返回 NULL。`DIVIDE` 表达数值商，整数操作数不表示先截取整数商；`SAFE_DIVIDE` 的零分母返回 NULL，其余采用相同的商语义。结果容量和显式舍入仍生效，连接器必须兑现实际类型及算术保证；不支持时明确拒绝。NUMERIC、ROUND 或后置 CAST 都不能恢复输入或原生计算已经丢失的数位。这个构造示例不替代来源的精度保证，也不证明任意分母或原生 AVG 已受支持。
+
+缺少当前位置数量声明返回 `RESULT_NUMERIC_CONTRACT_REQUIRED`，缺少乘除单位方程返回 `RESULT_UNIT_EQUATION_REQUIRED`，阶段均为 `ANALYZE_STAGES`。诊断的 `fieldPath` 定位到绑定后的输入作用域、`postOps` 阶段和实际嵌套表达式；例如 `input / postOps / 3 / expression / branches / 0 / then / expression / expression`。列表下标从零开始，子输入或保存计算的作用域也保留在路径中。这是正式计算中的节点坐标，不是 Kotlin 源码行号。结合 `expectedKind`、`actualKind` 与请求诊断坐标修正该节点，无需猜测整条查询或重放已成功的写操作。
+
 以下程序完整构造一项记录计数和一项金额求和，不写入元数据。事件与逻辑字段引用由参数提供，必须先从实际定义读取精确身份。金额例子假设来源是精确 DECIMAL、业务单位已确认为人民币元；结果声明 `DECIMAL(24,2)`，超出容量时失败，不额外舍入。来源为浮点或业务单位尚未确认时，应根据真实来源及业务含义选择合同。
 
 ~~~kotlin

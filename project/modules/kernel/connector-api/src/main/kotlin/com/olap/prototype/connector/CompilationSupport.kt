@@ -70,9 +70,13 @@ interface CompilationSupport {
     val maximumDeclaredDecimalPrecision: Int
     fun supports(capability: Capability): Boolean
     /**
-     * 原生 DIVIDE（SAFE_DIVIDE 也使用本算子，核心另外保留 NULLIF 的零分母政策）。
+     * DIVIDE 表达允许小数的算术商，不按整数输入选择截断商。
+     * 两个整数输入由核心按各自完整整数域无损 CAST 为 DECIMAL(p,0)，保留 NULL；BIGINT 为 DECIMAL(19,0)。
+     * SAFE_DIVIDE 使用同一入口，核心另外保留 NULLIF 的零分母政策。
      * 返回类型推导须描述实际中间结果，SQL AST 映射须兑现所接受输入的原生容量及算术；
-     * 不能把有限 scale 的原生商仅标成更宽类型，或依赖外层 CAST 补回已舍入的位数。
+     * 原生整型商会被拒绝；DECIMAL 的 scale 为零本身不证明截断，连接器仍须兑现实际算术，
+     * 例如检查可整除性并明确拒绝非整除输入，而不能改贴 DECIMAL 类型来掩盖整数截断；
+     * 也不能把有限 scale 的原生商仅标成更宽类型，或依赖外层 CAST 补回已舍入的位数。
      * 可返回自定义 SqlOperator，在类型推导阶段拒绝尚无保证的精确输入，再在 unparse 映射已证明的策略。
      * 此入口只有本次运算的有序实参与原生类型，不承诺收到外围数量合同的目标精度或舍入。
      */

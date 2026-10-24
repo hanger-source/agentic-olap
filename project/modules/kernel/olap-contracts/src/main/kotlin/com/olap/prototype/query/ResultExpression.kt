@@ -63,6 +63,7 @@ sealed interface ResultExpression {
         }
         override fun equals(other: Any?): Boolean = other is ResultOperation && operator == other.operator && operands == other.operands
         override fun hashCode(): Int = listOf(operator, operands).hashCode()
+        companion object { fun contract(): Map<String, Any> = QueryValueSemantics.operationContract() }
     }
     class ResultRow(operands: List<ResultExpression>) : ResultExpression {
         val operands: List<ResultExpression> = java.util.List.copyOf(operands)
@@ -87,10 +88,16 @@ sealed interface ResultExpression {
         init { SemanticExpression.Cast.validateTarget(targetType, precision, scale) }
     }
     data class ResultRound(val expression: ResultExpression, val scale: Int, val rounding: MetricValueContract.Rounding) : ResultExpression {
-        init { require(scale in -38..38 && rounding != MetricValueContract.Rounding.NONE) { "ROUND requires a finite scale and explicit rounding mode" } }
+        init { require(scale in MINIMUM_SCALE..MAXIMUM_SCALE && rounding != MetricValueContract.Rounding.NONE) { "ROUND requires a finite scale and explicit rounding mode" } }
+        companion object {
+            const val MINIMUM_SCALE = -38
+            const val MAXIMUM_SCALE = 38
+            fun contract(): Map<String, Any> = QueryValueSemantics.roundContract()
+        }
     }
     data class ResultNumeric(val expression: ResultExpression, val valueContract: MetricValueContract, val unitEquation: String?) : ResultExpression {
         init { require(unitEquation == null || unitEquation in valueContract.unitEquations) { "numeric expression references an undeclared unit equation" } }
+        companion object { fun contract(): Map<String, Any> = QueryValueSemantics.numericContract() }
     }
     class ResultQuantityLiteral(value: BigDecimal, val valueContract: MetricValueContract) : ResultExpression {
         val value: BigDecimal = value.stripTrailingZeros().let { if (it.scale() < 0) it.setScale(0) else it }
@@ -133,7 +140,13 @@ sealed interface ResultExpression {
     enum class ResultOperator(val arity: Int) {
         ADD(2), SUBTRACT(2), MULTIPLY(2), DIVIDE(2), SAFE_DIVIDE(2), NEGATE(1), ABS(1),
         TIMESTAMPDIFF(3), TIMESTAMPADD(3), DATE_TRUNC(2), EQ(2), NE(2), GT(2), GTE(2), LT(2), LTE(2),
-        IS_NULL(1), IS_NOT_NULL(1), AND(2), OR(2), NOT(1)
+        IS_NULL(1), IS_NOT_NULL(1), AND(2), OR(2), NOT(1);
+
+        val quantityArithmetic: Boolean get() = when (this) {
+            ADD, SUBTRACT, MULTIPLY, DIVIDE, SAFE_DIVIDE, NEGATE, ABS -> true
+            else -> false
+        }
+        companion object { fun contract(): Map<String, Any> = QueryValueSemantics.operationContract() }
     }
 
     companion object {

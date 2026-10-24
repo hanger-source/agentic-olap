@@ -140,6 +140,10 @@ object ApiDiscovery {
             LogicUnitRecord::class -> LogicUnitRecord.contract()
             LogicalTableCreateRequest.LogicUnitInput::class -> LogicalTableCreateRequest.LogicUnitInput.contract()
             SetOutputContract.Container::class, SetOutputContract.Array::class, SetOutputContract.Row::class -> SetOutputContract.Container.contract()
+            ResultExpression.ResultNumeric::class -> ResultExpression.ResultNumeric.contract()
+            ResultExpression.ResultRound::class -> ResultExpression.ResultRound.contract()
+            ResultExpression.ResultOperation::class -> ResultExpression.ResultOperation.contract()
+            ResultExpression.ResultOperator::class -> ResultExpression.ResultOperator.contract()
             ResultExpression.ResultNativeCall::class -> mapOf(
                 "connector" to "CURRENT_EXACT_SOURCE_CONNECTOR_REF",
                 "function" to "DECLARED_NATIVE_SCALAR_FUNCTION_ID",

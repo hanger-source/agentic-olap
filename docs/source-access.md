@@ -97,9 +97,15 @@ JDBC 实现的 `identityParameters` 为 `jdbcUrl`、可选 `username` 和 `drive
 
 如果同一输入类型在不同执行形态上返回不同 scale，须区分只增加尾零的表示差异与原生计算已经不同舍入的情况。宽类型只提供容纳空间，不能补回原生结果已经丢失的信息。插件只有在能兑现统一的实际容量及原生舍入时才能声明映射；已证明的原生输入转换或另一原生策略须通过确定的 SQL AST 映射和相同类型推导表达，保留人口、NULL、权重和错误，不在来源执行失败后切换。
 
-显式 `SUM(x)/COUNT(x)` 使用 `CompilationSupport.division`，不使用 AVG 的 `decimalAverageRounding`。该入口可返回自定义 `SqlOperator`，用实际输入类型推导返回类型并渲染已证明的原生 AST；标准 DECIMAL 除法使用 `typeSystem.deriveDecimalDivideType`，自定义算子可有自己的类型推导。未知或已知不能兑现的精确除法，应在该算子的类型推导中明确拒绝；不能因为原生结果是 numeric、没有变成 DOUBLE，就宣称已经实现数学上的目标精度。实际绑定／推导拒绝返回 `NATIVE_ARITHMETIC_MAPPING_UNAVAILABLE`，披露 `operation=DIVIDE` 和实际 `inputTypes`；没有执行来源 SQL，也不公开插件 cause 原文。
+`DIVIDE` 与 `SAFE_DIVIDE` 表达允许小数的算术商，不按输入的整数技术类型自动截断。显式 `SUM(x)/COUNT(x)` 使用 `CompilationSupport.division`，不使用 AVG 的 `decimalAverageRounding`；来源表达式、完成关系及分摊计算使用同一除法入口。两个输入都是整数 SQL 类型时，核心按各自完整整数域无损转换为 `DECIMAL(p,0)` 并保留 NULL，例如 BIGINT 转为 `DECIMAL(19,0)`。这是输入表示规范化，不会将最终输出的 precision／scale 提前施加给操作数，也不改变 SAFE_DIVIDE 的零分母 NULL 政策。
+
+该入口可返回自定义 `SqlOperator`，用规范化后的实际输入类型推导返回类型并渲染已证明的非截断原生 AST；标准 DECIMAL 除法使用 `typeSystem.deriveDecimalDivideType`，自定义算子可有自己的类型推导。来源仍返回整型商时明确拒绝；返回 DOUBLE 的映射仍不能满足 Exact。DECIMAL 的 scale 为零本身不构成截断证据，连接器可以检查可整除性并明确拒绝不能精确表示的输入。不能仅修改返回类型来掩盖实际 SQL 的整数截断，也不能因为结果是 numeric 就宣称已经实现数学上的目标精度。
+
+未知或已知不能兑现的精确除法，应在该算子的类型推导中明确拒绝。实际绑定／推导拒绝返回 `NATIVE_ARITHMETIC_MAPPING_UNAVAILABLE`，披露 `operation=DIVIDE`、实际 `inputTypes` 及受控 `reason`：映射主动拒绝为 `MAPPING_REJECTED`，输入整数域无法无损规范化为 `INTEGER_INPUT_CAPACITY_UNAVAILABLE`，只返回整数商为 `INTEGRAL_QUOTIENT`，返回非数值为 `NON_NUMERIC_QUOTIENT`。没有执行来源 SQL，也不公开插件 cause 原文。
 
 `ResultNumeric` 的最终 DECIMAL 容量与舍入在表达式完成后应用，当前除法入口不接收这份外围输出政策。原生商若已舍入为六位，再 CAST 为 DECIMAL(38,18) 只会补零；结果类型检查和 BigDecimal 读取不能补回位数。`prepareUnparse` 能看到类型，但 CAST 的目标 p／s 不完整表达 HALF_UP 等业务政策。也不能把最终十八位量化提前到所有中间除法，或者将三十八整数位分子窄化为 DECIMAL(38,18) 来换取 scale。若后端策略确实必须按本次目标政策选择，并已证明现有统一运算及类型入口无法表达，应提交该策略及具体缺失信息，再确定通用扩展；不能仅凭存在 typed AST 就宣称问题已经解决。
+
+无损整数规范化不等于完整的精确量化策略。原生商先舍入到有限位数、最终输出再舍入，仍可能产生双重舍入；原生 scale 高于目标 scale 也不能单独排除它。`ResultNumeric`、`ResultRound` 和最终 CAST 都不能恢复原生运算已经丢失的位数。连接器仍须为所接受的输入和执行形态兑现数值保证；无法兑现时保持明确拒绝，不以客户端计算或业务 NativeCall 补偿。
 
 当前类型推导与聚合发现只接收技术类型，没有本次输入的业务值域及行数合同。最终输出容量、`Approximate.minimum/maximum` 或一次调查范围不能替代受限输入的证明，也不能据此臆定评分为某个区间。先明确后端实际保证及其适用前提，再判断现有表达能否承载；尚未找到可兑现策略，不等于核心缺少一个范围参数。
 

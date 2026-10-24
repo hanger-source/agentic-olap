@@ -11,11 +11,17 @@ class NativeAggregateMappingException(val aggregate: MetricAggregation, val inpu
     val code: String = "NATIVE_AGGREGATE_MAPPING_UNAVAILABLE"
 }
 
-/** 实际原生算子在绑定／返回类型推导时拒绝输入；不公开插件异常原文或业务值。 */
-class NativeArithmeticMappingException(val operation: String, inputTypes: List<String>, cause: Throwable) :
-    IllegalArgumentException("native $operation mapping unavailable for the declared input types", cause) {
+/** 原生算子无法兑现公共算术语义；原因受控，不公开插件异常原文或业务值。 */
+class NativeArithmeticMappingException private constructor(val operation: String, inputTypes: List<String>, cause: Throwable?, val reason: Reason) :
+    IllegalArgumentException("native $operation mapping unavailable for the declared input types: ${reason.name}", cause) {
+    constructor(operation: String, inputTypes: List<String>, cause: Throwable) : this(operation, inputTypes, cause, Reason.MAPPING_REJECTED)
+    enum class Reason { MAPPING_REJECTED, INTEGER_INPUT_CAPACITY_UNAVAILABLE, INTEGRAL_QUOTIENT, NON_NUMERIC_QUOTIENT }
     val inputTypes: List<String> = java.util.List.copyOf(inputTypes)
     val code: String = "NATIVE_ARITHMETIC_MAPPING_UNAVAILABLE"
+    companion object {
+        fun rejected(operation: String, inputTypes: List<String>, reason: Reason): NativeArithmeticMappingException =
+            NativeArithmeticMappingException(operation, inputTypes, null, reason)
+    }
 }
 
 /** 原生SQL构造所需的编译保证；不包含查询文本或业务值。 */

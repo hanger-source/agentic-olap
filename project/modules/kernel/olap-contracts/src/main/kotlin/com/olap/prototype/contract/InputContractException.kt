@@ -16,6 +16,8 @@ class InputContractException private constructor(val rule: Rule, message: String
         SOURCE_CONTAINER_LEAF("SOURCE_CONTAINER_LEAF", "CONTRACT_INPUT"),
         SOURCE_CONTAINER_QUANTITY_UNIT("SOURCE_CONTAINER_QUANTITY_UNIT", "CONTRACT_INPUT"),
         ROOT_INPUT_REQUIRED("ROOT_INPUT_REQUIRED", "AUTHORIZE_INPUT"),
+        RESULT_NUMERIC_CONTRACT_REQUIRED("RESULT_NUMERIC_CONTRACT_REQUIRED", "ANALYZE_STAGES"),
+        RESULT_UNIT_EQUATION_REQUIRED("RESULT_UNIT_EQUATION_REQUIRED", "ANALYZE_STAGES"),
     }
     companion object {
         fun violation(rule: Rule, path: List<Any>, message: String, expectedKind: String, actualKind: String): InputContractException =
