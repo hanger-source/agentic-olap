@@ -76,6 +76,7 @@ internal class InstalledProduct(private val tarballs: Path, private val root: Pa
             orderColumnVersion = built.objectAt("orderColumnVersion").string("text")
             salesResult(result); salesResult(continued)
             authorContracts()
+            val serialCalls = serialCapabilities(built)
             val approvals = stageApprovalContracts(businessLineId, built.objectAt("scenarioId").string("text"))
             stop(); start("analysis-reopened"); initializeClient()
             salesResult(result)
@@ -92,7 +93,7 @@ internal class InstalledProduct(private val tarballs: Path, private val root: Pa
                 "analysisPersistentRead" to bool(true), "sourceIdentityHash" to text(sourceIdentityHash), "queryReference" to query,
                 "runIds" to JsonArray(listOf(result.getValue("runId"), continued.getValue("runId"), repeated.getValue("runId"))),
                 "expected" to objectOf("sales_amount" to text("175.00"), "order_count" to text("3")),
-                "stageAuthorization" to approvals, "completeResponseDelivery" to complete))
+                "serialCapabilities" to serialCalls, "stageAuthorization" to approvals, "completeResponseDelivery" to complete))
         } catch (failure: Throwable) {
             write(root.resolve("report.json"), objectOf("status" to text("FAILED"), "message" to text(failure.message ?: failure.javaClass.name)))
             throw failure
@@ -139,6 +140,60 @@ internal class InstalledProduct(private val tarballs: Path, private val root: Pa
             .objectAt("content").objectAt("explanation").objectAt("executionRequirements").objectAt("value")
         val source = explanation.array("sourceConstraints").map { it.jsonObject }.single { it["schema"] == text("PUBLIC") && it["table"] == text("SALES_ORDERS") }
         check(source.array("constraints").map { it.jsonObject }.single { it["kind"] == text("NOT_NULL") }.objectAt("columns") == objectOf("ORDER_ID" to text(orderColumnVersion)))
+    }
+    private fun serialCapabilities(built: JsonObject): JsonObject {
+        var session: String? = null
+        fun submit(source: String): ScriptResult {
+            val id = UUID.randomUUID().toString()
+            var payload = objectOf("executionId" to text(id), "waitMillis" to number(1000), "source" to text(source),
+                "sourceName" to text("serial-definitions.olap.kts"), "dslApiVersion" to text(dslVersion),
+                "parameters" to JsonObject(listOf("logicalTableId", "orderUnitId", "amountUnitId").associateWith {
+                    built.objectAt(it).getValue("text")
+                }))
+            session?.let { payload = payload.with("sessionId" to text(it)) }
+            var raw = client.rpc("execute-script", payload)
+            var envelope = client.delivered(raw)
+            var report = envelope.objectAt("result")
+            if (session == null) session = report.string("sessionId") else check(report.string("sessionId") == session)
+            while (report.string("state") == "RUNNING") {
+                raw = client.rpc("wait-script", objectOf("executionId" to text(id), "waitMillis" to number(1000)))
+                envelope = client.delivered(raw); report = envelope.objectAt("result")
+            }
+            check(report.string("executionId") == id && report.string("sessionId") == session)
+            return ScriptResult(raw, envelope, report).succeeded()
+        }
+        try {
+            val declaration = submit("""
+                fun readInstalledFields(tableId: String, unitIds: List<String>) {
+                    val table = olap.semantics.definition(GovernanceReadRequests.AssetVersionRequest("LOGICAL_TABLE", tableId, 1)) as GovernanceDefinition.LogicalTable
+                    check(table.record.id == tableId && table.logicUnitCount == 2)
+                    val units = unitIds.map { id ->
+                        val unit = olap.semantics.definition(GovernanceReadRequests.AssetVersionRequest("LOGIC_UNIT", id, 1)) as GovernanceDefinition.LogicUnit
+                        check(unit.record.id == id)
+                        unit
+                    }
+                    check(units.map { it.record.code }.toSet() == setOf("ORDER_ID", "AMOUNT"))
+                }
+            """.trimIndent())
+            check(declaration.report.array("calls").isEmpty())
+            val reports = (1..4).map {
+                submit("""
+                    repeat(32) { round ->
+                        readInstalledFields(parameters.text("logicalTableId"), listOf(parameters.text("orderUnitId"), parameters.text("amountUnitId")))
+                        if (round % 8 == 7) olap.output(ScriptValue.Text("completed:" + (round + 1)))
+                    }
+                """.trimIndent()).report.also { report ->
+                    check(report["workerId"] == declaration.report["workerId"] && report.getValue("sessionUsable").jsonPrimitive.boolean)
+                    val calls = report.array("calls").map { it.jsonObject }
+                    check(calls.size == 96 && calls.all { call -> call.string("state") == "COMPLETED" && call.getValue("success").jsonPrimitive.boolean && call.array("effects").isEmpty() })
+                    check(report.array("outputs").map { it.jsonObject.objectAt("value").string("text") } == listOf("completed:8", "completed:16", "completed:24", "completed:32"))
+                }
+            }
+            return objectOf("sessionId" to text(requireNotNull(session)), "fragments" to number(reports.size),
+                "completedReads" to number(reports.sumOf { it.array("calls").size }), "effects" to number(0))
+        } finally {
+            session?.let { check(client.call("close-script-session", objectOf("sessionId" to text(it))).jsonObject.string("state") == "CLOSED") }
+        }
     }
     private fun authorContracts() {
         val invalid = client.script("Calculation.Scalar(ScalarValueType.BOOLEAN, true)", JsonObject(emptyMap()), dslVersion)

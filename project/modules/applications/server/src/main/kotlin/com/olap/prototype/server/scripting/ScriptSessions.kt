@@ -42,7 +42,8 @@ class ScriptSessions(private val processes: ManagedProcesses) : AutoCloseable {
         var invoke: ((CapabilityInvocation, Long) -> CapabilityResponse)? = invoke
         val done = CompletableFuture<Unit>()
         val calls = LinkedHashMap<String, ScriptCallReceipt>()
-        val activeCalls = ConcurrentHashMap<String, CompletableFuture<Unit>>()
+        // 调用回执决定业务调用是否仍在运行；任务还要完成响应发送，才能退出执行生命周期。
+        val callTasks = ConcurrentHashMap<String, CompletableFuture<Unit>>()
         val callThreads = ConcurrentHashMap<String, Thread>()
         val outputs = ArrayList<ScriptOutput>()
         val diagnostics = ArrayList<ScriptDiagnostic>()
@@ -74,17 +75,23 @@ class ScriptSessions(private val processes: ManagedProcesses) : AutoCloseable {
             }
             val marker = CompletableFuture<Unit>()
             synchronized(execution) {
+                val runningCall = execution.callTasks.keys.firstNotNullOfOrNull { callId ->
+                    execution.calls[callId]?.takeIf { it.state == "STARTED" }
+                }
                 if (execution.calls.containsKey(request.callId) || request.callId.isBlank() ||
-                    execution.calls.size >= maximumCalls || execution.activeCalls.isNotEmpty()) {
+                    execution.calls.size >= maximumCalls || runningCall != null) {
                     val code = when {
                         execution.calls.size >= maximumCalls -> "SCRIPT_CAPABILITY_BUDGET_EXCEEDED"
-                        execution.activeCalls.isNotEmpty() -> "SCRIPT_CAPABILITY_CONCURRENCY_REJECTED"
+                        runningCall != null -> "SCRIPT_CAPABILITY_CONCURRENCY_REJECTED"
                         else -> "SCRIPT_CAPABILITY_REQUEST_INVALID"
                     }
+                    log.warn("script capability rejected: sessionId={} executionId={} requestId={} callId={} operation={} code={} runningCallId={}",
+                        execution.session.id, execution.executionId, request.requestId, request.callId,
+                        request.invocation.operationId, code, runningCall?.callId)
                     process.send(Frame.newBuilder().setCapabilityResponse(capabilityFailure(request, code)).build())
                     return
                 }
-                execution.activeCalls[request.callId] = marker
+                execution.callTasks[request.callId] = marker
                 execution.calls[request.callId] = ScriptCallReceipt(request.callId, request.invocation.operationId, "", "STARTED",
                     false, null, null, 0, emptyList())
             }
@@ -106,6 +113,8 @@ class ScriptSessions(private val processes: ManagedProcesses) : AutoCloseable {
                         capabilityFailure(request, "CAPABILITY_DELIVERY_FAILED")
                     }
                     synchronized(execution) {
+                        // 同步调用收到响应即可继续下一次调用，不能等发送线程的 finally 才解除业务并发占用。
+                        // 先记录终态与实际 effects；发送任务仍由 callTasks 跟踪，供取消和会话退出完整等待。
                         execution.calls[request.callId] = ScriptCallReceipt(request.callId, request.invocation.operationId,
                             reply.operationRequestId, if (reply.hasFailure() && reply.failure.code == "CAPABILITY_DELIVERY_FAILED") "UNKNOWN" else "COMPLETED",
                             reply.success, reply.failure.takeIf { reply.hasFailure() }?.stage,
@@ -113,7 +122,7 @@ class ScriptSessions(private val processes: ManagedProcesses) : AutoCloseable {
                     }
                     if (process.alive) process.send(Frame.newBuilder().setCapabilityResponse(reply).build())
                 } catch (failure: Throwable) { log.warn("script capability reply failed: requestId={} callId={}", request.requestId, request.callId, failure) }
-                finally { execution.callThreads.remove(request.callId); execution.activeCalls.remove(request.callId); marker.complete(Unit) }
+                finally { execution.callThreads.remove(request.callId); execution.callTasks.remove(request.callId); marker.complete(Unit) }
             }
         }
         override fun output(output: com.olap.prototype.protocol.ScriptOutput) {
@@ -263,7 +272,7 @@ class ScriptSessions(private val processes: ManagedProcesses) : AutoCloseable {
             log.warn("script execution did not complete: sessionId={} executionId={} requestId={}", session.id, execution.executionId, execution.id, failure)
         } finally {
             // Completed business calls retain actual effects even when the language worker terminates.
-            while (execution.activeCalls.isNotEmpty()) execution.activeCalls.values.toList().forEach { it.join() }
+            while (execution.callTasks.isNotEmpty()) execution.callTasks.values.toList().forEach { it.join() }
             worker?.current = null
             if (directory != null) try { PrivateDirectories.remove(directory) } catch (failure: Throwable) {
                 synchronized(execution) { execution.reasons.add("SCRIPT_EXECUTION_DIRECTORY_CLEANUP_FAILED") }

@@ -169,7 +169,9 @@ olap.output(when (parameters.text("phase")) {
         fields("query" to ScriptValue.QueryReferenceValue(saved.reference),
             "result" to ScriptValue.ResultReferenceValue(requireNotNull(execution.resultReference)),
             "continuedResult" to ScriptValue.ResultReferenceValue(requireNotNull(continued.resultReference)), "scenarioId" to text(scenario.id),
-            "subjectAreaId" to text(subject.id), "orderColumnVersion" to text(orderColumnVersion))
+            "subjectAreaId" to text(subject.id), "orderColumnVersion" to text(orderColumnVersion),
+            "logicalTableId" to text(logical.logicalTable.id), "orderUnitId" to text(units.getValue("ORDER_ID").id),
+            "amountUnitId" to text(units.getValue("AMOUNT").id))
     }
     "reopen" -> {
         val query = QueryReference(parameters.text("definitionId"), parameters.text("definitionVersion").toLong(), parameters.text("querySha256"))
