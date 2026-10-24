@@ -131,7 +131,7 @@ internal class InstalledProduct(private val tarballs: Path, private val root: Pa
         check(values[0].string("type") == "DECIMAL" && values[0].string("value").toBigDecimal().compareTo("175".toBigDecimal()) == 0)
         check(values[1] == objectOf("type" to text("INTEGER"), "value" to text("3")))
         val metadata = client.call("read-query-result-metadata", objectOf("resultReference" to reference, "section" to text("RUN"), "offset" to number(0), "limit" to number(20))).jsonObject
-        check(metadata.objectAt("content").objectAt("run").objectAt("run")["runId"] == reference["runId"])
+        check(metadata.objectAt("content").objectAt("run").getValue("runId") == reference.getValue("runId"))
         val explanation = client.call("read-query-result-metadata", objectOf("resultReference" to reference, "section" to text("EXPLANATION"),
             "explanationSection" to text("EXECUTION_REQUIREMENTS"), "offset" to number(0), "limit" to number(20))).jsonObject
             .objectAt("content").objectAt("explanation").objectAt("executionRequirements").objectAt("value")
