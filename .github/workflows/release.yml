@@ -4,7 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 已审核 draft release 的精确版本标签
+        description: 已完成实际安装验收的精确版本标签
+        required: true
+        type: string
+      build_run_id:
+        description: 同标签且安装验收成功的 npm 产品构建任务 ID
         required: true
         type: string
 
@@ -17,6 +21,7 @@ concurrency:
 
 env:
   RELEASE_TAG: ${{ github.event.inputs.tag }}
+  BUILD_RUN_ID: ${{ github.event.inputs.build_run_id }}
 
 jobs:
   publish:
@@ -24,7 +29,7 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     permissions:
-      # GitHub 草稿发行物只向拥有仓库写权限的主体开放。
+      actions: read
       contents: write
       id-token: write
     steps:
@@ -36,10 +41,35 @@ jobs:
         with:
           node-version: '24'
       - run: npm install --global npm@11.17.0 --registry=https://registry.npmjs.org
-      - name: 下载已审核的同 tag 资产
+      - name: 从成功构建直接取得同标签原包并建立草稿发行
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/release-assets" --pattern '*.tgz' --pattern SHA256SUMS
+        run: |
+          node --input-type=module <<'JS'
+          import { execFileSync } from 'node:child_process';
+          import { readFileSync, writeFileSync } from 'node:fs';
+          import path from 'node:path';
+          const { RELEASE_TAG: tag, BUILD_RUN_ID: id, GITHUB_REPOSITORY: repository, RUNNER_TEMP: temporary } = process.env;
+          if (!/^v\d+\.\d+\.\d+$/.test(tag) || !/^\d+$/.test(id)) throw new Error('需要明确的正式版本标签和构建任务 ID');
+          const commit = execFileSync('git', ['rev-parse', `${tag}^{commit}`], { encoding: 'utf8' }).trim();
+          const run = JSON.parse(execFileSync('gh', ['api', `repos/${repository}/actions/runs/${id}`], { encoding: 'utf8' }));
+          if (run.path !== '.github/workflows/binary.yml' || run.event !== 'workflow_dispatch' ||
+              run.status !== 'completed' || run.conclusion !== 'success' || run.head_sha !== commit) {
+            throw new Error('产品包必须来自所选精确源码、已完成安装验收的成功构建任务');
+          }
+          const directory = path.join(temporary, 'release-assets');
+          execFileSync('gh', ['run', 'download', id, '--repo', repository, '--name', 'npm-product-darwin-arm64', '--dir', directory], { stdio: 'inherit' });
+          const version = tag.slice(1);
+          const lines = readFileSync('CHANGELOG.md', 'utf8').split('\n');
+          const start = lines.findIndex(line => line === `## ${version}`);
+          if (start < 0) throw new Error('所选标签缺少同版本发行说明');
+          let end = start + 1;
+          while (end < lines.length && !lines[end].startsWith('## ')) end++;
+          const notes = path.join(temporary, 'release-notes.md');
+          writeFileSync(notes, lines.slice(start + 1, end).join('\n').trim() + '\n');
+          execFileSync('gh', ['release', 'create', tag, '--repo', repository, '--verify-tag', '--draft', '--title', `Agentic OLAP ${version}`,
+            '--notes-file', notes, path.join(directory, `hanger-source-agentic-olap-${version}.tgz`), path.join(directory, 'SHA256SUMS')], { stdio: 'inherit' });
+          JS
       - name: 使用 OIDC 发布 npm 产品包
         run: node project/cli/release/publish.mjs --tag "$RELEASE_TAG" --artifacts "$RUNNER_TEMP/release-assets"
 
