@@ -1,12 +1,12 @@
 # Agentic OLAP · 版本与变更
 
-## 0.17.4
+## 0.17.5
 
 共同数值除法在两侧均为整数 SQL 类型时，先将各操作数无损转换为能容纳该整数类型完整取值域的 `DECIMAL(p,0)`，再交给连接器原生运算；返回原生整数商的映射明确拒绝。修复两个 `INTEGER64` 的 `121 / 4` 先得到整数 `30`、再由最终 CAST 保存错误结果的问题；所有经过共同除法入口的定义计算与查询组合采用同一规则。整数与 DECIMAL 混合输入不另套最终输出的精度与尺度。
 
 这项修复解决整数除法截断，不解决有限原生 scale 或双重舍入造成的精度损失，也不承诺任意输入都能得到全域精确的 18 位小数。连接器仍须对原生运算的容量、尺度和舍入兑现既有数值合同，最终输出转换不能恢复已经丢失的信息。
 
-作者能力发现接口公开 NUMERIC 数量声明的可见范围、ROUND 的前置数量合同，以及 `unitEquation` 仅作用于所属 NUMERIC 直接包裹的算术节点的规则。缺少当前位置数量声明或乘除单位方程时，分别返回 `RESULT_NUMERIC_CONTRACT_REQUIRED`、`RESULT_UNIT_EQUATION_REQUIRED`；`ANALYZE_STAGES` 诊断保留输入作用域、阶段下标与嵌套表达式的 `fieldPath`，指向正式计算节点，而非 Kotlin 源码行号。
+作者能力发现接口公开 NUMERIC 数量声明的可见范围、ROUND 的前置数量合同，以及 `unitEquation` 仅作用于所属 NUMERIC 直接包裹的算术节点的规则。缺少当前位置数量声明或乘除单位方程时，分别返回 `RESULT_NUMERIC_CONTRACT_REQUIRED`、`RESULT_UNIT_EQUATION_REQUIRED`；`ANALYZE_STAGES` 诊断保留输入作用域、阶段下标与嵌套表达式的 `fieldPath`，指向正式计算节点，而非 Kotlin 源码行号。字段路径经过 worker 与主服务边界后完整交付，不再因 JSON 数组与正式列表的表示差异而丢失。
 
 连接器 API v12、Kotlin DSL v2、Query v7、存储格式 16、内部运行协议 v4 和发行清单 v4 保持不变。
 

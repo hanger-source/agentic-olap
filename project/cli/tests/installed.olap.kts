@@ -189,7 +189,9 @@ olap.output(when (parameters.text("phase")) {
             val invalid = QueryIntent(coordinate, scope(dayRoot) { stage(PostOperationContract.Derive(bad, "mean_days", "平均日历天数")) })
             val failure = runCatching { olap.queries.validate(QueryValidationRequest(QuerySelection.Inline(invalid))) }.exceptionOrNull()
             check(failure is CapabilityFailureException && failure.failure.code == code) { "应交付可定位的作者错误：$failure" }
-            check(failure.failure.stage == "ANALYZE_STAGES" && "postOps" in failure.failure.fieldPath && failure.failure.fieldPath.takeLast(tail.size) == tail)
+            check(failure.failure.stage == "ANALYZE_STAGES" && "postOps" in failure.failure.fieldPath && failure.failure.fieldPath.takeLast(tail.size) == tail) {
+                "作者错误定位不完整：code=$code stage=${failure.failure.stage} fieldPath=${failure.failure.fieldPath} expectedTail=$tail"
+            }
         }
         val ratio = MetricValueContract(MetricValueContract.Fixed(MetricValueContract.ONE), MetricValueContract.Exact(),
             MetricValueContract.Decimal(28, 18, MetricValueContract.Rounding.HALF_UP), mapOf("ratio" to

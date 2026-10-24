@@ -138,8 +138,17 @@ internal object ServerFailures {
         val actualStage = if (error.path("stage").isTextual) error.path("stage").textValue() else stage
         val code = if (error.path("code").isTextual) error.path("code").textValue() else unknownCode
         val inputRule = InputContractException.Rule.entries.firstOrNull { it.code == code && it.stage == actualStage }
-        if (inputRule != null) return Projection(actualStage, code, error.required("message").textValue(),
-            select(error.path("evidenceContext"), "fieldPath", "expectedType", "actualType", "expectedKind", "actualKind"))
+        if (inputRule != null) {
+            val context = error.required("evidenceContext")
+            val path = context.required("fieldPath")
+            require(path.isArray && path.all { it.isTextual || it.isIntegralNumber }) {
+                "controlled worker input failure requires a fieldPath array of text or integer tokens"
+            }
+            // 在 worker JSON 边界还原正式路径；后续能力响应和查询回执只消费同一个 List 合同。
+            val details = select(context, "expectedType", "actualType", "expectedKind", "actualKind") +
+                mapOf("fieldPath" to path.map { it.asText() })
+            return Projection(actualStage, code, error.required("message").textValue(), details)
+        }
         val facts = if (failure.kind == WorkerPool.Kind.ENGINE) error.path("evidenceContext") else error
         failure.sourceFailure?.let { source ->
             return Projection(source.stage, source.code, source.safeMessage,
