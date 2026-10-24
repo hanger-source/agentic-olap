@@ -100,6 +100,8 @@ override val division: SqlOperator = SqlBinaryOperator(
 
 该操作也接受 `aggregate={connectorRef,aggregation,inputType,grouped}`，用现有 `typeSystem` 与 `nativeAggregate` 推导精确输入类型的原生聚合结果，不要求另一份聚合支持表。AVG 复用编译时的 `deriveAvgAggType`、原生函数容量一致性核验及 `decimalAverageRounding`；无法兑现时返回 `UNAVAILABLE`，不猜返回类型。原生映射成功才披露适用的 `aggregationRounding`，它不等于业务最终结果的舍入。插件的这些声明必须纯粹、确定，不连接来源或依赖运行参数；实际后端映射及证据仍由插件维护。正式请求和响应见[来源合同](../../../../docs/source-access.md)。
 
+原生映射依赖的后端版本、locale、编码等语义前提，由精确插件及身份参数记录，并由 `SourceAccess.execute` 对实际访问兑现；冻结配置及函数稳定性声明不是环境证明。`nativeScalarCall` 不取得来源配置，TEXT 参数也不提供词法域证明。参数角色、执行核验和明确拒绝的完整责任见[原生映射的来源环境](../../../../docs/source-access.md#原生映射的来源环境)。
+
 ## 来源访问与结果
 
 `SourceAccess.configurationParameters` 用 `SourceConfigurationParameters(identityNames,runtimeNames)` 声明参数角色。配置分别提交 `identityParameters/runtimeParameters`；来源摘要只纳入前者和精确插件、方言、凭据槽。预算或回执目录不应改变业务数据身份，影响数据选择、比较或类型语义的设置也不能伪装成运行参数。未知键和错放角色由核心拒绝，必填值与值域仍由插件校验。

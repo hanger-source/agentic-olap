@@ -162,6 +162,14 @@ olap.output(olap.sources.connectorCapabilities(
 
 `IMMUTABLE/STATEMENT/VOLATILE` 按函数实际依赖声明稳定性；精确物理版本不冻结表内数据，不能据此宣称读取该表的结果恒定。函数调用不能因显示名相同而被当作常量或共享。插件只映射已校验参数到 SQL AST，业务定义与 Query 继续拥有业务公式、对象总体和计算阶段；函数声明不扩大来源、表或公开输出权限。
 
+### 原生映射的来源环境
+
+依赖后端版本、locale、编码或 collation 的映射，由精确插件声明适用前提。影响解析、比较或数值含义的可配置前提，通过 `SourceConfigurationParameters.identityNames` 声明并放入 `identityParameters`，随精确插件和来源绑定冻结；等待预算等仍属于运行参数。摘要冻结的是期望配置，不读取或证明真实后端环境。
+
+`validateConfiguration` 校验参数与插件支持组合；`SourceAccess.execute` 对本次实际访问环境负责。插件依据访问通道确实提供的同会话、不可变部署或其他有效机制，将核验与主查询关联。独立一次版本查询、历史样本或初始化观察，本身不保证后续请求命中相同环境；也不要求所有来源先取得 catalog 调查权限。实际环境不满足或不能兑现映射前提时，插件明确拒绝，使用已有来源失败合同交付受控原因及实际请求事实。原生探测、SQL 和内部异常保留在私有诊断；`SourceReadBasis` 继续表达数据读基础，不作为引擎环境证书。
+
+`nativeScalarCall` 接收函数与 SQL AST 实参，不接收来源配置；声明的映射应由精确插件及显式实参确定，不能声称配置会自动传入编译函数。`IMMUTABLE/STATEMENT/VOLATILE` 约束求值与共享，不替代环境保证。TEXT 签名也不证明字符串满足某个十进制词法或容量域：解析映射需要对允许输入兑现语义，对域外输入明确失败；调用方过滤或最终 DECIMAL 不能替代这一责任。
+
 ## 交付结果
 
 插件返回 `SourceExecutionResult(frame,readBasis,request)`，其中 `frame` 是 `ResultFrame`。列必须与核心给定别名、顺序和类型一致；技术类型可以来自来源响应，也可以来自使用方明确的类型合同。`JdbcColumnType` 在这里是 SQL 标准类型码、原生类型名、精度、标度和可空性的值对象，不要求 `ResultSetMetaData`、`Connection` 或任何 JDBC 驱动。
