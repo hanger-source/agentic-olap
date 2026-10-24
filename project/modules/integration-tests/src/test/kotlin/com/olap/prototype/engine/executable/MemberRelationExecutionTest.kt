@@ -324,6 +324,189 @@ class MemberRelationExecutionTest {
     private fun measures(calls: List<QueryComputation.Invocation>, inputs: Map<String, QueryComputation.Input>) = QueryComputation.Scope(QueryComputation.Measures(calls, emptyList(), null, emptyMap(),
         DimensionCondition.Unrestricted(), DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(calls.map { it.callId }), null), inputs, emptyList())
 
+    @Test fun countsActorDayObjectsWithoutLosingZeroGroupsOrCreatingMissingObservations(@TempDir directory: Path) {
+        NativeWarehouse(directory, "duckdb", listOf(
+            "CREATE TABLE activity(id INTEGER PRIMARY KEY, item INTEGER, activity_day VARCHAR, actor VARCHAR, qualifies BOOLEAN)",
+            "CREATE TABLE directory(id INTEGER PRIMARY KEY, item INTEGER, customer INTEGER)",
+            "INSERT INTO directory VALUES (1,10,1),(2,10,1),(3,10,2),(4,20,3),(5,30,4),(6,40,5),(7,50,NULL)",
+            """INSERT INTO activity VALUES
+                (1,10,'20260101','A',TRUE),(2,10,'20260101','A',TRUE),(3,10,'20260101','B',TRUE),
+                (4,10,'20260102','A',TRUE),(5,10,'20260102','',TRUE),(6,10,'20260102',NULL,TRUE),
+                (7,20,'20260101','',TRUE),(8,20,'20260102',NULL,TRUE),
+                (9,30,'20260101',NULL,TRUE),(10,30,'20260102',NULL,TRUE),
+                (11,50,'20260101','unmapped',TRUE),(12,999,'20260101','unmatched',TRUE),
+                (13,10,NULL,'unknown_day',TRUE),(14,10,'20251231','outside',TRUE),
+                (15,10,'20260101','ineligible',FALSE),(16,10,'20260101','unknown_qualification',NULL)
+            """.trimIndent()
+        )).use { warehouse ->
+            val activityTypes = linkedMapOf("id" to ScalarValueType.NUMBER, "item" to ScalarValueType.NUMBER,
+                "activity_day" to ScalarValueType.TEXT, "actor" to ScalarValueType.TEXT, "qualifies" to ScalarValueType.BOOLEAN)
+            val directoryTypes = listOf("id", "item", "customer").associateWith { ScalarValueType.NUMBER }
+            val definitions = Definitions(catalog(warehouse, "activity", activityTypes.keys.associate { "activity.$it" to it }, emptyList()))
+            val directoryCatalog = catalog(warehouse, "directory", directoryTypes.keys.associate { "directory.$it" to it }, emptyList())
+            definitions.events.putAll(directoryCatalog.events)
+            definitions.topologies.putAll(directoryCatalog.topologies)
+            definitions.physical.putAll(directoryCatalog.physicalExecutionBindings)
+            declareUnits(definitions, "activity", activityTypes)
+            declareUnits(definitions, "directory", directoryTypes)
+            definitions.dimensions["customer@1"] = ExecutableDimension("customer", "1", "customer", "observation", "customer", "客户")
+            val customerExpression = SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, "directory.customer", 1)
+            definitions.bindings["directory_customer@1"] = ExecutableDimensionBinding("directory_customer", "1", "customer", "1",
+                "directory", "1", "directory", "1", "directory.customer", "1", customerExpression, local, emptyMap(), emptyList(), "directory", "1")
+            definitions.analyses["customers@1"] = ExecutableAnalysisDimension("customers", "1", "客户", "customer", "customer", "customer",
+                listOf(ExecutableAnalysisDimensionLevel("customer", "客户", null)), listOf(ExecutableAnalysisDimensionEventMapping(
+                    "directory_customer", "customers", "1", "customer", "directory", "1", "customer", "1", "directory_customer", "1",
+                    "directory.customer", "1", "directory.customer@1", ValueAlignmentContract.PROVEN_SAME_KEY)))
+            fun install(table: String, types: Map<String, ScalarValueType>, filters: Map<String, List<MemberCondition.Operator>>) {
+                val outputs: Map<String, MemberSourceDefinition.Output> = types.mapValues { (name, type) ->
+                    if (table == "directory" && name == "customer") MemberSourceDefinition.DimensionOutput(
+                        "客户", "customer", type, "customer", 1, "directory_customer", 1, null)
+                    else property(name, name, type, "$table.$name")
+                }
+                definitions.members["$table@1"] = MemberSource.Projection(table, 1, MemberSourceDefinition.Projection(EventRef(table, 1),
+                    MemberResult(table, "${table}_records", MemberShape.RAW_BAG, emptyList(), outputs, filters, null, emptyMap(), null)),
+                    types.keys.associateWith { SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, "$table.$it", 1) })
+            }
+            install("activity", activityTypes, mapOf("activity_day" to listOf(MemberCondition.Operator.BETWEEN), "qualifies" to listOf(MemberCondition.Operator.EQ)))
+            install("directory", directoryTypes, emptyMap())
+            val axis = ScopedInputContract.DimensionRef("customers", "1", "customer")
+            val subject = ScopedInputContract.metricSymbol("directory", "subject")
+            val item = ScopedInputContract.metricSymbol("directory", "item")
+            val count = recordCount()
+            fun predicate(operator: ResultOperator, vararg values: ResultExpression) = ResultOperation(operator, values.toList())
+            fun directory(includeId: Boolean = false) = QueryComputation.Scope(QueryComputation.Members("directory", MemberRef("directory", 1), emptyMap(),
+                listOf(QueryComputation.MappedDimension("subject", "customer", axis), QueryComputation.Slot("item", "item")) +
+                    if (includeId) listOf(QueryComputation.Slot("id", "id")) else emptyList(),
+                null, emptyMap(), MemberCondition.Unrestricted(), emptyMap(), emptyMap()), emptyMap(), emptyList())
+            fun completed(daily: Boolean, tuples: Boolean): QueryComputation.Scope {
+                val nonempty = ResultCaseWhen(listOf(ResultCaseBranch(predicate(ResultOperator.NE, symbol("actor"),
+                    ResultTypedLiteral(ScalarValueType.TEXT, "")), symbol("actor"))), ResultLiteral(null))
+                val groups = listOf(subject) + (if (daily) listOf("activity_day") else emptyList()) +
+                    (if (daily && tuples) listOf("nonempty_actor") else emptyList())
+                val aggregates = if (daily) listOf(reduction("nonempty_actor", ResultAggregation.Count(!tuples, ResultAggregation.NullPolicy.IGNORE),
+                    if (tuples) "tuple_records" else "day_uv")) else listOf(
+                    reduction("actor", ResultAggregation.Count(true, ResultAggregation.NullPolicy.IGNORE), "period_uv"),
+                    reduction("nonempty_actor", ResultAggregation.Count(true, ResultAggregation.NullPolicy.IGNORE), "period_nonempty_uv"))
+                val stages = listOf(JoinInput("directory", "directory", "LEFT", predicate(ResultOperator.EQ, symbol("item"), symbol(item))),
+                    PostFilter(predicate(ResultOperator.IS_NOT_NULL, symbol(subject))), Derive(nonempty, "nonempty_actor", "非空标识"), regroup(groups, aggregates))
+                val finish = if (daily && tuples) listOf(Project(listOf(subject, "activity_day", "nonempty_actor")),
+                    regroup(listOf(subject), listOf(reduction("nonempty_actor", ResultAggregation.Count(false, ResultAggregation.NullPolicy.IGNORE), "actor_days")))) else emptyList()
+                return QueryComputation.Scope(QueryComputation.Members("activity", MemberRef("activity", 1), emptyMap(),
+                    listOf("item", "activity_day", "actor").map { QueryComputation.Slot(it, it) }, null, emptyMap(), MemberCondition.All(listOf(
+                        MemberCondition.Predicate("activity_day", MemberCondition.Operator.BETWEEN, listOf("20260101", "20260102").map { Calculation.Scalar(ScalarValueType.TEXT, it) }),
+                        MemberCondition.Predicate("qualifies", MemberCondition.Operator.EQ, listOf(Calculation.Scalar(ScalarValueType.BOOLEAN, "true"))))), emptyMap(), emptyMap()),
+                    mapOf("directory" to QueryComputation.Input("RELATION", directory())), stages + finish)
+            }
+            val population = directory().let { QueryComputation.Scope(it.root, it.inputs, listOf(
+                PostFilter(predicate(ResultOperator.IS_NOT_NULL, symbol("subject"))),
+                regroup(listOf("subject"), listOf(reduction("item", ResultAggregation.Count(false, ResultAggregation.NullPolicy.IGNORE), "directory_rows"))),
+                Project(listOf("subject")))) }
+            val values = linkedMapOf("population" to emptyList(), "period" to listOf("period_uv", "period_nonempty_uv"), "daily" to listOf("actor_days"))
+            fun query(daily: QueryComputation.Scope, base: Boolean): QueryComputation.Scope {
+                val relations = values.map { (name, outputs) -> Calculation.RelationSlot(name,
+                    listOf(SetOutputContract("subject", SetOutputContract.DimensionSlot("customer"))) + outputs.map { SetOutputContract(it, SetOutputContract.Quantity(count)) }, listOf("subject")) }
+                val alignment = Calculation.AlignMeasurements(values.mapValues { (name, outputs) -> Calculation.AlignedInput(
+                    Calculation.Scope(Calculation.Relation(name), emptyMap(), emptyList()), mapOf("subject" to "subject"),
+                    outputs.map { Calculation.AlignedValue(it, it, Calculation.NoMatch.PRESERVE_NULL) }) }, listOf("subject"),
+                    Calculation.AlignmentPopulation(if (base) Calculation.PopulationKind.BASE else Calculation.PopulationKind.UNION,
+                        if (base) listOf("population") else listOf("period", "daily")))
+                val calculation = Calculation(listOf(customerObservation()), emptyList(), emptyList(), relations, emptyMap(), Calculation.Scope(alignment,
+                    emptyMap(), listOf(Derive(ResultNumeric(predicate(ResultOperator.SUBTRACT, symbol("actor_days"), symbol("period_nonempty_uv")), count, null),
+                        "repeat_days", "重复日期贡献"), Project(listOf("subject", "period_uv", "period_nonempty_uv", "actor_days", "repeat_days")))))
+                val bindings = CalculationBindings(observationBindings(definitions, emptyMap(), emptyMap()).dimensions, emptyMap(), emptyMap(), emptyMap(),
+                    values.keys.associateWith { CalculationBindings.RelationParameter() })
+                val actual = values.mapValues { (name, outputs) -> CalculationBindings.LocalRelation(name,
+                    mapOf("subject" to if (name == "population") "subject" else subject) + outputs.associateWith { it }) }
+                return QueryComputation.Scope(QueryComputation.Compute(calculation, bindings, emptyMap(), emptyMap(), actual), linkedMapOf(
+                    "population" to QueryComputation.Input("ROOT", population), "period" to QueryComputation.Input("ROOT", completed(false, false)),
+                    "daily" to QueryComputation.Input("ROOT", daily)), emptyList())
+            }
+            val dayKeys = listOf(subject, "activity_day")
+            val copySubject = ScopedInputContract.metricSymbol("copy", "subject")
+            val copyId = ScopedInputContract.metricSymbol("copy", "id")
+            fun statistics(daily: QueryComputation.Scope, objectKeys: List<String> = dayKeys, copied: Boolean = false,
+                afterStatistics: List<PostOperationContract.ValidatedOperation> = emptyList()): QueryComputation.Scope {
+                val completeKeys = dayKeys + if (copied) listOf(copySubject, copyId) else emptyList()
+                val outputs = listOf(SetOutputContract(subject, SetOutputContract.DimensionSlot("customer")),
+                    SetOutputContract("activity_day", SetOutputContract.Property("activity_day", ScalarValueType.TEXT)),
+                    SetOutputContract("day_uv", SetOutputContract.Quantity(count))) + if (copied) listOf(
+                    SetOutputContract(copySubject, SetOutputContract.DimensionSlot("customer")),
+                    SetOutputContract(copyId, SetOutputContract.Property("id", ScalarValueType.NUMBER))) else emptyList()
+                val calculation = Calculation(listOf(customerObservation()), emptyList(), emptyList(),
+                    listOf(Calculation.RelationSlot("days", outputs, completeKeys)), emptyMap(), Calculation.Scope(
+                        Calculation.ObservationStatistics(Calculation.Scope(Calculation.Relation("days"), emptyMap(), emptyList()),
+                            Calculation.ObjectsBy(objectKeys), listOf(subject), listOf(Calculation.Reduction(
+                                reduction("day_uv", ResultAggregation.Sum(count, ResultAggregation.NullPolicy.IGNORE), "actor_days")))), emptyMap(), afterStatistics))
+                val bindings = CalculationBindings(observationBindings(definitions, emptyMap(), emptyMap()).dimensions, emptyMap(), emptyMap(), emptyMap(),
+                    mapOf("days" to CalculationBindings.RelationParameter()))
+                return QueryComputation.Scope(QueryComputation.Compute(calculation, bindings, emptyMap(), emptyMap(),
+                    mapOf("days" to CalculationBindings.LocalRelation("days", outputs.associate { it.name to it.name }))),
+                    mapOf("days" to QueryComputation.Input("ROOT", daily)), emptyList())
+            }
+            warehouse.finishSetup()
+            val engine = engine(warehouse)
+            // 重复目录行与同日重复不增加去重贡献；同一标识跨日各贡献一次。
+            val expected = listOf(listOf("1", "3", "2", "3", "1"), listOf("2", "3", "2", "3", "1"),
+                listOf("3", "1", "0", "0", "0"), listOf("4", "0", "0", "0", "0")).map { row -> row.map(::decimal) }
+            assertEquals(expected, numericRows(execute(engine, definitions, query(completed(true, true), false))))
+            // 对象3/4有观察但计数为0；对象5完全没有活动组，明确BASE人口才保留其NULL。
+            assertEquals(expected + listOf(listOf(decimal("5"), null, null, null, null)),
+                numericRows(execute(engine, definitions, query(completed(true, true), true))))
+            val dailyCounts = completed(true, false)
+            // 同一每日完成计数以完整对象/日期键进入正式观察统计，不改单位、不包装成员属性。
+            assertEquals(expected, numericRows(execute(engine, definitions, query(statistics(dailyCounts), false))))
+            assertEquals(expected + listOf(listOf(decimal("5"), null, null, null, null)),
+                numericRows(execute(engine, definitions, query(statistics(dailyCounts), true))))
+            // 统计上下文仅属于生成的归约；同一根的后置普通SUM仍检查未被洗白的原数量来源。
+            val laterSum = assertThrows(EngineExecutionException::class.java) {
+                execute(engine, definitions, statistics(dailyCounts, afterStatistics = listOf(regroup(emptyList(),
+                    listOf(reduction("actor_days", ResultAggregation.Sum(count, ResultAggregation.NullPolicy.IGNORE), "all_actor_days"))))))
+            }
+            assertEquals("ANALYZE_STAGES", laterSum.stage)
+            assertEquals(false, laterSum.sourceExecutionStarted)
+            val laterQuantity = generateSequence<Throwable>(laterSum) { it.cause }.filterIsInstance<InputContractException>().single()
+            assertEquals(InputContractException.Rule.RESULT_QUANTITY_NOT_SUMMABLE, laterQuantity.rule)
+            assertEquals("CROSS_OBSERVATION_COUNT_DISTINCT", laterQuantity.details["actualKind"])
+            assertEquals(listOf("input", "computation", "postOps", 2, "grouping", "aggregates", 0, "aggregation"), laterQuantity.details["fieldPath"])
+            val ordinarySum = QueryComputation.Scope(dailyCounts.root, dailyCounts.inputs, dailyCounts.stages +
+                regroup(listOf(subject), listOf(reduction("day_uv", ResultAggregation.Sum(count, ResultAggregation.NullPolicy.IGNORE), "actor_days"))))
+            val failure = assertThrows(EngineExecutionException::class.java) { execute(engine, definitions, query(ordinarySum, false)) }
+            assertEquals("ANALYZE_STAGES", failure.stage)
+            assertEquals(false, failure.sourceExecutionStarted)
+            val contract = generateSequence<Throwable>(failure) { it.cause }.filterIsInstance<InputContractException>().single()
+            assertEquals(InputContractException.Rule.RESULT_QUANTITY_NOT_SUMMABLE, contract.rule)
+            assertEquals(listOf("input", "daily", "postOps", 4, "grouping", "aggregates", 0, "aggregation"), contract.details["fieldPath"])
+            assertEquals("CROSS_OBSERVATION_COUNT_DISTINCT", contract.details["actualKind"])
+
+            val incomplete = assertThrows(EngineExecutionException::class.java) {
+                execute(engine, definitions, query(statistics(dailyCounts, listOf(subject)), false))
+            }
+            assertEquals("ANALYZE_STAGES", incomplete.stage)
+            assertEquals(false, incomplete.sourceExecutionStarted)
+            val identity = generateSequence<Throwable>(incomplete) { it.cause }.filterIsInstance<InputContractException>().single()
+            assertEquals(InputContractException.Rule.EXACT_IDENTITY_MEANING_REQUIRED, identity.rule)
+            assertEquals(listOf("input", "daily", "computation", "root", "unit", "keys"), identity.details["fieldPath"])
+
+            // 目录记录键已完整归约；关联后即使带齐扩展唯一键，也不能把复制的每日数量洗白。
+            val originalCopies = directory(true)
+            val copies = QueryComputation.Scope(originalCopies.root, originalCopies.inputs, listOf(
+                PostFilter(predicate(ResultOperator.IS_NOT_NULL, symbol("subject"))),
+                regroup(listOf("subject", "id"), listOf(reduction("item", ResultAggregation.Count(false, ResultAggregation.NullPolicy.IGNORE), "directory_rows"))),
+                Project(listOf("subject", "id"))))
+            val copied = QueryComputation.Scope(dailyCounts.root, dailyCounts.inputs + ("copies" to QueryComputation.Input("RELATION", copies)),
+                dailyCounts.stages + JoinInput("copies", "copy", "INNER", predicate(ResultOperator.EQ, symbol(subject), symbol(copySubject))))
+            val duplicate = assertThrows(EngineExecutionException::class.java) {
+                execute(engine, definitions, query(statistics(copied, dayKeys + listOf(copySubject, copyId), true), false))
+            }
+            assertEquals("ANALYZE_STAGES", duplicate.stage)
+            assertEquals(false, duplicate.sourceExecutionStarted)
+            val copiedQuantity = generateSequence<Throwable>(duplicate) { it.cause }.filterIsInstance<InputContractException>().single()
+            assertEquals(InputContractException.Rule.RESULT_QUANTITY_NOT_SUMMABLE, copiedQuantity.rule)
+            assertEquals("COPIED_COMPLETED_QUANTITY", copiedQuantity.details["actualKind"])
+            assertEquals(listOf("input", "daily", "computation", "postOps", 0, "grouping", "aggregates", 0, "aggregation"), copiedQuantity.details["fieldPath"])
+        }
+    }
+
     @Test fun retainsSetIdentityWhenQualifyingRawRecordsAndAligningAKeyOnlyPopulation(@TempDir directory: Path) {
         NativeWarehouse(directory, "duckdb", listOf(
             "CREATE TABLE orders(id INTEGER PRIMARY KEY, customer INTEGER, period INTEGER, kind INTEGER, amount DECIMAL(18,2))",

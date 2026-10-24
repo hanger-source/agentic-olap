@@ -144,6 +144,10 @@ object ApiDiscovery {
             ResultExpression.ResultRound::class -> ResultExpression.ResultRound.contract()
             ResultExpression.ResultOperation::class -> ResultExpression.ResultOperation.contract()
             ResultExpression.ResultOperator::class -> ResultExpression.ResultOperator.contract()
+            com.olap.prototype.query.ResultAggregation.Sum::class -> com.olap.prototype.query.ResultAggregation.Sum.contract()
+            com.olap.prototype.query.ResultAggregation.Count::class -> com.olap.prototype.query.ResultAggregation.Count.contract()
+            Calculation.ObservationStatistics::class -> Calculation.ObservationStatistics.contract()
+            Calculation.ObjectsBy::class -> Calculation.ObjectsBy.contract()
             ResultExpression.ResultNativeCall::class -> mapOf(
                 "connector" to "CURRENT_EXACT_SOURCE_CONNECTOR_REF",
                 "function" to "DECLARED_NATIVE_SCALAR_FUNCTION_ID",

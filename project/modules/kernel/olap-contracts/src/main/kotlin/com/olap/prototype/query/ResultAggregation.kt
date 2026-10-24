@@ -16,6 +16,7 @@ sealed interface ResultAggregation {
 
     data class Sum(override val valueContract: MetricValueContract, override val nullPolicy: NullPolicy) : Numeric {
         override val kind: Kind get() = Kind.SUM
+        companion object { fun contract(): Map<String, Any> = QueryAggregationSemantics.sumContract() }
     }
     data class Average(override val valueContract: MetricValueContract, override val nullPolicy: NullPolicy,
         val rounding: MetricValueContract.Rounding) : Numeric {
@@ -31,6 +32,7 @@ sealed interface ResultAggregation {
     data class Maximum(override val nullPolicy: NullPolicy) : Scalar { override val kind: Kind get() = Kind.MAX }
     data class Count(val distinct: Boolean, override val nullPolicy: NullPolicy) : Scalar {
         override val kind: Kind get() = if (distinct) Kind.COUNT_DISTINCT else Kind.COUNT
+        companion object { fun contract(): Map<String, Any> = QueryAggregationSemantics.countContract() }
     }
     data class Collect(val distinct: Boolean) : ResultAggregation {
         override val kind: Kind get() = if (distinct) Kind.ARRAY_AGG_DISTINCT else Kind.ARRAY_AGG

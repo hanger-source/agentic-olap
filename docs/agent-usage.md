@@ -151,6 +151,43 @@ olap.output(result)
 
 `AlignMeasurements` 的 BASE 输入可以只提供完整对象键、没有测量列。目录和交易分别完成到该对象键后再对齐；`PRESERVE_NULL` 保留未匹配测量的 NULL，不自动补零。身份合同拒绝的路径指向绑定后的对象角色键或对齐输入键，需结合实际依赖修正；不表示失败已经发生在最终 ALIGN，也不代表来源已经收到 SQL。
 
+### 对完成结果做观察统计
+
+期间去重人数与每日去重人数之和是两种计算。同一标识在两天各出现一次时，前者是 1，后者是 2。数量单位同为 ONE 不表示这两种统计含义相同；普通 REGROUP 的 SUM 也不会自动把去重数、平均值或比率变成原来源可加的测量。
+
+需要把已经完成的日结果继续作为统计观察时，使用现有 `Calculation.ObservationStatistics`，通过 `ObjectsBy` 明确完整观察键。例如，已完成关系 `daily` 每个 `(subject, day)` 一行，包含 `day_nonempty_uv`。下面是计算体中的正式关系形参和统计根；`dayRole` 必须来自实际日期出口的属性声明，不能用 SCALAR 抹去已有角色。
+
+~~~kotlin
+val countContract = MetricValueContract(
+    MetricValueContract.Fixed(MetricValueContract.ONE), MetricValueContract.Exact(),
+    MetricValueContract.Integer(64), emptyMap(), MetricValueContract.Overflow.FAIL
+)
+val dailySlot = Calculation.RelationSlot("daily", listOf(
+    SetOutputContract("subject", SetOutputContract.DimensionSlot("subject")),
+    SetOutputContract("day", SetOutputContract.Property(dayRole, ScalarValueType.TEXT)),
+    SetOutputContract("day_nonempty_uv", SetOutputContract.Quantity(countContract))
+), listOf("subject", "day"))
+val dayStatistics = Calculation.Scope(
+    Calculation.ObservationStatistics(
+        Calculation.Scope(Calculation.Relation("daily"), emptyMap(), emptyList()),
+        Calculation.ObjectsBy(listOf("subject", "day")), listOf("subject"),
+        listOf(Calculation.Reduction(PostOperationContract.ResultAggregate(
+            "day_nonempty_uv",
+            ResultAggregation.Sum(countContract, ResultAggregation.NullPolicy.IGNORE),
+            "actor_days", "每日非空标识观察累计"
+        )))
+    ), emptyMap(), emptyList()
+)
+~~~
+
+将 `dailySlot` 放入计算的 `relationSlots`，按已有关系参数绑定方式把调用方 ROOT 中的日完成结果传入，并显式映射对象、日期与数量列。日期可以是来源实际 TEXT 属性，无需伪造时间角色。`ObjectsBy` 必须覆盖实际完整唯一键，逐键保持普通标量身份且非 NULL；只传 subject 不能代表仍按 subject、day 完成的观察。
+
+只有该统计根产生的统计归约获得这个明确观察上下文。对完成数量求观察值之和，不等于重新计算其原总人数、总体平均值或整体比率；结果继续保留内层统计来源。后续普通 SUM 不会因此获得新的可加资格。已经复制的数量不能靠扩大观察键洗白；不同快照范围、测量单位键、算术保证、容量、NULL 和溢出规则仍分别核验。`RawRows` 不承担完成对象身份的证明，也不需要虚构权重乘一。
+
+也可以保留原 `(对象, 日期, 非空标识)` 观察元组，逐元组归约后按对象 COUNT。日期非 NULL、资格和人口一致时，这对应标识日观察数；跨日同标识贡献多次。保留 NULL 标识元组后，已有记录但标识全为空的对象得到 0；完全没有观察的对象仍缺组，由后续对齐明确是否保留 NULL。不能为了忽略无效标识而预先删除整个人口，也不拼接日期与标识伪造一个文本键。
+
+`ResultAggregation.Sum`、`Count`、`Calculation.ObservationStatistics` 与 `ObjectsBy` 的 `rules` 提供实际组合条件。SUM 的数量来源拒绝返回 `RESULT_QUANTITY_NOT_SUMMABLE / ANALYZE_STAGES`，通过 `actualKind` 区分跨观察去重数、未解除的复制、快照轴或范围等原因；不会把所有拒绝都解释成“丢失日轴”。`fieldPath` 指向实际作用域的归约或窗口聚合字段，例如 `input/daily/postOps/4/grouping/aggregates/0/aggregation`。观察统计降为共同阶段后的坐标仍属于绑定计算，不是 Kotlin 源码行号。
+
 ## 数量合同与人口
 
 数量合同分别声明单位、算术保证、结果容量与溢出行为。`COUNT` 的单位必须是 `MetricValueContract.Fixed(MetricValueContract.ONE)`：它产生无量纲计数，不能改成自定义的“订单”或“访客”单位。数的是哪类对象、是否去重以及选择哪批人口，由事件、输入、`distinct` 和计算人口表达。

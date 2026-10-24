@@ -42,7 +42,7 @@ object ExecutableStageAnalysis {
                     }
                 }
             val analysis = QueryStageAnalysis.analyze(scope, facts.columns, facts.key, children, facts.operations, facts.population,
-                "input[${scope.path}].postOps", facts.observations, nativeFunctions)
+                "input[${scope.path}].postOps", facts.observations, nativeFunctions, facts.observationReduction)
             result[scope] = analysis
             ancestors.remove(input)
             return analysis

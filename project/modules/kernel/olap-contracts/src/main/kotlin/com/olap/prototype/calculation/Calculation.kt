@@ -257,6 +257,7 @@ class Calculation(dimensionSlots: List<DimensionSlot>, memberSlots: List<MemberS
         val keys: List<String> = symbols(keys, false)
         override fun equals(other: Any?): Boolean = other is ObjectsBy && keys == other.keys
         override fun hashCode(): Int = keys.hashCode()
+        companion object { fun contract(): Map<String, Any> = QueryAggregationSemantics.observationContract() }
     }
     sealed interface ObservationStatistic { val outputAlias: String }
     data class Reduction(val aggregate: PostOperationContract.ResultAggregate) : ObservationStatistic { override val outputAlias: String get() = aggregate.outputAlias }
@@ -279,6 +280,7 @@ class Calculation(dimensionSlots: List<DimensionSlot>, memberSlots: List<MemberS
         }
         override fun equals(other: Any?): Boolean = other is ObservationStatistics && observations == other.observations && unit == other.unit && outerKeys == other.outerKeys && statistics == other.statistics
         override fun hashCode(): Int = listOf(observations, unit, outerKeys, statistics).hashCode()
+        companion object { fun contract(): Map<String, Any> = QueryAggregationSemantics.observationContract() }
     }
     class Measures(calls: List<Call>, groupSlots: List<String>, groupingArguments: List<String>, val timeSlot: String?, val range: Binding?, clocks: Map<String, Binding>,
         val population: Population, val groupingLevels: GroupingLevels?) : Root {

@@ -37,7 +37,8 @@ internal class ExecutableInputSymbols(private val graph: ExecutableInputGraph,
     private val scope: ScopeId, private val children: Map<String, Child>) {
     private val identities by lazy { IdentityMeanings(graph, result) }
     data class Facts(val columns: List<SourceColumn>, val key: SourceKey, val population: Population,
-        val operations: List<PostOperationContract.ValidatedOperation>, val observations: List<SelectedObservation>)
+        val operations: List<PostOperationContract.ValidatedOperation>, val observations: List<SelectedObservation>,
+        val observationReduction: QueryStageAnalysis.ObservationReduction? = null)
 
     fun facts(): Facts = when (val root = input.root) {
         is ExecutableInputRoot.Measures -> measures(root)
@@ -198,8 +199,9 @@ internal class ExecutableInputSymbols(private val graph: ExecutableInputGraph,
         val key = sourceKey(child)
         val observations = child.selectedObservations.toList()
         val population = IntrinsicPopulation(consumedRootInputs(input, scope) + "observations")
-        val operations = ObservationStatisticsLowering.lower(root, child.outputNames())
-        return Facts(columns, key, population, operations + input.postOps, observations)
+        val lowered = ObservationStatisticsLowering.lower(root, child.outputNames())
+        val reduction = (root.unit as? Calculation.ObjectsBy)?.let { QueryStageAnalysis.ObservationReduction(lowered.reductionIndex, it.keys) }
+        return Facts(columns, key, population, lowered.operations + input.postOps, observations, reduction)
     }
     private fun alignmentPath(inputId: String, name: String): List<Any> =
         listOf<Any>("input") + scope.path + listOf("root", "keys", inputId, name)

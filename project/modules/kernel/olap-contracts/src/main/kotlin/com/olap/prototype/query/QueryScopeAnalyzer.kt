@@ -33,6 +33,7 @@ internal class QueryScopeAnalyzer(
     private val population: Population,
     private val field: String,
     private val nativeFunctions: Map<ResultExpression.ResultNativeCall, NativeScalarFunction>,
+    private val observationReduction: QueryStageAnalysis.ObservationReduction?,
 ) {
     private var symbols = linkedMapOf<String, Symbol>()
     private var nextPosition = 0
@@ -46,6 +47,9 @@ internal class QueryScopeAnalyzer(
 
     fun analyze(sourceColumns: List<SourceColumn>, sourceKey: SourceKey,
         operations: List<PostOperationContract.ValidatedOperation>, sourceObservations: List<SelectedObservation>): Analysis {
+        observationReduction?.let { check(operations.getOrNull(it.stageIndex) is PostOperationContract.Regroup) {
+            "bound object observation reduction must identify its actual statistical REGROUP"
+        } }
         initializeSources(sourceColumns, sourceKey, sourceObservations)
         requireInitialGroupingLevels()
         bindChildren()
@@ -149,7 +153,8 @@ internal class QueryScopeAnalyzer(
 
     /** 阶段拥有输入快照与可见导入；作用域状态仅在阶段完成后向后传递。 */
     private inner class Transition(private val index: Int, private val operation: PostOperationContract.ValidatedOperation) {
-        private fun expressionPath(name: String): List<Any> = listOf<Any>("input") + scope.path + listOf("postOps", index, name)
+        private fun stagePath(): List<Any> = listOf<Any>("input") + scope.path + listOf("postOps", index)
+        private fun expressionPath(name: String): List<Any> = stagePath() + name
         private val before = symbols.values.toList()
         private val imported = mutableListOf<Symbol>()
         private val available = LinkedHashMap(symbols)
@@ -278,6 +283,13 @@ internal class QueryScopeAnalyzer(
 
         private fun regroup(regroup: PostOperationContract.Regroup) {
             val grouping = regroup.grouping
+            val observations = observationReduction?.takeIf { it.stageIndex == index }
+            observations?.let { declared ->
+                val identity = declared.keys.map { requireSymbol(available, it).id }.toSet()
+                check(key is UniqueKey && identity == (key as UniqueKey).columns && declared.keys.all { requireSymbol(available, it).value is QueryValue.Plain }) {
+                    "bound statistical REGROUP must retain its proven complete object observation identity"
+                }
+            }
             grouping.aggregates.forEach { require(it.outputAlias !in available) { "$field aggregate output conflicts with an existing result symbol: ${it.outputAlias}" } }
             val levels = grouping.groupingLevels
             require(levels == null || levels.outputAlias !in available) { "$field grouping level output conflicts with an existing result symbol" }
@@ -287,10 +299,15 @@ internal class QueryScopeAnalyzer(
             grouping.aggregates.forEachIndexed { ordinal, aggregate ->
                 val input = requireSymbol(available, aggregate.input)
                 val dependencies = (grouping.groupBy.map { requireSymbol(available, it).id } + input.id).toSet().toList()
-                levels?.levels?.forEach { level -> QueryAggregationSemantics.aggregate(aggregate.aggregation, input.value,
-                    level.groupBy.map { requireSymbol(available, it) }, QueryKeys.singleObservation(key, available, level.groupBy)) }
-                val actual = QueryAggregationSemantics.aggregate(aggregate.aggregation, input.value,
-                    grouping.groupBy.map { requireSymbol(available, it) }, QueryKeys.singleObservation(key, available, grouping.groupBy))
+                val path = expressionPath("grouping") + listOf("aggregates", ordinal, "aggregation")
+                fun reduce(groupBy: List<String>): QueryValue {
+                    val retained = groupBy.map { requireSymbol(available, it) }
+                    val single = QueryKeys.singleObservation(key, available, groupBy)
+                    return if (observations != null) QueryAggregationSemantics.observationAggregate(aggregate.aggregation, input.value, retained, single, path)
+                        else QueryAggregationSemantics.aggregate(aggregate.aggregation, input.value, retained, single, path)
+                }
+                levels?.levels?.forEach { level -> reduce(level.groupBy) }
+                val actual = reduce(grouping.groupBy)
                 add(grouped, symbol(aggregate.outputAlias, OperationOrigin(scope, index, ordinal, operation.operationType), dependencies, selectedStock(actual), false))
             }
             symbols = grouped
@@ -330,7 +347,7 @@ internal class QueryScopeAnalyzer(
         }
         private fun appendOutput(output: PostOperationContract.OutputOperation) {
             add(symbols, symbol(output.outputAlias, OperationOrigin(scope, index, 0, operation.operationType),
-                dependencies.map { requireSymbol(available, it).id }.toSet().toList(), selectedStock(outputValue(output, available, key, nativeFunctions, expressionPath("expression"))), sameObservation(output, available)))
+                dependencies.map { requireSymbol(available, it).id }.toSet().toList(), selectedStock(outputValue(output, available, key, nativeFunctions, stagePath())), sameObservation(output, available)))
             if (output is PostOperationContract.ObserveWindow && output.domain == PostOperationContract.ObservationDomain.ROWS)
                 key = QueryKeys.key((output.partitionBy + output.orderKeys.map { it.symbol }).distinct(), symbols)
         }
@@ -449,21 +466,21 @@ internal class QueryScopeAnalyzer(
 
         private fun outputValue(operation: PostOperationContract.OutputOperation, symbols: Map<String, Symbol>, key: Key,
             nativeFunctions: Map<ResultExpression.ResultNativeCall, NativeScalarFunction>, fieldPath: List<Any>): QueryValue = when (operation) {
-            is PostOperationContract.Derive -> QueryValueSemantics.expression(operation.expression, symbols, nativeFunctions, fieldPath)
+            is PostOperationContract.Derive -> QueryValueSemantics.expression(operation.expression, symbols, nativeFunctions, fieldPath + "expression")
             is PostOperationContract.Rank, is PostOperationContract.OrderedRank -> QueryAggregationSemantics.count()
             is PostOperationContract.Cumulative -> QueryAggregationSemantics.window(operation.aggregation, requireSymbol(symbols, operation.input).value,
                 operation.partitionBy.map { requireSymbol(symbols, it) }, orders(symbols, listOf(PostOperationContract.OrderKey(operation.orderBy, operation.direction, if (operation.direction == "ASC") "LAST" else "FIRST"))),
-                null, true, QueryKeys.totalOrder(key, symbols, operation.partitionBy, listOf(operation.orderBy)), QueryKeys.singleObservation(key, symbols, operation.partitionBy))
+                null, true, QueryKeys.totalOrder(key, symbols, operation.partitionBy, listOf(operation.orderBy)), QueryKeys.singleObservation(key, symbols, operation.partitionBy), fieldPath + "aggregation")
             is PostOperationContract.AggregateOutput -> {
                 val window = operation as? PostOperationContract.WindowAggregate
                 QueryAggregationSemantics.window(operation.aggregation, requireSymbol(symbols, operation.input).value, operation.partitionBy.map { requireSymbol(symbols, it) },
                     window?.let { orders(symbols, it.orderKeys) } ?: emptyList(), window?.windowFrame, false,
-                    window != null && QueryKeys.totalOrder(key, symbols, window.partitionBy, window.orderKeys.map { it.symbol }), QueryKeys.singleObservation(key, symbols, operation.partitionBy))
+                    window != null && QueryKeys.totalOrder(key, symbols, window.partitionBy, window.orderKeys.map { it.symbol }), QueryKeys.singleObservation(key, symbols, operation.partitionBy), fieldPath + "aggregation")
             }
             is PostOperationContract.ObserveWindow -> {
                 val input = if (operation.aggregation is ResultAggregation.Count && operation.aggregation.distinct) QueryValue.Row(operation.inputKeys.map { requireSymbol(symbols, it).value }) else requireSymbol(symbols, operation.inputKeys.first()).value
                 QueryAggregationSemantics.window(operation.aggregation, input, operation.partitionBy.map { requireSymbol(symbols, it) }, orders(symbols, operation.orderKeys), operation.windowFrame, false,
-                    operation.domain == PostOperationContract.ObservationDomain.ROWS || QueryKeys.totalOrder(key, symbols, operation.partitionBy, operation.orderKeys.map { it.symbol }), QueryKeys.singleObservation(key, symbols, operation.partitionBy))
+                    operation.domain == PostOperationContract.ObservationDomain.ROWS || QueryKeys.totalOrder(key, symbols, operation.partitionBy, operation.orderKeys.map { it.symbol }), QueryKeys.singleObservation(key, symbols, operation.partitionBy), fieldPath + "aggregation")
             }
             is PostOperationContract.OffsetValue -> QueryAggregationSemantics.offset(requireSymbol(symbols, operation.input).value, operation.partitionBy.map { requireSymbol(symbols, it) }, orders(symbols, operation.orderKeys),
                 operation.function, operation.distance, QueryKeys.totalOrder(key, symbols, operation.partitionBy, operation.orderKeys.map { it.symbol }))
