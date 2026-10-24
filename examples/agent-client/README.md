@@ -57,7 +57,7 @@ agentic-olap call close-script-session --payload "$(jq -n --arg session "$SESSIO
 
 `reset-script-session` 使用同一 payload，确认旧进程退出后清空语言上下文。普通编译错误可在原会话修正继续；运行失败后先读真实执行状态与 `sessionUsable`，不假定失败片段已初始化，也不重放此前成功的正式调用。客户端自行建立的短会话应在完成或失败后关闭；显式传入的会话由其调用者管理。
 
-产品 CLI 的 `tools` 和 `call` 使用官方 Go MCP SDK，可直接连接远程服务。客户端只负责 MCP 连接、认证、会话生命周期、提交源码及普通参数和消费输出，业务构造使用服务提供的正式类型，不在客户端复制语义编译或结果规则。需要定制客户端的研发者，可参考 [Go 远程调用](../../tools/internal/scenario/remote.go)：它等待已有执行并关闭自行建立的会话，完整保存的响应由正式读取入口回读和校验。正式业务用法见[示例说明](../README.md)。示例作者预先给出的定义与预期只证明实际产品行为，不代表 Agent 自主完成业务理解。
+产品 CLI 的 `tools` 和 `call` 通过正式 MCP 连接远程服务。客户端负责认证、会话生命周期、提交源码及普通参数和消费输出，业务构造使用服务提供的正式类型，不在客户端复制语义编译或结果规则。需要定制客户端的研发者，可参考 [Kotlin 远程调用](../../tools/src/main/kotlin/com/olap/development/McpClient.kt)：它等待已有执行并关闭自行建立的会话，完整保存的响应由正式读取入口回读和校验。正式业务用法见[示例说明](../README.md)。示例作者预先给出的定义与预期只证明实际产品行为，不代表 Agent 自主完成业务理解。
 
 [条件原生调用程序](conditional-native-call.olap.kts)展示完成关系中的 `ResultExpression.ResultNativeCall`：按显式记录字段 `record_id` LEFT 连接 RAW_BAG 成员，保留右侧跨日期的全部匹配贡献，不宣称单键唯一；再在资格 CASE 的 THEN 内调用精确插件声明的格式日期函数。NULL 或空字符串资格不选 THEN；未匹配明细的原字段保持 NULL，解析结果遵循原生函数的 NULL 行为，不补零或去重。所有分支仍须通过静态类型和发布授权检查，不能把恒假 CASE 当作绕过非法调用的方式。
 

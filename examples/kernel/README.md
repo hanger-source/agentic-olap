@@ -7,13 +7,10 @@ Gradle 的 `:examples:kernel` 任务编译并运行 [Kernel.kt](Kernel.kt)。它
 在仓库根执行：
 
 ```sh
-go -C tools run ./cmd/olap-dev build
-go -C tools run ./cmd/olap-dev server-distribution --artifacts .tmp/server-distribution
-go -C tools run ./cmd/olap-dev example --example kernel \
-  --distribution .tmp/server-distribution --artifacts .tmp/kernel
+./project/gradlew -p project :development:kernel
 ```
 
-输出根 `.tmp/kernel` 必须不存在。Go 研发入口核对同轮 JVM、服务发行和实际插件构件；Gradle 解析编译与运行依赖。连接器配置使用绝对 manifest 路径与真实 JAR 摘要，内核不自行扫描部署目录。
+输出根 `.tmp/kernel` 必须不存在，可用 `-Partifacts=/absolute/path` 指定。Gradle 装配同轮 JVM 发行与真实插件，独立 Kotlin 研发客户端启动本工程。连接器配置使用绝对 manifest 路径与真实 JAR 摘要，内核不自行扫描部署目录。
 
 Kotlin 入口明确接受连接器配置、尚不存在的 `run/` 目录、请求期限毫秒数与原生内存字节数。它持有本次 DuckDB 数据库、连接及执行资源。结果物化预算为 1000 行、20000 个值、2097152 字节和 16 层深度；这些是工程试验的部署条件。资源在调用内关闭，结果和失败现场保留，不自动覆盖或重试。
 
@@ -23,4 +20,4 @@ Kotlin 入口明确接受连接器配置、尚不存在的 `run/` 目录、请�
 
 `run/business-result.json` 保留原 SUM／COUNT 与 NULL 明细的完整类型化业务结果；`measurement-business-result.json` 保存共享 wrapper 的 6.00／11.00 结果，`measurement-request.json` 与 `measurement-compiled-query.json` 保存其明确请求和技术证据。`run/answer.md` 给出简短解释；同目录的 `catalog.json`、`request.json`、`compiled-query.json`、`source-description.json` 与 `boundary-failures.json` 保存此次输入、计划、真实源描述和失败证据。`source.sql`、`source-drift.sql` 保留实际建表与数据输入，`bad-reference-request.json` 保留坏引用请求；两项具体失败分别位于 `bad-reference-failure.json`、`source-drift-failure.json`，实际完成的绑定、阶段、源解析和降低阶段各自保存证据。
 
-该工程直接观察确定性内核；完整业务用法通过正式 MCP 服务观察。运行需要 JDK 21、Go 1.26、可写本地目录，以及 Gradle 依赖解析条件。构建成功与实际业务结果分别提供自己的证据。
+该工程直接观察确定性内核；完整业务用法通过正式 MCP 服务观察。运行需要 JDK 21、可写本地目录，以及 Gradle 依赖解析条件。构建成功与实际业务结果分别提供自己的证据。

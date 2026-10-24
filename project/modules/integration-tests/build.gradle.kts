@@ -3,9 +3,10 @@ dependencies {
     testImplementation(project(":connector-loader"))
     testImplementation(project(":connector-h2"))
     testImplementation(project(":connector-duckdb"))
-    testImplementation(project(":runtime"))
+    testImplementation(project(":server"))
+    testImplementation(project(":script-worker"))
     api(project(":query-definition"))
-    api(project(":runtime"))
+    api(project(":worker-runtime"))
     api(project(":olap-contracts"))
     api(project(":warehouse-contracts"))
     api(project(":warehouse-jdbc"))
@@ -39,17 +40,18 @@ tasks.withType<Test>().configureEach {
 }
 
 tasks.register("prepareHttpSourceFixture") {
-    dependsOn(tasks.named("testClasses"))
+    dependsOn(tasks.named("testClasses"), rootProject.tasks.named("serverDistribution"))
     doLast {
-        val input = providers.gradleProperty("fixtureArguments").get()
-        val values = groovy.json.JsonSlurper().parse(file(input)) as List<*>
-        require(values.all { it is String }) { "fixtureArguments must contain only strings" }
+        val artifacts = providers.gradleProperty("artifacts").orElse(rootProject.file("../.tmp/http-source").absolutePath).get()
+        val directory = file(artifacts).absoluteFile
+        val plugin = project(":connector-duckdb").tasks.named<Jar>("shadowJar").get().archiveFile.get().asFile
         val launcher = javaToolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(21)) }.get()
         val command = listOf(launcher.executablePath.asFile.absolutePath,
-            "-Dolap.connector.duckdb.jar=${providers.gradleProperty("duckdbConnectorJar").get()}",
+            "-Dolap.connector.duckdb.jar=${plugin.absolutePath}",
             "-cp", sourceSets.test.get().runtimeClasspath.asPath,
-            "com.olap.prototype.connector.HttpSourceAccessTest") + values.map { it as String }
-        val output = file(providers.gradleProperty("fixtureLaunchOutput").get())
+            "com.olap.prototype.connector.HttpSourceAccessTest", directory.resolve("input").path,
+            directory.resolve("fixture").path, directory.resolve("connectors.json").path)
+        val output = rootProject.layout.buildDirectory.file("http-source/launch.json").get().asFile
         output.parentFile.mkdirs()
         output.writeText(groovy.json.JsonOutput.toJson(mapOf("command" to command)) + "\n")
     }

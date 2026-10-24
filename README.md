@@ -86,7 +86,7 @@ npx skills add hanger-source/agentic-olap --skill agentic-olap
 
 源码、skill 与发行记录都在本仓库。Node.js 需要 20 或更高；产品支持 macOS arm64。已有远程服务的使用者可以直接连接 MCP。
 
-`npm install` 自动从 JitPack 取得本版自有 Kotlin 运行构件和内置连接器，从 Maven Central 取得第三方 JVM 库与驱动，按精确清单校验并备齐服务、脚本编译运行和插件所需的 JAR。npm 包携带 Go 程序、JRE 和必要资源，安装完成即可启动；启动时不下载依赖。`agentic-olap sdk` 返回 JitPack SDK 坐标和随包文档，独立插件用 Gradle 匿名取得；`agentic-olap connectors` 返回已安装插件的 manifest 路径与精确引用。使用者无需查找链接、解压或执行第二个安装命令，具体用法见[产品安装与配置](project/cli/README.md)，构建及发行顺序见[安装与发布](docs/installation-release.md)。
+`npm install` 用包内 JRE 运行自包含引导，从 JitPack 取得本版自有 Kotlin 运行构件和内置连接器，从 Maven Central 取得第三方 JVM 库与驱动，按精确清单校验并备齐服务、脚本编译运行和插件所需的 JAR。安装完成即可启动；启动时不下载依赖。`agentic-olap sdk` 返回 JitPack SDK 坐标和随包文档，独立插件用 Gradle 匿名取得；`agentic-olap connectors` 返回已安装插件的 manifest 路径与精确引用。使用者无需查找链接、解压或执行第二个安装命令，具体用法见[产品安装与配置](project/cli/README.md)，构建及发行顺序见[安装与发布](docs/installation-release.md)。
 
 | 你现在要做什么 | 入口 |
 | --- | --- |
@@ -123,7 +123,7 @@ npx skills add hanger-source/agentic-olap --skill agentic-olap
 | 候选值 | 通过服务按批准字段只读提供实际候选页 | [Agent 使用指引](docs/agent-usage.md) |
 | 运行机制 | 有界进程通道、取消、资源回收与部署权限 | [运行机制](docs/architecture.md#服务与运行机制) |
 
-Agent 用 `describe-script-api` 发现实际 Kotlin 方法、构造器、属性、封闭变体及枚举，再通过 `execute-script` 提交完整 kts 程序。脚本固定提供 `olap` 和 `parameters`；可以用普通 Kotlin 分支、循环和局部函数读取真实回执后继续构造输入。构造与执行分离，正式调用仍通过 Go 按原主体和实际资源授权。
+Agent 用 `describe-script-api` 发现实际 Kotlin 方法、构造器、属性、封闭变体及枚举，再通过 `execute-script` 提交完整 kts 程序。脚本固定提供 `olap` 和 `parameters`；可以用普通 Kotlin 分支、循环和局部函数读取真实回执后继续构造输入。构造与执行分离，正式调用由 Kotlin 主服务按本次可信主体和实际资源授权，再直接交给相应应用处理。
 
 Query 使用正式 `QueryIntent(publication, computation)`，计算由根、独立输入和有序阶段构成。DSL 的 `scope/query/input/stage` 构造已有语义模型；根可使用测量、成员、输入、集合或共同计算，输入自身也可以是完整计算。定义内部与本次查询共同保留粒度、数量、单位、NULL 和来源含义。
 
@@ -137,27 +137,27 @@ Query 使用正式 `QueryIntent(publication, computation)`，计算由根、独�
 
 ```text
 project/
-  service/              Go 服务、MCP、HTTP、认证、运行管理与结果交付
-  protocol/             Go 与 Kotlin 共用的 Protobuf 内部协议
+  protocol/             JVM 工作进程与持久化的 Protobuf 合同
   modules/
     kernel/             通用语义、计算与来源访问合同、Calcite 编译
     upstream/           业务组织、语义治理、采用、发布与授权
-    applications/       Kotlin 元数据应用、工作操作与插件装载
+    applications/       主服务、脚本与工作入口、安装引导与插件装载
     scripting/          类型化 DSL、整段 kts 编译与求值
     protocol/           纯 Protobuf 生成物与显式领域转换
     connectors/         独立版本的具体后端插件
     integration-tests/  跨模块与真实进程试验
-  gradle/               JVM 版本目录与 Gradle Wrapper
+  gradle/               依赖版本目录与 Gradle Wrapper
+  buildSrc/             真实 Gradle 构件的分发与 npm 装配规则
   cli/                  npm 产品入口与实际安装试验
 skills/                 Agent 产品使用 skill
 examples/               远程业务示例、外部客户端与内核工程试验
 docs/                   架构、使用说明与发行文档
-tools/                  构建、分发与开发入口
+tools/                  独立 Kotlin 研发客户端与完整安装用法
 ```
 
 通用内核不依赖主题域、场景或 Agent 工作流；产品上游把业务空间中的采用与授权映射为内核可消费的定义、实例和绑定。这是产品内部的依赖分层。业务接入使用完整服务；内核的直接调用示例用于研发时检查这一依赖边界，见[内核工程试验](examples/kernel/README.md)。
 
-Kotlin 模块由 `project/settings.gradle.kts` 统一登记，Go 服务由 `project/service/go.mod` 管理依赖。`project/protocol/` 的正式 schema 分别拥有运行监督、语义、治理、查询与 worker 消息，生成物与领域模型在编码边界显式转换；纯合同不依赖通信实现。服务发行包含 Go 程序、JVM 应用及其精确依赖和运行时；示例、研发脚本与使用者业务资产各自独立。依赖方向和调用边界见[架构说明](docs/architecture.md)。
+Kotlin 模块由 `project/settings.gradle.kts` 统一登记，构建与装配由 Gradle Kotlin DSL 统一组织。主服务直接调用正式治理、查询和结果应用；只有工作进程、持久化及外部通信边界进行编码。主服务、REPL 和来源工作进程使用不同 classpath 与生命周期；示例、研发客户端与使用者业务资产各自独立。依赖方向和调用边界见[架构说明](docs/architecture.md)。
 
 ## 支持范围
 
@@ -179,15 +179,14 @@ Kotlin 模块由 `project/settings.gradle.kts` 统一登记，Go 服务由 `proj
 研发环境按[贡献说明](CONTRIBUTING.md#环境与唯一入口)准备，随后运行同一开发入口：
 
 ```sh
-go -C tools run ./cmd/olap-dev bootstrap
-go -C tools run ./cmd/olap-dev build
-go -C tools run ./cmd/olap-dev server-distribution --artifacts .tmp/dev-distribution
-go -C tools run ./cmd/olap-dev test --distribution .tmp/dev-distribution
+./project/gradlew -p project assembleJvm
+./project/gradlew -p project serverDistribution
+./project/gradlew -p project :integration-tests:test --tests '完整类名.方法名'
 ```
 
-Go 研发 CLI 统一编排 Gradle、协议生成、服务构建、发行和正式 MCP 业务试验，行为试验消费同轮构件。生产和必需研发链路均不要求 Python。环境、聚焦方法、示例运行与发行命令见[贡献说明](CONTRIBUTING.md)。
+Gradle 统一编排协议生成、服务构建和发行，独立 Kotlin 研发客户端消费同轮构件，执行正式 MCP 业务用法与 npm 包安装用法。生产和必需研发链路均不要求 Go 或 Python。环境、聚焦方法、示例运行与发行命令见[贡献说明](CONTRIBUTING.md)。
 
-日常产品操作管理语义资产与查询。修改语言、Go/Kotlin 源码、构建或发行软件属于独立研发工作。正式业务示例使用自含数据，由 Go 研发 CLI 启动，通过公开 MCP 接口调用同轮服务。
+日常产品操作管理语义资产与查询。修改语言、Kotlin 源码、构建或发行软件属于独立研发工作。正式业务示例使用自含数据，由 Gradle 启动独立客户端，通过公开 MCP 接口调用同轮服务。
 
 ## 文档与许可证
 

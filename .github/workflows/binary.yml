@@ -28,24 +28,15 @@ jobs:
         with:
           node-version: '24'
           registry-url: https://registry.npmjs.org
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: project/service/go.mod
-          cache-dependency-path: |
-            project/service/go.sum
-            tools/go.sum
-      - run: go -C tools run ./cmd/olap-dev bootstrap
-      - run: go -C tools run ./cmd/olap-dev build
-      - run: go -C tools run ./cmd/olap-dev server-distribution --artifacts .tmp/release-distribution
-      - run: go -C tools run ./cmd/olap-dev binary --distribution .tmp/release-distribution --artifacts .tmp/release-binary
+      - run: ./project/gradlew -p project --no-daemon --console=plain npmPackage
       - name: 从实际 npm 包安装并使用完整服务
-        run: node project/cli/tests/installed.mjs .tmp/release-binary/tarballs .tmp/installed-product
+        run: ./project/gradlew -p project --no-daemon --console=plain :development:installedProduct
       - uses: actions/upload-artifact@v4
         with:
           name: npm-product-darwin-arm64
           path: |
-            .tmp/release-binary/tarballs/*.tgz
-            .tmp/release-binary/tarballs/SHA256SUMS
+            project/build/npm/tarballs/*.tgz
+            project/build/npm/tarballs/SHA256SUMS
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         if: always()

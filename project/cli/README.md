@@ -11,7 +11,7 @@ agentic-olap start
 
 一个 npm 包交付 macOS arm64 产品，需要 Node.js 20 或更高。
 
-Go 程序和 JRE 随 npm 交付，命令直接运行 Go 程序。`npm install` 自动从 JitPack 取得本版自有 Kotlin 运行构件和内置连接器，从 Maven Central 取得第三方 JVM 库与驱动。所有产品和依赖 JAR 都在安装阶段下载，按发行清单校验大小和摘要后写入安装目录；缓存中的相同字节可复用。需要允许本包的 postinstall 脚本，下载或校验失败使安装失败。安装完成后直接启动，启动阶段不下载依赖。
+JRE、自包含安装引导和命令入口随 npm 交付。`npm install` 用包内 JRE 运行引导，自动从 JitPack 取得本版 Kotlin 主服务、工作入口、REPL 运行构件和内置连接器，从 Maven Central 取得第三方 JVM 库与驱动。运行 JAR 按发行清单校验大小和摘要后写入安装目录；缓存中的相同字节可复用。需要允许本包的 postinstall 脚本，下载或校验失败使安装失败。安装完成后，命令入口直接启动包内 JRE，启动阶段不下载依赖。
 
 安装后读取同版本 SDK 声明及 H2、DuckDB 插件组：
 
@@ -23,9 +23,9 @@ agentic-olap connectors
 
 `sdk` 返回本版连接器 API、随包文档、JitPack 仓库地址及正式构件坐标；`--repository` 只输出仓库地址。新建或确需重构的独立插件工程配置 `maven("https://jitpack.io")`，采用目标宿主披露的精确坐标；第三方依赖由 `mavenCentral()` 提供。SDK 构件公开下载，无需使用者配置令牌或从 npm 包提取本地 Maven 仓库。连接远程服务时须核对其实际声明，命令返回的是本地安装信息。
 
-JVM 下载缓存默认位于系统用户缓存目录的 `agentic-olap/jvm/sha256`；设置 `AGENTIC_OLAP_CACHE=/absolute/cache` 时使用 `/absolute/cache/jvm/sha256`。缓存按内容摘要保存；安装目录仍持有完整运行文件，启动不依赖缓存目录或 Maven 网络。下载使用系统证书及 `HTTP_PROXY/HTTPS_PROXY/NO_PROXY`。
+JVM 下载缓存默认位于 `~/.cache/agentic-olap/jvm`；设置 `AGENTIC_OLAP_CACHE=/absolute/cache` 时使用该目录。缓存按内容摘要保存，逐摘要文件锁协调并发安装；安装目录仍持有完整运行文件，启动不依赖缓存目录或 Maven 网络。下载使用 JRE 信任库及 `HTTP_PROXY/HTTPS_PROXY/NO_PROXY`，代理不携带凭据。
 
-仓库返回 HTTP 429 时，安装器按 `Retry-After` 有限重试同一精确构件；未提供该字段时使用递增间隔。整个安装下载预算为 30 分钟。其他 HTTP 错误、长度或摘要不符均使安装失败，不切换来源、版本或校验要求。
+每个 Maven 请求具有明确超时。HTTP 错误、长度或摘要不符均使安装失败，不切换来源、版本或校验要求。重新执行 npm 安装可复用此前校验成功的缓存，不要求手工下载构件。
 
 `connectors` 返回 npm 已安装的 H2、DuckDB 插件组的 `manifestPath`、`connectorRef` 和 API，可直接用于服务配置。上述命令只读取本地文件，不下载、复制或安装任何内容，也不创建数据源。具体后端的业务来源及凭据仍由使用者配置。
 

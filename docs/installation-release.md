@@ -9,11 +9,11 @@ npm install --global @hanger-source/agentic-olap
 agentic-olap start
 ```
 
-需要 Node.js 20 或更高，支持 macOS arm64。npm 包携带 Go 程序、JRE、精确下载清单、SDK 文档、插件声明和许可。命令直接指向 Go 程序，没有平台子包或 JS 启动壳。
+需要 Node.js 20 或更高，支持 macOS arm64。npm 包携带 JRE、自包含的安装引导 JAR、精确下载清单、SDK 文档、插件声明和许可。命令入口直接启动包内 JRE 与已安装的主服务，没有平台子包或 JS 产品启动程序。
 
-安装脚本调用随包 Go 程序，从 JitPack 取得同标签 Kotlin 运行构件和内置连接器，从 Maven Central 取得第三方 JVM 库与 H2、DuckDB 驱动。产品及依赖 JAR 均不打进 npm 归档。下载按锁定 URL、大小和 SHA-256 校验，备齐服务、脚本编译运行的 classpath 和插件组；相同内容可复用缓存。下载或校验失败使安装失败，不接受缺失依赖的安装结果。
+安装脚本用包内 JRE 运行自包含引导，从 JitPack 取得同标签 Kotlin 运行构件和内置连接器，从 Maven Central 取得第三方 JVM 库与 H2、DuckDB 驱动。引导自身的依赖随引导 JAR 带齐，服务、脚本和工作进程的 JAR 在安装阶段下载。下载按锁定 URL、大小和 SHA-256 校验，备齐各自独立的 classpath 和插件组；相同内容可复用缓存，并发安装通过内容摘要文件锁协调。下载或校验失败使安装失败，不接受缺失依赖的安装结果。
 
-安装完成即可启动。启动只核验和使用本地文件，不下载或解析依赖。无需安装 JDK、Gradle、Kotlin 编译器或 Go，也不需执行第二条安装命令。缓存、代理、配置和升级操作见[产品安装说明](../project/cli/README.md)。升级不会自动重启服务、改写业务配置或转换持久资产格式。
+安装完成即可启动。启动只核验和使用本地文件，不下载或解析依赖。无需安装 JDK、Gradle 或 Kotlin 编译器，也不需执行第二条安装命令。缓存、代理、配置和升级操作见[产品安装说明](../project/cli/README.md)。升级不会自动重启服务、改写业务配置或转换持久资产格式。
 
 ## 独立连接器 SDK
 
@@ -48,7 +48,7 @@ dependencies {
 一次语言会话固定产品构建、Kotlin 版本、DSL、classpath、默认 imports 与 JVM 目标，不在存活会话里替换 JAR。升级沿明确停止服务、安装并启动的现有入口进行；旧语言内存结束，持久业务资产按各自格式和授权继续读取，不承诺跨版本搬运 JVM 对象。
 
 1. 完成代码、文档和相称验证后提交，推送精确发行标签 `vX.Y.Z`。源码、skill 和构建均采用该标签。
-2. 手动运行 **构建 JitPack JVM 构件**，指定标签。JitPack 使用 JDK 21 执行 `publishProductToMavenLocal`，发布服务运行模块、内置连接器、SDK 及其模块依赖，不编译 Go 或打包 npm。测试和示例模块不发布。隔离连接器 JAR 使用 `plugin` classifier。
+2. 手动运行 **构建 JitPack JVM 构件**，指定标签。JitPack 使用 JDK 21 执行 `publishProductToMavenLocal`，发布主服务、脚本入口、工作运行入口、内置连接器、SDK 及其模块依赖。测试、示例、研发客户端和安装引导不向 JitPack 发布。隔离连接器 JAR 使用 `plugin` classifier。
 3. 手动运行 **构建 npm 产品包**，指定同一标签。装配读取 Gradle 的实际依赖关系，从 JitPack 取得自有运行 JAR，以远端实际字节生成 classpath、插件身份和下载清单。第三方依赖使用 Gradle 已解析的坐标与摘要。本地重编译字节不能代替远端构件。输出一份 npm tarball 和 `SHA256SUMS`，并通过实际安装、MCP 建设与发布、真实来源查询、结果保存和重启读取验收。
 4. 为该标签建立 draft release，上传同轮 tarball 和 `SHA256SUMS`。skill 直接使用标签中的 `skills/agentic-olap`，不生成或同步另一份仓库。
 5. 手动运行 **发布 Agentic OLAP**，指定 draft 标签。工作流核验实际归档、文件摘要和完整安装清单，通过 GitHub OIDC 发布一个 npm 产品包，成功后公开 GitHub release。npm 接受提交即记录结果，不轮询 registry。若 npm 已受理而公开 release 失败，直接修正 release 状态，不重复提交 npm。

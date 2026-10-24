@@ -69,8 +69,8 @@ configure(sdkProjects) {
     extensions.configure<JavaPluginExtension> { withJavadocJar() }
 }
 tasks.register("publishProductToMavenLocal") {
-    description = "为 JitPack 发布 JVM 服务、连接器与 SDK；不构建 Go 或 npm 包。"
-    dependsOn(subprojects.filter { it.name != "integration-tests" && it.name != "examples" }
+    description = "为 JitPack 发布 JVM 服务、连接器与 SDK。"
+    dependsOn(subprojects.filter { it.name !in setOf("integration-tests", "examples", "development", "bootstrap") }
         .map { "${it.path}:publishLibraryPublicationToMavenLocal" })
 }
 val sdkDependencyProjects = providers.provider {
@@ -117,21 +117,6 @@ configure(subprojects.filter { it.projectDir.parentFile.name == "connectors" }) 
     tasks.named("assemble") { dependsOn("shadowJar") }
 }
 
-val buildProtocGenGo by tasks.registering(Exec::class) {
-    workingDir("service")
-    val executable = layout.buildDirectory.file("tools/protoc-gen-go")
-    inputs.files(file("service/go.mod"), file("service/go.sum"))
-    outputs.file(executable)
-    doFirst { executable.get().asFile.parentFile.mkdirs() }
-    commandLine("go", "build", "-mod=readonly", "-trimpath", "-o", executable.get().asFile.absolutePath, "google.golang.org/protobuf/cmd/protoc-gen-go")
-}
-
-tasks.register<Sync>("generateGoProtocol") {
-    dependsOn(":olap-protocol:generateProto")
-    from(project(":olap-protocol").layout.buildDirectory.dir("generated/sources/proto/main/go"))
-    into("service/internal/protocol")
-}
-
 fun sha256(file: File): String = file.inputStream().use { stream ->
     val digest = MessageDigest.getInstance("SHA-256")
     val buffer = ByteArray(65536)
@@ -153,12 +138,10 @@ val writeRuntimeLicenses by tasks.registering {
             from(file("distribution-resources/META-INF/third-party"))
             into(root.resolve("additional-notices"))
         }
-        val artifacts = listOf(
-            project(":runtime").configurations.getByName("runtimeClasspath"),
-            project(":runtime").configurations.getByName("scriptBoundaryRuntime"),
-            project(":kotlin-repl").configurations.getByName("runtimeClasspath"),
-            project(":dsl-api").configurations.getByName("runtimeClasspath"),
-        ).flatMap { it.resolvedConfiguration.resolvedArtifacts }
+        val artifacts = (listOf(":server", ":worker-runtime", ":script-worker", ":bootstrap", ":dsl-api")
+            .map { project(it).configurations.getByName("runtimeClasspath") }
+            + listOf(":connector-h2", ":connector-duckdb").map { project(it).configurations.getByName("driver") })
+            .flatMap { it.resolvedConfiguration.resolvedArtifacts }
             .filter { it.id.componentIdentifier is ModuleComponentIdentifier }.distinctBy { it.file.canonicalPath }
             .sortedBy { it.moduleVersion.id.toString() }
         val attributions = artifacts.map { artifact ->
@@ -194,7 +177,7 @@ val writeJvmManifest by tasks.registering {
     dependsOn(writeRuntimeLicenses)
     doLast {
         fun identity(file: File) = mapOf("path" to file.canonicalPath, "sha256" to sha256(file))
-        val modules = subprojects.sortedBy { it.name }.map { module ->
+        val modules = subprojects.filter { it.name !in setOf("integration-tests", "examples", "development", "bootstrap") }.sortedBy { it.name }.map { module ->
             val jarTask = if (module.projectDir.parentFile.name == "connectors") "shadowJar" else "jar"
             val jar = module.tasks.named<Jar>(jarTask).get().archiveFile.get().asFile
             val pom = module.layout.buildDirectory.file("publications/library/pom-default.xml").get().asFile
@@ -207,29 +190,22 @@ val writeJvmManifest by tasks.registering {
                 "version" to module.version.toString(), "directory" to module.projectDir.relativeTo(rootDir).invariantSeparatorsPath,
                 "category" to category, "jar" to identity(jar), "pom" to identity(pom))
         }
-        val runtime = project(":runtime")
-        val runtimeJar = runtime.tasks.named<Jar>("jar").get().archiveFile.get().asFile
-        val classpath = (runtime.configurations.getByName("runtimeClasspath").files + runtimeJar)
-            .sortedBy { it.name }.map(::identity)
-        require(classpath.isNotEmpty()) { "runtime classpath is empty" }
-        val script = project(":kotlin-repl")
-        val scriptJar = script.tasks.named<Jar>("jar").get().archiveFile.get().asFile
+        val mainClasses = mapOf("server" to (":server" to "com.olap.prototype.server.ServerMainKt"),
+            "worker" to (":worker-runtime" to "com.olap.prototype.runtime.ApplicationMainKt"),
+            "script" to (":script-worker" to "com.olap.prototype.runtime.ScriptMainKt"))
+        val applications = mainClasses.mapValues { (_, entry) ->
+            val module = project(entry.first)
+            val jar = module.tasks.named<Jar>("jar").get().archiveFile.get().asFile
+            mapOf("mainClass" to entry.second, "classpath" to
+                (module.configurations.getByName("runtimeClasspath").files + jar).sortedBy { it.name }.map(::identity))
+        }
         val dsl = project(":dsl-api")
         val dslJar = dsl.tasks.named<Jar>("jar").get().archiveFile.get().asFile
-        val boundary = runtime.configurations.getByName("scriptBoundaryRuntime")
-        fun scriptFiles(configuration: String) = (script.configurations.getByName(configuration).files +
-            dsl.configurations.getByName("runtimeClasspath").files + dslJar +
-            boundary.files + scriptJar + runtimeJar).distinctBy { it.canonicalPath }.sortedBy { it.name }.map(::identity)
-        val scripting = mapOf("dslApiVersion" to "agentic-olap-kotlin-dsl/v2",
-            "runtime" to scriptFiles("runtimeClasspath"),
-            "dsl" to (dsl.configurations.getByName("runtimeClasspath").files + dslJar).sortedBy { it.name }.map(::identity))
         val drivers = listOf(":connector-h2", ":connector-duckdb").associate { path ->
             val module = project(path)
             module.name to module.configurations.getByName("driver").files.map(::identity)
         }
-        val external = (runtime.configurations.getByName("runtimeClasspath").resolvedConfiguration.resolvedArtifacts +
-            boundary.resolvedConfiguration.resolvedArtifacts +
-            script.configurations.getByName("runtimeClasspath").resolvedConfiguration.resolvedArtifacts +
+        val external = (mainClasses.values.flatMap { project(it.first).configurations.getByName("runtimeClasspath").resolvedConfiguration.resolvedArtifacts } +
             dsl.configurations.getByName("runtimeClasspath").resolvedConfiguration.resolvedArtifacts +
             listOf(":connector-h2", ":connector-duckdb").flatMap { project(it).configurations.getByName("driver").resolvedConfiguration.resolvedArtifacts })
             .filter { it.id.componentIdentifier is ModuleComponentIdentifier }.distinctBy { it.file.canonicalPath }
@@ -241,9 +217,12 @@ val writeJvmManifest by tasks.registering {
                 mapOf("file" to identity(artifact.file), "coordinate" to "${coordinate.group}:${coordinate.name}:${coordinate.version}${artifact.classifier?.let { ":$it" } ?: ""}",
                     "url" to "https://repo.maven.apache.org/maven2/$path", "size" to artifact.file.length())
             }
-        val document = mapOf("formatVersion" to "agentic-olap-jvm-build/v4", "version" to productVersion,
-            "mainClass" to "com.olap.prototype.runtime.ApplicationMainKt", "modules" to modules,
-            "runtimeClasspath" to classpath, "scripting" to scripting, "drivers" to drivers, "externalArtifacts" to external,
+        val connectorApi = file("modules/kernel/connector-api/src/main/kotlin/com/olap/prototype/connector/OlapConnector.kt").readText()
+            .let { Regex("const val API_VERSION\\s*=\\s*\"([^\"]+)\"").find(it)?.groupValues?.get(1) ?: error("连接器缺少明确 API_VERSION") }
+        val document = mapOf("formatVersion" to "agentic-olap-jvm-build/v5", "version" to productVersion,
+            "modules" to modules, "applications" to applications, "connectorApiVersion" to connectorApi,
+            "dsl" to (dsl.configurations.getByName("runtimeClasspath").files + dslJar).sortedBy { it.name }.map(::identity),
+            "drivers" to drivers, "externalArtifacts" to external,
             "licenses" to layout.buildDirectory.dir("runtime-licenses").get().asFile.walkTopDown()
                 .filter { it.isFile }.sortedBy { it.path }.map(::identity).toList())
         manifest.get().asFile.apply { parentFile.mkdirs(); writeText(JsonOutput.prettyPrint(JsonOutput.toJson(document)) + "\n") }
@@ -254,5 +233,23 @@ tasks.register("assembleJvm") {
     group = "build"
     description = "编译完整 JVM 产品并记录本轮实际构件，不运行测试。"
     dependsOn(subprojects.map { "${it.path}:assemble" })
-    dependsOn(writeJvmManifest, "generateGoProtocol")
+    dependsOn(writeJvmManifest)
+}
+
+tasks.register<ProductDistribution>("serverDistribution") {
+    group = "distribution"
+    description = "装配可本地启动的完整 JVM 产品，不运行测试。"
+    dependsOn(writeJvmManifest, ":bootstrap:shadowJar")
+    manifest.set(layout.buildDirectory.file("jvm-artifacts.json"))
+    bootstrapJar.set(project(":bootstrap").tasks.named<Jar>("shadowJar").flatMap { it.archiveFile })
+    published.set(false)
+}
+
+tasks.register<ProductDistribution>("npmPackage") {
+    group = "distribution"
+    description = "从同标签 JitPack 实际构件、Maven Central 与包内 JRE 装配 macOS arm64 npm 产品。"
+    dependsOn(writeJvmManifest, ":bootstrap:shadowJar")
+    manifest.set(layout.buildDirectory.file("jvm-artifacts.json"))
+    bootstrapJar.set(project(":bootstrap").tasks.named<Jar>("shadowJar").flatMap { it.archiveFile })
+    published.set(true)
 }

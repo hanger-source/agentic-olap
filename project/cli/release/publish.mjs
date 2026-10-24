@@ -109,9 +109,10 @@ async function checkPackage(file, name, version) {
   require(equal(pkg.publishConfig, { access: 'public', registry }) || equal(pkg.publishConfig, { access: 'public', registry: `${registry}/` }), '包 publishConfig 不符');
   require(!pkg.optionalDependencies && !pkg.dependencies, '产品必须由一个 npm 包完整交付');
   require(JSON.stringify(pkg.os) === '["darwin"]' && JSON.stringify(pkg.cpu) === '["arm64"]', '产品仅支持 macOS arm64');
-  require(pkg.bin?.['agentic-olap'] === 'runtime/agentic-olap-runtime' && members.has('package/runtime/agentic-olap-runtime'), '命令必须直接使用随包 Go 程序');
-  require(pkg.scripts?.postinstall === './runtime/agentic-olap-runtime install-jvm-dependencies', 'JVM 下载必须属于 npm 安装阶段');
-  require(![...members.keys()].some(file => file.endsWith('.jar') && !file.startsWith('package/jre/')), '产品或依赖 JAR 仍被打进 npm 包');
+  require(pkg.bin?.['agentic-olap'] === 'runtime/agentic-olap' && members.has('package/runtime/agentic-olap'), '命令必须使用随包 JVM 启动入口');
+  require(pkg.scripts?.postinstall === './jre/bin/java -jar ./runtime/agentic-olap-bootstrap.jar .', 'JVM 下载必须由独立引导在 npm 安装阶段完成');
+  require(members.has('package/runtime/agentic-olap-bootstrap.jar') && members.has('package/jre/bin/java'), '安装引导必须自包含并使用包内 JRE');
+  require(![...members.keys()].some(file => file.endsWith('.jar') && !file.startsWith('package/jre/') && file !== 'package/runtime/agentic-olap-bootstrap.jar'), '产品依赖 JAR 不应被打进 npm 包');
   const resources = members.get('package/resources.json')?.json;
   require(resources?.version === version && resources.sdk === 'sdk' && resources.connectorApiVersion?.startsWith('agentic-olap-connector/'), '缺少同版本 SDK 与连接器 API 身份');
   require(['API.md', 'SOURCE-ACCESS.md', 'LOADER.md'].every(file => members.has(`package/sdk/${file}`)), '缺少 SDK 文档');
@@ -128,9 +129,9 @@ async function checkPackage(file, name, version) {
     }
   }
   const distribution = members.get('package/distribution.json')?.json;
-  require(distribution?.formatVersion === 'agentic-olap-distribution/v3' && distribution.version === version, '缺少精确服务发行清单');
+  require(distribution?.formatVersion === 'agentic-olap-distribution/v4' && distribution.version === version, '缺少精确服务发行清单');
   require(distribution.scripting?.dslApiVersion === 'agentic-olap-kotlin-dsl/v2', '缺少本版脚本 DSL 身份');
-  const classpaths = [distribution.runtime?.classpath, distribution.scripting.runtime, distribution.scripting.dsl];
+  const classpaths = [distribution.server?.classpath, distribution.worker?.classpath, distribution.scripting.runtime?.classpath, distribution.scripting.dsl];
   require(classpaths.every(group => Array.isArray(group) && group.length > 0), '服务、脚本运行及 DSL 类路径必须完整');
   const required = new Map();
   const include = item => {
@@ -148,7 +149,6 @@ async function checkPackage(file, name, version) {
   require(required.size === targets.size && [...required].every(([file, digest]) => targets.get(file) === digest), '安装清单未精确覆盖全部服务、脚本运行、DSL和插件');
   const build = members.get('package/build.json')?.json;
   require(build?.version === version && build.target === 'darwin-arm64' && /^[0-9a-f]{40}$/.test(build.revision), '缺少精确版本、目标或 revision');
-  require(/^[0-9a-f]{64}$/.test(build.goModSha256) && /^[0-9a-f]{64}$/.test(build.goSumSha256), '缺少 Go 构建依赖身份');
   require(build.files && members.size === Object.keys(build.files).length + 1, '实际文件与 build.json 清单不同');
   for (const [item, expected] of Object.entries(build.files)) require(/^[0-9a-f]{64}$/.test(expected) && members.get(`package/${item}`)?.sha256 === expected, `文件摘要不符：${item}`);
   return build.revision;

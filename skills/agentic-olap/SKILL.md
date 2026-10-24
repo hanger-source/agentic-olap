@@ -14,7 +14,7 @@ metadata:
 
 ## 安装并连接
 
-需要 Node.js 20 或更高，支持 macOS arm64。一个 npm 包携带 Go 程序和 JRE；安装脚本从 JitPack 取得精确自有构件、从 Maven Central 取得第三方库，校验并备齐服务、脚本编译运行环境和内置插件。启动时不下载，不要求用户安装 JDK、Gradle 或 Kotlin 编译器。
+需要 Node.js 20 或更高，支持 macOS arm64。一个 npm 包携带 JRE、自包含安装引导与命令入口；安装阶段用包内 JRE 从 JitPack 取得精确自有构件、从 Maven Central 取得第三方库，校验并备齐服务、脚本编译运行环境和内置插件。启动时不下载，不要求用户安装 JDK、Gradle 或 Kotlin 编译器。
 
 ~~~sh
 npm install --global @hanger-source/agentic-olap
@@ -67,7 +67,7 @@ agentic-olap call wait-script --payload '{"executionId":"sources-001","waitMilli
 - `olap.queries`：完整 Query 的校验、解释、执行，以及显式保存和修订。
 - `olap.results`：结果分页、递归值、运行历史与业务说明。
 
-构造器只构造模型；调用正式方法才产生读取、写入或查询。可以用普通 Kotlin 分支、循环、局部函数读取返回值后继续组织输入。公共 API 不提供 Principal、凭据或元数据库；实际调用仍由 Go 根据本次真实主体、操作和资源授权。共享 JVM 不承诺同进程任意恶意 Kotlin 的完整隔离，外部文件、网络和启动进程由 OS 沙箱限制。
+构造器只构造模型；调用正式方法才产生读取、写入或查询。可以用普通 Kotlin 分支、循环、局部函数读取返回值后继续组织输入。公共 API 不提供 Principal、凭据或元数据库；实际调用由主服务根据本次真实主体、操作和资源授权。语言会话持有独立 REPL 进程与历史，外部文件、网络和启动进程由 OS 沙箱限制。
 
 作者身份用只读 `olap.caller.subject`，不从参数伪造。`olap.temporaryDirectory` 是跨片段保留的会话私有根；内部请求临时目录不注入作者环境。会话按 Subject＋规范化 Scopes 核对归属；顶层属性只在当前活跃求值线程提供环境，不向后台线程继承。正式调用和显式输出继续核对本次真实执行，历史后台线程不能借新权限。
 

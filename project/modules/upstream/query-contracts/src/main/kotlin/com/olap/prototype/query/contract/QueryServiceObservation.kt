@@ -1,6 +1,6 @@
 package com.olap.prototype.query.contract
 
-/** 服务在交付确认之前记录的运行事实；阶段可以嵌套，不能将各计时直接相加。 */
+/** 主服务完成实际结果交付前记录的运行事实；嵌套阶段不能直接相加。 */
 class QueryServiceObservation(val scope: String, timingNanos: Map<String, Long>, workers: List<QueryWorkerAcquisition>) {
     val timingNanos: Map<String, Long> = java.util.Collections.unmodifiableMap(LinkedHashMap(timingNanos))
     val workers: List<QueryWorkerAcquisition> = java.util.List.copyOf(workers)

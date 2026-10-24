@@ -39,7 +39,7 @@ jobs:
           if (tag !== `v${version}`) throw new Error('发行标签必须与源码产品版本一致');
           const base = `https://jitpack.io/com/github/hanger-source/agentic-olap`;
           const artifact = (module, extension) => `${base}/${module}/${tag}/${module}-${tag}.${extension}`;
-          const response = await fetch(artifact('runtime', 'pom'), {
+          const response = await fetch(artifact('server', 'pom'), {
             signal: AbortSignal.timeout(30 * 60 * 1000),
           });
           if (!response.ok && response.status !== 429) throw new Error(`JitPack 构建请求失败：HTTP ${response.status}；查看 https://jitpack.io/#hanger-source/agentic-olap/${tag}`);
@@ -62,7 +62,7 @@ jobs:
             previous = state.status;
             await new Promise(resolve => setTimeout(resolve, 15000));
           }
-          for (const module of ['runtime', 'connector-api', 'connector-loader', 'connector-h2', 'connector-duckdb']) {
+          for (const module of ['server', 'worker-runtime', 'script-worker', 'connector-api', 'connector-loader', 'connector-h2', 'connector-duckdb']) {
             for (const extension of ['pom', 'jar']) {
               const selected = ['connector-h2', 'connector-duckdb'].includes(module) && extension === 'jar'
                 ? artifact(module, extension).replace('.jar', '-plugin.jar') : artifact(module, extension);

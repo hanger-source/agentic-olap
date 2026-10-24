@@ -4,11 +4,10 @@ import "google/protobuf/any.proto";
 import "query.proto";
 import "governance.proto";
 
-package agentic.olap.runtime.v3;
+package agentic.olap.runtime.v4;
 
 option java_package = "com.olap.prototype.protocol";
 option java_multiple_files = true;
-option go_package = "github.com/hanger-source/agentic-olap/service/internal/protocol;protocol";
 
 // Both directions use bounded, varint-length-delimited Frame messages on stdio.
 // Business DSLs and exact artifact bytes have one existing semantic codec owner.
@@ -17,8 +16,6 @@ message Frame {
     Bootstrap bootstrap = 1;
     Request request = 2;
     Response response = 3;
-    WorkRequest work_request = 4;
-    WorkResponse work_response = 5;
     Cancel cancel = 6;
     Shutdown shutdown = 7;
     ScriptRequest script_request = 8;
@@ -42,8 +39,7 @@ enum WorkerKind {
 }
 
 message Bootstrap {
-  string protocol = 1; // agentic-olap-runtime/v3，版本必须精确一致。
-  bytes deployment_json = 2; // metadata mode only; no credential values.
+  string protocol = 1; // agentic-olap-runtime/v4，版本必须精确一致。
   bytes limits_json = 3;
   repeated string connector_manifests = 4;
   WorkerKind worker_kind = 5;
@@ -59,118 +55,20 @@ message ProtocolFile {
   string sha256 = 3;
 }
 
-message Principal {
-  string subject = 1;
-  repeated string scopes = 2;
-}
-
 message Request {
   string request_id = 1;
   uint64 remaining_millis = 2;
-  Principal principal = 3;
   string operation = 4;
-  bytes payload_json = 5;
-  CapabilityInvocation capability = 6;
-  DeliveryConfirmation delivery = 7;
   google.protobuf.Any worker_model = 8;
-  ResultAuthorization result_authorization = 9;
-}
-
-message ResultAuthorization {
-  string operation_id = 1;
-  agentic.olap.query.v1.QueryResultReference reference = 2;
 }
 
 message Response {
   string request_id = 1;
   bool success = 2;
-  bytes result_json = 3;
   bytes error_json = 4;
-  ResultArtifact artifact = 5;
-  RuntimeReady ready = 6;
   google.protobuf.Any model = 7;
   agentic.olap.query.v1.WorkerFailureFacts worker_failure = 8;
   map<string, int64> timing_nanos = 9;
-  repeated CapabilityEffect effects = 10;
-}
-
-message Operation {
-  string name = 1;
-  bool read_only = 2;
-  string description = 3;
-  bytes payload_json = 4;
-}
-
-message RegisteredSource {
-  SourceBinding binding = 1;
-  uint32 configuration_index = 2;
-}
-
-message RuntimeReady {
-  repeated Operation operations = 1;
-  repeated string result_operations = 2;
-  string connector_api = 3;
-  // Kotlin computes binding identity; Go retains original deployment bytes.
-  // This avoids a second source-identity hashing implementation in Go.
-  repeated RegisteredSource sources = 4;
-  string authorization_policy_hash = 5;
-}
-
-// Kotlin validates the business quantity/type contract and prepares exact bytes.
-// Go alone owns durable saving and reports the observed file outcome to metadata.
-message ResultArtifact {
-  string run_id = 1;
-  string sha256 = 2;
-  bytes content = 3;
-  uint64 rows = 4;
-  bool save = 5;
-}
-
-message SourceBinding {
-  string data_source_id = 1;
-  string source_identity_hash = 2;
-}
-
-message AcquireWorker {
-  WorkerKind kind = 1;
-  repeated SourceBinding bindings = 2;
-}
-
-message ExchangeWorker {
-  string lease_id = 1;
-  reserved 2;
-  google.protobuf.Any command_model = 3;
-}
-
-message ReleaseWorker {
-  string lease_id = 1;
-}
-
-// A metadata request may ask its supervisor for bounded worker execution.
-// The JVM never owns process handles, queues, credentials, or a worker pool.
-message WorkRequest {
-  string request_id = 1;
-  string work_id = 2;
-  uint64 remaining_millis = 3;
-  oneof action {
-    AcquireWorker acquire = 4;
-    ExchangeWorker exchange = 5;
-    ReleaseWorker release = 6;
-  }
-}
-
-message WorkResponse {
-  string request_id = 1;
-  string work_id = 2;
-  string lease_id = 3;
-  bool success = 4;
-  reserved 5;
-  bytes error_json = 6;
-  // Transport/cancellation failures invalidate a lease; domain failures do not.
-  bool lease_invalidated = 7;
-  google.protobuf.Any model = 8;
-  agentic.olap.query.v1.WorkerFailureFacts worker_failure = 9;
-  map<string, int64> timing_nanos = 10;
 }
 
 message Cancel {
@@ -280,7 +178,7 @@ message ScriptThreadObservation {
 }
 message ScriptWorkerFault { string request_id = 1; string code = 2; }
 
-// 仅脚本求值角色可发起；父主体、权限与期限由 Go 持有，不接受脚本填写。
+// 仅脚本求值角色可发起；可信主体、权限与期限由主服务持有，不接受脚本填写。
 message CapabilityRequest {
   string request_id = 1;
   string call_id = 2;
@@ -324,29 +222,4 @@ message CapabilityOwnedMember {
   agentic.olap.governance.v1.DefinitionImpactReference owner = 1;
   string kind = 2;
   string id = 3;
-}
-
-enum DeliveryStatus {
-  DELIVERY_STATUS_UNSPECIFIED = 0;
-  DIRECT = 1;
-  SAVED = 2;
-  FAILED = 3;
-}
-
-message WorkerObservation {
-  string kind = 1;
-  string outcome = 2;
-  uint64 queue_nanos = 3;
-  uint64 startup_nanos = 4;
-}
-
-message DeliveryConfirmation {
-  string run_id = 1;
-  string sha256 = 2;
-  DeliveryStatus status = 3;
-  uint64 bytes = 4;
-  uint64 rows = 5;
-  map<string, uint64> timing_nanos = 6;
-  repeated WorkerObservation workers = 7;
-  google.protobuf.Any execution_receipt = 8;
 }

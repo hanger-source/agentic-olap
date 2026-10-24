@@ -1,4 +1,5 @@
 dependencies {
+    api(project(":json-io"))
     api(project(":olap-contracts"))
     api(project(":olap-protocol"))
     api(project(":governance-contracts"))

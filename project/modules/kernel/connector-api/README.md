@@ -31,7 +31,7 @@ SDK 的 JAR、POM 由插件工程的 Gradle 从 JitPack 匿名取得，第三方
 
 摘要使用 64 位小写十六进制。宿主提供共同合同、连接器 API 和 Calcite，插件不打包这些宿主类。JDBC 插件自行携带 JDBC 实现；仓库参考插件将共同实现重定位到 `com.olap.connectors.jdbc` 后打入插件 JAR。插件实现使用自己的包名，例如 `com.olap.connectors.backend`。独立插件组的类与原生资源从已核验 JAR 读取，宿主同名驱动不能遮蔽它们。
 
-应用侧 `connector-loader` 的唯一装载入口是 `ConnectorPlugins.load(List<Path>)`，接收明确的绝对 manifest 路径列表。完整服务从部署配置的 `connectors` 数组取得路径，Go 按本次工作所需的精确来源将对应列表交给 Kotlin 工作进程，由后者装载并持有资源；应用关闭时关闭装载器。业务请求不接受插件路径。重复精确身份、API 不匹配、字节摘要不符或缺驱动在装载时失败。
+应用侧 `connector-loader` 的唯一装载入口是 `ConnectorPlugins.load(List<Path>)`，接收明确的绝对 manifest 路径列表。完整服务从部署配置的 `connectors` 数组取得路径，主服务按本次工作所需的精确来源将对应列表交给工作进程，由后者装载并持有资源；应用关闭时关闭装载器。业务请求不接受插件路径。重复精确身份、API 不匹配、字节摘要不符或缺驱动在装载时失败。
 
 同一连接器 ID 的不同版本或不同构件摘要可以并存，各插件组使用独立目录。源码装配入口按输入序号隔离目录并返回准确 manifest 列表，发行归档沿该列表收集插件组；目录名不代替精确 `ConnectorRef`，不能只按 ID 推导路径或选择某个版本。
 

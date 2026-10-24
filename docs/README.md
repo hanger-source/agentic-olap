@@ -45,11 +45,11 @@ npm 安装备齐服务、脚本编译环境及内部运行时；使用者配置�
 - [工程与文档约定](../STYLE_GUIDE.md)：规则归属与文档表达。
 - [版本与变更](../CHANGELOG.md)：源码、构件、协议和运行中的资产身份。
 - [内核工程试验](../examples/kernel/README.md)：直接构造内核输入，检查真实计算与失败边界。
-- [外部 Agent 接入](../examples/agent-client/README.md)：MCP 客户端连接、令牌配置与官方 Go SDK 调用参照。
+- [外部 Agent 接入](../examples/agent-client/README.md)：MCP 客户端连接、令牌配置与 Kotlin 调用参照。
 
-内部实现见[运行机制](architecture.md#服务与运行机制)：Go 服务拥有外部入口与进程监督，Kotlin 应用拥有语义、治理、授权与权威元数据；两端使用 Protobuf 通信。服务部署和业务接入始终使用上面的统一产品入口。
+内部实现见[运行机制](architecture.md#服务与运行机制)：Kotlin 主服务直接拥有外部入口、正式应用与运行管理，REPL 和来源工作进程通过明确协议通信。服务部署和业务接入始终使用上面的统一产品入口。
 
-Kotlin 模块由 `project/settings.gradle.kts` 组织，Go 服务使用 `project/service/go.mod`，`project/protocol/` 分别声明运行监督、语义、治理、查询及 worker 的正式消息。独立 `tools` Go module 的 `olap-dev` 统一编排研发构建与试验；产品运行不调用源码构建或修改工具。
+Kotlin 模块由 `project/settings.gradle.kts` 组织，Gradle 统一编译、协议生成与装配。独立 `tools` Kotlin 模块通过实际安装包和公开 MCP 执行研发用法；产品运行不调用源码构建或修改工具。
 
 
 正式业务示例及研发试验使用仓库自含数据，由[研发命令](../tools/README.md)统一启动，消费同轮服务与公开 MCP 接口。

@@ -1,0 +1,14 @@
+#!/bin/sh
+set -eu
+entry=$0
+while [ -L "$entry" ]; do
+  directory=$(CDPATH= cd -P -- "$(/usr/bin/dirname "$entry")" && pwd)
+  link=$(/usr/bin/readlink "$entry")
+  case "$link" in /*) entry=$link ;; *) entry=$directory/$link ;; esac
+done
+root=$(CDPATH= cd -P -- "$(/usr/bin/dirname "$entry")/.." && pwd)
+if [ ! -f "$root/runtime/installed.json" ] || [ ! -f "$root/runtime/server.args" ]; then
+  echo 'Agentic OLAP 的 npm 安装未完成，请重新执行 npm install。' >&2
+  exit 1
+fi
+exec "$root/jre/bin/java" "-Dagentic.olap.home=$root" "@$root/runtime/server.args" "$@"

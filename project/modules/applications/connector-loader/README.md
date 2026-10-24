@@ -19,7 +19,7 @@ ConnectorPlugins.load(listOf(Path.of("/deployment/connectors/backend/manifest.js
 }
 ```
 
-`ConnectorPlugins` 位于 `com.olap.prototype.connector.loader`。`load(List<Path>)` 接收明确的 manifest 列表。完整服务从部署配置读取这些路径，Go 按本次工作所需的精确来源启动工作进程，Kotlin 装载对应插件；业务工具不接受 manifest 路径或插件文件。
+`ConnectorPlugins` 位于 `com.olap.prototype.connector.loader`。`load(List<Path>)` 接收明确的 manifest 列表。完整服务从部署配置读取这些路径，主服务按本次工作所需的精确来源启动工作进程，工作入口装载对应插件；业务工具不接受 manifest 路径或插件文件。
 
 每个 manifest 的 JAR 位于其所在目录，文件名不得包含目录分隔符；实际路径不能越出该组。装载器核每个 JAR 的 SHA-256、完整组摘要、API 版本与 provider 身份，每组只允许一个 provider，注册表拒绝重复精确引用。装载器取得 CompilationSupport 和 SourceAccess；JDBC 实现自行核验驱动，HTTP 实现不要求驱动。发现与编译阶段不连接业务源。
 

@@ -6,9 +6,9 @@
 
 本仓库源码的连接器 API 为 `agentic-olap-connector/v12-kotlin-native-collection-placement-calcite-1.42`，存储格式为 `16`。服务、连接器和 SDK 使用同轮交付构件；安装发行物时以实际服务及 `agentic-olap sdk` 披露的 API 为准。独立插件须使用对应正式 Maven SDK 重新构建，集合展开实现与精确绑定要求见[连接说明](connections.md)。
 
-代码会话使用 `agentic-olap-kotlin-dsl/v2`，服务内部通信为 `agentic-olap-runtime/v3`。会话由服务持有固定 JVM 和真实 Kotlin 语言历史；模型对话与账号由外部客户端持有。
+代码会话使用 `agentic-olap-kotlin-dsl/v2`，实际跨进程通信为 `agentic-olap-runtime/v4`。Kotlin 主服务直接持有正式应用、权威元数据和运行管理；语言会话在固定 REPL JVM 中保留真实 Kotlin 历史，来源工作进程承担调查、规划与执行。模型对话与账号由外部客户端持有。
 
-需要 Node.js 20 或更高版本。macOS arm64 产品通过一个 npm 包交付 Go 程序和 JRE；npm 安装脚本从 JitPack 取得自有 Kotlin 运行构件和内置连接器，从 Maven Central 取得第三方 JVM 库和 H2／DuckDB 驱动，全部按发行清单锁定，完成摘要校验及本地安装。需要允许该安装脚本，下载失败会使安装失败。安装完成后启动只使用本地文件，不再下载依赖。SDK 的正式 Maven 坐标和文档由 `agentic-olap sdk` 读取。使用者无需安装编译工具或自行编译产品源码：
+需要 Node.js 20 或更高版本。macOS arm64 产品通过一个 npm 包交付 JRE、自包含安装引导与命令入口；npm 安装脚本用包内 JRE 从 JitPack 取得自有 Kotlin 运行构件和内置连接器，从 Maven Central 取得第三方 JVM 库和 H2／DuckDB 驱动，全部按发行清单锁定，完成摘要校验及本地安装。需要允许该安装脚本，下载失败会使安装失败。安装完成后启动只使用本地文件，不再下载依赖。SDK 的正式 Maven 坐标和文档由 `agentic-olap sdk` 读取。使用者无需安装编译工具或自行编译产品源码：
 
 ~~~sh
 npm install --global @hanger-source/agentic-olap

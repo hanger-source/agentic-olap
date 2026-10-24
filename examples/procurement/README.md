@@ -1,6 +1,6 @@
 # Agentic OLAP · 采购与收货定义并存
 
-本应用从自含 DuckDB 原始数据出发，通过正式远程 MCP 完成源调查、定义与采用建设、精确发布、完整 Query 校验和执行，再按返回引用读取结果和使用记录。Kotlin 准备者只建立真实业务数据与作者明确给出的 typed 定义模板；Go 远程客户端不读取服务器文件，也不重新实现业务算法。
+本应用从自含 DuckDB 原始数据出发，通过正式远程 MCP 完成源调查、定义与采用建设、精确发布、完整 Query 校验和执行，再按返回引用读取结果和使用记录。Kotlin 准备者建立真实业务数据与作者明确给出的类型化定义模板，独立 Kotlin 客户端提交作者程序并消费正式回执。客户端不读取服务器文件，也不重新实现业务算法。
 
 业务规则与独立预期由示例作者确定，不启动模型，不代表 Agent 已自主调查或发现这些口径。普通查询选择沉淀后的高层定义，定义内部的成员形成与测量组合由同一确定性引擎执行。
 
@@ -36,25 +36,21 @@ R-01的两次真实投递不能算作两张收货。R-03的成功和取消都保
 
 ## 运行与调用
 
-在仓库根准备 JDK 21 与 Go 1.26。各输出目录必须不存在。
+在仓库根准备 JDK 21。各输出目录必须不存在。
 
 ```sh
-go -C tools run ./cmd/olap-dev bootstrap
-go -C tools run ./cmd/olap-dev build
-go -C tools run ./cmd/olap-dev server-distribution --artifacts .tmp/server-distribution
-go -C tools run ./cmd/olap-dev example --example procurement \
-  --distribution .tmp/server-distribution --artifacts .tmp/procurement
+./project/gradlew -p project :development:procurement
 ```
 
-Go 研发入口核对实际源码、JVM、服务程序和精确连接器构件，调用 Kotlin 准备者建立原始输入，再让正式 HTTP 场景持有临时签名者、HTTPS JWKS 与服务进程。场景观察认证、服务重启、结果存储失败及真实行数、字节预算，不进入产品业务工具。
+Gradle 装配同轮 JVM 发行与连接器，独立 Kotlin 研发客户端调用准备者建立原始输入，再持有临时签名者、HTTPS JWKS 与服务进程。场景观察外部认证、服务重启、无来源读取旧结果与只读来源，不进入产品业务工具。默认输出到 `.tmp/procurement`，可用 `-Partifacts=/absolute/path` 指定。
 
-`tools/internal/scenario` 中的客户端通过官方 Go MCP SDK 提交 [main.olap.kts](main.olap.kts)。程序调查并采用实际列与约束，明确采购单身份对齐，将原始采购、收货历史与两种形成来源绑定到共同金额计算定义，建立采用并精确发布。查询作者提供按采购单与独立总额两项完整 Query，以及上表可独立核算的预期，不读取元数据库或直接连接业务源。重启后将正式返回的精确引用传给同一程序继续读取服务。
+`tools/src/main/kotlin` 中的客户端通过 MCP 提交 [main.olap.kts](main.olap.kts)。程序调查并采用实际列与约束，明确采购单身份对齐，将原始采购、收货历史与两种形成来源绑定到共同金额计算定义，建立采用并精确发布。查询作者提供按采购单与独立总额两项完整 Query，以及上表可独立核算的预期，不读取元数据库或直接连接业务源。重启后将正式返回的精确引用传给同一程序继续读取服务。
 
 日常业务 Agent 连接实际服务见[AI 使用指引](../../docs/agent-usage.md)，来源、认证与预算配置见[服务使用说明](../../skills/agentic-olap/references/server.md)。
 
 ## 产物与运行边界
 
-`http/report.json` 保存建设、重启和无来源读取旧结果等阶段的正式脚本回执，包含保存查询和结果的精确引用。`http/business/mcp-calls.jsonl`、`http/reopened/mcp-calls.jsonl` 等阶段目录保存实际 MCP 请求与响应；其中 `execute-script` 请求保留本次完整作者程序。服务重启后，客户端将原回执的精确引用作为 `reopen` 参数继续读取。示例明确另存并复用查询，普通临时查询不要求先保存。
+`http/report.json` 保存建设、重启和无来源读取旧结果等阶段的正式脚本回执，包含保存查询和结果的精确引用。`mcp-calls.jsonl` 保存所有阶段的实际 MCP 请求与响应；其中 `execute-script` 请求保留本次完整作者程序。服务重启后，客户端将原回执的精确引用作为 `reopen` 参数继续读取。示例明确另存并复用查询，普通临时查询不要求先保存。
 
 两项查询均明确保存查询、执行并保存结果，再经正式结果入口读取。相同精确保存查询再次执行时形成独立运行，重启后读取的旧结果保持不可变。精确发布固定语义与引用，不表示冻结持续变化的业务数据。
 

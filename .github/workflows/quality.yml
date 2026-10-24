@@ -24,20 +24,12 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: project/service/go.mod
-          cache-dependency-path: |
-            project/service/go.sum
-            tools/go.sum
-      - run: go -C tools run ./cmd/olap-dev bootstrap
-      - run: go -C tools run ./cmd/olap-dev build
-      - run: go -C tools run ./cmd/olap-dev server-distribution --artifacts .tmp/quality-distribution
+      - run: ./project/gradlew -p project --no-daemon --console=plain assembleJvm
       - if: github.event_name != 'workflow_dispatch' || inputs.example == 'all'
-        run: go -C tools run ./cmd/olap-dev test --distribution .tmp/quality-distribution
+        run: ./project/gradlew -p project --no-daemon --console=plain :integration-tests:test
       - if: github.event_name == 'workflow_dispatch' && (inputs.example == 'all' || inputs.example == 'orders')
-        run: go -C tools run ./cmd/olap-dev example --example orders --distribution .tmp/quality-distribution --artifacts .tmp/orders
+        run: ./project/gradlew -p project --no-daemon --console=plain :development:orders
       - if: github.event_name == 'workflow_dispatch' && (inputs.example == 'all' || inputs.example == 'procurement')
-        run: go -C tools run ./cmd/olap-dev example --example procurement --distribution .tmp/quality-distribution --artifacts .tmp/procurement
+        run: ./project/gradlew -p project --no-daemon --console=plain :development:procurement
       - if: github.event_name == 'workflow_dispatch' && (inputs.example == 'all' || inputs.example == 'subscriptions')
-        run: go -C tools run ./cmd/olap-dev example --example subscriptions --distribution .tmp/quality-distribution --artifacts .tmp/subscriptions
+        run: ./project/gradlew -p project --no-daemon --console=plain :development:subscriptions
