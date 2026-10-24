@@ -9,11 +9,12 @@ import java.time.Duration
 import java.util.concurrent.TimeUnit
 
 fun main(arguments: Array<String>) {
-    require(arguments.isNotEmpty()) { "用法：scenario <name> <distribution> <output> <workspace> | runtime <distribution> <output> <workspace> | installed <tarballs> <output> <workspace> [mode]" }
+    require(arguments.isNotEmpty()) { "用法：scenario <name> <distribution> <output> <workspace> | runtime <distribution> <output> <workspace> | bootstrap <jar> <manifest> <output> | installed <tarballs> <output> <workspace> [mode]" }
     when (arguments[0]) {
         "scenario" -> Scenario(arguments[1], Path.of(arguments[2]), Path.of(arguments[3]), Path.of(arguments[4]), arguments.getOrNull(5)?.let(Path::of)).run()
         "installed" -> InstalledProduct(Path.of(arguments[1]), Path.of(arguments[2]), Path.of(arguments[3]), arguments.getOrElse(4) { "tarball" }).run()
         "runtime" -> RuntimeTrial(Path.of(arguments[1]), Path.of(arguments[2]), Path.of(arguments[3])).run()
+        "bootstrap" -> BootstrapTrial(Path.of(arguments[1]), Path.of(arguments[2]), Path.of(arguments[3])).run()
         else -> error("未知研发操作：${arguments[0]}")
     }
 }

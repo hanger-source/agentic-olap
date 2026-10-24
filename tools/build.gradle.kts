@@ -51,3 +51,14 @@ tasks.register<JavaExec>("httpSource") {
         providers.gradleProperty("artifacts").orElse(rootProject.file("../.tmp/http-source").absolutePath).get(),
         rootProject.rootDir.parentFile.absolutePath, rootProject.layout.buildDirectory.file("http-source/launch.json").get().asFile.absolutePath)
 }
+
+tasks.register<JavaExec>("bootstrap") {
+    group = "verification"
+    description = "独立运行安装引导，观察正式 Maven 下载、缓存并发与摘要失败边界。"
+    dependsOn(rootProject.tasks.named("writeJvmManifest"), ":bootstrap:shadowJar")
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set(application.mainClass)
+    args("bootstrap", project(":bootstrap").layout.buildDirectory.file("libs/agentic-olap-bootstrap.jar").get().asFile.absolutePath,
+        rootProject.layout.buildDirectory.file("jvm-artifacts.json").get().asFile.absolutePath,
+        providers.gradleProperty("artifacts").orElse(rootProject.file("../.tmp/bootstrap").absolutePath).get())
+}
