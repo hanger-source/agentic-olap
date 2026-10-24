@@ -49,6 +49,7 @@ data class Deployment(val listen: Listen, val auth: Authentication, val dataRoot
         require(dataSources.isEmpty() || connectors.isNotEmpty())
         dataSources.forEach { require(it.path("dataSourceId").isTextual && it.path("dataSourceId").asText().isNotBlank()) }
     }
+    @get:com.fasterxml.jackson.annotation.JsonIgnore
     val url: String get() = "http://${if (listen.host.contains(':')) "[${listen.host}]" else listen.host}:${listen.port}/mcp"
     fun json(): JsonNode = ExternalJson.mapper.valueToTree(this)
     companion object {
@@ -56,7 +57,9 @@ data class Deployment(val listen: Listen, val auth: Authentication, val dataRoot
             val tree = ExternalJson.mapper.readTree(path.readBytes())
             listOf("listen", "auth", "dataRoot", "connectors", "dataSources", "limits", "history", "scripting").forEach { require(tree.hasNonNull(it)) { "configuration requires $it" } }
             require(tree.path("history").path("enabled").isBoolean && tree.path("auth").path("grants").isArray)
-            val value = ExternalJson.mapper.treeToValue(tree, Deployment::class.java)
+            val value = ExternalJson.mapper.copy()
+                .enable(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_IGNORED_PROPERTIES)
+                .treeToValue(tree, Deployment::class.java)
             val parent = path.toAbsolutePath().normalize().parent
             fun absolute(value: String) = parent.resolve(value).normalize().toString()
             return value.copy(dataRoot = absolute(value.dataRoot), connectors = value.connectors.map(::absolute),
