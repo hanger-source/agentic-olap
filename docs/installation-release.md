@@ -56,8 +56,8 @@ dependencies {
 1. 完成代码、文档和相称验证后提交，推送精确发行标签 `vX.Y.Z`。源码、skill 和构建均采用该标签。
 2. 手动运行 **构建 JitPack JVM 构件**，工作流引用与输入都指定该标签。JitPack 使用 JDK 21 执行 `publishProductToMavenLocal`，发布主服务、脚本入口、工作运行入口、内置连接器、SDK 及其模块依赖。测试、示例、研发客户端和安装引导不向 JitPack 发布。隔离连接器 JAR 使用 `plugin` classifier。
 3. 手动运行 **构建 npm 产品包**，工作流引用与输入都指定同一标签。装配读取 Gradle 的实际依赖关系，从 JitPack 取得自有运行 JAR，以远端实际字节生成 classpath、插件身份和下载清单。第三方依赖使用 Gradle 已解析的坐标与摘要。本地重编译字节不能代替远端构件。输出一份 npm tarball 和 `SHA256SUMS`，并通过实际安装、MCP 建设与发布、真实来源查询、结果保存和重启读取验收。
-4. 手动运行 **发布 Agentic OLAP**，指定标签与上一步成功的构建任务 ID。发布工作流核对构建来源、精确源码和安装验收成功状态，直接在 GitHub runner 取得同轮原包，建立同标签 draft 并上传 tarball 与 `SHA256SUMS`，无需维护者本地下载和重新上传。skill 直接使用标签中的 `skills/agentic-olap`，不生成或同步另一份仓库。
-5. 同一发布任务核验实际归档、文件摘要和完整安装清单，通过 GitHub OIDC 发布一个 npm 产品包，成功后公开 GitHub release。npm 接受提交即记录结果，不轮询 registry。若 npm 已受理而公开 release 失败，直接修正 release 状态，不重复提交 npm。
+4. 从维护分支手动运行 **发布 Agentic OLAP**，指定产品标签与上一步成功的构建任务 ID。发行工具使用本次工作流引用的精确代码；产品元数据和发行说明从所选标签读取。工作流核对构建来源、精确源码和安装验收成功状态，直接在 GitHub runner 取得同轮原包，建立同标签 draft 并上传 tarball 与 `SHA256SUMS`。已有草稿仅在说明、完整资产列表、大小及 SHA-256 全部匹配时续发，不覆盖字节或重建产品，无需维护者本地下载和重新上传。skill 直接使用产品标签中的 `skills/agentic-olap`，不生成或同步另一份仓库。
+5. 同一发布任务核验实际归档、文件摘要和完整安装清单，通过 GitHub OIDC 发布一个 npm 产品包，成功后公开 GitHub release。脚本 DSL 身份由实际 JVM 运行及安装验收核对，发行检查识别明确的合同身份格式，不另维护一份 DSL 版本常量。npm 接受提交即记录结果，不轮询 registry。若 npm 已受理而公开 release 失败，直接修正 release 状态，不重复提交 npm。
 
 JitPack 构件完成后才能装配 npm，不能预先猜测远端 JAR 摘要。源码 push、JVM 公开、安装验收和 npm 发布各有实际结果，不能相互替代。完整业务用法按需手动运行，不加入 push／PR 的重复业务执行。
 

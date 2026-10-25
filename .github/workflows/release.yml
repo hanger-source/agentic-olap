@@ -35,7 +35,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: ${{ inputs.tag }}
+          fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
@@ -47,7 +47,8 @@ jobs:
         run: |
           node --input-type=module <<'JS'
           import { execFileSync } from 'node:child_process';
-          import { readFileSync, writeFileSync } from 'node:fs';
+          import { createReadStream, statSync, writeFileSync } from 'node:fs';
+          import { createHash } from 'node:crypto';
           import path from 'node:path';
           const { RELEASE_TAG: tag, BUILD_RUN_ID: id, GITHUB_REPOSITORY: repository, RUNNER_TEMP: temporary } = process.env;
           if (!/^v\d+\.\d+\.\d+$/.test(tag) || !/^\d+$/.test(id)) throw new Error('需要明确的正式版本标签和构建任务 ID');
@@ -60,18 +61,39 @@ jobs:
           const directory = path.join(temporary, 'release-assets');
           execFileSync('gh', ['run', 'download', id, '--repo', repository, '--name', 'npm-product-darwin-arm64', '--dir', directory], { stdio: 'inherit' });
           const version = tag.slice(1);
-          const lines = readFileSync('CHANGELOG.md', 'utf8').split('\n');
+          writeFileSync(path.join(temporary, 'release-package.json'), execFileSync('git', ['show', `${tag}:project/cli/package.json`]));
+          const lines = execFileSync('git', ['show', `${tag}:CHANGELOG.md`], { encoding: 'utf8' }).split('\n');
           const start = lines.findIndex(line => line === `## ${version}`);
           if (start < 0) throw new Error('所选标签缺少同版本发行说明');
           let end = start + 1;
           while (end < lines.length && !lines[end].startsWith('## ')) end++;
           const notes = path.join(temporary, 'release-notes.md');
-          writeFileSync(notes, lines.slice(start + 1, end).join('\n').trim() + '\n');
-          execFileSync('gh', ['release', 'create', tag, '--repo', repository, '--verify-tag', '--draft', '--title', `Agentic OLAP ${version}`,
-            '--notes-file', notes, path.join(directory, `hanger-source-agentic-olap-${version}.tgz`), path.join(directory, 'SHA256SUMS')], { stdio: 'inherit' });
+          const body = lines.slice(start + 1, end).join('\n').trim();
+          writeFileSync(notes, body + '\n');
+          const files = [`hanger-source-agentic-olap-${version}.tgz`, 'SHA256SUMS'];
+          const releases = JSON.parse(execFileSync('gh', ['api', '--paginate', '--slurp', `repos/${repository}/releases?per_page=100`], { encoding: 'utf8' })).flat();
+          const matching = releases.filter(release => release.tag_name === tag);
+          if (matching.length > 1) throw new Error('同一标签存在多个发行，需明确处理后再继续');
+          if (matching.length === 0) {
+            execFileSync('gh', ['release', 'create', tag, '--repo', repository, '--verify-tag', '--draft', '--title', `Agentic OLAP ${version}`,
+              '--notes-file', notes, ...files.map(file => path.join(directory, file))], { stdio: 'inherit' });
+          } else {
+            const release = matching[0];
+            if (!release.draft || release.body.trim() !== body || release.assets.length !== files.length)
+              throw new Error('仅允许续发说明与资产均匹配的未公开草稿');
+            for (const name of files) {
+              const file = path.join(directory, name);
+              const hash = createHash('sha256');
+              for await (const chunk of createReadStream(file)) hash.update(chunk);
+              const asset = release.assets.find(asset => asset.name === name);
+              if (!asset || asset.size !== statSync(file).size || asset.digest !== `sha256:${hash.digest('hex')}`)
+                throw new Error(`草稿资产与已验收原包不同：${name}`);
+            }
+            console.log('已有草稿与同轮原包逐字节一致，继续尚未完成的 npm 发布');
+          }
           JS
       - name: 使用 OIDC 发布 npm 产品包
-        run: node project/cli/release/publish.mjs --tag "$RELEASE_TAG" --artifacts "$RUNNER_TEMP/release-assets"
+        run: node project/cli/release/publish.mjs --tag "$RELEASE_TAG" --metadata "$RUNNER_TEMP/release-package.json" --artifacts "$RUNNER_TEMP/release-assets"
 
       - name: 公开 GitHub release
         env:
