@@ -368,10 +368,9 @@ internal class InstalledProduct(private val tarballs: Path, private val root: Pa
         check(rules == JsonArray(listOf(text("dimensionSlots"), text("measurementSlots"))))
         for (field in listOf("dimensionSlots", "measurementSlots", "valid")) {
             val source = """
-                val selected = Calculation.Call("selected", Calculation.Measurement("adopted"), "total",
-                  ${if (field == "dimensionSlots") "mapOf(\"seller\" to \"seller\")" else "emptyMap()"}, emptyMap(),
-                  ${if (field == "measurementSlots") "mapOf(\"amount\" to \"amount\")" else "emptyMap()"}, emptyMap(), emptyMap(),
-                  Calculation.Condition(DimensionCondition.Unrestricted()))
+                val selected = Computations.invoke(Calculation.Measurement("adopted"), "selected", "total",
+                  dimensionSlots = ${if (field == "dimensionSlots") "mapOf(\"seller\" to \"seller\")" else "emptyMap()"},
+                  measurementSlots = ${if (field == "measurementSlots") "mapOf(\"amount\" to \"amount\")" else "emptyMap()"})
                 olap.output(olap.sources.list(EmptyRequest))
             """.trimIndent()
             val execution = client.script(source, JsonObject(emptyMap()), dslVersion, "author-contract.olap.kts")
