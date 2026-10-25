@@ -19,16 +19,13 @@ internal class ObservationStatisticsLowering private constructor(
     private val aggregates = mutableListOf<ResultAggregate>()
     private val finish = mutableListOf<ValidatedOperation>()
 
-    data class Lowered(val operations: List<ValidatedOperation>, val reductionIndex: Int)
-
-    private fun lower(): Lowered {
+    private fun lower(): List<ValidatedOperation> {
         statistics.statistics.forEach { when (it) {
             is Calculation.Reduction -> aggregates += it.aggregate
             is Calculation.WeightedMean -> weighted(it)
         } }
-        val operations = preparation + Regroup(ResultGrouping(statistics.outerKeys, aggregates.toList(), null)) + finish +
+        return preparation + Regroup(ResultGrouping(statistics.outerKeys, aggregates.toList(), null)) + finish +
             Project(statistics.outerKeys + statistics.statistics.map { it.outputAlias })
-        return Lowered(operations, preparation.size)
     }
     private fun weighted(value: Calculation.WeightedMean) {
         val weightedValue = freshName()
@@ -51,7 +48,7 @@ internal class ObservationStatisticsLowering private constructor(
         return "__observation_$index"
     }
     companion object {
-        fun lower(statistics: ExecutableInputRoot.ObservationStatistics, actualNames: List<String>): Lowered =
+        fun lower(statistics: ExecutableInputRoot.ObservationStatistics, actualNames: List<String>): List<ValidatedOperation> =
             ObservationStatisticsLowering(statistics, actualNames).lower()
     }
 }

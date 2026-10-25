@@ -6,7 +6,6 @@ import com.olap.prototype.connector.loader.DeployedSources
 import com.olap.prototype.contract.ProducerContractException
 import com.olap.prototype.dsl.*
 import com.olap.prototype.protocol.CapabilityEffect
-import com.olap.prototype.query.QueryExplanationContent
 import com.olap.prototype.query.QueryExecutionMode
 import com.olap.prototype.query.contract.*
 import com.olap.prototype.query.definition.*
@@ -176,16 +175,7 @@ internal class ServerQueries(private val queries: JdbcQueryDefinitionRepository,
         requireResolution(selected.intent, resolution, publication)
         authorization.source(request.principal, "explain-query", resolution.binding.dataSourceId)
         val view = requireNotNull(resolution.explanation)
-        fun next(size: Int): Int? = if (input.offset.toLong() + input.limit < size) input.offset + input.limit else null
-        val content = when (input.section) {
-            QueryExplanationSection.SUMMARY -> { require(input.offset == 0); QueryExplanationContent.Summary(view.summary) }
-            QueryExplanationSection.SCOPES -> QueryExplanationContent.Scopes(view.scopes.drop(input.offset).take(input.limit), view.scopes.size, next(view.scopes.size))
-            QueryExplanationSection.SOURCES -> QueryExplanationContent.Sources(view.sources.drop(input.offset).take(input.limit), view.sources.size, next(view.sources.size))
-            QueryExplanationSection.PLAN -> QueryExplanationContent.Plan(view.plan.drop(input.offset).take(input.limit), view.plan.size, next(view.plan.size))
-            QueryExplanationSection.COMPILATION_SCALE -> { require(input.offset == 0); QueryExplanationContent.CompilationScale(view.compilationScale) }
-            QueryExplanationSection.EXECUTION_REQUIREMENTS -> { require(input.offset == 0); QueryExplanationContent.ExecutionRequirements(view.executionRequirements) }
-        }
-        return QueryExplanationResult(input.section, content)
+        return QueryExplanationResult(input.section, input.section.project(view, input.offset, input.limit))
     }
 
     private fun definitionResult(view: QueryDefinitionView) = QueryDefinitionResult(view,

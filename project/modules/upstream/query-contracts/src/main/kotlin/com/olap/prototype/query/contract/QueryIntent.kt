@@ -27,11 +27,6 @@ data class QueryExecutionRequest(val query: QuerySelection, val saveResult: Bool
     val executionMode: QueryExecutionMode = QueryExecutionMode.SOURCE)
 data class QueryValidationRequest(val query: QuerySelection, val executionMode: QueryExecutionMode = QueryExecutionMode.SOURCE)
 data class QueryValidationResult(val valid: Boolean, val capabilityHash: String)
-enum class QueryExplanationSection { SUMMARY, SCOPES, SOURCES, PLAN, COMPILATION_SCALE, EXECUTION_REQUIREMENTS }
-data class QueryExplanationRequest(val query: QuerySelection, val section: QueryExplanationSection, val offset: Int, val limit: Int,
-    val executionMode: QueryExecutionMode = QueryExecutionMode.SOURCE) {
-    init { require(offset >= 0 && limit in 1..200) }
-}
 data class QueryResultReference(val runId: String, val sha256: String) {
     init { require(runId.matches(Regex("run-[0-9a-f]{32}")) && sha256.matches(Regex("[0-9a-f]{64}"))) }
 }

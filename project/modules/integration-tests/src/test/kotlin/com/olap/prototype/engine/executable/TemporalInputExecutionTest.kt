@@ -379,8 +379,13 @@ class TemporalInputExecutionTest {
             }
             val rows = executeTemporal(definitions, warehouse, "same-time-balances", selectedMembers(observations, listOf("customer", "book", "time", "value"), null, listOf(sumAt(listOf("time"), "value", "total")))).businessResult.rows
             assertEquals(mapOf("2026-01-01" to decimal("18"), "2026-01-02" to decimal("22"), "2026-01-03" to decimal("92")), rows.associate { scalar(it.first()).take(10) to decimal(it[1]) })
-            val failure = assertThrows(EngineExecutionException::class.java) { executeTemporal(definitions, warehouse, "cross-time-balances", selectedMembers(observations, listOf("customer", "book", "time", "value"), null, listOf(sumAt(listOf("customer", "book"), "value", "total")))) }
-            assertEquals("ANALYZE_STAGES", failure.stage)
+            // 明确相加各时点的实际余额值，不将其解释为某个单独时点的余额。
+            val acrossTimes = executeTemporal(definitions, warehouse, "cross-time-balances", selectedMembers(observations,
+                listOf("customer", "book", "time", "value"), null, listOf(sumAt(listOf("customer", "book"), "value", "total")))).businessResult.rows
+            assertEquals(mapOf(("1" to "cash") to decimal("40"), ("2" to "cash") to decimal("60"),
+                ("3" to "cash") to decimal("2"), ("3" to "margin") to decimal("20"),
+                ("4" to "cash") to decimal("7"), ("5" to "cash") to decimal("3")),
+                acrossTimes.associate { (scalar(it[0]) to scalar(it[1])) to decimal(it[2]) })
         }
     }
     private fun versionedStock(definitions: Definitions, records: MemberSource, id: String, point: Calculation.Scalar, totalOrder: Boolean): MemberRef {
@@ -404,9 +409,10 @@ class TemporalInputExecutionTest {
             val region = stockCount(last, listOf("region"))
             assertEquals(decimal("6"), decimal(executeTemporal(definitions, warehouse, "same-point-region-count", QueryComputation.Scope(region.root, region.inputs, listOf(region.stages.first(), countSum("objects", "total")))).businessResult.rows.first().first()))
             val cross = QueryComputation.Scope(QueryComputation.SetInputs(Calculation.SetKind.UNION, false, listOf(Calculation.SetProjection("first", listOf("objects")), Calculation.SetProjection("last", listOf("objects"))), listOf(SetOutputContract("objects", SetOutputContract.Quantity(ordinal)))),
-                mapOf("first" to QueryComputation.Input("ROOT", firstCount), "last" to QueryComputation.Input("ROOT", lastCount)), listOf(countSum("objects", "invalid_total")))
-            val different = assertThrows(EngineExecutionException::class.java) { executeTemporal(definitions, warehouse, "different-stock-points", cross) }
-            assertEquals("ANALYZE_STAGES", different.stage)
+                mapOf("first" to QueryComputation.Input("ROOT", firstCount), "last" to QueryComputation.Input("ROOT", lastCount)), listOf(countSum("objects", "observed_total")))
+            // 4与6是两个已选时点的完成计数；其和10并非任一时点或跨时点去重对象数。
+            val different = executeTemporal(definitions, warehouse, "different-stock-points", cross).businessResult.rows
+            assertEquals(decimal("10"), decimal(different.single().single()))
         }
     }
 

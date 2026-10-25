@@ -321,7 +321,7 @@ object QueryValueSemantics {
         val retained = QuantityProvenance.coordinates(sourceSymbols)
         require(QuantityProvenance.knownObservation(input) && original.isNotEmpty() && sourceSymbols.isNotEmpty() &&
             sourceSymbols.all { QuantityProvenance.coordinates(listOf(it)).intersect(original).isNotEmpty() } && retained.containsAll(original) &&
-            !QuantityProvenance.hasCopied(input) && QueryAggregationSemantics.summable(input, retained, false) && QuantityProvenance.commonSnapshotScope(listOf(input), retained)) {
+            !QuantityProvenance.hasCopied(input) && QueryAggregationSemantics.hasAdditiveSourceProof(input, retained, false) && QuantityProvenance.commonSnapshotScope(listOf(input), retained)) {
             "uniform allocation requires the complete original additive observation identity; averages, ratios, distinct counts, unresolved copies or different snapshot points cannot be allocated as additive quantities"
         }
         return QueryValue.Measure(QueryQuantity(quantity.declaration, quantity.unit, QueryQuantity.UniformAllocation(input, retained.toList(), QuantityProvenance.coordinates(memberSymbols).toList())))

@@ -119,6 +119,8 @@ JSON 输入预算拒绝使用 `JSON_INPUT_RESOURCE_LIMIT`；诊断给出 `resour
 
 ## 定义建设与持续复用
 
+`olap.semantics.search` 使用 `SemanticCatalogReads.SearchRequest` 搜索获准精确发布中的语义目录。`offset` 为非负 Int，`limit` 为正 Int，按实际匹配列表切页，不另设页长额度。超过末尾返回空页并保留实际总数，仅在仍有匹配项时返回 `nextOffset`；这项读取不访问业务来源。
+
 先读取已有定义、精确版本、实际来源和业务资料。构造正式模型本身没有写入；调用 `olap.governance.*` 才执行相应治理命令。例如：
 
 ~~~kotlin
@@ -174,9 +176,9 @@ olap.output(rule)
 
 ### 对完成结果做观察统计
 
-期间去重人数与每日去重人数之和是两种计算。同一标识在两天各出现一次时，前者是 1，后者是 2。数量单位同为 ONE 不表示这两种统计含义相同；普通 REGROUP 的 SUM 也不会自动把去重数、平均值或比率变成原来源可加的测量。
+期间去重人数与每日去重人数之和是两种计算。同一标识在两天各出现一次时，前者是 1，后者是 2。普通 `REGROUP SUM` 对当前完成关系中的实际数值按组求和；因此可以表达每日 UV 之和、门店最大值之和或多份完成均值之和，但不会把它们重新解释为周期 UV、全体最大值或总体均值。数量来源保留原来的统计及本次 SUM，单位同为 ONE 不表示业务含义相同。
 
-需要把已经完成的日结果继续作为统计观察时，使用现有 `Calculation.ObservationStatistics`，通过 `ObjectsBy` 明确完整观察键。例如，已完成关系 `daily` 每个 `(subject, day)` 一行，包含 `day_nonempty_uv`。下面是计算体中的正式关系形参和统计根；`dayRole` 必须来自实际日期出口的属性声明，不能用 SCALAR 抹去已有角色。
+当定义需要明确统计观察的对象身份时，可以使用 `Calculation.ObservationStatistics`，通过 `ObjectsBy` 声明完整观察键。这是对观察对象的定义，不是获得 SUM 资格的额外步骤；仅求当前数值之和可以直接使用 REGROUP。例如，已完成关系 `daily` 每个 `(subject, day)` 一行，包含 `day_nonempty_uv`。下面是计算体中的正式关系形参和统计根；`dayRole` 必须来自实际日期出口的属性声明，不能用 SCALAR 抹去已有角色。
 
 ~~~kotlin
 val countContract = MetricValueContract(
@@ -203,11 +205,11 @@ val dayStatistics = Calculation.Scope(
 
 将 `dailySlot` 放入计算的 `relationSlots`，按已有关系参数绑定方式把调用方 ROOT 中的日完成结果传入，并显式映射对象、日期与数量列。日期可以是来源实际 TEXT 属性，无需伪造时间角色。`ObjectsBy` 必须覆盖实际完整唯一键，逐键保持普通标量身份且非 NULL；只传 subject 不能代表仍按 subject、day 完成的观察。
 
-只有该统计根产生的统计归约获得这个明确观察上下文。对完成数量求观察值之和，不等于重新计算其原总人数、总体平均值或整体比率；结果继续保留内层统计来源。后续普通 SUM 不会因此获得新的可加资格。已经复制的数量不能靠扩大观察键洗白；不同快照范围、测量单位键、算术保证、容量、NULL 和溢出规则仍分别核验。`RawRows` 不承担完成对象身份的证明，也不需要虚构权重乘一。
+观察统计与普通阶段使用同一聚合规则，后续仍可继续组合求和。SUM 保留输入的实际 bag 重复度和数量来源；复制后的完成值会按其实际出现次数贡献，不会被自动去重，也不能因此宣称恢复了复制前的原总量。测量单位键、算术保证、容量、NULL 和溢出规则继续生效；观察时点与实际来源读取保证也不会因一次 SUM 被改写。`ObjectsBy` 的完整键证明不消除此前的复制，`RawRows` 则直接表示实际行观察，不虚构对象唯一性或权重乘一。
 
 也可以保留原 `(对象, 日期, 非空标识)` 观察元组，逐元组归约后按对象 COUNT。日期非 NULL、资格和人口一致时，这对应标识日观察数；跨日同标识贡献多次。保留 NULL 标识元组后，已有记录但标识全为空的对象得到 0；完全没有观察的对象仍缺组，由后续对齐明确是否保留 NULL。不能为了忽略无效标识而预先删除整个人口，也不拼接日期与标识伪造一个文本键。
 
-`ResultAggregation.Sum`、`Count`、`Calculation.ObservationStatistics` 与 `ObjectsBy` 的 `rules` 提供实际组合条件。SUM 的数量来源拒绝返回 `RESULT_QUANTITY_NOT_SUMMABLE / ANALYZE_STAGES`，通过 `actualKind` 区分跨观察去重数、未解除的复制、快照轴或范围等原因；不会把所有拒绝都解释成“丢失日轴”。`fieldPath` 指向实际作用域的归约或窗口聚合字段，例如 `input/daily/postOps/4/grouping/aggregates/0/aggregation`。观察统计降为共同阶段后的坐标仍属于绑定计算，不是 Kotlin 源码行号。
+`ResultAggregation.Sum`、`Count`、`Calculation.ObservationStatistics` 与 `ObjectsBy` 的 `rules` 提供实际组合条件。聚合不会因输入曾是去重数、极值或均值而被拒绝，也不会据此获得回卷原指标或分摊原贡献的等价证明。观察键、数量与类型诊断中的 `fieldPath` 指向实际作用域的归约或窗口字段；观察统计降为共同阶段后的坐标属于绑定计算，不是 Kotlin 源码行号。
 
 ## 数量合同与人口
 
@@ -380,9 +382,11 @@ else olap.output(olap.results.read(ResultReadRequest(result, 0, 100, null)))
 
 一次完整计算限于同一精确来源绑定、方言和连接器。多个定义与事实不等于跨来源联邦执行。已保存结果也不是另一条 Query 的关系输入。
 
+`CandidateRequest` 按获准发布的维度或成员出口读取真实候选值，`offset` 为非负 Int，`limit` 为正 Int，不另设 200 条或百万偏移政策。来源查询读取一条额外探针以判断是否有下一页，使用 Long 计算 SQL 取数长度；实际读取仍受既有来源期限、内存和结果物化预算约束。仅在确有后续值时，按实际返回数量计算 `nextOffset`；超出 Int 坐标表示范围时明确返回该字段的合同错误，不截断坐标、假称没有下一页或自动重执行。
+
 完成关系保留已经形成的列、键、人口和数量来源，本身不指定执行位置。执行、校验与解释请求通过 `executionMode` 选择本次物理执行：`QueryExecutionMode.SOURCE` 将完整计算交给精确来源；`CORE_FINALIZATION` 在同一引擎 worker 内先接收同源完成关系，再执行根计算绑定后的标量阶段。它不是来源失败后的自动切换，也不读取其他运行的保存结果。
 
-核心终算支持 DERIVE／PROJECT，以及精确数值、布尔、NULL、CASE、NUMERIC、ROUND 和数值 CAST；具体节点、运算与限制从 `QueryExecutionMode.rules` 读取。不支持的本地阶段、函数、类型或表达式在提交来源前拒绝。子输入中的扫描、JOIN、归约、对齐、窗口及来源函数继续在来源完成；如果这些操作位于待终算的根阶段，则应把它们明确组织为同源 ROOT 输入，不能假定核心已经支持任意关系运算。
+核心终算支持 DERIVE／PROJECT，以及精确数值、布尔、NULL、CASE、COALESCE、NULLIF、ABS、NUMERIC、ROUND 和数值 CAST。COALESCE 按顺序选择首个非 NULL 值，选中后不再求值后续参数；NULLIF 按精确数值或布尔相等比较并保留第一个参数的数量含义，ABS 只处理精确数值。这些函数不隐式量化，也不引入来源的文本或时间转换规则。具体节点、运算与限制从 `QueryExecutionMode.rules` 读取。不支持的本地阶段、函数、类型或表达式在提交来源前拒绝。子输入中的扫描、JOIN、归约、对齐、窗口及来源函数继续在来源完成；当前执行器尚不承载任意本地关系运算，其范围不改变共享定义的业务含义。
 
 例如，`completed` 是已按真实对象完成的同源 `QueryComputation.Scope`，含 `object_key`、Exact DECIMAL 的 `numerator` 和 Exact Integer64 的 `denominator`。下例假设两项数量的单位均为 ONE；具有业务单位的数量须在实际乘除节点使用已声明的单位方程。
 
@@ -418,9 +422,9 @@ olap.output(receipt)
 
 共同计算可以沉淀为定义：定义以正式关系形参接收完成数量，根使用该关系，阶段表达共同的 DERIVE／PROJECT；查询用根 Compute 调用它并明确绑定 ROOT 输入，选择 CORE_FINALIZATION。多个获准计算可以引用同一份精确完成关系，各自映射关系形参的列。例如，一份按对象完成的 ROOT 同时提供六组 SUM／各字段非 NULL COUNT，六个已发布均值分别将自己的两列映射为 numerator／denominator；来源只交付一次这份完成关系，核心在每一行上执行六份原定义及各自的数量、舍入与 NULL 合同，再投影宽结果。调用者无需复制定义内部公式，也不能绕过采用与发布授权。
 
-切点沿实际依赖确定：关系形参指向的 ROOT 保留全部完成阶段，关系根的列映射、嵌套调用、调用出口的数量合同及后续 DERIVE／PROJECT 在核心按作用域依赖执行。每个分支必须保持同一份来源人口，完整键逐列来自同一来源身份；CALLS 选择其中一个或多个调用时，保留的仍是这份共同人口。空完成关系不会被补成一行，存在对象但分量全 NULL 时仍由各定义的 CASE 与数量合同决定值。
+切点沿实际依赖和阶段位置确定：同一作用域先完成来源的关系前缀，再在核心执行末尾连续的 DERIVE／PROJECT，不需要仅为适配执行器再包一层 ROOT。保存定义内部的关系前缀采用同一规则；关系形参指向的完整 ROOT 仍保留全部完成阶段。关系根的列映射、嵌套调用、调用出口的数量合同及后续标量阶段按真实作用域执行。每个分支必须保持同一份来源人口，完整键逐列来自同一来源身份；CALLS 选择其中一个或多个调用时，保留的仍是这份共同人口。空完成关系不会被补成一行，存在对象但分量全 NULL 时仍由各定义的 CASE 与数量合同决定值。
 
-这条路径不在本地按键关联结果。不同完成位置即使来自相同数据源、保留相同维度，也不会被推断为共同输入；分组层次、额外人口、调用根过滤及其他改变行关系的阶段须在来源 ROOT 中先明确完成。切点之后不支持的运算在来源提交前拒绝，不自动改执行位置或再发来源请求。直接在原生根后执行本次 DERIVE／PROJECT 时，切点位于该根的阶段之前；解释中的 sourceOutputScope 及每个根、阶段的执行位置反映实际选择。
+这条路径不在本地按键关联结果。不同完成位置即使来自相同数据源、保留相同维度，也不会被推断为共同输入；跨分支关系组合需要在切点前明确完成。已经在核心计算或按调用出口量化的值，不能再被移回来源用于过滤、归约或 JOIN。切点由真实关系依赖决定；不支持的标量表达式在来源提交前拒绝，不因失败而移动切点、改执行位置或再发来源请求。解释中的 sourceOutputScope 及每个根、阶段的 SOURCE／CORE 位置反映实际选择，包括同一作用域中的来源前缀和核心后缀。
 
 核心以精确有理数保存量化前的数值中间结果，在实际 NUMERIC、ROUND 或 CAST 节点按各自合同量化、检查容量；外层声明继承不等于把每次内层除法提前舍入。例如仅在最后量化的 `(1/3)*3` 仍为 1；明确对内层 `1/3` 量化为两位后再乘 3，则保留 0.99。NONE 遇到必须丢弃的数位时拒绝，不伪装成精确结果。DECIMAL(38,18) 只有 20 位整数容量，超出仍按 FAIL 处理。
 
@@ -435,6 +439,8 @@ olap.output(receipt)
 这份解释直接取自执行准入的实际要求，但 `sourceCapabilitiesChecked=false`：纯解释没有打开来源，也没有证明当前插件已经兑现这些要求。关系检查与来源约束采用分别列出，不能把 `NOT_NULL` 种类汇总当作所有列已核验。执行请求额外选择固定 `readBasis` 时还需要 `PINNED_READ`。ALIGN 的身份检查只在完整关系不能证明非 NULL 时保留；过滤、投影和归约可以形成正式证明，样本中未出现 NULL 不构成证明。
 
 实时 `explain` 核对本次发布及来源授权。已保存结果中的解释属于原运行的冻结技术上下文，沿结果元数据的主体、发布及读取授权交付，不要求重新连接来源或装载当年的插件，也不证明读取者目前仍有执行该来源的权限。
+
+`QueryExplanationRequest` 与保存结果的 `ResultMetadataRequest` 按实际内存列表分页：`offset` 为非负 Int，`limit` 为正 Int，不额外设置页长额度，也不预先用 offset+limit 拒绝请求。超过末尾返回空页；`nextOffset` 只在仍有项目时返回。解释的 SCOPES、SOURCES、PLAN 为列表，SUMMARY、COMPILATION_SCALE、EXECUTION_REQUIREMENTS 为单值，单值 section 的 offset 必须为 0。结果元数据中的 RUN、SOURCE_EVIDENCE、PUBLICATION、QUERY_INTENT 同为单值；各 section 的组合要求从请求自身的 `rules` 读取。非法分页返回 `INVALID_PAGINATION`、实际字段、数值及允许范围。最终 JSON/MCP 消息仍按实际大小交付，装不下时自动完整保存；读取保存解释不重执行业务查询。
 
 保存查询与保存结果独立。需要复用查询时使用 `olap.queries.save/revise`，其正式 `QueryDefinitionResult` 包含 `definition` 和实际制品摘要生成的 `reference`。后续用 `QuerySelection.Saved(saved.reference)` 执行精确保存版本；不要用 intentHash、名称或最新版本代替引用。保存冻结模型，不保存或重跑原脚本。
 

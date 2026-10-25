@@ -1,5 +1,6 @@
 package com.olap.prototype.codec
 
+import com.olap.prototype.contract.InputContractException
 import com.olap.prototype.dsl.*
 import com.olap.prototype.query.contract.ResultValueReference
 import com.olap.prototype.query.contract.ResultMetadataSection
@@ -19,8 +20,19 @@ object QueryReadProto {
     fun fromProto(v: WRead): ResultReadRequest { require(v.hasResultReference()); return ResultReadRequest(QueryProto.fromProto(v.resultReference), v.offset, v.limit, if (v.hasColumnIds()) v.columnIds.valuesList.toList() else null) }
     fun toProto(v: ResultMetadataRequest): WMetadata = WMetadata.newBuilder().setResultReference(QueryProto.toProto(v.resultReference))
         .setSection(v.section.name).setOffset(v.offset).setLimit(v.limit).apply { v.scopePath?.let(::setScopePath); v.explanationSection?.let { setExplanationSection(it.name) } }.build()
-    fun fromProto(v: WMetadata): ResultMetadataRequest { require(v.hasResultReference()); return ResultMetadataRequest(QueryProto.fromProto(v.resultReference), ResultMetadataSection.valueOf(v.section),
-        if (v.hasScopePath()) v.scopePath else null, if (v.hasExplanationSection()) QueryExplanationSection.valueOf(v.explanationSection) else null, v.offset, v.limit) }
+    fun fromProto(v: WMetadata): ResultMetadataRequest {
+        if (!v.hasResultReference()) throw InputContractException.violation(InputContractException.Rule.DECODE_INPUT, listOf("resultReference"),
+            "saved result reference is required", "QUERY_RESULT_REFERENCE", "MISSING")
+        val section = ResultMetadataSection.entries.firstOrNull { it.name == v.section }
+            ?: throw InputContractException.violation(InputContractException.Rule.DECODE_INPUT, listOf("section"),
+                "unknown result metadata section", ResultMetadataSection.entries.joinToString("|") { it.name }, v.section)
+        val explanation = if (v.hasExplanationSection()) QueryExplanationSection.entries.firstOrNull { it.name == v.explanationSection }
+            ?: throw InputContractException.violation(InputContractException.Rule.DECODE_INPUT, listOf("explanationSection"),
+                "unknown saved explanation section", QueryExplanationSection.entries.joinToString("|") { it.name }, v.explanationSection)
+        else null
+        return ResultMetadataRequest(QueryProto.fromProto(v.resultReference), section,
+            if (v.hasScopePath()) v.scopePath else null, explanation, v.offset, v.limit)
+    }
     fun toProto(v: ResultValueReference): WValueReference = WValueReference.newBuilder().setRowIndex(v.rowIndex).setColumnId(v.columnId).addAllPath(v.path).setSha256(v.sha256).build()
     fun fromProto(v: WValueReference) = ResultValueReference(v.rowIndex, v.columnId, v.pathList.toList(), v.sha256)
     fun toProto(v: ResultValueRequest): WValue = WValue.newBuilder().setResultReference(QueryProto.toProto(v.resultReference)).setValueReference(toProto(v.valueReference)).setOffset(v.offset).setLimit(v.limit).build()

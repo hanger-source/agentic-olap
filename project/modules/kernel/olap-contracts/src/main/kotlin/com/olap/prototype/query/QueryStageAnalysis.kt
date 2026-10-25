@@ -131,16 +131,10 @@ object QueryStageAnalysis {
         }
         return Collections.unmodifiableMap(result)
     }
-    /** 仅绑定后的观察统计根授予其确切统计阶段；不属于作者输入或跨进程协议。 */
-    class ObservationReduction(val stageIndex: Int, keys: List<String>) {
-        val keys: List<String> = java.util.List.copyOf(keys)
-        init { require(stageIndex >= 0 && this.keys.isNotEmpty()) { "object observation reduction requires its actual stage and complete identity" } }
-    }
-
     fun analyze(scope: ScopeId, sourceColumns: List<SourceColumn>, sourceKey: SourceKey, children: Map<String, Child>, operations: List<PostOperationContract.ValidatedOperation>, population: Population,
         field: String, sourceObservations: List<SelectedObservation> = emptyList(),
-        nativeFunctions: Map<ResultExpression.ResultNativeCall, NativeScalarFunction> = emptyMap(), observationReduction: ObservationReduction? = null): Analysis =
-        QueryScopeAnalyzer(scope, children, population, field, nativeFunctions, observationReduction).analyze(sourceColumns, sourceKey, operations, sourceObservations)
+        nativeFunctions: Map<ResultExpression.ResultNativeCall, NativeScalarFunction> = emptyMap()): Analysis =
+        QueryScopeAnalyzer(scope, children, population, field, nativeFunctions).analyze(sourceColumns, sourceKey, operations, sourceObservations)
     private fun text(value: String) { require(value.isNotBlank()) { "identity must be explicit" } }
     private fun version(value: String) { require(value.matches(Regex("[1-9][0-9]*"))) { "asset version must be exact" } }
 }

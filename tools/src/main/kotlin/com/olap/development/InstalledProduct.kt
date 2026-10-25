@@ -78,7 +78,7 @@ internal class InstalledProduct(private val tarballs: Path, private val root: Pa
             salesResult(result); salesResult(continued)
             val usagePagination = usagePagination(result)
             val numeric = divisionResult(numericReference)
-            authorContracts()
+            authorContracts(query, result)
             val serialCalls = serialCapabilities(built)
             val approvals = stageApprovalContracts(businessLineId, built.objectAt("scenarioId").string("text"))
             stop(); start("analysis-reopened"); initializeClient()
@@ -178,6 +178,13 @@ internal class InstalledProduct(private val tarballs: Path, private val root: Pa
             .objectAt("content").objectAt("explanation").objectAt("executionRequirements").objectAt("value")
         val source = explanation.array("sourceConstraints").map { it.jsonObject }.single { it["schema"] == text("PUBLIC") && it["table"] == text("SALES_ORDERS") }
         check(source.array("constraints").map { it.jsonObject }.single { it["kind"] == text("NOT_NULL") }.objectAt("columns") == objectOf("ORDER_ID" to text(orderColumnVersion)))
+        val invalid = client.delivered(client.rpc("read-query-result-metadata", objectOf("resultReference" to reference,
+            "section" to text("COLUMNS"), "offset" to number(-1), "limit" to number(1000))))
+        check(!invalid.getValue("success").jsonPrimitive.boolean)
+        val error = invalid.objectAt("error")
+        check(error.string("code") == "INVALID_PAGINATION" && error.string("stage") == "CONTRACT_INPUT")
+        check(error.objectAt("details").array("fieldPath") == JsonArray(listOf(text("offset"))))
+        check(error.objectAt("details").getValue("actual").jsonPrimitive.int == -1)
     }
     private fun divisionResult(reference: JsonObject): JsonObject {
         val page = client.call("read-query-result", objectOf("resultReference" to reference, "offset" to number(0), "limit" to number(10))).jsonObject
@@ -247,10 +254,34 @@ internal class InstalledProduct(private val tarballs: Path, private val root: Pa
             session?.let { check(client.call("close-script-session", objectOf("sessionId" to text(it))).jsonObject.string("state") == "CLOSED") }
         }
     }
-    private fun authorContracts() {
+    private fun authorContracts(query: JsonObject, result: JsonObject) {
         val invalid = client.script("Calculation.Scalar(ScalarValueType.BOOLEAN, true)", JsonObject(emptyMap()), dslVersion)
         check(!invalid.envelope.getValue("success").jsonPrimitive.boolean && invalid.report.array("calls").isEmpty())
         check(invalid.report.array("diagnostics").any { it.jsonObject["stage"] == text("COMPILE") })
+        val paginationParameters = objectOf("definitionId" to query.getValue("definitionId"),
+            "definitionVersion" to query.getValue("definitionVersion"), "querySha256" to query.getValue("sha256"),
+            "runId" to result.getValue("runId"), "resultSha256" to result.getValue("sha256"))
+        for ((field, source) in listOf(
+            "offset" to """
+                import com.olap.prototype.query.contract.*
+                val query = QuerySelection.Saved(QueryReference(parameters.text("definitionId"),
+                  parameters.text("definitionVersion").toLong(), parameters.text("querySha256")))
+                olap.output(olap.queries.explain(QueryExplanationRequest(query, QueryExplanationSection.SUMMARY, 1, 1000)))
+            """.trimIndent(),
+            "limit" to """
+                import com.olap.prototype.query.contract.*
+                import com.olap.prototype.dsl.ResultMetadataRequest
+                val result = QueryResultReference(parameters.text("runId"), parameters.text("resultSha256"))
+                olap.output(olap.results.metadata(ResultMetadataRequest(result, ResultMetadataSection.COLUMNS, null, null, 0, 0)))
+            """.trimIndent()
+        )) {
+            val execution = client.script(source, paginationParameters, dslVersion, "explanation-pagination.olap.kts")
+            check(!execution.envelope.getValue("success").jsonPrimitive.boolean && execution.report.array("calls").isEmpty())
+            val diagnostic = execution.report.array("diagnostics").map { it.jsonObject }.single { it["code"] == text("INVALID_PAGINATION") }
+            check(diagnostic["stage"] == text("CONTRACT_INPUT") && diagnostic["fieldPath"] == JsonArray(listOf(text(field))))
+            check(diagnostic.objectAt("location").getValue("startLine").jsonPrimitive.int > 0)
+            check(diagnostic["actual"] == text(if (field == "offset") "1" else "0"))
+        }
         val rules = client.call("describe-script-api", objectOf("type" to text("com.olap.prototype.calculation.Calculation.Call"))).jsonObject
             .objectAt("rules").objectAt("targetRules").objectAt("MEASUREMENT").array("emptyMaps")
         check(rules == JsonArray(listOf(text("dimensionSlots"), text("measurementSlots"))))

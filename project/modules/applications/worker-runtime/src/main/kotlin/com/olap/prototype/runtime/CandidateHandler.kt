@@ -16,6 +16,7 @@ import com.olap.prototype.connector.SourceResultMaterializationException
 import com.olap.prototype.connector.loader.DeployedSources
 import com.olap.prototype.contract.JdbcParameter
 import com.olap.prototype.contract.JdbcSourceRequirement
+import com.olap.prototype.contract.InputContractException
 import com.olap.prototype.engine.calcite.CandidateValueCompiler
 import com.olap.prototype.engine.catalog.ExecutableCatalog
 import com.olap.prototype.engine.compiler.CompiledQuery
@@ -27,7 +28,6 @@ import com.olap.prototype.query.QueryComputation
 import com.olap.prototype.query.QueryStageAnalysis
 import com.olap.prototype.query.ScalarValueType
 import com.olap.prototype.query.contract.*
-import com.olap.prototype.warehouse.ResultMaterializationLimits
 import com.olap.prototype.warehouse.WarehouseExecutionControl
 import com.olap.prototype.warehouse.contract.SourceConfiguration
 import com.olap.prototype.warehouse.contract.SourceBindingRef
@@ -43,7 +43,9 @@ internal class CandidateHandler(private val connectors: ConnectorRegistry, priva
     private val publications = linkedMapOf<QueryCapabilityRequest, Loaded>()
     private var publicationBytes = 0L
 
-    private data class Selected(val publication: Loaded, val offset: Int, val limit: Int)
+    private data class Selected(val publication: Loaded, val offset: Int, val limit: Int) {
+        val lookahead: Long get() = limit.toLong() + 1
+    }
     private sealed interface Planned {
         val valueType: ScalarValueType
         val sourceRequirements: List<JdbcSourceRequirement>
@@ -82,9 +84,7 @@ internal class CandidateHandler(private val connectors: ConnectorRegistry, priva
         val coordinate = request.publication
         val loaded = publications[coordinate] ?: error("exact candidate publication is not loaded")
         require(request.capabilityHash == loaded.entry.capability.capabilityHash) { "candidate capability hash mismatch" }
-        val offset = request.offset; val limit = request.limit
-        require(offset in 0..1_000_000 && limit in 1..200) { "invalid candidate page bounds" }
-        return Selected(loaded, offset, limit)
+        return Selected(loaded, request.offset, request.limit)
     }
 
     private fun plan(request: CandidateRequest, selected: Selected, control: WarehouseExecutionControl): Planned {
@@ -115,7 +115,7 @@ internal class CandidateHandler(private val connectors: ConnectorRegistry, priva
         require(expressions.size == 1) { "candidate provider has differing published expressions" }
         val valueType = ScalarValueType.valueOf(filter.filterValueType(target.levelCode))
         val parameters = mutableListOf<JdbcParameter>()
-        val request = CandidateValueCompiler.compile(binding, expressions.single(), selected.offset, selected.limit + 1, parameters, connectors)
+        val request = CandidateValueCompiler.compile(binding, expressions.single(), selected.offset, selected.lookahead, parameters, connectors)
         control.checkCancellation()
         return DimensionPlan(valueType, request)
     }
@@ -129,7 +129,7 @@ internal class CandidateHandler(private val connectors: ConnectorRegistry, priva
         val output = candidate.outputs[call.outputs.first().slot] ?: error("published member output is missing")
         val request = ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION,
             "member-candidate-${call.callId}", catalog.manifest.catalogId, QueryComputation.Scope(call, emptyMap(), emptyList()))
-        val compiled = OlapSemanticCompiler(CalciteRelCompiler.memberCandidateValues(connectors, selected.offset, selected.limit + 1))
+        val compiled = OlapSemanticCompiler(CalciteRelCompiler.memberCandidateValues(connectors, selected.offset, selected.lookahead))
             .compile(catalog, request, OlapQueryContext(request.requestId), cancellationObserver(control))
         control.checkCancellation()
         return MemberPlan(MemberCandidate.scalar(output).valueType,
@@ -153,19 +153,24 @@ internal class CandidateHandler(private val connectors: ConnectorRegistry, priva
 
     private fun page(request: CandidateRequest, selected: Selected, plan: Planned, control: WarehouseExecutionControl): CandidateValues {
         val actual = when (plan) {
-            is DimensionPlan -> executeDimension(plan, selected.limit, control)
-            is MemberPlan -> executeMember(plan, selected.limit, control)
+            is DimensionPlan -> executeDimension(plan, selected.lookahead, control)
+            is MemberPlan -> executeMember(plan, selected.lookahead, control)
         }
         val more = actual.values.size > selected.limit
+        val values = actual.values.take(selected.limit).map { Calculation.Scalar(plan.valueType, plan.valueType.candidate(it).toString()) }
+        val nextOffset = if (more) {
+            val next = selected.offset.toLong() + values.size
+            if (next > Int.MAX_VALUE) throw InputContractException.pagination("nextOffset", next, 0, Int.MAX_VALUE.toLong())
+            next.toInt()
+        } else null
         return CandidateValues(selected.publication.executable.coordinate, selected.publication.entry.catalogHash,
-            request.capabilityHash, queryHash(request), request.target, plan.valueType,
-            actual.values.take(selected.limit).map { Calculation.Scalar(plan.valueType, plan.valueType.candidate(it).toString()) }, selected.offset,
-            if (more) selected.offset + selected.limit else null, Instant.now(), actual.scope)
+            request.capabilityHash, queryHash(request), request.target, plan.valueType, values, selected.offset,
+            nextOffset, Instant.now(), actual.scope)
     }
 
-    private fun executeDimension(plan: DimensionPlan, limit: Int, control: WarehouseExecutionControl): CandidatePage {
+    private fun executeDimension(plan: DimensionPlan, lookahead: Long, control: WarehouseExecutionControl): CandidatePage {
         val provider = sources.requireProvider(JdbcSourceRequirement.requireSingleBinding(plan.sourceRequirements))
-        val result = provider.execute(plan.request, control, ResultMaterializationLimits(201, 201, budgets.materialization.bytes, 1),
+        val result = provider.execute(plan.request, control, budgets.materialization.copy(depth = 1),
             budgets.nativeMemoryBytes) { _, _ -> }
         return candidateResult(result, provider.bindingRef, plan.request.operation, control) { frame ->
             require(frame.columns.size == 1) { "candidate plan requires exactly one output column" }
@@ -180,14 +185,14 @@ internal class CandidateHandler(private val connectors: ConnectorRegistry, priva
                 val value = requireNotNull(row.cells.single().value) { "candidate plan returned null" }
                 plan.valueType.candidate(value); value
             }
-            require(values.size <= limit + 1) { "candidate result exceeds compiled page limit" }
+            require(values.size.toLong() <= lookahead) { "candidate result exceeds compiled page limit" }
             CandidatePage(values, "PUBLISHED_VALUE_PROVIDER_DOMAIN")
         }
     }
 
-    private fun executeMember(plan: MemberPlan, limit: Int, control: WarehouseExecutionControl): CandidatePage {
+    private fun executeMember(plan: MemberPlan, lookahead: Long, control: WarehouseExecutionControl): CandidatePage {
         val result = SourceExecutableSqlExecutor(sources::requireProvider,
-            ResultMaterializationLimits(201, 201, budgets.materialization.bytes, 1), budgets.nativeMemoryBytes, null)
+            budgets.materialization.copy(depth = 1), budgets.nativeMemoryBytes, null)
             .execute(plan.lowering, OlapQueryContext(plan.requestId), control)
         return candidateResult(result, JdbcSourceRequirement.requireSingleBinding(plan.sourceRequirements), "execute-query", control) { frame ->
             ExecutableBusinessResults.produce(frame, plan.lowering.outputContract, plan.lowering.compilationSupport)
@@ -196,7 +201,7 @@ internal class CandidateHandler(private val connectors: ConnectorRegistry, priva
                 val value = requireNotNull(row.cells.single().value) { "candidate plan returned null" }
                 plan.valueType.candidate(value); value
             }
-            require(values.size <= limit + 1) { "candidate result exceeds compiled page limit" }
+            require(values.size.toLong() <= lookahead) { "candidate result exceeds compiled page limit" }
             control.checkCancellation()
             CandidatePage(values, "PUBLISHED_MEMBER_OUTPUT_DOMAIN")
         }

@@ -451,6 +451,17 @@ fun buildOrders(): BusinessExample.Saved {
     val entry = example.publish(subject, scenario, metrics.values.toList(), listOf("JOIN_INPUT", "DERIVE", "PROJECT", "REGROUP"))
     val current = period("2026-01-01", "2026-02-01")
     val prior = period("2025-12-01", "2026-01-01")
+    val candidateTarget = CandidateTarget.MemberOutput(QueryComputation.Members("qualified_values", MemberRef(qualified.id, 1),
+        mapOf("window" to current), listOf(QueryComputation.Slot("customer", "customer")), null, emptyMap(),
+        MemberCondition.Unrestricted(), emptyMap(), emptyMap()))
+    val candidateCoordinate = PublishedQueryEntry.key(entry.capability)
+    val candidateHash = requireNotNull(entry.capability.capabilityHash)
+    val candidates = olap.queries.candidates(CandidateRequest(candidateCoordinate, candidateHash, candidateTarget, 0, 1000))
+    check(candidates.values == listOf(Calculation.Scalar(ScalarValueType.TEXT, "A")) && candidates.nextOffset == null)
+    val maximumCandidates = olap.queries.candidates(CandidateRequest(candidateCoordinate, candidateHash, candidateTarget, 0, Int.MAX_VALUE))
+    check(maximumCandidates.values == candidates.values && maximumCandidates.nextOffset == null)
+    val pastCandidates = olap.queries.candidates(CandidateRequest(candidateCoordinate, candidateHash, candidateTarget, Int.MAX_VALUE, Int.MAX_VALUE))
+    check(pastCandidates.values.isEmpty() && pastCandidates.nextOffset == null)
     val checks = listOf(Triple("occurrence_total", current, "210"), Triple("gross_total", current, "240"), Triple("fixed_cohort", current, "115"),
         Triple("fixed_cohort", prior, "80"), Triple("separate_cohort", prior, "150"), Triple("original_total", prior, "230"),
         Triple("order_mean", current, "80"), Triple("customer_mean", current, "120"), Triple("unweighted", current, "82.5"), Triple("weighted", current, "80"))

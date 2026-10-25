@@ -2,6 +2,7 @@ package com.olap.prototype.query.contract.catalog
 
 import com.olap.prototype.calculation.MetricInstanceRef
 import com.olap.prototype.calculation.MetricRef
+import com.olap.prototype.contract.InputContractException
 import com.olap.prototype.member.MemberRef
 import com.olap.prototype.query.contract.QueryCapabilityRequest
 
@@ -16,7 +17,23 @@ object SemanticCatalogReads {
         init { require(id.isNotBlank() && version > 0) { "exact semantic asset identity is required" } }
     }
     data class SearchRequest(val publication: QueryCapabilityRequest, val query: String, val kind: Kind?, val offset: Int, val limit: Int) {
-        init { require(offset >= 0 && limit in 1..200) { "bounded semantic search pagination is required" } }
+        init {
+            if (offset < 0) throw InputContractException.pagination("offset", offset, 0, Int.MAX_VALUE.toLong())
+            if (limit <= 0) throw InputContractException.pagination("limit", limit, 1, Int.MAX_VALUE.toLong())
+        }
+        companion object {
+            fun contract(): Map<String, Any> = mapOf(
+                "offset" to mapOf("minimum" to 0, "maximum" to Int.MAX_VALUE, "representation" to "INT32_LIST_INDEX"),
+                "limit" to mapOf("minimum" to 1, "maximum" to Int.MAX_VALUE, "representation" to "INT32_LIST_PAGE_LENGTH"),
+                "pageLength" to "REQUESTED_UPPER_BOUND_NO_ADDITIONAL_ITEM_COUNT_CAP",
+                "pastEnd" to "EMPTY_ITEMS_WITH_TOTAL_AND_NO_NEXT_OFFSET",
+                "nextOffset" to "ACTUAL_PAGE_END_ONLY_WHEN_FURTHER_MATCHES_EXIST",
+                "validation" to "NO_OFFSET_PLUS_LIMIT_PRECONDITION_OR_LOOKAHEAD",
+                "scope" to "MATCHES_WITHIN_THE_AUTHORIZED_EXACT_PUBLICATION_CATALOG",
+                "violation" to mapOf("code" to InputContractException.Rule.PAGINATION.code,
+                    "fieldPath" to "offset OR limit", "details" to "ACTUAL_NUMERIC_VALUE_AND_EXPECTED_INCLUSIVE_RANGE"),
+            )
+        }
     }
     data class SearchItem(val reference: AssetReference, val displayName: String, val businessSummary: String)
     class SearchPage(items: List<SearchItem>, val total: Int, val offset: Int, val nextOffset: Int?) {

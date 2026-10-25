@@ -13,14 +13,14 @@ import org.apache.calcite.tools.RelBuilder
 
 /** 候选值的单列、非空、去重与分页，以及完整实际来源执行请求。 */
 object CandidateValueCompiler {
-    fun page(completed: RelNode, offset: Int, limit: Int): RelNode {
+    fun page(completed: RelNode, offset: Int, limit: Long): RelNode {
         require(completed.rowType.fieldCount == 1 && offset >= 0 && limit > 0) { "candidate values require one completed column and valid page bounds" }
         val builder = RelBuilder.proto().create(completed.cluster, null)
-        builder.push(completed).filter(builder.isNotNull(builder.field(0))).distinct().sortLimit(offset.toLong(), limit.toLong(), builder.field(0))
+        builder.push(completed).filter(builder.isNotNull(builder.field(0))).distinct().sortLimit(offset.toLong(), limit, builder.field(0))
         return builder.build()
     }
 
-    fun compile(binding: ExecutablePhysicalExecutionBinding, expression: SemanticExpression, offset: Int, limit: Int,
+    fun compile(binding: ExecutablePhysicalExecutionBinding, expression: SemanticExpression, offset: Int, limit: Long,
         parameters: MutableList<JdbcParameter>, connectors: ConnectorRegistry): SourceSqlRequest {
         require(offset >= 0 && limit > 0) { "candidate page bounds are invalid" }
         require(binding.sourceConstraints != null) { "candidate source requires exact frozen investigation evidence" }
@@ -33,7 +33,7 @@ object CandidateValueCompiler {
         val compiler = SemanticRexCompiler(b, root, mapOf(root to binding), { _, column -> b.field(column) }, parameters,
             { _, _ -> throw IllegalArgumentException("generic candidate LogicUnit does not own relation quantifiers") }, linkedSetOf())
         b.project(listOf(compiler.compile(expression)), listOf("candidate"), true)
-        b.filter(b.isNotNull(b.field(0))).distinct().sortLimit(offset.toLong(), limit.toLong(), b.field(0))
+        b.filter(b.isNotNull(b.field(0))).distinct().sortLimit(offset.toLong(), limit, b.field(0))
         val relation = CalciteQueryCompiler.optimize(b.build(), parameters)
         val statement = CalciteSqlRendering.render(relation, connectors.require(binding.connectorRef).compilation, parameters)
         return SourceSqlRequest("read-candidate-values", statement.sql, CalciteSqlRendering.orderedParameters(statement, parameters),

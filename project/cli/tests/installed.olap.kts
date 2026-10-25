@@ -152,6 +152,15 @@ olap.output(when (parameters.text("phase")) {
         olap.governance.buildRelease(SubjectAreaReleaseBuildRequest("installed-sales", "1", "安装后销售口径", subject.id, 1, actor))
         val coordinate = QueryCapabilityRequest(scenario.id, 1, "installed-sales", "1")
         val publication = olap.semantics.publication(coordinate)
+        val semanticMatches = olap.semantics.search(com.olap.prototype.query.contract.catalog.SemanticCatalogReads.SearchRequest(
+            coordinate, "", null, 0, 1000))
+        val maximumMatches = olap.semantics.search(com.olap.prototype.query.contract.catalog.SemanticCatalogReads.SearchRequest(
+            coordinate, "", null, 0, Int.MAX_VALUE))
+        check(semanticMatches.items == maximumMatches.items && maximumMatches.total == maximumMatches.items.size && maximumMatches.nextOffset == null)
+        check(maximumMatches.items.isNotEmpty())
+        val pastMatches = olap.semantics.search(com.olap.prototype.query.contract.catalog.SemanticCatalogReads.SearchRequest(
+            coordinate, "", null, Int.MAX_VALUE, Int.MAX_VALUE))
+        check(pastMatches.items.isEmpty() && pastMatches.total == maximumMatches.total && pastMatches.nextOffset == null)
         val intent = QueryIntent(coordinate, computation(publication))
         val rejected = runCatching { olap.queries.validate(QueryValidationRequest(QuerySelection.Inline(QueryIntent(coordinate, computation(publication, true))))) }.exceptionOrNull()
         check(rejected is CapabilityFailureException && rejected.failure.code == "EXECUTABLE_QUERY_NOT_PUBLISHED") { "未发布实例必须被正式授权拒绝：$rejected" }
@@ -166,9 +175,33 @@ olap.output(when (parameters.text("phase")) {
         val notNull = adoptedSource.constraints.single { it.kind == com.olap.prototype.contract.JdbcSourceRequirement.ConstraintKind.NOT_NULL }
         check(notNull.name == "ORDER_ID" && notNull.columns == mapOf("ORDER_ID" to orderColumnVersion))
         check(notNull.adoptedFor == "NON_NULL_NATIVE_COLUMN_TYPE" && !requirements.sourceCapabilitiesChecked)
+        val summary = olap.queries.explain(QueryExplanationRequest(QuerySelection.Inline(intent),
+            QueryExplanationSection.SUMMARY, 0, 1000)).content as QueryExplanationContent.Summary
+        val allScopes = olap.queries.explain(QueryExplanationRequest(QuerySelection.Inline(intent),
+            QueryExplanationSection.SCOPES, 0, Int.MAX_VALUE)).content as QueryExplanationContent.Scopes
+        check(allScopes.items.size == summary.value.scopeCount && allScopes.totalItems == allScopes.items.size && allScopes.nextOffset == null)
+        val firstScopes = olap.queries.explain(QueryExplanationRequest(QuerySelection.Inline(intent),
+            QueryExplanationSection.SCOPES, 0, 1)).content as QueryExplanationContent.Scopes
+        check(firstScopes.items == allScopes.items.take(1))
+        val continuedScopes = firstScopes.nextOffset?.let { next ->
+            olap.queries.explain(QueryExplanationRequest(QuerySelection.Inline(intent),
+                QueryExplanationSection.SCOPES, next, Int.MAX_VALUE)).content as QueryExplanationContent.Scopes
+        }
+        check(firstScopes.items + continuedScopes?.items.orEmpty() == allScopes.items && continuedScopes?.nextOffset == null)
+        val pastScopes = olap.queries.explain(QueryExplanationRequest(QuerySelection.Inline(intent),
+            QueryExplanationSection.SCOPES, Int.MAX_VALUE, Int.MAX_VALUE)).content as QueryExplanationContent.Scopes
+        check(pastScopes.items.isEmpty() && pastScopes.totalItems == allScopes.totalItems && pastScopes.nextOffset == null)
         val saved = olap.queries.save(QueryDefinitionCommand("installed-sales-summary", null, requireNotNull(publication.capability.capabilityHash),
             "销售额与订单数", intent, null))
         val execution = execute(intent, "全部已登记订单销售额和订单数是多少？")
+        val savedScopePage = olap.results.metadata(ResultMetadataRequest(requireNotNull(execution.resultReference),
+            ResultMetadataSection.EXPLANATION, null, QueryExplanationSection.SCOPES, 0, Int.MAX_VALUE))
+        val savedScopes = (savedScopePage.content as ResultMetadataContent.Explanation).value as QueryExplanationContent.Scopes
+        check(savedScopes.items == allScopes.items && savedScopePage.totalItems == allScopes.totalItems && savedScopePage.nextOffset == null)
+        val savedColumnPage = olap.results.metadata(ResultMetadataRequest(requireNotNull(execution.resultReference),
+            ResultMetadataSection.COLUMNS, null, null, 0, Int.MAX_VALUE))
+        check((savedColumnPage.content as ResultMetadataContent.Columns).values.map { it.symbol.name } == listOf("sales_amount", "order_count"))
+        check(savedColumnPage.totalItems == 2 && savedColumnPage.nextOffset == null)
         val observedRun = olap.results.run(QueryRunRequest(execution.runId, 0, 1000)).run
         check(observedRun.receipt?.resultReference == execution.resultReference)
         check(requireNotNull(observedRun.serviceObservation).workers.isNotEmpty())

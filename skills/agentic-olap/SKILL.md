@@ -101,6 +101,10 @@ agentic-olap call wait-script --payload '{"executionId":"sources-001","waitMilli
 
 `validate/explain/execute` 独立使用。解释按实际合同返回人口、资格、粒度、阶段和关系计划；未取得的来源统计保持未知。查询可直接执行，计算交给引擎，不在外围重算业务指标。
 
+`QueryExplanationRequest` 的 `offset` 是非负 Int，`limit` 是正 Int，本页最多返回实际存在的项目，不另设页长额度。SCOPES／SOURCES／PLAN 按列表分页，超过末尾返回空页；SUMMARY／COMPILATION_SCALE／EXECUTION_REQUIREMENTS 为单值，`offset` 必须为 0。`nextOffset` 仅在还有项目时返回，按实际页尾继续；不要求 `offset + limit` 落在 Int 内。保存结果的 `ResultMetadataRequest` 使用相同的 Int 列表边界；RUN／SOURCE_EVIDENCE／PUBLICATION／QUERY_INTENT 为单值，EXPLANATION 按其实际解释 section 处理。具体规则可通过正式类型发现读取；非法分页以 `INVALID_PAGINATION` 返回 `offset` 或 `limit`、实际值和允许范围。大消息继续按下述完整响应存档交付，不重执行查询。
+
+`olap.semantics.search` 的 `SemanticCatalogReads.SearchRequest` 在获准的精确发布目录中搜索；`offset` 为非负 Int，`limit` 为正 Int，使用同样的实际列表边界，不另设页长额度。超过匹配项末尾返回空页和实际 `total`；仅在还有匹配项时返回 `nextOffset`。
+
 官方 SDK 生成的完整最终 JSON/MCP 消息不超过 `responseBytes` 时直接返回，超过时自动完整保存在 `dataRoot/responses`。当前消息给出简短提示、`location` 和 `read.operation/read.payload`；将实际 `read.payload` 原样用于 `read-response`，其中的 `reference={responseId,sha256}` 是精确存档引用。读取按字节 `offset` 和可选 `length` 分段，必须从 UTF-8 字符起点开始，段尾不截破字符；按返回的 `nextOffset` 继续。服务不截断删减，不要求预先保存，不重执行业务，也不增加存储配额或审批。成功保持成功，失败响应完整保存后仍保留原失败。
 
 保存查询用于复用模型；`QueryDefinitionResult` 返回 `definition/reference`，执行保存版本时用真实精确 `reference`。执行的 `saveResult=true` 显式保存历史 SQL 结果，只用实际返回的 `resultReference` 分页读取；它与完整响应自动存档及 SQL 结果物化限额分别成立。保留精确数值、NULL、单位和 ROW／ARRAY。

@@ -2,9 +2,11 @@ package com.olap.prototype.engine.executable
 
 import com.olap.prototype.engine.EngineExecutionException
 import com.olap.prototype.expression.SemanticExpression
+import com.olap.prototype.expression.ScalarFunction
 import com.olap.prototype.metric.MetricValueContract
 import com.olap.prototype.query.ResultExpression
 import com.olap.prototype.query.ResultExpression.*
+import com.olap.prototype.query.QueryExecutionMode
 import com.olap.prototype.query.ScalarValueType
 import com.olap.prototype.warehouse.WarehouseExecutionControl
 import org.apache.calcite.jdbc.JavaTypeFactoryImpl
@@ -55,9 +57,10 @@ internal class CoreFinalizationExpressions(private val symbols: Map<String, Core
         }
         is ResultCast -> cast(value, path)
         is ResultCaseWhen -> conditional(value, path)
+        is ResultCall -> call(value, path)
         is ResultOperation -> operation(value, path)
         is ResultArgument -> unsupported(path, "scalar arguments must be bound before local compilation")
-        is ResultCall, is ResultNativeCall, is ResultRow, is ResultRowField, is ResultCollectionSort,
+        is ResultNativeCall, is ResultRow, is ResultRowField, is ResultCollectionSort,
         is ResultCollectionText, is ResultWeightedContribution, is ResultUniformAllocation ->
             unsupported(path, "expression is not supported by the core scalar finalization boundary")
     }
@@ -121,11 +124,54 @@ internal class CoreFinalizationExpressions(private val symbols: Map<String, Core
         }
         val otherwise = compile(case.otherwise, path + "otherwise")
         val values = branches.map { it.second } + otherwise
+        val type = alternativeType(values, values.any { it.type.nullable }, path)
+        return expression(type, path) { row, control ->
+            val selected = branches.firstOrNull { (condition, _) -> (condition.evaluate(row, control) as? CoreValue.Logical)?.value == true }
+            (selected?.second ?: otherwise).evaluate(row, control)
+        }
+    }
+
+    private fun call(call: ResultCall, path: List<Any>): CoreExpression {
+        if (!QueryExecutionMode.supportsCoreFunction(call.function)) unsupported(path, "function is not supported by the core exact scalar evaluator: ${call.function}")
+        val arguments = call.arguments.mapIndexed { index, argument -> compile(argument, path + listOf("arguments", index)) }
+        return when (call.function) {
+            ScalarFunction.COALESCE -> {
+                val type = alternativeType(arguments, arguments.all { it.type.nullable }, path)
+                expression(type, path) { row, control ->
+                    var result: CoreValue = CoreValue.Missing
+                    for (argument in arguments) {
+                        result = argument.evaluate(row, control)
+                        if (result != CoreValue.Missing) break
+                    }
+                    result
+                }
+            }
+            ScalarFunction.ABS -> {
+                val input = arguments.single()
+                requireKind(input, CoreScalarType.Kind.NUMBER, path + listOf("arguments", 0))
+                expression(CoreScalarType(CoreScalarType.Kind.NUMBER, input.type.nullable, null), path) { row, control ->
+                    input.evaluate(row, control).numberOrNull { CoreValue.Numeric(it.abs()) }
+                }
+            }
+            ScalarFunction.NULLIF -> {
+                requireComparable(ResultOperator.EQ, arguments, path)
+                val firstType = arguments.first().type
+                val type = firstType.copy(nullable = true, storage = firstType.storage?.let { factory.createTypeWithNullability(it, true) })
+                expression(type, path) { row, control ->
+                    val first = arguments[0].evaluate(row, control)
+                    val second = arguments[1].evaluate(row, control)
+                    if (first != CoreValue.Missing && second != CoreValue.Missing && compare(first, second) == 0) CoreValue.Missing else first
+                }
+            }
+            else -> unsupported(path, "function is not supported by the core exact scalar evaluator: ${call.function}")
+        }
+    }
+
+    private fun alternativeType(values: List<CoreExpression>, nullable: Boolean, path: List<Any>): CoreScalarType {
         val actual = values.map { it.type.kind }.filter { it != CoreScalarType.Kind.NULL }.distinct()
         if (actual.size > 1 || actual.singleOrNull() == CoreScalarType.Kind.PRESERVED)
-            unsupported(path, "local CASE branches must share a numeric or boolean type")
+            unsupported(path, "local alternatives must share a numeric or boolean type")
         val kind = actual.singleOrNull() ?: CoreScalarType.Kind.NULL
-        val nullable = values.any { it.type.nullable }
         val storage = when (kind) {
             CoreScalarType.Kind.BOOLEAN -> sqlType(SqlTypeName.BOOLEAN, nullable)
             CoreScalarType.Kind.NULL -> sqlType(SqlTypeName.NULL, true)
@@ -138,13 +184,9 @@ internal class CoreFinalizationExpressions(private val symbols: Map<String, Core
                     decimalType(maxOf(1, Math.addExact(integer, scale)), scale, nullable)
                 }
             }
-            CoreScalarType.Kind.PRESERVED -> error("preserved CASE values were not admitted")
+            CoreScalarType.Kind.PRESERVED -> error("preserved alternatives were not admitted")
         }
-        val type = CoreScalarType(kind, nullable, storage)
-        return expression(type, path) { row, control ->
-            val selected = branches.firstOrNull { (condition, _) -> (condition.evaluate(row, control) as? CoreValue.Logical)?.value == true }
-            (selected?.second ?: otherwise).evaluate(row, control)
-        }
+        return CoreScalarType(kind, nullable, storage)
     }
 
     private fun operation(operation: ResultOperation, path: List<Any>): CoreExpression {
@@ -205,20 +247,13 @@ internal class CoreFinalizationExpressions(private val symbols: Map<String, Core
     }
 
     private fun comparison(operator: ResultOperator, operands: List<CoreExpression>, path: List<Any>): CoreExpression {
-        val kinds = operands.map { it.type.kind }.filter { it != CoreScalarType.Kind.NULL }.distinct()
-        if (kinds.size > 1 || kinds.any { it !in setOf(CoreScalarType.Kind.NUMBER, CoreScalarType.Kind.BOOLEAN) } ||
-            kinds.singleOrNull() == CoreScalarType.Kind.BOOLEAN && operator !in setOf(ResultOperator.EQ, ResultOperator.NE))
-            unsupported(path, "local comparison requires exact numeric operands or BOOLEAN equality")
+        requireComparable(operator, operands, path)
         val nullable = operands.any { it.type.nullable }
         return expression(CoreScalarType(CoreScalarType.Kind.BOOLEAN, nullable, sqlType(SqlTypeName.BOOLEAN, nullable)), path) { row, control ->
             val first = operands[0].evaluate(row, control)
             val second = operands[1].evaluate(row, control)
             if (first == CoreValue.Missing || second == CoreValue.Missing) CoreValue.Missing else {
-                val compared = when (first) {
-                    is CoreValue.Numeric -> first.value.compareTo((second as CoreValue.Numeric).value)
-                    is CoreValue.Logical -> first.value.compareTo((second as CoreValue.Logical).value)
-                    else -> error("comparison input was not admitted")
-                }
+                val compared = compare(first, second)
                 CoreValue.Logical(when (operator) {
                     ResultOperator.EQ -> compared == 0
                     ResultOperator.NE -> compared != 0
@@ -230,6 +265,19 @@ internal class CoreFinalizationExpressions(private val symbols: Map<String, Core
                 })
             }
         }
+    }
+
+    private fun requireComparable(operator: ResultOperator, operands: List<CoreExpression>, path: List<Any>) {
+        val kinds = operands.map { it.type.kind }.filter { it != CoreScalarType.Kind.NULL }.distinct()
+        if (kinds.size > 1 || kinds.any { it !in setOf(CoreScalarType.Kind.NUMBER, CoreScalarType.Kind.BOOLEAN) } ||
+            kinds.singleOrNull() == CoreScalarType.Kind.BOOLEAN && operator !in setOf(ResultOperator.EQ, ResultOperator.NE))
+            unsupported(path, "local comparison requires exact numeric operands or BOOLEAN equality")
+    }
+
+    private fun compare(first: CoreValue, second: CoreValue): Int = when (first) {
+        is CoreValue.Numeric -> first.value.compareTo((second as CoreValue.Numeric).value)
+        is CoreValue.Logical -> first.value.compareTo((second as CoreValue.Logical).value)
+        else -> error("comparison input was not admitted")
     }
 
     companion object {

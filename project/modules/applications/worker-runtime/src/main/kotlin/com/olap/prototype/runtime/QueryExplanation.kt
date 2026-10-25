@@ -31,7 +31,7 @@ internal object QueryExplanation {
                 analysis.outputs, analysis.selectedObservations,
                 analysis.stages.map { View.Stage(it.index, it.operation.operationType, it.operation, it.inputs.map { symbol -> symbol.id },
                     it.imports.map { symbol -> symbol.id }, it.outputs, it.key,
-                    if (scope.scope in coreScopes) View.ExecutionLocation.CORE else View.ExecutionLocation.SOURCE) },
+                    if (query.coreFinalizationPlan?.isCoreStage(scope.scope, it.index) == true) View.ExecutionLocation.CORE else View.ExecutionLocation.SOURCE) },
                 if (scope.scope in coreScopes && scope.scope != sourceOutputScope) View.ExecutionLocation.CORE else View.ExecutionLocation.SOURCE)
         }
         val scale = query.compilationScale?.let { v ->

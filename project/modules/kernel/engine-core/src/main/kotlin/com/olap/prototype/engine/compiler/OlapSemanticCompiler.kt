@@ -50,6 +50,9 @@ class OlapSemanticCompiler(private val compiler: CalciteRelCompiler) {
                 ExecutableStageAnalysis.sourcePrefix(graph, analyses, coreGraph.source, compiler.connectors)
             }
         }
+        if (coreGraph != null) phase("COMPILE_CORE_FINALIZATION", "CORE_FINALIZATION_PLAN_FAILED", "Core finalization population validation failed", query) {
+            coreGraph.requireCommonPopulation(analyses, sourceAnalyses.getValue(coreGraph.sourceScope))
+        }
         val relational = try { compiler.compile(graph, sourceAnalyses, resolved, context, coreGraph?.sourceScope ?: ScopeId.root()) }
         catch (cancelled: java.util.concurrent.CancellationException) { throw cancelled }
         catch (failure: EngineExecutionException) { throw EngineExecutionException(failure.stage, failure.code, failure.message, failure,
@@ -67,7 +70,7 @@ class OlapSemanticCompiler(private val compiler: CalciteRelCompiler) {
                     CoreFinalizationPlan.compile(relational.lowering.outputContract, analyses, coreGraph)
                 }
             }
-            context.addAuditLog("Core finalization: sourceScope=${coreGraph.sourceScope.path}, completedSource=${coreGraph.source.completed}, localScopes=${coreGraph.scopes.map { it.path }}")
+            context.addAuditLog("Core finalization: sourceScope=${coreGraph.sourceScope.path}, sourceStageCount=${coreGraph.source.stageCount}, localScopes=${coreGraph.scopes.map { it.path }}")
             observed = observed.copy(coreFinalizationPlan = core)
         }
         return timed(context, "COMPILE_PLAN_EVIDENCE") {

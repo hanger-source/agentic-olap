@@ -1,6 +1,7 @@
 package com.olap.prototype.codec
 
 import com.olap.prototype.query.contract.*
+import com.olap.prototype.contract.InputContractException
 import com.olap.prototype.query.definition.QueryDefinitionCommand
 import com.olap.prototype.dsl.*
 import java.time.Instant
@@ -73,7 +74,17 @@ object QueryProto {
     fun fromProto(v: WValidationResult) = QueryValidationResult(v.valid, v.capabilityHash)
     fun toProto(v: QueryExplanationRequest): WExplanationRequest = WExplanationRequest.newBuilder().setQuery(toProto(v.query)).setSection(v.section.name)
         .setOffset(v.offset).setLimit(v.limit).setExecutionMode(toProto(v.executionMode)).build()
-    fun fromProto(v: WExplanationRequest): QueryExplanationRequest { require(v.hasQuery()); return QueryExplanationRequest(fromProto(v.query), QueryExplanationSection.valueOf(v.section), v.offset, v.limit, fromProto(v.executionMode)) }
+    fun fromProto(v: WExplanationRequest): QueryExplanationRequest {
+        if (!v.hasQuery()) throw InputContractException.violation(InputContractException.Rule.DECODE_INPUT, listOf("query"),
+            "query selection is required", "QUERY_SELECTION", "MISSING")
+        val section = QueryExplanationSection.entries.firstOrNull { it.name == v.section }
+            ?: throw InputContractException.violation(InputContractException.Rule.DECODE_INPUT, listOf("section"),
+                "unknown query explanation section", QueryExplanationSection.entries.joinToString("|") { it.name }, v.section)
+        if (v.executionMode == WExecutionMode.UNRECOGNIZED)
+            throw InputContractException.violation(InputContractException.Rule.DECODE_INPUT, listOf("executionMode"),
+                "unknown query execution mode", "SOURCE|CORE_FINALIZATION", v.executionModeValue.toString())
+        return QueryExplanationRequest(fromProto(v.query), section, v.offset, v.limit, fromProto(v.executionMode))
+    }
     fun toProto(v: QueryExplanationResult): WExplanationResult = WExplanationResult.newBuilder().setSection(v.section.name).setContent(QueryExplanationProto.toProto(v.content)).build()
     fun fromProto(v: WExplanationResult): QueryExplanationResult { require(v.hasContent()); return QueryExplanationResult(QueryExplanationSection.valueOf(v.section), QueryExplanationProto.fromProto(v.content)) }
     fun toProto(v: QueryExecutionFailure): WFailure = WFailure.newBuilder().setStage(v.stage).setCode(v.code).setMessage(v.message)

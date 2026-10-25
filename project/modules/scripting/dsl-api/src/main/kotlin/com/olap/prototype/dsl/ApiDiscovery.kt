@@ -145,6 +145,12 @@ object ApiDiscovery {
             GroupingLevels::class, QueryComputation.Levels::class -> GroupingLevels.contract()
             QueryRunRequest::class -> QueryRunRequest.contract()
             QueryRunListRequest::class -> QueryRunListRequest.contract()
+            com.olap.prototype.query.contract.QueryExplanationRequest::class -> com.olap.prototype.query.contract.QueryExplanationRequest.contract()
+            com.olap.prototype.query.contract.QueryExplanationSection::class -> com.olap.prototype.query.contract.QueryExplanationSection.contract()
+            ResultMetadataRequest::class -> ResultMetadataRequest.contract()
+            com.olap.prototype.query.contract.catalog.SemanticCatalogReads.SearchRequest::class ->
+                com.olap.prototype.query.contract.catalog.SemanticCatalogReads.SearchRequest.contract()
+            com.olap.prototype.query.contract.CandidateRequest::class -> com.olap.prototype.query.contract.CandidateRequest.contract()
             MemberResult::class -> MemberResult.contract()
             LogicUnitRecord::class -> LogicUnitRecord.contract()
             LogicalTableCreateRequest.LogicUnitInput::class -> LogicalTableCreateRequest.LogicUnitInput.contract()

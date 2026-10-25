@@ -7,6 +7,7 @@ import com.olap.prototype.expression.SemanticNativeTypes
 import com.olap.prototype.metric.MetricValueContract
 import com.olap.prototype.query.PostOperationContract
 import com.olap.prototype.query.QueryStageAnalysis
+import com.olap.prototype.query.QueryExecutionMode
 import com.olap.prototype.query.QueryStageAnalysis.ScopeId
 import com.olap.prototype.query.ResultExpression.*
 import com.olap.prototype.query.ResultExpressionTree
@@ -24,8 +25,9 @@ import java.util.concurrent.CancellationException
 /** 一次Query的明确来源切点及正式核心标量后缀；不读取历史结果或重新访问来源。 */
 class CoreFinalizationPlan private constructor(private val sourceContract: ExecutableOutputContract,
     val outputContract: ExecutableOutputContract, private val programs: List<ScopeProgram>, private val displayNames: Map<String, String>,
-    val sourceScope: ScopeId, scopes: List<ScopeId>) {
+    val sourceScope: ScopeId, val sourceStageCount: Int, scopes: List<ScopeId>) {
     val scopes: List<ScopeId> = java.util.List.copyOf(scopes)
+    fun isCoreStage(scope: ScopeId, index: Int): Boolean = scope in scopes && (scope != sourceScope || index >= sourceStageCount)
     private data class ScopeProgram(val scope: ScopeId, val root: Root, val operations: List<Operation>)
     private data class Binding(val scope: ScopeId, val expression: CoreExpression)
     private sealed interface Root {
@@ -152,7 +154,9 @@ class CoreFinalizationPlan private constructor(private val sourceContract: Execu
                     CoreFinalizationExpressions.unsupported(listOf<Any>("input") + node.scope.path + listOf("root", "calls", call.callId, "valueContract"),
                         "a core root calculation call requires an Exact integer or decimal output contract")
             } }
-            graph.scopes.forEach { scope -> requireNotNull(analyses[scope]).stages.forEach { stage ->
+            graph.nodes.forEach { selected ->
+                val scope = selected.scope
+                requireNotNull(analyses[scope]).stages.drop(selected.stageStart).forEach { stage ->
                 val path = listOf<Any>("input") + scope.path + listOf("postOps", stage.index)
                 when (val operation = stage.operation) {
                     is PostOperationContract.Project -> Unit
@@ -160,6 +164,7 @@ class CoreFinalizationPlan private constructor(private val sourceContract: Execu
                         val supported = when (node) {
                             is ResultSymbol, is ResultLiteral, is ResultNumeric, is ResultQuantityLiteral, is ResultRound, is ResultCaseWhen -> true
                             is ResultTypedLiteral -> node.valueType == ScalarValueType.NUMBER
+                            is ResultCall -> QueryExecutionMode.supportsCoreFunction(node.function)
                             is ResultCast -> node.targetType in setOf(com.olap.prototype.expression.SemanticExpression.ValueType.INTEGER,
                                 com.olap.prototype.expression.SemanticExpression.ValueType.BIGINT, com.olap.prototype.expression.SemanticExpression.ValueType.DECIMAL,
                                 com.olap.prototype.expression.SemanticExpression.ValueType.BOOLEAN)
@@ -186,6 +191,7 @@ class CoreFinalizationPlan private constructor(private val sourceContract: Execu
             graph.nodes.forEach { node ->
                 val scope = node.scope
                 val analysis = requireNotNull(fullAnalyses[scope])
+                val stages = analysis.stages.drop(node.stageStart)
                 val columns = linkedMapOf<String, Binding>()
                 val displays = linkedMapOf<String, String>()
                 fun project(dependency: ScopeId, outputSlots: Map<String, String>, call: CoreFinalizationGraph.CallProjection? = null) {
@@ -221,12 +227,16 @@ class CoreFinalizationPlan private constructor(private val sourceContract: Execu
                     is Root.Forward -> LinkedHashMap(completedTypes.getValue(root.scope))
                     is Root.Projection -> root.columns.mapValuesTo(LinkedHashMap()) { it.value.expression.type }
                 }
-                check(analysis.inputs.map { it.name } == types.keys.toList()) { "local input columns differ from the compiled source boundary" }
-                inputs[scope] = ExecutableOutputContract.ScopeInput(scope, analysis.inputs.map { symbol ->
+                val startingColumns = if (root == Root.Source) stages.firstOrNull()?.inputs ?: analysis.outputs else analysis.inputs
+                check(startingColumns.map { it.name } == types.keys.toList()) { "local input columns differ from the compiled source boundary" }
+                if (root == Root.Source) {
+                    check(sourceContract.columns.map { it.symbol } == startingColumns) { "source prefix symbols differ from the actual local starting position" }
+                    check(inputs.containsKey(scope)) { "source scope must retain its native root input metadata" }
+                } else inputs[scope] = ExecutableOutputContract.ScopeInput(scope, analysis.inputs.map { symbol ->
                     ExecutableOutputContract.Field(symbol, requireNotNull(types.getValue(symbol.name).storage))
                 })
                 val operations = mutableListOf<Operation>()
-                analysis.stages.forEach { stage ->
+                stages.forEach { stage ->
                     val path = listOf<Any>("input") + scope.path + listOf("postOps", stage.index)
                     when (val operation = stage.operation) {
                         is PostOperationContract.Derive -> {
@@ -260,7 +270,7 @@ class CoreFinalizationPlan private constructor(private val sourceContract: Execu
             val contract = ExecutableOutputContract(root.outputs.map { symbol ->
                 ExecutableOutputContract.Field(symbol, requireNotNull(types.getValue(symbol.name).storage))
             }, inputs.values.toList(), QueryStageAnalysis.symbols(fullAnalyses.values).values.toList(), ScopeId.root())
-            return CoreFinalizationPlan(sourceContract, contract, programs.toList(), completedDisplays.getValue(ScopeId.root()), graph.sourceScope, graph.scopes)
+            return CoreFinalizationPlan(sourceContract, contract, programs.toList(), completedDisplays.getValue(ScopeId.root()), graph.sourceScope, graph.source.stageCount, graph.scopes)
         }
     }
 }

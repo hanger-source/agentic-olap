@@ -22,12 +22,13 @@ object ExecutableStageAnalysis {
         connectors: ConnectorRegistry): Map<ScopeId, Analysis> {
         val sourceScope = cut.scope
         check(sourceScope in fullAnalyses && graph.scope(sourceScope) != null) { "core source cut must identify an actual analyzed scope" }
-        if (cut.completed) return fullAnalyses
-        return Session(graph, connectors, fullAnalyses - sourceScope, setOf(sourceScope)).analyze(sourceScope)
+        check(cut.stageCount in 0..fullAnalyses.getValue(sourceScope).stages.size) { "source prefix exceeds its actual scope stages" }
+        if (cut.stageCount == fullAnalyses.getValue(sourceScope).stages.size) return fullAnalyses
+        return Session(graph, connectors, fullAnalyses - sourceScope, mapOf(sourceScope to cut.stageCount)).analyze(sourceScope)
     }
 
     private class Session(private val graph: ExecutableInputGraph, private val connectors: ConnectorRegistry,
-        completed: Map<ScopeId, Analysis> = emptyMap(), private val coreScopes: Set<ScopeId> = emptySet()) {
+        completed: Map<ScopeId, Analysis> = emptyMap(), private val nativeStageCounts: Map<ScopeId, Int> = emptyMap()) {
         private val result = LinkedHashMap(completed)
         private val ancestors = Collections.newSetFromMap(IdentityHashMap<ExecutableInputScope, Boolean>())
         fun analyze(scope: ScopeId = ScopeId.root()): Map<ScopeId, Analysis> {
@@ -49,7 +50,7 @@ object ExecutableStageAnalysis {
                 ExecutableInputGraph.EdgeKind.MEMBER_BODY -> analyze(edge.input, edge.scope)
             } }
             val facts = ExecutableInputSymbols(graph, result, input, scope, children).facts()
-            val operations = if (scope in coreScopes) emptyList() else facts.operations
+            val operations = facts.operations.take(nativeStageCounts[scope] ?: facts.operations.size)
             val nativeFunctions = operations.flatMap(PostOperationTraversal::expressions).flatMap(ResultExpressionTree::nodes)
                 .filterIsInstance<ResultExpression.ResultNativeCall>().associateWith { call ->
                     connectors.require(call.connectorRef).compilation.requireNativeScalarFunction(call.function).also {
@@ -57,7 +58,7 @@ object ExecutableStageAnalysis {
                     }
                 }
             val analysis = QueryStageAnalysis.analyze(scope, facts.columns, facts.key, children, operations, facts.population,
-                "input[${scope.path}].postOps", facts.observations, nativeFunctions, facts.observationReduction.takeUnless { scope in coreScopes })
+                "input[${scope.path}].postOps", facts.observations, nativeFunctions)
             result[scope] = analysis
             ancestors.remove(input)
             return analysis

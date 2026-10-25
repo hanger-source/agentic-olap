@@ -22,12 +22,12 @@ import org.apache.calcite.tools.RelBuilder
 /** 已分析Scope→原生关系→优化→SQL；各阶段交出完整事实。 */
 class CalciteRelCompiler private constructor(val connectors: ConnectorRegistry, private val candidatePage: CandidatePage?) {
     constructor(connectors: ConnectorRegistry) : this(connectors, null)
-    private data class CandidatePage(val offset: Int, val limit: Int) { init { require(offset >= 0 && limit > 0) { "candidate page bounds are invalid" } } }
+    private data class CandidatePage(val offset: Int, val limit: Long) { init { require(offset >= 0 && limit > 0) { "candidate page bounds are invalid" } } }
     data class Compilation(val lowering: ExecutableLoweringResult, val raw: RelNode, val optimized: RelNode,
         val sqlRelation: RelNode, val scale: CompilationScale)
     companion object {
         private val log = org.slf4j.LoggerFactory.getLogger(CalciteRelCompiler::class.java)
-        fun memberCandidateValues(connectors: ConnectorRegistry, offset: Int, limit: Int): CalciteRelCompiler = CalciteRelCompiler(connectors, CandidatePage(offset, limit))
+        fun memberCandidateValues(connectors: ConnectorRegistry, offset: Int, limit: Long): CalciteRelCompiler = CalciteRelCompiler(connectors, CandidatePage(offset, limit))
     }
 
     fun compile(graph: ExecutableInputGraph, analyses: Map<ScopeId, Analysis>, resolvedSources: ResolvedInputSources, context: OlapQueryContext,

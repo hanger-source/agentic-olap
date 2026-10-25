@@ -48,19 +48,17 @@ class ResultPages(private val files: ResultFiles) {
             } else ResultMetadataContent.ScopeIndex(portion(result?.scopeInputColumns.orEmpty().toSortedMap().map { ResultScopeColumns(it.key, it.value.size) }))
             ResultMetadataSection.EXPLANATION -> {
                 val explanation = requireNotNull(record.explanation) { "this result has no saved execution explanation" }
-                val value = when (requireNotNull(request.explanationSection)) {
-                    QueryExplanationSection.SUMMARY -> QueryExplanationContent.Summary(explanation.summary)
-                    QueryExplanationSection.SCOPES -> QueryExplanationContent.Scopes(portion(explanation.scopes), total, continuation)
-                    QueryExplanationSection.SOURCES -> QueryExplanationContent.Sources(portion(explanation.sources), total, continuation)
-                    QueryExplanationSection.PLAN -> QueryExplanationContent.Plan(portion(explanation.plan), total, continuation)
-                    QueryExplanationSection.COMPILATION_SCALE -> QueryExplanationContent.CompilationScale(explanation.compilationScale)
-                    QueryExplanationSection.EXECUTION_REQUIREMENTS -> QueryExplanationContent.ExecutionRequirements(explanation.executionRequirements)
+                val value = requireNotNull(request.explanationSection).project(explanation, request.offset, request.limit)
+                when (value) {
+                    is QueryExplanationContent.Scopes -> { total = value.totalItems; continuation = value.nextOffset }
+                    is QueryExplanationContent.Sources -> { total = value.totalItems; continuation = value.nextOffset }
+                    is QueryExplanationContent.Plan -> { total = value.totalItems; continuation = value.nextOffset }
+                    is QueryExplanationContent.Summary, is QueryExplanationContent.CompilationScale,
+                    is QueryExplanationContent.ExecutionRequirements -> Unit
                 }
-                if (request.explanationSection in setOf(QueryExplanationSection.SUMMARY, QueryExplanationSection.COMPILATION_SCALE, QueryExplanationSection.EXECUTION_REQUIREMENTS)) require(request.offset == 0)
                 ResultMetadataContent.Explanation(value)
             }
         }
-        if (request.section in setOf(ResultMetadataSection.RUN, ResultMetadataSection.PUBLICATION, ResultMetadataSection.QUERY_INTENT, ResultMetadataSection.SOURCE_EVIDENCE)) require(request.offset == 0)
         return ResultMetadataPage(request.resultReference, request.section, content, request.offset, total, continuation)
     }
     fun value(request: ResultValueRequest): ResultValuePage {

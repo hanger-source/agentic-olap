@@ -131,16 +131,18 @@ class HttpSourceAccessTest {
             val nativeNumber = call("native_float", symbol("id"))
             val rawNumber = listOf(Derive(nativeNumber, "number", "原始行原生数值"))
             assertEquals(15.0, (execute(rawNumber + Regroup(ResultGrouping(emptyList(), listOf(ResultAggregate("number", ResultAggregation.Sum(floating, ResultAggregation.NullPolicy.IGNORE), "total", "行贡献之和")), null)), false).single().single() as Number).toDouble())
+            val completedMeans = rawNumber + listOf(
+                Regroup(ResultGrouping(listOf("record_key"), listOf(ResultAggregate("number", ResultAggregation.Average(floating, ResultAggregation.NullPolicy.IGNORE, MetricValueContract.Rounding.NONE), "mean", "每组均值")), null)),
+                Derive(call("native_float", symbol("mean")), "transformed", "完成均值保留原观察"),
+                Regroup(ResultGrouping(emptyList(), listOf(ResultAggregate("transformed", ResultAggregation.Sum(floating, ResultAggregation.NullPolicy.IGNORE), "total", "实际完成均值之和")), null)))
+            assertEquals(15.0, (execute(completedMeans, false).single().single() as Number).toDouble())
             val requests = server.queries
             val exact = MetricValueContract(quantity.unit, MetricValueContract.Exact(), MetricValueContract.Decimal(38, 0, MetricValueContract.Rounding.NONE), emptyMap(), quantity.overflow)
             val attempts = listOf(
                 listOf(Derive(ResultNumeric(ResultCast(nativeNumber, SemanticExpression.ValueType.DECIMAL, 38, 0, MetricValueContract.Rounding.NONE), exact, null), "washed", "禁止CAST升级")),
                 listOf(Derive(ResultNumeric(ResultCaseWhen(listOf(ResultCaseBranch(ResultLiteral(true), nativeNumber)), ResultLiteral(null)), exact, null), "washed", "禁止CASE升级")),
                 rawNumber + Regroup(ResultGrouping(emptyList(), listOf(ResultAggregate("number", ResultAggregation.Sum(exact, ResultAggregation.NullPolicy.IGNORE), "washed", "禁止聚合升级")), null)),
-                rawNumber + Derive(ResultNumeric(ResultCast(call("number_text", symbol("number")), SemanticExpression.ValueType.DECIMAL, 38, 0, MetricValueContract.Rounding.NONE), exact, null), "washed", "禁止经文本擦除数量"),
-                rawNumber + listOf(Regroup(ResultGrouping(listOf("record_key"), listOf(ResultAggregate("number", ResultAggregation.Average(floating, ResultAggregation.NullPolicy.IGNORE, MetricValueContract.Rounding.NONE), "mean", "每组均值")), null)),
-                    Derive(call("native_float", symbol("mean")), "transformed", "完成均值仍有原观察"),
-                    Regroup(ResultGrouping(emptyList(), listOf(ResultAggregate("transformed", ResultAggregation.Sum(floating, ResultAggregation.NullPolicy.IGNORE), "washed", "禁止非可加观察重置")), null))))
+                rawNumber + Derive(ResultNumeric(ResultCast(call("number_text", symbol("number")), SemanticExpression.ValueType.DECIMAL, 38, 0, MetricValueContract.Rounding.NONE), exact, null), "washed", "禁止经文本擦除数量"))
             attempts.forEach { assertThrows(IllegalArgumentException::class.java) { compile(it, false) } }
             val mismatch = ResultNativeCall(TestConnectors.ref("duckdb"), "native_float", listOf(symbol("id")))
             val denied = assertThrows(IllegalArgumentException::class.java) { compile(listOf(Derive(mismatch, "wrong", "精确插件不得替换")), false) }

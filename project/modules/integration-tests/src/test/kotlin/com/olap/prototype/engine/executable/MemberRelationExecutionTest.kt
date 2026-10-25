@@ -398,9 +398,22 @@ class MemberRelationExecutionTest {
             val caller = Calculation(shared.dimensionSlots, emptyList(), emptyList(), shared.relationSlots, emptyMap(), Calculation.Scope(
                 Calculation.Measures(listOf(call), listOf("customer"), emptyList(), null, null, emptyMap(), Calculation.Population(listOf("forwarded")), null),
                 emptyMap(), emptyList()))
-            val columns = listOf("customer", "numerator", "denominator", "mean", "mean_two", "round_trip", "rounded_trip", "safe_zero", "lazy_case", "tiny", "mean_plus_one")
+            val columns = listOf("customer", "numerator", "denominator", "mean", "mean_two", "round_trip", "rounded_trip", "safe_zero", "lazy_case", "tiny", "mean_plus_one",
+                "lazy_coalesce", "coalesced_mean", "nullif_count", "absolute_numerator", "nullable_alternatives")
             val query = coreQuery(definitions, computation, coreBasis(MemberCondition.Unrestricted()), listOf(
-                Derive(ResultNumeric(op(ResultOperator.ADD, symbol("mean"), number("1")), result, null), "mean_plus_one", "调用方继续组合"), Project(columns)))
+                Derive(ResultNumeric(op(ResultOperator.ADD, symbol("mean"), number("1")), result, null), "mean_plus_one", "调用方继续组合"),
+                Derive(ResultNumeric(ResultCall(ScalarFunction.COALESCE, listOf(ResultLiteral(null),
+                    ResultQuantityLiteral(BigDecimal.ONE, coreDecimal(12, 2, MetricValueContract.Rounding.NONE)),
+                    ResultNumeric(op(ResultOperator.DIVIDE, number("1"), number("0")), result, null))), result, null),
+                    "lazy_coalesce", "忽略NULL后选中值不再求值除零分支"),
+                Derive(ResultNumeric(ResultCall(ScalarFunction.COALESCE, listOf(symbol("mean"), ResultQuantityLiteral(BigDecimal("-2"), result))), result, null),
+                    "coalesced_mean", "仅对实际NULL显式采用替代值"),
+                Derive(ResultNumeric(ResultCall(ScalarFunction.NULLIF, listOf(symbol("denominator"), ResultQuantityLiteral(BigDecimal("3"), recordCount()))), result, null),
+                    "nullif_count", "相等返回NULL并保留第一数量含义"),
+                Derive(ResultNumeric(ResultCall(ScalarFunction.ABS, listOf(symbol("numerator"))), coreDecimal(38, 0, MetricValueContract.Rounding.NONE), null),
+                    "absolute_numerator", "正式ABS函数保持精确大数和NULL"),
+                Derive(ResultNumeric(ResultCall(ScalarFunction.COALESCE, listOf(symbol("mean"), symbol("safe_zero"))), result, null),
+                    "nullable_alternatives", "全部备选为NULL时仍为NULL"), Project(columns)))
             warehouse.finishSetup()
             val completed = mutableListOf<SourceReadEvidence>()
             val observed = object : ExecutableExecutionObserver by observer { override fun sourceCompleted(evidence: SourceReadEvidence) { completed += evidence } }
@@ -408,10 +421,14 @@ class MemberRelationExecutionTest {
             val executed = engine(warehouse).execute(catalog, ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION, "core-rational",
                 catalog.manifest.catalogId, query, QueryExecutionMode.CORE_FINALIZATION), observed, RuntimeDeploymentLimits.CONTROL)
             val expected = listOf(
-                listOf("1", "100000000000000000000", "3", "33333333333333333333.333333333333333333", "33333333333333333333.33", "1", "0.99", null, "1", "0.001", "33333333333333333334.333333333333333333"),
-                listOf("2", "1", "3", "0.333333333333333333", "0.33", "1", "0.99", null, "1", "0.001", "1.333333333333333333"),
-                listOf("3", null, "3", null, null, "1", "0.99", null, "1", "0.001", null),
-                listOf("4", "-1", "8", "-0.125", "-0.13", "1", "0.99", null, "1", "0.001", "0.875")
+                listOf("1", "100000000000000000000", "3", "33333333333333333333.333333333333333333", "33333333333333333333.33", "1", "0.99", null, "1", "0.001", "33333333333333333334.333333333333333333",
+                    "1", "33333333333333333333.333333333333333333", null, "100000000000000000000", "33333333333333333333.333333333333333333"),
+                listOf("2", "1", "3", "0.333333333333333333", "0.33", "1", "0.99", null, "1", "0.001", "1.333333333333333333",
+                    "1", "0.333333333333333333", null, "1", "0.333333333333333333"),
+                listOf("3", null, "3", null, null, "1", "0.99", null, "1", "0.001", null,
+                    "1", "-2", null, null, null),
+                listOf("4", "-1", "8", "-0.125", "-0.13", "1", "0.99", null, "1", "0.001", "0.875",
+                    "1", "-0.125", "8", "1", "-0.125")
             ).map { row -> row.map { it?.let(::decimal) } }
             assertEquals(expected, numericRows(executed.businessResult))
             assertEquals(listOf(executed.sourceReadEvidence), completed)
@@ -570,7 +587,53 @@ class MemberRelationExecutionTest {
         }
     }
 
-    @Test fun rejectsAnUnsupportedCoreRelationStageBeforeSubmittingItsValidNativeInputs(@TempDir directory: Path) {
+    @Test fun finalizesAfterNativeRelationalPrefixesWithoutRewritingTheSavedCalculation(@TempDir directory: Path) {
+        coreNumbers(directory).use { warehouse ->
+            val definitions = coreDefinitions(warehouse)
+            val result = coreDecimal(38, 18, MetricValueContract.Rounding.HALF_UP)
+            val mean = Derive(ResultNumeric(ResultOperation(ResultOperator.DIVIDE,
+                listOf(symbol("numerator"), symbol("denominator"))), result, null), "mean", "完成关系的精确均值")
+            val original = coreBasis(MemberCondition.Unrestricted())
+            val direct = QueryComputation.Scope(original.root, original.inputs,
+                listOf(PostFilter(ResultOperation(ResultOperator.IS_NOT_NULL, listOf(symbol("amount"))))) + original.stages +
+                    listOf(mean, Project(listOf("customer", "mean"))))
+            val shared = coreCalculation(listOf(PostFilter(ResultOperation(ResultOperator.IS_NOT_NULL, listOf(symbol("numerator")))),
+                mean, Project(listOf("customer", "mean"))))
+            val reference = MetricRef("filtered_completed_mean", "1")
+            definitions.metrics[reference.key()] = ExecutableMetric(reference, MetricCalculation(shared, "mean", listOf("customer"), result))
+            val call = Calculation.Call("filtered", Calculation.Fixed(reference), "mean", mapOf("customer" to "customer"),
+                emptyMap(), emptyMap(), mapOf("completed" to "completed"), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()))
+            val caller = Calculation(shared.dimensionSlots, emptyList(), emptyList(), shared.relationSlots, emptyMap(), Calculation.Scope(
+                Calculation.Measures(listOf(call), listOf("customer"), emptyList(), null, null, emptyMap(), Calculation.Population(listOf("filtered")), null),
+                emptyMap(), emptyList()))
+            val source = com.olap.prototype.connector.SourceProvider(warehouse.spec.source(), TestConnectors.registry)
+            val delegate = SourceExecutableSqlExecutor({ if (it == source.bindingRef) source else null }, RuntimeDeploymentLimits.result, RuntimeDeploymentLimits.nativeMemoryBytes, null)
+            var submissions = 0
+            val engine = OlapEngine(OlapSemanticCompiler(CalciteRelCompiler(TestConnectors.registry)), ExecutableSqlExecutor { lowering, context, control ->
+                submissions++
+                delegate.execute(lowering, context, control)
+            }, RuntimeDeploymentLimits.result)
+            warehouse.finishSetup()
+            val catalog = definitions.catalog()
+            fun execute(query: QueryComputation.Scope): ExecutableBusinessResult {
+                val before = submissions
+                val executed = engine.execute(catalog, ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION, "core-prefix-$before",
+                    catalog.manifest.catalogId, query, QueryExecutionMode.CORE_FINALIZATION), observer, RuntimeDeploymentLimits.CONTROL)
+                assertEquals(before + 1, submissions, "前缀关系与末尾标量只允许一次实际来源执行")
+                assertEquals(SourceExecutionState.SUCCEEDED, executed.sourceReadEvidence.request.execution)
+                assertEquals(listOf("customer", "numerator", "denominator"),
+                    requireNotNull(executed.compiledQuery.executableLoweringResult).outputContract.columns.map { it.symbol.name })
+                return executed.businessResult
+            }
+            val common = listOf(listOf("1", "33333333333333333333.333333333333333333"), listOf("2", "0.333333333333333333"))
+            assertEquals((common + listOf(listOf("4", "-1"))).map { row -> row.map(::decimal) }, numericRows(execute(direct)))
+            // ROOT实参保持全部原始归约：最后一个客户仍含8条记录，consumer只筛完成分子，不改分母人口。
+            val referenced = coreQuery(definitions, caller, original, emptyList())
+            assertEquals((common + listOf(listOf("4", "-0.125"))).map { row -> row.map(::decimal) }, numericRows(execute(referenced)))
+        }
+    }
+
+    @Test fun rejectsSourceFilteringOfACoreCalculatedValueBeforeSubmittingItsNativeInputs(@TempDir directory: Path) {
         coreNumbers(directory).use { warehouse ->
             val definitions = coreDefinitions(warehouse)
             val source = com.olap.prototype.connector.SourceProvider(warehouse.spec.source(), TestConnectors.registry)
@@ -580,16 +643,17 @@ class MemberRelationExecutionTest {
                 submissions++
                 delegate.execute(lowering, context, control)
             }, RuntimeDeploymentLimits.result)
-            val calculation = coreCalculation(listOf(regroup(emptyList(), listOf(reduction("numerator",
-                ResultAggregation.Sum(coreDecimal(38, 0, MetricValueContract.Rounding.NONE), ResultAggregation.NullPolicy.IGNORE), "all_numerators")))))
+            val calculation = coreCalculation(listOf(Derive(ResultNumeric(ResultOperation(ResultOperator.DIVIDE,
+                listOf(symbol("numerator"), symbol("denominator"))), coreDecimal(38, 18, MetricValueContract.Rounding.HALF_UP), null), "mean", "CORE完成均值")))
             warehouse.finishSetup()
             val catalog = definitions.catalog()
             val failure = assertThrows(EngineExecutionException::class.java) {
                 engine.execute(catalog, ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION, "core-unsupported", catalog.manifest.catalogId,
-                    coreQuery(definitions, calculation, coreBasis(MemberCondition.Unrestricted()), emptyList()), QueryExecutionMode.CORE_FINALIZATION), observer, RuntimeDeploymentLimits.CONTROL)
+                    coreQuery(definitions, calculation, coreBasis(MemberCondition.Unrestricted()),
+                        listOf(PostFilter(ResultOperation(ResultOperator.IS_NOT_NULL, listOf(symbol("mean")))))), QueryExecutionMode.CORE_FINALIZATION), observer, RuntimeDeploymentLimits.CONTROL)
             }
             assertEquals("CORE_FINALIZATION_UNSUPPORTED", failure.code)
-            assertEquals(listOf("input", "computation", "postOps", 0), failure.evidenceContext["fieldPath"])
+            assertEquals(listOf("input", "postOps", 0), failure.evidenceContext["fieldPath"])
             assertEquals(0, submissions)
             assertEquals(false, failure.sourceExecutionStarted)
             assertNull(failure.sourceReadEvidence)
@@ -729,26 +793,19 @@ class MemberRelationExecutionTest {
             assertEquals(expected, numericRows(execute(engine, definitions, query(statistics(dailyCounts), false))))
             assertEquals(expected + listOf(listOf(decimal("5"), null, null, null, null)),
                 numericRows(execute(engine, definitions, query(statistics(dailyCounts), true))))
-            // 统计上下文仅属于生成的归约；同一根的后置普通SUM仍检查未被洗白的原数量来源。
-            val laterSum = assertThrows(EngineExecutionException::class.java) {
-                execute(engine, definitions, statistics(dailyCounts, afterStatistics = listOf(regroup(emptyList(),
-                    listOf(reduction("actor_days", ResultAggregation.Sum(count, ResultAggregation.NullPolicy.IGNORE), "all_actor_days"))))))
-            }
-            assertEquals("ANALYZE_STAGES", laterSum.stage)
-            assertEquals(false, laterSum.sourceExecutionStarted)
-            val laterQuantity = generateSequence<Throwable>(laterSum) { it.cause }.filterIsInstance<InputContractException>().single()
-            assertEquals(InputContractException.Rule.RESULT_QUANTITY_NOT_SUMMABLE, laterQuantity.rule)
-            assertEquals("CROSS_OBSERVATION_COUNT_DISTINCT", laterQuantity.details["actualKind"])
-            assertEquals(listOf("input", "computation", "postOps", 2, "grouping", "aggregates", 0, "aggregation"), laterQuantity.details["fieldPath"])
+            // 显式SUM继续相加实际完成值；不会改写为跨日或跨对象的原标识去重。
+            assertEquals(listOf(listOf(decimal("6"))), numericRows(execute(engine, definitions,
+                statistics(dailyCounts, afterStatistics = listOf(regroup(emptyList(),
+                    listOf(reduction("actor_days", ResultAggregation.Sum(count, ResultAggregation.NullPolicy.IGNORE), "all_actor_days"))))))))
+            val partitioned = statistics(dailyCounts, afterStatistics = listOf(
+                PartitionAggregate("actor_days", emptyList(), "all_actor_days", "每日观察累计之和", ResultAggregation.Sum(count, ResultAggregation.NullPolicy.IGNORE)),
+                Project(listOf(subject, "actor_days", "all_actor_days"))))
+            assertEquals(listOf(listOf(decimal("1"), decimal("3"), decimal("6")), listOf(decimal("2"), decimal("3"), decimal("6")),
+                listOf(decimal("3"), decimal("0"), decimal("6")), listOf(decimal("4"), decimal("0"), decimal("6"))),
+                numericRows(execute(engine, definitions, partitioned)))
             val ordinarySum = QueryComputation.Scope(dailyCounts.root, dailyCounts.inputs, dailyCounts.stages +
                 regroup(listOf(subject), listOf(reduction("day_uv", ResultAggregation.Sum(count, ResultAggregation.NullPolicy.IGNORE), "actor_days"))))
-            val failure = assertThrows(EngineExecutionException::class.java) { execute(engine, definitions, query(ordinarySum, false)) }
-            assertEquals("ANALYZE_STAGES", failure.stage)
-            assertEquals(false, failure.sourceExecutionStarted)
-            val contract = generateSequence<Throwable>(failure) { it.cause }.filterIsInstance<InputContractException>().single()
-            assertEquals(InputContractException.Rule.RESULT_QUANTITY_NOT_SUMMABLE, contract.rule)
-            assertEquals(listOf("input", "daily", "postOps", 4, "grouping", "aggregates", 0, "aggregation"), contract.details["fieldPath"])
-            assertEquals("CROSS_OBSERVATION_COUNT_DISTINCT", contract.details["actualKind"])
+            assertEquals(expected, numericRows(execute(engine, definitions, query(ordinarySum, false))))
 
             val incomplete = assertThrows(EngineExecutionException::class.java) {
                 execute(engine, definitions, query(statistics(dailyCounts, listOf(subject)), false))
@@ -759,7 +816,7 @@ class MemberRelationExecutionTest {
             assertEquals(InputContractException.Rule.EXACT_IDENTITY_MEANING_REQUIRED, identity.rule)
             assertEquals(listOf("input", "daily", "computation", "root", "unit", "keys"), identity.details["fieldPath"])
 
-            // 目录记录键已完整归约；关联后即使带齐扩展唯一键，也不能把复制的每日数量洗白。
+            // 显式关联保留实际bag贡献；相加复制的每日值不冒充关联前的原对象总量。
             val originalCopies = directory(true)
             val copies = QueryComputation.Scope(originalCopies.root, originalCopies.inputs, listOf(
                 PostFilter(predicate(ResultOperator.IS_NOT_NULL, symbol("subject"))),
@@ -767,15 +824,9 @@ class MemberRelationExecutionTest {
                 Project(listOf("subject", "id"))))
             val copied = QueryComputation.Scope(dailyCounts.root, dailyCounts.inputs + ("copies" to QueryComputation.Input("RELATION", copies)),
                 dailyCounts.stages + JoinInput("copies", "copy", "INNER", predicate(ResultOperator.EQ, symbol(subject), symbol(copySubject))))
-            val duplicate = assertThrows(EngineExecutionException::class.java) {
-                execute(engine, definitions, query(statistics(copied, dayKeys + listOf(copySubject, copyId), true), false))
-            }
-            assertEquals("ANALYZE_STAGES", duplicate.stage)
-            assertEquals(false, duplicate.sourceExecutionStarted)
-            val copiedQuantity = generateSequence<Throwable>(duplicate) { it.cause }.filterIsInstance<InputContractException>().single()
-            assertEquals(InputContractException.Rule.RESULT_QUANTITY_NOT_SUMMABLE, copiedQuantity.rule)
-            assertEquals("COPIED_COMPLETED_QUANTITY", copiedQuantity.details["actualKind"])
-            assertEquals(listOf("input", "daily", "computation", "postOps", 0, "grouping", "aggregates", 0, "aggregation"), copiedQuantity.details["fieldPath"])
+            val copiedExpected = listOf(listOf(decimal("1"), decimal("3"), decimal("2"), decimal("6"), decimal("4"))) + expected.drop(1)
+            assertEquals(copiedExpected, numericRows(execute(engine, definitions,
+                query(statistics(copied, dayKeys + listOf(copySubject, copyId), true), false))))
         }
     }
 
@@ -968,7 +1019,8 @@ class MemberRelationExecutionTest {
             assertEquals(listOf(listOf(decimal("1000"))), actual(listOf(regroup(emptyList(), listOf(reduction("allocated", ResultAggregation.Sum(output, ResultAggregation.NullPolicy.IGNORE), "total"))))))
             val filter = PostOperationContract.PostFilter(ResultExpression.ResultOperation(ResultExpression.ResultOperator.EQ, listOf(ResultExpression.ResultSymbol(region), ResultExpression.ResultLiteral(BigDecimal.ONE))))
             assertEquals(listOf(listOf(decimal("1"), decimal("500"))), actual(listOf(filter, PostOperationContract.Project(listOf(region, "allocated")))))
-            assertEquals("ANALYZE_STAGES", assertThrows(EngineExecutionException::class.java) { actual(listOf(regroup(emptyList(), listOf(reduction("value", ResultAggregation.Sum(money, ResultAggregation.NullPolicy.IGNORE), "total"))))) }.stage)
+            // 两条实际关联行各保留1000；显式SUM得到2000，不声称恢复原交易总额1000。
+            assertEquals(listOf(listOf(decimal("2000"))), actual(listOf(regroup(emptyList(), listOf(reduction("value", ResultAggregation.Sum(money, ResultAggregation.NullPolicy.IGNORE), "total"))))))
             val split = Calculation.Scope(source.root, source.inputs, listOf(joined, PostOperationContract.Derive(ResultExpression.ResultUniformAllocation(ResultExpression.ResultSymbol("value"), listOf("transaction", region), listOf(order), allocation, "divide"), "allocated", "错误地区身份")))
             val invalid = allocationCompute(Calculation.Scope(Calculation.ObjectMeasure(split, qualified.objects, qualified.roles), emptyMap(), listOf(regroup(emptyList(), listOf(reduction("allocated", ResultAggregation.Sum(output, ResultAggregation.NullPolicy.IGNORE), "total"))))))
             assertEquals("ANALYZE_STAGES", assertThrows(EngineExecutionException::class.java) { execute(engine, definitions, invalid) }.stage)
@@ -1212,7 +1264,7 @@ class MemberRelationExecutionTest {
             assertEquals(1L, (warehouse.execute(requireNotNull(selected.executableLoweringResult)).single().single() as Number).toLong())
         }
     }
-    @Test fun executesUnidentifiedBagsAndReusesComputedQuantitiesWithoutMakingThemAdditive(@TempDir directory: Path) {
+    @Test fun sumsCompletedBagValuesWithoutReconstructingTheirOriginalAggregates(@TempDir directory: Path) {
         NativeWarehouse(directory, "duckdb", listOf("CREATE TABLE observations(customer INTEGER, amount DECIMAL(18,2))", "INSERT INTO observations VALUES (1,20),(1,20),(2,NULL),(3,10)")).use { warehouse ->
             val definitions = Definitions(catalog(warehouse, "observations", mapOf("observations.customer" to "customer", "observations.amount" to "amount"), emptyList()))
             definitions.events["observations@1"] = definitions.events.getValue("observations@1").copy(identity = EventIdentity(emptyList(), emptyMap()))
@@ -1232,7 +1284,7 @@ class MemberRelationExecutionTest {
                 "distinct_amounts" to computedProperty("金额种类", "distinct_count", "distinct_amounts", count), "ratio" to computedProperty("每次观测金额", "ratio", "ratio", mean)), emptyMap(), null, emptyMap(), null)
             definitions.members["customers@1"] = MemberSource.Computed("customers", 1, MemberSourceDefinition.Computed(body, result), CalculationBindings(emptyMap(), mapOf("rows" to CalculationBindings.SourceCall(MemberRef("observations", 1), emptyMap(), mapOf("customer" to "customer", "amount" to "amount"), emptyMap(), emptyMap())), emptyMap(), emptyMap(), emptyMap()), emptyMap())
             val totalInstance = installMemberReduction(definitions, "customer_total", result, "total", ResultAggregation.Sum(money, ResultAggregation.NullPolicy.IGNORE), money)
-            val invalid = listOf("average", "ratio", "distinct_amounts").associateWith { field -> installMemberReduction(definitions, "invalid_$field", result, field, ResultAggregation.Sum(requireNotNull(MemberSourceDefinition.rootValueContract(result.outputs.getValue(field))), ResultAggregation.NullPolicy.IGNORE), requireNotNull(MemberSourceDefinition.rootValueContract(result.outputs.getValue(field)))) }
+            val completedSums = listOf("average", "ratio", "distinct_amounts").associateWith { field -> installMemberReduction(definitions, "sum_$field", result, field, ResultAggregation.Sum(requireNotNull(MemberSourceDefinition.rootValueContract(result.outputs.getValue(field))), ResultAggregation.NullPolicy.IGNORE), requireNotNull(MemberSourceDefinition.rootValueContract(result.outputs.getValue(field)))) }
             warehouse.finishSetup(); val engine = engine(warehouse)
             assertEquals(listOf(listOf(decimal("1")), listOf(decimal("1")), listOf(decimal("2")), listOf(decimal("3"))), numericRows(execute(engine, definitions, memberScope("observations", listOf("customer"), emptyList()))))
             assertEquals(listOf(listOf(decimal("1"), decimal("2")), listOf(decimal("2"), decimal("1")), listOf(decimal("3"), decimal("1"))), numericRows(execute(engine, definitions,
@@ -1247,12 +1299,40 @@ class MemberRelationExecutionTest {
             val overall = numericRows(execute(engine, definitions, memberScope("observations", listOf("amount"), listOf(regroup(emptyList(),
                 listOf(reduction("amount", ResultAggregation.Average(mean, ResultAggregation.NullPolicy.IGNORE, MetricValueContract.Rounding.NONE), "overall_average"), reduction("amount", ResultAggregation.Count(true, ResultAggregation.NullPolicy.IGNORE), "overall_distinct")))))))
             assertEquals(1, overall.size); assertEquals(50.0 / 3.0, requireNotNull(overall.single()[0]).toDouble(), 1E-9); assertEquals(decimal("2"), overall.single()[1])
-            invalid.forEach { (field, instance) ->
+            val expectedSums = mapOf("average" to decimal("30"), "ratio" to decimal("30"), "distinct_amounts" to decimal("2"))
+            completedSums.forEach { (field, instance) ->
                 val source = CalculationBindings.SourceCall(MemberRef("customers", 1), emptyMap(), identityOutputs(result), emptyMap(), emptyMap())
-                assertEquals("ANALYZE_STAGES", assertThrows(EngineExecutionException::class.java) { execute(engine, definitions,
-                    measures(listOf(QueryComputation.Invocation("invalid", instance, "invalid_total", emptyMap(), mapOf("members" to source), emptyMap(), DimensionCondition.Unrestricted())), emptyMap())) }.stage, field)
+                assertEquals(listOf(listOf(expectedSums.getValue(field))), numericRows(execute(engine, definitions,
+                    measures(listOf(QueryComputation.Invocation("completed", instance, "completed_total", emptyMap(), mapOf("members" to source), emptyMap(), DimensionCondition.Unrestricted())), emptyMap()))), field)
             }
             assertEquals(listOf(listOf(decimal("50"), decimal("50"))), numericRows(execute(engine, definitions, shared)))
+        }
+    }
+    @Test fun sumsStoreMaximaOverTheirActualCompletedValuesAndNullPolicies(@TempDir directory: Path) {
+        NativeWarehouse(directory, "duckdb", listOf(
+            "CREATE TABLE sales(id INTEGER PRIMARY KEY, store INTEGER, amount DECIMAL(18,2))",
+            "INSERT INTO sales VALUES (1,1,10),(2,1,20),(3,2,7),(4,2,7),(5,3,NULL)"
+        )).use { warehouse ->
+            val definitions = Definitions(catalog(warehouse, "sales", mapOf("sales.id" to "id", "sales.store" to "store", "sales.amount" to "amount"), emptyList()))
+            declareUnits(definitions, "sales", mapOf("id" to ScalarValueType.NUMBER, "store" to ScalarValueType.NUMBER, "amount" to ScalarValueType.NUMBER))
+            installProjection(definitions, "sales", MemberShape.RECORDS, listOf("id"), mapOf(
+                "id" to property("记录", "record", ScalarValueType.NUMBER, "sales.id"),
+                "store" to property("门店", "store", ScalarValueType.NUMBER, "sales.store"),
+                "amount" to property("金额", "amount", ScalarValueType.NUMBER, "sales.amount", contract = money)))
+            warehouse.finishSetup(); val engine = engine(warehouse)
+            val maxima = regroup(listOf("store"), listOf(reduction("amount", ResultAggregation.Maximum(ResultAggregation.NullPolicy.IGNORE), "store_max")))
+            val values = memberScope("sales", listOf("id", "store", "amount"), listOf(maxima))
+            assertEquals(listOf(listOf(decimal("1"), decimal("20")), listOf(decimal("2"), decimal("7")), listOf(decimal("3"), null)),
+                numericRows(execute(engine, definitions, values)))
+            for ((nulls, expected) in listOf(ResultAggregation.NullPolicy.IGNORE to decimal("27"), ResultAggregation.NullPolicy.PROPAGATE to null)) {
+                val summed = memberScope("sales", listOf("id", "store", "amount"), listOf(maxima,
+                    regroup(emptyList(), listOf(reduction("store_max", ResultAggregation.Sum(money, nulls), "sum_of_store_maxima")))))
+                assertEquals(listOf(listOf(expected)), numericRows(execute(engine, definitions, summed)))
+            }
+            val original = memberScope("sales", listOf("id", "amount"), listOf(regroup(emptyList(), listOf(
+                reduction("amount", ResultAggregation.Sum(money, ResultAggregation.NullPolicy.IGNORE), "sales_total"),
+                reduction("amount", ResultAggregation.Maximum(ResultAggregation.NullPolicy.IGNORE), "overall_max")))))
+            assertEquals(listOf(listOf(decimal("44"), decimal("20"))), numericRows(execute(engine, definitions, original)))
         }
     }
     @Test fun requiresLocalObjectProjectionsToRetainIdentityOrExplicitlyRegroupCustomers(@TempDir directory: Path) {
