@@ -199,11 +199,7 @@ internal class ServerApplication private constructor(private val plugins: Connec
             else {
                 val reference = QueryResultReference(check.reference.getValue("runId") as String, check.reference.getValue("sha256") as String)
                 val observed = resultFiles.inspect(reference)
-                val issues = (observed.getValue("issues") as List<*>).map { code ->
-                    com.olap.prototype.governance.contract.DeploymentAvailability.Issue(code as String, "saved result bytes are not readable by this deployment")
-                }
-                check.copy(status = if (issues.isEmpty()) com.olap.prototype.governance.contract.DeploymentAvailability.Status.AVAILABLE
-                    else com.olap.prototype.governance.contract.DeploymentAvailability.Status.INVALID, issues = issues)
+                check.copy(status = observed.status, issues = observed.issues)
             }
         })
     }

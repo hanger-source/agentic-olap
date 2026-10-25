@@ -11,6 +11,7 @@ import com.olap.prototype.engine.EngineExecutionException
 import com.olap.prototype.governance.contract.AnalysisDimensionEventMappingConflictException
 import com.olap.prototype.governance.contract.AnalysisDimensionEventMappingRecord
 import com.olap.prototype.governance.contract.MemberAdoptionConflictException
+import com.olap.prototype.query.contract.QueryResultFormatException
 import com.olap.prototype.runtime.RuntimeResourceLimitException
 import com.olap.prototype.warehouse.SourceGuaranteeException
 import com.olap.prototype.warehouse.inspection.WarehouseInspectionException
@@ -52,6 +53,7 @@ internal object ServerFailures {
         var cause: Throwable? = failure
         while (cause != null && visited.add(cause)) {
             when (cause) {
+                is QueryResultFormatException -> return Projection("RESULT_READ", cause.code, requireNotNull(cause.message), cause.details)
                 is InputContractException -> return Projection(cause.rule.stage, cause.rule.code, cause.message, cause.details)
                 is com.olap.prototype.governance.contract.StageAuthorizationApprovalException -> return Projection("GOVERNANCE_CONTRACT", "STAGE_AUTHORIZATION_APPROVAL_MISMATCH",
                     requireNotNull(cause.message), mapOf("fieldPath" to listOf("approvedAuthorization"), "scenarioId" to cause.scenarioId,

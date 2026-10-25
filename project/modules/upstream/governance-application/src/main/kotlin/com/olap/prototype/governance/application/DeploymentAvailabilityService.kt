@@ -1,6 +1,7 @@
 package com.olap.prototype.governance.application
 
 import com.olap.prototype.codec.ProtoBytes
+import com.olap.prototype.codec.QueryArtifactProto
 import com.olap.prototype.connector.ConnectorRegistry
 import com.olap.prototype.connector.OlapConnector
 import com.olap.prototype.contract.JdbcSourceRequirement
@@ -38,7 +39,8 @@ class DeploymentAvailabilityService(private val database: PlatformDatabase, priv
         val checks = mutableListOf<Check>()
         val supported = mapOf("storageFormat" to PlatformSchemaInitializer.supportedFormatVersion.toString(),
             "catalogSchema" to ExecutableCatalogManifest.SCHEMA_VERSION, "publicationFormat" to PublishedExecutableCatalog.FORMAT_VERSION,
-            "connectorApi" to OlapConnector.API_VERSION, "definitionFormat" to QueryDefinitionArtifact.FORMAT_VERSION, "intentFormat" to PublishedQueryContract.FORMAT_VERSION)
+            "connectorApi" to OlapConnector.API_VERSION, "definitionFormat" to QueryDefinitionArtifact.FORMAT_VERSION, "intentFormat" to PublishedQueryContract.FORMAT_VERSION,
+            "resultArtifactFormat" to QueryArtifactProto.FORMAT, "resultRecordFormat" to SavedQueryResultRecord.FORMAT)
         checks.add(check(Kind.METADATA, mapOf("asset" to "platform-storage")) {
             val actual = query("SELECT format_version FROM platform_storage_format WHERE singleton_id=1") { it.getInt(1) }.single()
             format("storageFormat", actual.toString(), supported.getValue("storageFormat"))

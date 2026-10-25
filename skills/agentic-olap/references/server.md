@@ -67,6 +67,8 @@ agentic-olap call wait-script --payload '{"executionId":"sources-001","waitMilli
 
 升级先停止该前台进程，执行 `npm install --global @hanger-source/agentic-olap@目标版本`，再以原 `--home` 或 `--config` 启动。所有随包文件由 npm 替换，没有第二个产品安装步骤。安装完成不会重启已运行的进程，也不会改写配置或转换持久根格式。升级前核对目标发行的存储格式与连接器 API；精确插件引用变化时，明确配置插件并修订受影响资产，不自动改变旧发布引用。
 
+元数据库与保存结果分别核对格式：storage 16 描述元数据库；结果文件封套为 `olap-query-result-artifact/v5`、记录为 `olap-query-result-record/v5`。就绪报告披露实际支持格式，并区分旧结果格式不支持与文件损坏。同一元数据库格式不保证新发行能解码所有旧结果；旧文件保留原字节，使用匹配发行读取，不自动转换，也无需重新执行原业务操作来取得历史结果。
+
 本地重启后用 `info` 核对安装版本与实际服务版本；不可达或版本不同会返回具体原因及非零退出，报告仍保留配置和安装位置。远程客户端用 `tools` 返回的 `serverInfo.version` 核对。连接器和来源来自已有的授权读取；未获准项明确显示，来源列表不证明真实查询成功，`sourceQuery=NOT_CHECKED` 表示没有执行来源 SQL。所选发布、保存查询与结果的可用前提可通过 `read-deployment-availability` 核对；实际业务确认使用明确选择的查询，不自动重跑全部业务用法。
 
 本地认证明确使用 `auth.mode="local-token"`，其字段为 `tokenFile/subject/scopes/grants`。只允许监听127.0.0.1或::1，令牌必须来自0600普通文件。默认主体为 `local`，scope为 `olap.local`；生成的 grant 操作列表来自同发行模板，`dataSources/subjectAreas/releases` 显式为 `["*"]`，`allGovernanceAssets=true`。这些权限仅授予该本地令牌主体，仍经过相同的操作、来源、治理和发布授权。

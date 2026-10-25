@@ -1,6 +1,8 @@
 package com.olap.prototype.server.results
 
 import com.olap.prototype.codec.QueryArtifactProto
+import com.olap.prototype.governance.contract.DeploymentAvailability
+import com.olap.prototype.query.contract.QueryResultFormatException
 import com.olap.prototype.query.contract.QueryResultReference
 import com.olap.prototype.query.contract.SavedQueryResultRecord
 import com.olap.prototype.query.usage.QueryResultArtifact
@@ -18,12 +20,21 @@ class ResultFiles(dataRoot: Path) {
     }
     fun read(reference: QueryResultReference): SavedQueryResultRecord = decode(reference, PrivateFiles.read(location(reference)))
     fun location(reference: QueryResultReference): Path = directory.resolve("${reference.runId}.pb")
-    fun inspect(reference: QueryResultReference): Map<String, Any> = try {
-        read(reference)
-        mapOf("reference" to reference, "status" to "READABLE", "issues" to emptyList<String>())
-    } catch (failure: Exception) {
-        val missing = failure is java.nio.file.NoSuchFileException
-        mapOf("reference" to reference, "status" to "UNAVAILABLE", "issues" to listOf(if (missing) "RESULT_NOT_FOUND" else "RESULT_UNREADABLE"))
+    fun inspect(reference: QueryResultReference): DeploymentAvailability.Check {
+        val coordinate = mapOf<String, Any>("runId" to reference.runId, "sha256" to reference.sha256)
+        return try {
+            read(reference)
+            DeploymentAvailability.Check(DeploymentAvailability.Kind.RESULT_READ, coordinate, DeploymentAvailability.Status.AVAILABLE)
+        } catch (failure: QueryResultFormatException) {
+            DeploymentAvailability.Check(DeploymentAvailability.Kind.RESULT_READ, coordinate, DeploymentAvailability.Status.UNSUPPORTED,
+                listOf(DeploymentAvailability.Issue(failure.code, requireNotNull(failure.message), failure.details)))
+        } catch (failure: java.nio.file.NoSuchFileException) {
+            DeploymentAvailability.Check(DeploymentAvailability.Kind.RESULT_READ, coordinate, DeploymentAvailability.Status.MISSING,
+                listOf(DeploymentAvailability.Issue("RESULT_NOT_FOUND", "saved result file is absent")))
+        } catch (failure: Exception) {
+            DeploymentAvailability.Check(DeploymentAvailability.Kind.RESULT_READ, coordinate, DeploymentAvailability.Status.INVALID,
+                listOf(DeploymentAvailability.Issue("RESULT_UNREADABLE", "saved result bytes are not readable by this deployment")))
+        }
     }
     private fun decode(reference: QueryResultReference, bytes: ByteArray): SavedQueryResultRecord {
         val artifact = SavedQueryResultArtifact.parseFrom(bytes)
