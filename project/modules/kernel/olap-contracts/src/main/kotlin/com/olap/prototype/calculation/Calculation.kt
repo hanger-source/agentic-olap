@@ -320,6 +320,16 @@ class Calculation(dimensionSlots: List<DimensionSlot>, memberSlots: List<MemberS
     class SetProjection(val inputId: String, symbols: List<String>) {
         val symbols: List<String> = java.util.List.copyOf(symbols)
         init { ScopedInputContract.requireId(inputId) }
+        companion object {
+            fun contract(): Map<String, Any> = mapOf(
+                "inputId" to mapOf("pattern" to "[a-z][a-z0-9_]{0,47}", "forbiddenSubstring" to "__",
+                    "validation" to "SET_PROJECTION_CONSTRUCTOR"),
+                "input" to "REFERENCES_AN_EXPLICIT_ROOT_INPUT_IN_THE_ENCLOSING_SCOPE",
+                "symbols" to "ORDERED_NAMES_OF_THE_REFERENCED_COMPLETED_INPUT_OUTPUTS_POSITIONALLY_MATCHING_OUTPUT_SLOTS",
+                "widthValidation" to "SET_ROOT_CONSTRUCTOR_REQUIRES_EACH_PROJECTION_TO_MATCH_THE_NONEMPTY_OUTPUT_SLOT_LIST",
+                "referenceValidation" to "ROOT_INPUT_MODE_AND_SYMBOL_AVAILABILITY_ARE_CHECKED_AGAINST_THE_BOUND_INPUT_NOT_BY_THE_PROJECTION_CONSTRUCTOR",
+            )
+        }
         override fun equals(other: Any?): Boolean = other is SetProjection && inputId == other.inputId && symbols == other.symbols
         override fun hashCode(): Int = listOf(inputId, symbols).hashCode()
     }
@@ -327,6 +337,22 @@ class Calculation(dimensionSlots: List<DimensionSlot>, memberSlots: List<MemberS
         val inputs: List<SetProjection> = java.util.List.copyOf(inputs)
         val outputSlots: List<SetOutputContract> = java.util.List.copyOf(outputSlots)
         init { require(this.inputs.size >= 2 && this.outputSlots.isNotEmpty() && this.outputSlots.map { it.name }.distinct().size == this.outputSlots.size && this.inputs.all { it.symbols.size == this.outputSlots.size }) { "set combination requires explicit equal-width input projections and distinct output slots" } }
+        companion object {
+            fun contract(): Map<String, Any> = mapOf(
+                "operations" to SetKind.entries.map { it.name },
+                "inputs" to mapOf("minimum" to 2, "validation" to "SET_ROOT_CONSTRUCTOR",
+                    "projection" to SetProjection.contract()),
+                "outputSlots" to mapOf("minimum" to 1, "order" to "EXPLICIT_POSITIONAL_COMMON_OUTPUT_ORDER",
+                    "width" to "EVERY_INPUT_PROJECTION_HAS_EXACTLY_THIS_MANY_SYMBOLS",
+                    "names" to "UNIQUE_WITHIN_THIS_SET_ROOT_VALIDATED_BY_THE_SET_ROOT_CONSTRUCTOR",
+                    "alias" to mapOf("pattern" to "[A-Za-z_][A-Za-z0-9_]*", "validation" to "SET_OUTPUT_CONTRACT_CONSTRUCTOR")),
+                "compatibility" to "EACH_POSITION_RETAINS_ITS_DECLARED_SEMANTIC_SHAPE_IDENTITY_QUANTITY_UNIT_GUARANTEE_AND_LOSSLESS_COMMON_NATIVE_TYPE_CHECKS",
+                "allFalse" to "DISTINCT_COMPLETE_PROJECTED_ROWS_ACROSS_ALL_OUTPUT_SLOTS_NOT_DISTINCT_ON_A_SUBSET_KEY",
+                "allTrue" to "OPERATION_SPECIFIC_BAG_MULTIPLICITY",
+                "identity" to "WHOLE_ROW_DEDUPLICATION_DOES_NOT_PROVE_A_SUBSET_KEY_UNIQUE_OR_ANY_OUTPUT_NON_NULL",
+                "singleInput" to "NOT_SUPPORTED_BY_SET_USE_REGROUP_WITH_EXPLICIT_KEYS_AND_NO_AGGREGATES_FOR_ONE_RELATION_DISTINCT",
+            )
+        }
         override fun equals(other: Any?): Boolean = other is SetCombination && operation == other.operation && all == other.all && inputs == other.inputs && outputSlots == other.outputSlots
         override fun hashCode(): Int = listOf(operation, all, inputs, outputSlots).hashCode()
     }

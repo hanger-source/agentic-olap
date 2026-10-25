@@ -93,6 +93,7 @@ object QueryComputation {
         val inputs: List<Calculation.SetProjection> = java.util.List.copyOf(inputs)
         val outputSlots: List<SetOutputContract> = java.util.List.copyOf(outputSlots)
         init { require(this.inputs.size >= 2 && this.outputSlots.isNotEmpty() && this.outputSlots.map { it.name }.distinct().size == this.outputSlots.size && this.inputs.all { it.symbols.size == this.outputSlots.size }) { "set root requires explicit equal-width projections and distinct output slots" } }
+        companion object { fun contract(): Map<String, Any> = Calculation.SetCombination.contract() }
         override fun equals(other: Any?): Boolean = other is SetInputs && operation == other.operation && all == other.all && inputs == other.inputs && outputSlots == other.outputSlots
         override fun hashCode(): Int = listOf(operation, all, inputs, outputSlots).hashCode()
     }

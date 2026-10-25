@@ -253,7 +253,22 @@ class ParameterizedRelToSqlConverter(private val support: CompilationSupport, pr
 
     override fun visit(values: Values): Result {
         val converted = super.visit(values)
-        if (values.tuples.isNotEmpty() || values.rowType.fieldCount == 0) return converted
+        if (values.rowType.fieldCount == 0) return converted
+        if (values.tuples.isNotEmpty()) {
+            // RelBuilder 可将全局空列聚合及常量投影折成 Values。其 Rex 字面量类型
+            // 不能约束后端对裸 SQL 字面量的推导，仍须在真正交付列上保持原生类型。
+            val input = converted.resetAlias()
+            val context = input.qualifiedContext()
+            val columns = values.rowType.fieldList.mapIndexed { ordinal, field ->
+                val value = context.field(ordinal)
+                val typed = if (field.type.sqlTypeName == SqlTypeName.NULL) value else
+                    Ops.CAST.createCall(POS, value, dialect.getCastSpec(field.type))
+                Ops.AS.createCall(POS, typed, SqlIdentifier(field.name, POS))
+            }
+            val selected = SqlSelect(POS, null, SqlNodeList(columns, POS), input.asFrom(),
+                null, null, null, null, null, null, null, null, null)
+            return result(selected, listOf(Clause.SELECT), values, null)
+        }
         val typing = object : SqlShuttle() {
             var ordinal = 0
             override fun visit(literal: SqlLiteral): SqlNode {

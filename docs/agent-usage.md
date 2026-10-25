@@ -166,9 +166,28 @@ olap.output(rule)
 
 每个正式写操作保有自己的事务与失败责任。整段脚本不是覆盖所有调用的一个数据库事务：后续报错不会撤销之前已完成的写入、发布或来源查询。先读真实状态再决定继续，不盲目重放有副作用的脚本。
 
+### 单关系形成键集合
+
+`REGROUP` 可以只指定分组键，不要求声明额外聚合。例如，下面两个阶段分别从一份关系形成唯一对象人口和日期标识元组；将所需阶段放入正式 `Calculation.Scope` 或 Query 作用域的 `stages`：
+
+~~~kotlin
+val actors = PostOperationContract.Regroup(
+    PostOperationContract.ResultGrouping(listOf("actor"), emptyList(), null)
+)
+val dayIdentifiers = PostOperationContract.Regroup(
+    PostOperationContract.ResultGrouping(listOf("actor", "business_day", "identifier"), emptyList(), null)
+)
+~~~
+
+输出仅保留这些键，按完整键去重，不选择其他列的任意值，不隐式使用 MAX，也不需要为通过构造而增加 COUNT。所得元组可以继续统计、测量和对齐；后续 COUNT 仍遵守它实际输入的 NULL 政策，不能用原始 bag 的出现次数代替元组数量。非空分组键上的空输入返回零行；NULL 键继续保留为分组值，唯一性不证明身份非 NULL。
+
+分组键、聚合输出和层级码共同组成真实输出，名称不能冲突；层级必须精确绑定分组键。可以没有聚合，也可以做无分组键的全局聚合；全部没有且不输出层级码的零列结果不属于当前关系合同。局部构造规则通过 `ResultGrouping.rules` 发现。
+
 ### 完成对象集合继续参与测量
 
 完成关系可以先用 `INTERSECT`、`EXCEPT` 或 `UNION` 组织对象集合，再交给 `ObjectMeasure` 筛选实际记录，分别完成测量并按对象身份对齐。例如，前期付费对象与本期活动对象取交集、排除本期付费对象后，同一集合可以分别限制本期目录记录和交易记录。`RecordOutputs` 指向实际成员槽的键出口；对象集合仍是完成关系，无需伪装成成员来源。
+
+SET 组合两份及以上显式输入，各输入按位置投影到等宽、非空的共同输出；`Calculation.SetProjection` 指定输入和有序符号，`SetCombination`／`QueryComputation.SetInputs` 的规则分别从正式类型发现。单份关系形成键集合直接使用 REGROUP，不复制输入做 self-UNION。
 
 共同输出中的分析维度身份及其实际角色必须一致。引擎沿 SET 的真实分支依赖核对身份和角色，列同名、同为 TEXT 或声明相同输出形状都不能替代证明；缺少来源证明或分支角色冲突时拒绝。`all=false` 的 SET 形成其完整输出行的唯一键，不能因此把被测成员的 `RAW_BAG` 改成唯一记录。对象资格只筛选记录，后续归约明确计算贡献，资格集合不会复制被测记录。
 

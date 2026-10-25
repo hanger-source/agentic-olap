@@ -93,6 +93,8 @@ agentic-olap call wait-script --payload '{"executionId":"sources-001","waitMilli
 
 `COUNT` 使用 `MetricValueContract.Fixed(MetricValueContract.ONE)`，对象身份及去重政策由测量本身表达，不能给计数另造实体单位。完整 COUNT、精确金额数量合同及人口合同读取示例见[数量合同与人口](https://github.com/hanger-source/agentic-olap/blob/main/docs/agent-usage.md#数量合同与人口)。
 
+单份关系形成唯一键集合使用 `PostOperationContract.Regroup(PostOperationContract.ResultGrouping(keys, emptyList(), null))`，只输出这些键，无需额外 COUNT。NULL 键保留，非空键上的空输入不造行，唯一性不代替非 NULL 身份证明。SET 用于两份及以上等宽显式投影的集合组合，不用 self-UNION 代替一份关系的键集合。构造规则读取正式类型的 `rules`，完整示例见[单关系形成键集合](https://github.com/hanger-source/agentic-olap/blob/main/docs/agent-usage.md#单关系形成键集合)。
+
 一次完整计算限同一精确来源绑定、方言与连接器；不等于跨来源联邦。保存结果不能直接充当后续 Query 的关系输入。
 
 完成关系需要插件原生标量时，先读实际 `nativeScalarFunctions` 和 `ResultExpression.ResultNativeCall` 的正式类型及 rules，只调用该精确来源插件的纯 SCALAR 签名。关联后的条件解析放在 JOIN 后 CASE 分支内，所有分支仍静态核验；不无条件前移到源定义，不猜 CAST 等价。格式、NULL、解析错误和稳定性由插件及真实后端兑现，数值结果不自动取得业务单位或更强算术。来源层 PhysicalTable 参数与采用闭包另按[原生函数合同](references/connections.md#使用已声明的原生函数)处理。

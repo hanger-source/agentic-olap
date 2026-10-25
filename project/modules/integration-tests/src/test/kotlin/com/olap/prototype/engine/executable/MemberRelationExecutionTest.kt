@@ -719,14 +719,14 @@ class MemberRelationExecutionTest {
                     ResultTypedLiteral(ScalarValueType.TEXT, "")), symbol("actor"))), ResultLiteral(null))
                 val groups = listOf(subject) + (if (daily) listOf("activity_day") else emptyList()) +
                     (if (daily && tuples) listOf("nonempty_actor") else emptyList())
-                val aggregates = if (daily) listOf(reduction("nonempty_actor", ResultAggregation.Count(!tuples, ResultAggregation.NullPolicy.IGNORE),
-                    if (tuples) "tuple_records" else "day_uv")) else listOf(
+                val aggregates = if (daily && tuples) emptyList() else if (daily)
+                    listOf(reduction("nonempty_actor", ResultAggregation.Count(true, ResultAggregation.NullPolicy.IGNORE), "day_uv")) else listOf(
                     reduction("actor", ResultAggregation.Count(true, ResultAggregation.NullPolicy.IGNORE), "period_uv"),
                     reduction("nonempty_actor", ResultAggregation.Count(true, ResultAggregation.NullPolicy.IGNORE), "period_nonempty_uv"))
                 val stages = listOf(JoinInput("directory", "directory", "LEFT", predicate(ResultOperator.EQ, symbol("item"), symbol(item))),
                     PostFilter(predicate(ResultOperator.IS_NOT_NULL, symbol(subject))), Derive(nonempty, "nonempty_actor", "非空标识"), regroup(groups, aggregates))
-                val finish = if (daily && tuples) listOf(Project(listOf(subject, "activity_day", "nonempty_actor")),
-                    regroup(listOf(subject), listOf(reduction("nonempty_actor", ResultAggregation.Count(false, ResultAggregation.NullPolicy.IGNORE), "actor_days")))) else emptyList()
+                val finish = if (daily && tuples) listOf(regroup(listOf(subject),
+                    listOf(reduction("nonempty_actor", ResultAggregation.Count(false, ResultAggregation.NullPolicy.IGNORE), "actor_days")))) else emptyList()
                 return QueryComputation.Scope(QueryComputation.Members("activity", MemberRef("activity", 1), emptyMap(),
                     listOf("item", "activity_day", "actor").map { QueryComputation.Slot(it, it) }, null, emptyMap(), MemberCondition.All(listOf(
                         MemberCondition.Predicate("activity_day", MemberCondition.Operator.BETWEEN, listOf("20260101", "20260102").map { Calculation.Scalar(ScalarValueType.TEXT, it) }),
@@ -735,8 +735,7 @@ class MemberRelationExecutionTest {
             }
             val population = directory().let { QueryComputation.Scope(it.root, it.inputs, listOf(
                 PostFilter(predicate(ResultOperator.IS_NOT_NULL, symbol("subject"))),
-                regroup(listOf("subject"), listOf(reduction("item", ResultAggregation.Count(false, ResultAggregation.NullPolicy.IGNORE), "directory_rows"))),
-                Project(listOf("subject")))) }
+                regroup(listOf("subject"), emptyList()))) }
             val values = linkedMapOf("population" to emptyList(), "period" to listOf("period_uv", "period_nonempty_uv"), "daily" to listOf("actor_days"))
             fun query(daily: QueryComputation.Scope, base: Boolean): QueryComputation.Scope {
                 val relations = values.map { (name, outputs) -> Calculation.RelationSlot(name,
@@ -781,6 +780,21 @@ class MemberRelationExecutionTest {
             }
             warehouse.finishSetup()
             val engine = engine(warehouse)
+            val rawPopulation = directory().let { QueryComputation.Scope(it.root, it.inputs, listOf(regroup(listOf("subject"), emptyList()))) }
+            // 同一个真实关系直接形成键集合；重复客户只保留一次，NULL组仍存在且不伪造非NULL证明。
+            assertEquals(listOf(listOf<BigDecimal?>(null)) + (1..5).map { listOf(decimal(it.toString())) },
+                numericRows(execute(engine, definitions, rawPopulation)))
+            val emptyPopulation = QueryComputation.Scope(rawPopulation.root, rawPopulation.inputs,
+                listOf(PostFilter(ResultLiteral(false))) + rawPopulation.stages)
+            assertTrue(execute(engine, definitions, emptyPopulation).rows.isEmpty(), "空输入按实际对象键去重不制造总体行")
+            val globalLevel = GroupingLevels("level", listOf(GroupingLevels.Level("all", emptyList()))).bind(emptyList())
+            val levelPopulation = QueryComputation.Scope(rawPopulation.root, rawPopulation.inputs,
+                listOf(Regroup(ResultGrouping(emptyList(), emptyList(), globalLevel))))
+            val emptyLevelPopulation = QueryComputation.Scope(levelPopulation.root, levelPopulation.inputs,
+                listOf(PostFilter(ResultLiteral(false))) + levelPopulation.stages)
+            // 显式全局层级拥有一个总体组；即使来源为空，仍交付该层级码，区别于有键空人口。
+            assertEquals(listOf(listOf(decimal("0"))), numericRows(execute(engine, definitions, levelPopulation)))
+            assertEquals(listOf(listOf(decimal("0"))), numericRows(execute(engine, definitions, emptyLevelPopulation)))
             // 重复目录行与同日重复不增加去重贡献；同一标识跨日各贡献一次。
             val expected = listOf(listOf("1", "3", "2", "3", "1"), listOf("2", "3", "2", "3", "1"),
                 listOf("3", "1", "0", "0", "0"), listOf("4", "0", "0", "0", "0")).map { row -> row.map(::decimal) }

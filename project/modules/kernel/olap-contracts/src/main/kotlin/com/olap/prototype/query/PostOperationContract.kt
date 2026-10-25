@@ -265,7 +265,6 @@ object PostOperationContract {
         val groupBy = requireInputSymbols(groupBy, "regroup.groupBy")
         val aggregates: List<ResultAggregate> = java.util.List.copyOf(aggregates)
         init {
-            require(this.aggregates.isNotEmpty()) { "regroup requires explicit aggregates" }
             val names = this.groupBy.toMutableSet()
             this.aggregates.forEach { require(names.add(it.outputAlias)) { "regroup output names conflict" } }
             groupingLevels?.let { levels ->
@@ -273,9 +272,23 @@ object PostOperationContract {
                 val definition = GroupingLevels(levels.outputAlias, levels.levels.map { GroupingLevels.Level(it.id, it.groupBy) })
                 require(definition.bind(this.groupBy) == levels) { "grouping levels differ from their explicit dimensions" }
             }
+            require(names.isNotEmpty()) { "regroup requires at least one grouping key, aggregate, or grouping level output" }
         }
         override fun equals(other: Any?): Boolean = other is ResultGrouping && groupBy == other.groupBy && aggregates == other.aggregates && groupingLevels == other.groupingLevels
         override fun hashCode(): Int = listOf(groupBy, aggregates, groupingLevels).hashCode()
+        companion object {
+            fun contract(): Map<String, Any> = mapOf(
+                "groupBy" to "DISTINCT_AVAILABLE_SYMBOLS_RETAIN_THEIR_EXISTING_IDENTITY_ROLE_AND_VALUE_MEANING",
+                "aggregates" to "OPTIONAL_EXPLICIT_REDUCTIONS_OF_AVAILABLE_INPUT_SYMBOLS",
+                "keyOnly" to "WITHOUT_AGGREGATES_OR_GROUPING_LEVELS_PROJECT_GROUP_BY_KEYS_AND_COLLAPSE_DUPLICATE_KEY_TUPLES_ONLY",
+                "nonKeyColumns" to "DROPPED_UNLESS_EXPLICITLY_AGGREGATED_NO_IMPLICIT_WINNER_OR_VALUE_SELECTION",
+                "nullKeys" to "NULL_KEY_COMPONENTS_FORM_GROUPS_AND_DO_NOT_ACQUIRE_NON_NULL_IDENTITY_PROOF",
+                "emptyInput" to "PLAIN_NONEMPTY_GROUP_BY_PRODUCES_NO_ROWS_GLOBAL_OR_GROUPING_SETS_KEEP_THEIR_DECLARED_EMPTY_GROUP_SEMANTICS",
+                "outputs" to "AT_LEAST_ONE_GROUP_BY_AGGREGATE_OR_GROUPING_LEVEL_OUTPUT_WITH_DISTINCT_ALIASES",
+                "outputOrder" to "GROUP_BY_THEN_OPTIONAL_GROUPING_LEVEL_CODE_THEN_AGGREGATES",
+                "groupingLevels" to GroupingLevels.contract(),
+            )
+        }
     }
     data class ResultAggregate(val input: String, val aggregation: ResultAggregation, val outputAlias: String, val outputDisplayName: String) {
         init { requireInputSymbol(input, "aggregate.input"); output(outputAlias, outputDisplayName, "aggregate") }
