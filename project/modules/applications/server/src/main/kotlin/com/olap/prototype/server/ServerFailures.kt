@@ -29,7 +29,6 @@ internal object ServerFailures {
         if (failure is ResultPersistenceFailure) return Projection("RESULT_DELIVERY", "RESULT_DELIVERY_FAILED",
             "result persistence failed after execution; inspect the exact run without replaying",
             mapOf("runId" to failure.receipt.runId, "executionReceipt" to failure.receipt.copy(result = null)))
-        if (failure is JsonMappingException) return contract(ProducerContractException("declared input does not match its contract", failure), stage)
         if (failure is WorkerPool.WorkerFailure) return worker(failure, stage, unknownCode)
         if (failure is ProtoStringRepresentationException) return Projection("ENCODE_MODEL", "CONTRACT_VIOLATION", requireNotNull(failure.message),
             mapOf("fieldPath" to failure.fieldPath, "expectedKind" to "WELL_FORMED_UNICODE_TEXT", "actualKind" to "UNPAIRED_UTF16_SURROGATE"))
@@ -49,6 +48,7 @@ internal object ServerFailures {
             return Projection(actualStage, code, failure.message, select(failure.evidenceContext, "scope", "inputScope", "requirements", "actualKey", "actualOutputs"))
         if (failure is EngineExecutionException && code.startsWith("CORE_FINALIZATION_"))
             return Projection(actualStage, code, failure.message, select(failure.evidenceContext, "fieldPath", "expectedKind", "actualKind"))
+        // JSON构造包装不能覆盖领域已有的受控错误；未识别的映射错误仍保留原映射路径。
         val visited = Collections.newSetFromMap(IdentityHashMap<Throwable, Boolean>())
         var cause: Throwable? = failure
         while (cause != null && visited.add(cause)) {
@@ -100,11 +100,14 @@ internal object ServerFailures {
                         "readOperation" to "read-analysis-dimension-mappings"))
                 }
                 is ContractSelectionException -> return Projection(actualStage, "INVALID_REQUEST", cause.message, emptyMap())
-                is ProducerContractException -> return contract(cause, actualStage)
+                is ProducerContractException -> return contract(
+                    if (failure is JsonMappingException) ProducerContractException("declared input does not match its contract", failure) else cause,
+                    actualStage)
             }
             cause = cause.cause
         }
         val projected = when {
+            failure is JsonMappingException -> contract(ProducerContractException("declared input does not match its contract", failure), actualStage)
             code == "CANCELLED" -> Projection(actualStage, code, "operation was cancelled", emptyMap())
             failure is SecurityException -> Projection(actualStage, "AUTHORIZATION_DENIED", "operation or resource is not authorized", emptyMap())
             failure is CancellationException -> Projection(actualStage, "CANCELLED", "operation was cancelled", emptyMap())

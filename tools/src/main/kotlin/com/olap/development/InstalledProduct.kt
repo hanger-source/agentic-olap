@@ -182,7 +182,9 @@ internal class InstalledProduct(private val tarballs: Path, private val root: Pa
             "section" to text("COLUMNS"), "offset" to number(-1), "limit" to number(1000))))
         check(!invalid.getValue("success").jsonPrimitive.boolean)
         val error = invalid.objectAt("error")
-        check(error.string("code") == "INVALID_PAGINATION" && error.string("stage") == "CONTRACT_INPUT")
+        check(error.string("code") == "INVALID_PAGINATION" && error.string("stage") == "CONTRACT_INPUT") {
+            "JSON元数据请求的构造错误必须保留正式分页合同：$error"
+        }
         check(error.objectAt("details").array("fieldPath") == JsonArray(listOf(text("offset"))))
         check(error.objectAt("details").getValue("actual").jsonPrimitive.int == -1)
     }

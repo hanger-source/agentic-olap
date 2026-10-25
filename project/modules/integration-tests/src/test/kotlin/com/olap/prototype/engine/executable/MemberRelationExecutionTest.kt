@@ -1087,6 +1087,92 @@ class MemberRelationExecutionTest {
             assertEquals("OBSERVATION_OBJECT_IDENTITY_NULL", failure.code)
         }
     }
+    @Test fun retainsFilteredLeftIdentityThroughDerivedBagContributionsAndCompletedAlignment(@TempDir directory: Path) {
+        NativeWarehouse(directory, "duckdb", listOf(
+            "CREATE TABLE orders(id INTEGER PRIMARY KEY, customer VARCHAR, period INTEGER, kind INTEGER, amount DOUBLE)",
+            "INSERT INTO orders VALUES (1,'actor_demo',1,1,10),(2,'actor_demo',1,1,20),(3,NULL,1,1,5),(4,'other_actor',1,1,7)",
+            "CREATE TABLE attributes(record_key INTEGER NOT NULL, component DOUBLE, flag VARCHAR)",
+            "INSERT INTO attributes VALUES (1,2,'Y'),(1,3,'N'),(4,9,'Y')"
+        )).use { warehouse ->
+            val definitions = observationCatalog(warehouse)
+            declareUnits(definitions, "orders", mapOf("customer" to ScalarValueType.TEXT))
+            val original = definitions.members.getValue("orders@1") as MemberSource.Projection
+            val declared = original.definition.result
+            val outputs = declared.outputs + mapOf(
+                "customer" to MemberSourceDefinition.DimensionOutput("客户", "customer", ScalarValueType.TEXT, "customer", 1, "customer_orders", 1, null),
+                "amount" to property("金额", "amount", ScalarValueType.NUMBER, "orders.amount", contract = floatingMoney))
+            definitions.members["orders@1"] = MemberSource.Projection("orders", 1, original.definition.copy(result =
+                MemberResult(declared.entity, declared.role, MemberShape.RAW_BAG, emptyList(), outputs,
+                    declared.filterOperators, null, emptyMap(), null)), original.outputExpressions)
+            val attributes = catalog(warehouse, "attributes", listOf("record_key", "component", "flag").associate { "attributes.$it" to it },
+                emptyList(), "attributes.record_key")
+            definitions.physical.putAll(attributes.physicalExecutionBindings)
+            definitions.topologies.putAll(attributes.topologies)
+            definitions.events.putAll(attributes.events.mapValues { (_, event) -> event.copy(identity = EventIdentity(emptyList(), emptyMap())) })
+            declareUnits(definitions, "attributes", mapOf("record_key" to ScalarValueType.NUMBER, "component" to ScalarValueType.NUMBER, "flag" to ScalarValueType.TEXT))
+            val attributeOutputs = linkedMapOf(
+                "record_key" to property("记录", "record", ScalarValueType.NUMBER, "attributes.record_key"),
+                "component" to property("贡献", "component", ScalarValueType.NUMBER, "attributes.component", contract = floatingMoney),
+                "flag" to property("条件", "flag", ScalarValueType.TEXT, "attributes.flag"))
+            definitions.members["attributes@1"] = MemberSource.Projection("attributes", 1,
+                MemberSourceDefinition.Projection(EventRef("attributes", 1), MemberResult("属性记录", "attributes", MemberShape.RAW_BAG,
+                    emptyList(), attributeOutputs, emptyMap(), null, emptyMap(), null)),
+                attributeOutputs.keys.associateWith { SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, "attributes.$it", 1) })
+            val axis = ScopedInputContract.DimensionRef("customers", "1", "customer")
+            fun population(restrict: Boolean) = QueryComputation.Scope(QueryComputation.Members("activity", MemberRef("orders", 1), emptyMap(),
+                listOf(QueryComputation.MappedDimension("customer", "customer", axis), QueryComputation.Slot("id", "id"), QueryComputation.Slot("amount", "amount")),
+                null, emptyMap(), if (restrict) MemberCondition.Predicate("customer", MemberCondition.Operator.EQ,
+                    listOf(Calculation.Scalar(ScalarValueType.TEXT, "actor_demo"))) else MemberCondition.Unrestricted(), emptyMap(), emptyMap()), emptyMap(), emptyList())
+            fun eq(left: ResultExpression, right: ResultExpression) = ResultOperation(ResultOperator.EQ, listOf(left, right))
+            fun completed(restrict: Boolean, contribution: Boolean): QueryComputation.Scope {
+                val operations = if (contribution) listOf(
+                    JoinInput("attributes", "attribute", "LEFT", eq(symbol("id"), symbol("attribute__record_key"))),
+                    Derive(ResultCaseWhen(listOf(ResultCaseBranch(eq(symbol("attribute__flag"), ResultTypedLiteral(ScalarValueType.TEXT, "Y")),
+                        symbol("attribute__component"))), ResultQuantityLiteral(BigDecimal.ZERO, floatingMoney)), "row_contribution", "条件金额"),
+                    Derive(symbol("amount"), "row_copied_amount", "原关联人口中的金额"),
+                    regroup(listOf("customer"), listOf(
+                        reduction("row_contribution", ResultAggregation.Sum(floatingMoney, ResultAggregation.NullPolicy.IGNORE), "contribution_total"),
+                        reduction("row_copied_amount", ResultAggregation.Sum(floatingMoney, ResultAggregation.NullPolicy.IGNORE), "copied_total"))))
+                else listOf(regroup(listOf("customer"), listOf(reduction("amount", ResultAggregation.Sum(floatingMoney, ResultAggregation.NullPolicy.IGNORE), "amount_total"))))
+                val inputs = linkedMapOf("activity_rows" to QueryComputation.Input("ROOT", population(restrict)))
+                if (contribution) inputs["attributes"] = QueryComputation.Input("RELATION", memberScope("attributes", attributeOutputs.keys.toList(), emptyList()))
+                return QueryComputation.Scope(QueryComputation.Reuse("activity_rows"), inputs, operations)
+            }
+            val values = linkedMapOf("amounts" to listOf("amount_total"), "contributions" to listOf("contribution_total", "copied_total"))
+            val relations = values.map { (name, columns) -> Calculation.RelationSlot(name,
+                listOf(SetOutputContract("customer", SetOutputContract.DimensionSlot("customer"))) +
+                    columns.map { SetOutputContract(it, SetOutputContract.Quantity(floatingMoney)) }, listOf("customer")) }
+            val aligned = Calculation.AlignMeasurements(values.mapValues { (name, columns) -> Calculation.AlignedInput(
+                Calculation.Scope(Calculation.Relation(name), emptyMap(), emptyList()), mapOf("customer" to "customer"),
+                columns.map { Calculation.AlignedValue(it, it, Calculation.NoMatch.PRESERVE_NULL) }) }, listOf("customer"),
+                Calculation.AlignmentPopulation(Calculation.PopulationKind.BASE, listOf("amounts")))
+            val calculation = Calculation(listOf(customerObservation()), emptyList(), emptyList(), relations, emptyMap(),
+                Calculation.Scope(aligned, emptyMap(), listOf(Project(listOf("customer", "amount_total", "contribution_total", "copied_total")))))
+            val bindings = CalculationBindings(observationBindings(definitions, emptyMap(), emptyMap()).dimensions, emptyMap(), emptyMap(), emptyMap(),
+                values.keys.associateWith { CalculationBindings.RelationParameter() })
+            fun query(restrict: Boolean) = QueryComputation.Scope(QueryComputation.Compute(calculation, bindings, emptyMap(), emptyMap(),
+                values.mapValues { (name, columns) -> CalculationBindings.LocalRelation(name, (listOf("customer") + columns).associateWith { it }) }),
+                values.keys.associateWith { QueryComputation.Input("ROOT", completed(restrict, it == "contributions")) }, emptyList())
+            warehouse.finishSetup()
+            val lowered = requireNotNull(compile(definitions.catalog(), query(true)).executableLoweringResult)
+            assertFalse(lowered.relationChecks.any { it.code == "OBSERVATION_OBJECT_IDENTITY_NULL" },
+                "LEFT 左键的 EQ 非NULL事实应经过金额 Calc、归约与完成关系继续成立：${lowered.relationChecks.joinToString { it.sql }}")
+            assertTrue(lowered.sourceRequirements.any { requirement -> requirement.physicalTableId == "attributes" && requirement.constraintUses.any {
+                it.kind == com.olap.prototype.contract.JdbcSourceRequirement.ConstraintKind.NOT_NULL && it.name == "record_key"
+            } }, "采用的真实来源 NOT_NULL 保证仍须核验")
+            val rows = warehouse.execute(lowered)
+            assertEquals(listOf("actor_demo"), rows.map { it[0] })
+            // 两条属性匹配保留bag重复；无匹配的订单仍在LEFT人口，原始金额合计30，关联后金额40。
+            assertEquals(listOf(30.0, 2.0, 40.0), rows.single().drop(1).map { (it as Number).toDouble() })
+            val unknown = requireNotNull(compile(definitions.catalog(), query(false)).executableLoweringResult)
+            val check = unknown.relationChecks.first { it.code == "OBSERVATION_OBJECT_IDENTITY_NULL" }
+            assertEquals(listOf("customer"), requireNotNull(check.origin).keys)
+            assertEquals("IDENTITY_NON_NULL_NOT_PROVED", check.origin?.reason)
+            assertEquals("OBSERVATION_OBJECT_IDENTITY_NULL", assertThrows(EngineExecutionException::class.java) {
+                execute(engine(warehouse), definitions, query(false))
+            }.code)
+        }
+    }
     @Test fun distinguishesWeightedObjectsRawOccurrencesAndAnIndependentReferencePopulation(@TempDir directory: Path) {
         NativeWarehouse(directory, "duckdb", listOf("CREATE TABLE orders(id INTEGER PRIMARY KEY, customer INTEGER, period INTEGER, kind INTEGER, amount DECIMAL(18,2))",
             "INSERT INTO orders VALUES (1,1,1,1,10),(2,2,1,1,100),(3,2,1,1,100),(4,2,1,1,100),(5,3,1,1,30),(6,4,1,1,NULL),(7,NULL,1,1,NULL)")).use { warehouse ->

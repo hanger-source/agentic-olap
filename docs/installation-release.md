@@ -27,7 +27,7 @@ repositories {
     }
 }
 dependencies {
-    compileOnly("com.github.hanger-source.agentic-olap:connector-api:v0.19.1")
+    compileOnly("com.github.hanger-source.agentic-olap:connector-api:v0.19.2")
 }
 ```
 
@@ -47,7 +47,7 @@ dependencies {
 
 一次语言会话固定产品构建、Kotlin 版本、DSL、classpath、默认 imports 与 JVM 目标，不在存活会话里替换 JAR。升级沿明确停止服务、安装并启动的现有入口进行；旧语言内存结束，持久业务资产按各自格式和授权继续读取，不承诺跨版本搬运 JVM 对象。
 
-产品 0.19.1 的公开作者环境为 `agentic-olap-kotlin-dsl/v3`，内部进程合同为 `agentic-olap-runtime/v6`。创建场景阶段规则必须提供作者显式选择的 `authorization`；历史分页使用 `Long` 坐标和正 `Int` 页长，解释及结果元数据按实际内存列表使用 `Int` 坐标和正 `Int` 页长，准确类型与选择规则通过服务发现。提交源码使用目标服务披露的 DSL，不自动改用旧作者合同。连接器 API 仍为 v12，元数据库格式为 16、Query intent 为 v7；查询定义制品 v11、结果封套／记录 v5 和发行清单 v4 各自保持原格式职责。
+产品 0.19.2 的公开作者环境为 `agentic-olap-kotlin-dsl/v3`，内部进程合同为 `agentic-olap-runtime/v6`。创建场景阶段规则必须提供作者显式选择的 `authorization`；历史分页使用 `Long` 坐标和正 `Int` 页长，解释及结果元数据按实际内存列表使用 `Int` 坐标和正 `Int` 页长，准确类型与选择规则通过服务发现。提交源码使用目标服务披露的 DSL，不自动改用旧作者合同。连接器 API 仍为 v12，元数据库格式为 16、Query intent 为 v7；查询定义制品 v11、结果封套／记录 v5 和发行清单 v4 各自保持原格式职责。
 
 保存查询中的 `QuerySource.dslApiVersion` 是原源码的真实溯源信息，不改写成当前 DSL。读取保存查询或通过其精确引用执行使用正式保存模型，不重新编译该源码；把源码再次交给 `execute-script` 时，须显式采用当前作者合同并调整相应调用。DSL 与内部进程版本不代替持久格式核验，也不触发资产转换。
 
