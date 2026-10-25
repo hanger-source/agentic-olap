@@ -240,6 +240,13 @@ olap.output(when (parameters.text("phase")) {
         })
         val numericResult = olap.queries.execute(QueryExecutionRequest(QuerySelection.Inline(numericIntent), true, "同请求整数SUM/COUNT、完整BIGINT域与零分母", null))
         check(numericResult.status == QueryExecutionStatus.SUCCEEDED && numericResult.saved) { numericResult.error.toString() }
+        val numericRun = olap.results.run(QueryRunRequest(numericResult.runId, 0, 20)).run
+        val numericObservation = requireNotNull(numericRun.serviceObservation)
+        check(numericObservation.workers.isNotEmpty() && numericObservation.workers.all { it.outcome == "REUSED" }) {
+            "三槽交替解析和执行应复用已有精确配置进程：${numericObservation.workers}"
+        }
+        check(listOf("RESULT_VERIFY", "RESULT_CREATE", "RESULT_WRITE", "RESULT_SYNC", "RESULT_COMMIT", "RESULT_DIRECTORY_SYNC", "RESULT_CLEANUP")
+            .all { numericObservation.timingNanos[it]?.let { nanos -> nanos >= 0 } == true })
         val coreIntent = QueryIntent(coordinate, QueryComputation.Scope(numericIntent.computation.root,
             numericIntent.computation.inputs, numericIntent.computation.stages + PostOperationContract.Derive(
                 ResultNumeric(ResultOperation(ResultOperator.DIVIDE, listOf(ResultSymbol("day_sum"),
@@ -261,6 +268,7 @@ olap.output(when (parameters.text("phase")) {
         check((coreValues.getValue("zero_ratio") as ResultValueView.Complete).value is ExecutableBusinessResult.NullValue)
         val coreRun = olap.results.run(QueryRunRequest(coreResult.runId, 0, 20)).run
         check(coreRun.receipt?.executionMode == QueryExecutionMode.CORE_FINALIZATION && coreRun.receipt?.resultReference == coreResult.resultReference)
+        check(requireNotNull(coreRun.serviceObservation).workers.let { it.isNotEmpty() && it.all { worker -> worker.outcome == "REUSED" } })
         val carry = olap.semantics.contextSelection(SubjectContextSelectionRequest(subject.id, 1)).selection
         olap.governance.reviseSubjectArea(SubjectContextRevisionRequest(subject.id, 1, subjectDefinition, carry))
         activate(GovernanceActivationObjectType.SUBJECT_AREA, subject.id, 2)

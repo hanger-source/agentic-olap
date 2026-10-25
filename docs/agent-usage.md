@@ -70,6 +70,8 @@ agentic-olap call wait-script --payload '{"executionId":"sources-001","waitMilli
 
 变量、函数、对象、导入和重声明遵循真实 Kotlin REPL 语义。按源码顺序先声明依赖，再声明引用它们的函数和类；类方法引用片段级变量或扩展函数时，也需要这些定义先可见。重新声明函数后，新片段的直接调用可以采用新声明；先前已经编译的函数仍保留原绑定。例如旧 helper 调用了旧 `label()`，重新声明 `label()` 不会重新编译该 helper。需要改变组合行为时明确重新定义相应函数；动态输入也可以通过明确的可变状态或当前参数 getter 表达。源码中的变量和函数只是会话语言历史，只有正式治理与保存查询调用才产生可持久复用的业务定义。
 
+当前 Kotlin 2.4.21 编译器存在 [KT-89749](https://youtrack.jetbrains.com/issue/KT-89749)：后续片段的具名函数引用先前片段顶层变量时，即使声明顺序正确，也可能编译失败。这是尚未解决的语言实现故障；上游修复尚未进入本产品采用的稳定编译器。
+
 服务不为每个片段改变进程工作目录。内部请求临时子目录由运行管理拥有，不注入作者环境。公共 API 不提供 Principal、凭据、元数据库或内部通信端口；每次正式能力调用仍按本次真实主体、操作与资源授权。JVM 不承诺抵御同进程任意恶意 Kotlin 的反射或原始文件描述符操作，外部文件、网络和启动进程由 OS 沙箱限制。
 
 ### 显式输出
@@ -278,6 +280,8 @@ val dayStatistics = Calculation.Scope(
 结果算术的局部规则从 `ResultExpression.ResultNumeric`、`ResultRound`、`ResultOperation` 和 `ResultOperator` 的 `rules` 读取。`ResultNumeric` 提供当前位置可见的数量声明；声明可以传给 CASE 的结果分支、ROUND、CAST 或算术操作数，内层 NUMERIC 则使用自己的声明。单位方程的作用域更窄：`unitEquation` 只供这个 NUMERIC **直接包住的算术节点**使用，不穿透 ROUND、CASE、CAST、函数或操作数。乘除双方均为单位 ONE 时可省略方程，其他乘除必须在实际算术位置显式声明。
 
 内联 Query 可以在本次 `valueContract.unitEquations` 中声明显式的名义单位方程，无需先创建 Metric，也不要求方程出现在某个已发布 Metric 的输出合同中。`Scale` 核对实际来源单位、维数一的精确倍率字面量与目标单位；`FixedBinary` 核对运算符、左右实际单位及声明的结果单位。例如，把来源原尺度除以 100 表达为报告尺度，应在该 DIVIDE 的 NUMERIC 合同中声明 `Scale(DIVIDE, 原尺度, 报告尺度, "100")`，不能只给原值更换单位标签。是否逐行换算后归约、采用哪批人口、如何处理 NULL 与重复度，仍由实际计算体明确。
+
+`FixedBinary` 的局部 `rules` 披露结果单位约束：同单位相除得到 ONE，不能另立名义单位；乘以 ONE 保留另一操作数的单位。百分比或其他倍率通过显式 Scale 另行表达。构造拒绝返回 `UNIT_EQUATION_RESULT_MISMATCH`，`fieldPath=["result"]` 相对于该构造器，expected／actual 只说明单位关系，不回显私有单位身份。
 
 这些方程属于本次计算声明，不登记或覆盖长期定义，也不因声明单位 authority/id 就获得来源、成员、指标或场景权限。查询仍只能使用精确发布获准的输入、节点和算子；真实数量检查保留输入单位、算术保证、容量、倍率、NULL 与来源。需要稳定命名、审阅和反复调用的完整口径时，再保存、采用和发布计算定义，不创建只有方程的空壳 Metric。成员数量出口及关系形参继续声明其已经具有的数量事实，单位运算留在实际计算体。
 
@@ -544,7 +548,7 @@ SQL 结果的历史保存由执行请求显式选择 `saveResult=true`，与上�
 
 使用记录通过 `olap.results.run/history/appendNote` 或对应 MCP 工具读取。运行中的 `receipt` 是正式执行回执，`serviceObservation` 是主服务在交付确认前取得的观察；其中 timing 与 worker 排队、启动、复用信息有各自范围，嵌套计时不能直接相加。一次观察不等于稳定平均性能结论。
 
-发布读取细分为 `METADATA_CAPABILITY_LOAD/EXECUTABLE_LOAD/PRODUCER_LOAD/SEMANTIC_CATALOG/CATALOG_HASH`。worker 的 `*_LOOKUP` 核对其实际持有的精确内容；未命中才出现 `*_LOAD`，不由服务侧猜测缓存状态。`*_ENCODE/PACK/DECODE` 是调用端成本，`*_<操作>_DECODE/HANDLE/ENCODE/PACK` 是 worker 内部成本，包含在相应往返阶段中。`RESULT_STORE` 包含验证、创建、写入、文件同步、提交和目录同步等子阶段；结果 manifest 的 `bytes` 是实际制品长度，不能用行数推定大小。
+发布读取细分为 `METADATA_CAPABILITY_LOAD/EXECUTABLE_LOAD/PRODUCER_LOAD/SEMANTIC_CATALOG/CATALOG_HASH`。worker 的 `*_LOOKUP` 核对其实际持有的精确内容；未命中才出现 `*_LOAD`，不由服务侧猜测缓存状态。`*_ENCODE/PACK/DECODE` 是调用端成本，`*_<操作>_DECODE/HANDLE/ENCODE/PACK` 是 worker 内部成本，包含在相应往返阶段中。`SERVICE_SAVE_RESULT` 包含 `RESULT_VERIFY/CREATE/WRITE/SYNC/COMMIT/DIRECTORY_SYNC/CLEANUP`，分别观察结果核验、私有暂存创建、完整写入、文件同步、提交、目录同步和暂存清理；各子阶段不能再次加到总段上。结果 manifest 的 `bytes` 是实际制品长度，不能用行数推定大小。
 
 历史只反映实际保存的运行、引用、问题和明确说明。Agent 据此判断哪些含义值得沉淀；服务不自动知道某模式出现了几次，也不补造会话上下文。
 

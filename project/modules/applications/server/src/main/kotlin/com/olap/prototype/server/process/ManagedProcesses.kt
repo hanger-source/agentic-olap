@@ -12,10 +12,12 @@ import com.olap.prototype.warehouse.contract.SourceConfiguration
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.attribute.PosixFilePermissions
-import java.util.concurrent.ArrayBlockingQueue
+import java.util.ArrayDeque
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
 
 /** Main-service owner of exact worker configurations, OS handles, admission and shutdown. */
 class ManagedProcesses(val config: JsonNode, distribution: Path) : AutoCloseable {
@@ -37,7 +39,9 @@ class ManagedProcesses(val config: JsonNode, distribution: Path) : AutoCloseable
     private val registered = mapper.treeToValue(config.required("dataSources"), Array<SourceConfiguration>::class.java).toList()
         .associateBy { it.bindingRef() }.also { require(it.size == config.required("dataSources").size()) { "duplicate exact configured source" } }
     private val slots = List(positive(limits, "workerCount")) { Slot() }
-    private val available = ArrayBlockingQueue<Slot>(slots.size).apply { addAll(slots) }
+    private val availability = ReentrantLock(true)
+    private val returned = availability.newCondition()
+    private val available = ArrayDeque<Slot>().apply { addAll(slots) }
     private val shutdownActions = java.util.concurrent.CopyOnWriteArrayList<() -> Unit>()
     internal class Slot { var key: String? = null; @Volatile var process: ManagedJvm? = null }
 
@@ -52,8 +56,7 @@ class ManagedProcesses(val config: JsonNode, distribution: Path) : AutoCloseable
         val deadline = deadlineAfter(remainingMillis)
         val queued = System.nanoTime()
         check(!closed.get()) { "process runtime is closed" }
-        val slot = available.poll(remainingMillis, TimeUnit.MILLISECONDS)
-            ?: throw java.util.concurrent.TimeoutException("worker admission deadline exceeded")
+        val slot = takeSlot(key, deadline)
         val queueNanos = System.nanoTime() - queued
         try {
             synchronized(slot) {
@@ -80,7 +83,29 @@ class ManagedProcesses(val config: JsonNode, distribution: Path) : AutoCloseable
                 return Lease(slot, requestId, deadline, QueryWorkerAcquisition(kind.name,
                     if (reused) "REUSED" else "STARTED", queueNanos, startup))
             }
-        } catch (failure: Throwable) { check(available.offer(slot)); throw failure }
+        } catch (failure: Throwable) { releaseSlot(slot); throw failure }
+    }
+    private fun takeSlot(key: String, deadline: Long): Slot {
+        availability.lockInterruptibly()
+        try {
+            while (true) {
+                check(!closed.get()) { "process runtime is closed" }
+                val slot = available.firstOrNull { it.key == key && it.process?.alive == true }
+                    ?: available.firstOrNull { it.process?.alive != true }
+                    ?: available.peekFirst()
+                if (slot != null) {
+                    check(available.remove(slot)) { "selected worker slot is no longer available" }
+                    return slot
+                }
+                if (!returned.await(remaining(deadline), TimeUnit.MILLISECONDS))
+                    throw java.util.concurrent.TimeoutException("worker admission deadline exceeded")
+            }
+        } finally { availability.unlock() }
+    }
+    private fun releaseSlot(slot: Slot) = availability.withLock {
+        check(slot !in available) { "worker slot was returned twice" }
+        available.addLast(slot)
+        returned.signal()
     }
     inner class Lease internal constructor(private val slot: Slot, private val requestId: String,
         private val deadline: Long, val observation: QueryWorkerAcquisition) : AutoCloseable {
@@ -97,12 +122,13 @@ class ManagedProcesses(val config: JsonNode, distribution: Path) : AutoCloseable
             if (closed.get() || Thread.currentThread().isInterrupted || slot.process?.alive != true) {
                 slot.process?.close(); slot.process = null; slot.key = null
             }
-            check(available.offer(slot)) { "worker slot was returned twice" }
+            releaseSlot(slot)
         }
     }
     internal fun onShutdown(action: () -> Unit) { check(!closed.get()); shutdownActions.add(action) }
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
+        availability.withLock { returned.signalAll() }
         val failures = ArrayList<Throwable>()
         shutdownActions.forEach { try { it() } catch (failure: Throwable) { failures.add(failure) } }
         // All slots, including leased ones, remain owned here. Termination does not wait for lease locks.

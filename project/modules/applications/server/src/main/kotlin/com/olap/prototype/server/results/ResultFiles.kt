@@ -12,10 +12,12 @@ import java.nio.file.Path
 /** 只保存及读取生产者正式核验的结果，不重新规划、访问来源或核验业务数值。 */
 class ResultFiles(dataRoot: Path) {
     private val directory = dataRoot.resolve("results")
-    fun save(prepared: QueryResultArtifact.Prepared): QueryResultReference {
+    fun save(prepared: QueryResultArtifact.Prepared, observe: (String, Long) -> Unit = { _, _ -> }): QueryResultReference {
         val reference = QueryResultReference(prepared.runId, prepared.sha256)
-        decode(reference, prepared.content)
-        PrivateFiles.write(location(reference), prepared.content)
+        val started = System.nanoTime()
+        try { decode(reference, prepared.content) }
+        finally { observe("RESULT_VERIFY", System.nanoTime() - started) }
+        PrivateFiles.write(location(reference), prepared.content, observe = observe)
         return reference
     }
     fun read(reference: QueryResultReference): SavedQueryResultRecord = decode(reference, PrivateFiles.read(location(reference)))

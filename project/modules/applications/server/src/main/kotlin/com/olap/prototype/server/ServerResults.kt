@@ -46,7 +46,9 @@ internal class ServerResults(private val usage: QueryUsageRepository,
         val run = authorizedRun(prepared.runId, request.principal, "execute-query")
         require(executed.runId == run.runId) { "execution and result artifact differ" }
         val reference = try {
-            if (run.saveRequested) request.work.timed("SERVICE_SAVE_RESULT") { files.save(prepared) } else null
+            if (run.saveRequested) request.work.timed("SERVICE_SAVE_RESULT") {
+                files.save(prepared) { stage, nanos -> request.work.timingNanos.merge(stage, nanos, Long::plus) }
+            } else null
         } catch (failure: Exception) {
             usage.resultFailed(run.runId, "result persistence failed after execution")
             throw ResultPersistenceFailure(executed, failure)

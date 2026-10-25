@@ -3,6 +3,7 @@ package com.olap.prototype.metric
 import com.olap.prototype.calculation.Calculation
 import com.olap.prototype.calculation.CalculationBindings
 import com.olap.prototype.calculation.MetricDefinition
+import com.olap.prototype.contract.InputContractException
 import com.olap.prototype.query.ScalarValueType
 import com.olap.prototype.query.ScopedInputContract
 import java.math.BigDecimal
@@ -106,9 +107,27 @@ class MetricValueContract(val unit: Unit, val arithmetic: Arithmetic, val result
     }
     data class FixedBinary(val operator: BinaryOperator, val left: UnitIdentity, val right: UnitIdentity, val result: UnitIdentity) : UnitEquation {
         init {
-            require(operator != BinaryOperator.DIVIDE || left != right || result == ONE) { "same-unit division produces a dimensionless ratio; declare percentage scaling separately" }
-            require(operator != BinaryOperator.MULTIPLY || right != ONE || result == left) { "dimensionless multiplication preserves the left unit; declare a unit scale conversion separately" }
-            require(operator != BinaryOperator.MULTIPLY || left != ONE || result == right) { "dimensionless multiplication preserves the right unit" }
+            if (operator == BinaryOperator.DIVIDE && left == right && result != ONE)
+                throw resultMismatch("same-unit division produces a dimensionless ratio; declare percentage scaling separately", "DIMENSIONLESS_ONE")
+            if (operator == BinaryOperator.MULTIPLY && right == ONE && result != left)
+                throw resultMismatch("dimensionless multiplication preserves the left unit; declare a unit scale conversion separately", "SAME_AS_LEFT_UNIT")
+            if (operator == BinaryOperator.MULTIPLY && left == ONE && result != right)
+                throw resultMismatch("dimensionless multiplication preserves the right unit", "SAME_AS_RIGHT_UNIT")
+        }
+        companion object {
+            private fun resultMismatch(message: String, expected: String) = InputContractException.violation(
+                InputContractException.Rule.UNIT_EQUATION_RESULT_MISMATCH,
+                listOf("result"), message, expected, "DIFFERENT_UNIT")
+
+            fun contract(): Map<String, Any> = linkedMapOf(
+                "resultUnitRules" to listOf(
+                    mapOf("when" to "DIVIDE_WITH_EQUAL_LEFT_AND_RIGHT_UNITS", "result" to "DIMENSIONLESS_ONE"),
+                    mapOf("when" to "MULTIPLY_WITH_RIGHT_ONE", "result" to "SAME_AS_LEFT_UNIT"),
+                    mapOf("when" to "MULTIPLY_WITH_LEFT_ONE", "result" to "SAME_AS_RIGHT_UNIT")),
+                "scaling" to "EXPLICIT_SCALE_EQUATION_SEPARATE_FROM_SAME_UNIT_RATIO",
+                "violationCode" to InputContractException.Rule.UNIT_EQUATION_RESULT_MISMATCH.code,
+                "fieldPath" to listOf("result"),
+                "diagnosticValues" to "UNIT_RELATION_SHAPES_WITHOUT_PRIVATE_UNIT_IDENTITIES")
         }
     }
     class SameUnitRatio : UnitEquation { override fun equals(other: Any?): Boolean = other is SameUnitRatio; override fun hashCode(): Int = 0 }

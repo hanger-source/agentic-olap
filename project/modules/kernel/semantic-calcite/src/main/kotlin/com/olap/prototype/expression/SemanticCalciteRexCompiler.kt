@@ -128,6 +128,8 @@ class SemanticCalciteRexCompiler(private val builder: RelBuilder, private val pa
             require(type.sqlTypeName != SqlTypeName.DECIMAL ||
                 system.supports(CompilationSupport.Capability.WIDE_INTEGER) && SemanticCalciteTypeSystem.wideInteger(type) ||
                 type.precision <= system.maximumDeclaredDecimalPrecision) { "SQL decimal parameter exceeds native declared capacity" }
+            // 中立作者校验只构造真实类型和值，不绑定任何执行采用或 JDBC 参数。
+            if (system.semantic) return builder.rexBuilder.makeLiteral(actual, type, true)
             val index = parameters.size
             parameters.add(system.nativeSupport.parameter(type, actual))
             return builder.rexBuilder.makeDynamicParam(type, index)

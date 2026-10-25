@@ -58,7 +58,8 @@ internal class InstalledProduct(private val tarballs: Path, private val root: Pa
             val created = program(objectOf("phase" to text("create")))
             val businessLineId = created.objectAt("businessLineId").string("text")
             stop()
-            config = config.with("connectors" to JsonArray(listOf(text(h2.toString()))), "dataSources" to JsonArray(listOf(objectOf(
+            config = config.with("limits" to config.objectAt("limits").with("workerCount" to number(3)),
+                "connectors" to JsonArray(listOf(text(h2.toString()))), "dataSources" to JsonArray(listOf(objectOf(
                 "dataSourceId" to text("business"), "connectorRef" to manifest.getValue("connectorRef"), "dialectId" to text("h2"),
                 "identityParameters" to objectOf("jdbcUrl" to text(jdbc), "username" to text("sa"), "driverClassName" to text("org.h2.Driver")),
                 "runtimeParameters" to JsonObject(emptyMap()), "credentialEnvironmentVariables" to JsonObject(emptyMap())))))
@@ -317,6 +318,24 @@ internal class InstalledProduct(private val tarballs: Path, private val root: Pa
         val operation = client.call("describe-script-api", objectOf("operation" to text("explain-query"))).jsonObject
         val discovered = client.call("describe-script-api", objectOf("type" to operation.getValue("input"))).jsonObject
         check(discovered["name"] == operation["input"])
+        val equationRules = client.call("describe-script-api", objectOf("type" to text("com.olap.prototype.metric.MetricValueContract.FixedBinary")))
+            .jsonObject.objectAt("rules")
+        check(equationRules["violationCode"] == text("UNIT_EQUATION_RESULT_MISMATCH"))
+        for (valid in listOf(false, true)) {
+            val equation = client.script("""
+                val named = MetricValueContract.UnitIdentity("private-author", "unpublished-unit", 1)
+                val ratio = MetricValueContract.FixedBinary(MetricValueContract.BinaryOperator.DIVIDE,
+                  MetricValueContract.ONE, MetricValueContract.ONE, ${if (valid) "MetricValueContract.ONE" else "named"})
+                olap.output(olap.sources.list(EmptyRequest))
+            """.trimIndent(), JsonObject(emptyMap()), dslVersion, "unit-equation.olap.kts")
+            if (valid) equation.succeeded() else {
+                check(equation.report.array("calls").isEmpty())
+                val diagnostic = equation.report.array("diagnostics").map { it.jsonObject }.single { it["code"] == text("UNIT_EQUATION_RESULT_MISMATCH") }
+                check(diagnostic["stage"] == text("CONTRACT_INPUT") && diagnostic["fieldPath"] == JsonArray(listOf(text("result"))))
+                check(diagnostic["expected"] == text("DIMENSIONLESS_ONE") && diagnostic["actual"] == text("DIFFERENT_UNIT"))
+                check(diagnostic.objectAt("location").getValue("startLine").jsonPrimitive.int > 0)
+            }
+        }
         val invalid = client.script("Calculation.Scalar(ScalarValueType.BOOLEAN, true)", JsonObject(emptyMap()), dslVersion)
         check(!invalid.envelope.getValue("success").jsonPrimitive.boolean && invalid.report.array("calls").isEmpty())
         check(invalid.report.array("diagnostics").any { it.jsonObject["stage"] == text("COMPILE") })
