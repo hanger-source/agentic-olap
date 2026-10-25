@@ -260,16 +260,20 @@ internal class InstalledProduct(private val tarballs: Path, private val root: Pa
                 check(pastCatalog.items.isEmpty() && pastCatalog.total == regularCatalog.total && pastCatalog.nextOffset == null)
                 olap.output(ScriptValue.Text("governance-catalog-read"))
             """.trimIndent()).succeeded()
-            check(catalog.report.array("calls").size == 4 && catalog.report.array("effects").isEmpty())
+            val catalogCalls = catalog.report.array("calls").map { it.jsonObject }
+            check(catalogCalls.size == 4 && catalogCalls.all { call ->
+                call.string("state") == "COMPLETED" && call.getValue("success").jsonPrimitive.boolean && call.array("effects").isEmpty()
+            })
             val rejected = submit("GovernanceReadRequests.PageInput(0, 0)")
             check(!rejected.envelope.getValue("success").jsonPrimitive.boolean && rejected.report.array("calls").isEmpty()
-                && rejected.report.array("effects").isEmpty() && rejected.report.getValue("sessionUsable").jsonPrimitive.boolean)
+                && rejected.report.getValue("sessionUsable").jsonPrimitive.boolean)
             val diagnostic = rejected.report.array("diagnostics").map { it.jsonObject }.single { it["code"] == text("INVALID_PAGINATION") }
             check(diagnostic["stage"] == text("CONTRACT_INPUT") && diagnostic["fieldPath"] == JsonArray(listOf(text("limit")))
                 && diagnostic["actual"] == text("0") && diagnostic.objectAt("location").getValue("startLine").jsonPrimitive.int > 0)
             val continued = submit("olap.output(olap.semantics.subjectAreas(GovernanceReadRequests.PageInput(0, 1000)))").succeeded()
             check(continued.report["workerId"] == catalog.report["workerId"] && rejected.report["workerId"] == catalog.report["workerId"]
-                && continued.report.getValue("sessionUsable").jsonPrimitive.boolean && continued.report.array("effects").isEmpty())
+                && continued.report.getValue("sessionUsable").jsonPrimitive.boolean
+                && continued.report.array("calls").single().jsonObject.array("effects").isEmpty())
             return objectOf("sessionId" to text(requireNotNull(session)), "fragments" to number(reports.size),
                 "completedReads" to number(reports.sumOf { it.array("calls").size }), "effects" to number(0),
                 "governancePagination" to objectOf("wideAndDefaultRead" to bool(true), "pastEnd" to bool(true),
