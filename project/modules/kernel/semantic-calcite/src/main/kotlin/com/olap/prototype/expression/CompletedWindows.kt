@@ -3,6 +3,7 @@ package com.olap.prototype.expression
 import com.olap.prototype.query.PostOperationContract
 import com.olap.prototype.query.ResultAggregation
 import com.olap.prototype.query.WindowFrameContract
+import com.olap.prototype.metric.MetricValueContract
 import org.apache.calcite.avatica.util.TimeUnit
 import org.apache.calcite.rex.*
 import org.apache.calcite.sql.SqlIntervalQualifier
@@ -15,13 +16,14 @@ import java.math.BigDecimal
 
 /** 普通窗口与观察窗口共用的帧、排序、聚合及NULL规则。 */
 internal object CompletedWindows {
-    fun partitionAggregate(b: RelBuilder, op: PostOperationContract.PartitionAggregate): RexNode {
+    fun partitionAggregate(b: RelBuilder, op: PostOperationContract.PartitionAggregate, inputGuarantees: List<MetricValueContract.Arithmetic>): RexNode {
         val aggregation = op.aggregation
         val input = SemanticNumericRex.aggregate(b, aggregation, b.field(op.input))
         val function = RelationalAggregates.aggregateFunction(op.aggregation, (b.typeFactory.typeSystem as SemanticCalciteTypeSystem).nativeSupport)
         val partitions = op.partitionBy.map(b::field)
         val value = b.aggregateCall(function, listOf(input)).distinct(RelationalAggregates.distinct(op.aggregation))
             .over().partitionBy(partitions).rowsBetween(b.unboundedPreceding(), b.unboundedFollowing()).toRex()
+        if (aggregation is ResultAggregation.Average) NativeAggregateTypes.requireAverage(b, value, function, aggregation.meanTarget, aggregation.valueContract, inputGuarantees)
         if (aggregation !is ResultAggregation.Scalar || aggregation.nullPolicy != ResultAggregation.NullPolicy.PROPAGATE) return value
         val known = b.aggregateCall(Ops.COUNT, listOf(b.field(op.input))).over().partitionBy(partitions)
             .rowsBetween(b.unboundedPreceding(), b.unboundedFollowing()).toRex()
@@ -30,7 +32,7 @@ internal object CompletedWindows {
         return b.call(Ops.CASE, b.equals(known, total), value, b.rexBuilder.makeNullLiteral(value.type))
     }
 
-    fun windowAggregate(b: RelBuilder, op: PostOperationContract.WindowAggregate): RexNode {
+    fun windowAggregate(b: RelBuilder, op: PostOperationContract.WindowAggregate, inputGuarantees: List<MetricValueContract.Arithmetic>): RexNode {
         val aggregation = op.aggregation
         val input = SemanticNumericRex.aggregate(b, aggregation, b.field(op.input))
         val frame = op.windowFrame
@@ -43,8 +45,9 @@ internal object CompletedWindows {
                 require(orderType.sqlTypeName != SqlTypeName.DATE || bound.unit in setOf("DAY", "NUMBER")) { "DATE RANGE requires DAY offsets; sub-day ranges require an explicit timestamp" }
             }
         }
-        val value = framedWindow(b, b.aggregateCall(RelationalAggregates.aggregateFunction(op.aggregation,
-            (b.typeFactory.typeSystem as SemanticCalciteTypeSystem).nativeSupport), listOf(input)).distinct(RelationalAggregates.distinct(op.aggregation)), op)
+        val function = RelationalAggregates.aggregateFunction(op.aggregation, (b.typeFactory.typeSystem as SemanticCalciteTypeSystem).nativeSupport)
+        val value = framedWindow(b, b.aggregateCall(function, listOf(input)).distinct(RelationalAggregates.distinct(op.aggregation)), op)
+        if (aggregation is ResultAggregation.Average) NativeAggregateTypes.requireAverage(b, value, function, aggregation.meanTarget, aggregation.valueContract, inputGuarantees)
         if (aggregation is ResultAggregation.Collect) {
             val total = framedWindow(b, b.count(), op)
             return b.call(Ops.CASE, b.equals(total, b.literal(0)), b.rexBuilder.makeNullLiteral(value.type), value)

@@ -12,6 +12,7 @@ import com.olap.prototype.query.TemporalClockBindings
 import com.olap.prototype.event.EventIdentity as DI
 import com.olap.prototype.event.RelationAccessPath as DP
 import com.olap.prototype.metric.MetricBusinessMeaning as DB
+import com.olap.prototype.expression.NativeAverageBehavior as DA
 
 internal object SemanticTypesProto {
     fun dimension(v: ScopedInputContract.DimensionRef): DimensionRef = DimensionRef.newBuilder().setId(v.id).setVersion(v.version).setLevelCode(v.levelCode).build()
@@ -49,6 +50,15 @@ internal object SemanticTypesProto {
     fun value(v: DV): MetricValueContract = MetricValueContract.newBuilder().setUnit(unit(v.unit)).setArithmetic(arithmetic(v.arithmetic)).setResult(result(v.result))
         .putAllUnitEquations(v.unitEquations.mapValues { equation(it.value) }).setOverflow(v.overflow.name).build()
     fun value(v: MetricValueContract): DV = DV(unit(v.unit), arithmetic(v.arithmetic), result(v.result), v.unitEquationsMap.mapValues { equation(it.value) }, DV.Overflow.valueOf(v.overflow))
+    fun averageBehavior(v: DA): NativeAverageBehavior = NativeAverageBehavior.newBuilder().apply { when (v) {
+        is DA.QuantizedMean -> setQuantizedMeanRounding(v.rounding.name)
+        DA.NativeFloating -> setNativeFloating(Empty.getDefaultInstance())
+    } }.build()
+    fun averageBehavior(v: NativeAverageBehavior): DA = when (v.kindCase) {
+        NativeAverageBehavior.KindCase.QUANTIZED_MEAN_ROUNDING -> DA.QuantizedMean(DV.Rounding.valueOf(v.quantizedMeanRounding))
+        NativeAverageBehavior.KindCase.NATIVE_FLOATING -> DA.NativeFloating
+        else -> error("native average behavior kind is required")
+    }
     fun axis(v: DV.UnitAxis): UnitAxis = UnitAxis.newBuilder().setDimensionId(v.dimensionId).setDimensionVersion(v.dimensionVersion).setRole(v.role).setMemberType(v.memberType.name)
         .addAllMembers(v.members.map { UnitMember.newBuilder().setMember(SemanticCalculationProto.scalar(it.member)).setUnit(unitIdentity(it.unit)).build() }).build()
     fun axis(v: UnitAxis): DV.UnitAxis = DV.UnitAxis(v.dimensionId, v.dimensionVersion, v.role, ScalarValueType.valueOf(v.memberType), v.membersList.map { DV.UnitMember(SemanticCalculationProto.scalar(it.member), unitIdentity(it.unit)) })

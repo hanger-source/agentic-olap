@@ -6,6 +6,7 @@ import com.olap.prototype.query.PostOperationContract
 import com.olap.prototype.query.ResultAggregation
 import com.olap.prototype.query.ResultExpression
 import com.olap.prototype.query.ScalarValueType
+import com.olap.prototype.metric.MetricValueContract
 import com.olap.prototype.time.TemporalWindow
 import org.apache.calcite.rel.RelNode
 import org.apache.calcite.rex.RexNode
@@ -60,7 +61,7 @@ internal class CompletedObservationCompiler(private val b: RelBuilder, private v
         b.project(names.map(b::field), names, true)
     }
 
-    fun observeWindow(observation: PostOperationContract.ObserveWindow) {
+    fun observeWindow(observation: PostOperationContract.ObserveWindow, inputGuarantees: List<MetricValueContract.Arithmetic>) {
         val range = boundRange(observation.observationRange)
         val displayRange = boundRange(observation.displayRange)
         if (observation.calendar != null) requireCalendar(observation, range)
@@ -72,7 +73,7 @@ internal class CompletedObservationCompiler(private val b: RelBuilder, private v
         }
         var expression = if (observation.inputKeys.size == 1) CompletedWindows.windowAggregate(b,
             PostOperationContract.WindowAggregate(observation.inputKeys.first(), observation.partitionBy, observation.outputAlias,
-                observation.outputDisplayName, observation.orderKeys, observation.aggregation, observation.windowFrame))
+                observation.outputDisplayName, observation.orderKeys, observation.aggregation, observation.windowFrame), inputGuarantees)
         else distinctObjects(observation)
         expression = SemanticNumericRex.aggregateOutput(b, expression, observation.aggregation)
         val names = b.peek().rowType.fieldNames.toList() + observation.outputAlias

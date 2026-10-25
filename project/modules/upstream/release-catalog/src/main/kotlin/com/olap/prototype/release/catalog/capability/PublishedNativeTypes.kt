@@ -124,13 +124,18 @@ class PublishedNativeTypes(mappings: List<ReleaseDimensionMapping>, private val 
         if (unit is MetricValueContract.EventDimension && unit.axis.memberType == ScalarValueType.NUMBER) mappings.filter { it.dimensionBindingId == unit.bindingId && it.dimensionBindingVersion == unit.bindingVersion }.forEach {
             SemanticNumericRex.requireExactMemberCode(expression(builder, context, it.expression))
         }
-        var input = SemanticNumericRex.factInput(builder, expression(builder, context, fact.input), fact.aggregation, fact.valueContract)
+        val raw = expression(builder, context, fact.input)
+        var input = if (fact.aggregation == MetricAggregation.AVG || fact.snapshotRule?.reduction == MetricSnapshotRule.Reduction.MEAN)
+            SemanticNumericRex.averageInput(builder, raw)
+        else SemanticNumericRex.factInput(builder, raw, fact.aggregation, fact.valueContract)
         val snapshot = fact.snapshotRule
-        if (snapshot?.reduction == MetricSnapshotRule.Reduction.MEAN) input = aggregateType(builder, input, MetricAggregation.AVG, requireNotNull(snapshot.meanValueContract), snapshot.meanRounding, compilation(context))
-        aggregateType(builder, input, fact.aggregation, fact.valueContract, fact.aggregationRounding, compilation(context))
+        if (snapshot?.reduction == MetricSnapshotRule.Reduction.MEAN) input = aggregateType(builder, input, MetricAggregation.AVG, requireNotNull(snapshot.meanValueContract), compilation(context))
+        aggregateType(builder, input, fact.aggregation, fact.valueContract, compilation(context))
     }
-    private fun aggregateType(builder: RelBuilder, input: RexNode, aggregation: MetricAggregation, contract: MetricValueContract, rounding: MetricValueContract.Rounding, support: CompilationSupport): RexNode {
-        val value = SemanticNumericRex.factAggregate(builder, aggregation, input, contract, rounding)
+    private fun aggregateType(builder: RelBuilder, input: RexNode, aggregation: MetricAggregation, contract: MetricValueContract, support: CompilationSupport): RexNode {
+        val value = SemanticNumericRex.factAggregate(builder, aggregation, input, contract)
+        // 发布没有本次 Query 的 groupSets/filter/window；声明容量不冒充真实 AVG 目标已经兑现。
+        if (aggregation == MetricAggregation.AVG) return builder.rexBuilder.makeInputRef(SemanticNumericRex.resultType(builder, contract, true), 0)
         builder.values(builder.typeFactory.builder().add("input", value.type).build())
         builder.aggregate(builder.groupKey(), builder.aggregateCall(RelationalAggregates.factAggregateFunction(aggregation, support), listOf(builder.field(0))).`as`("value"))
         val result = SemanticNumericRex.output(builder, builder.field(0), contract)

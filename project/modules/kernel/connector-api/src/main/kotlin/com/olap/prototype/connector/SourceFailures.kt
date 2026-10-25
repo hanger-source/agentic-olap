@@ -6,8 +6,11 @@ import com.olap.prototype.metric.MetricAggregation
 class ConnectorUnavailableException(val connectorRef: ConnectorRef) : IllegalArgumentException("exact connector is not deployed: $connectorRef")
 
 /** 原生类型映射明确拒绝该聚合；公开消息不带插件异常原文。 */
-class NativeAggregateMappingException(val aggregate: MetricAggregation, val inputType: String, cause: Throwable) :
-    IllegalArgumentException("native ${aggregate.name} mapping unavailable for input type $inputType", cause) {
+class NativeAggregateMappingException(val aggregate: MetricAggregation, val inputType: String, cause: Throwable?,
+    val reason: Reason = Reason.MAPPING_REJECTED) :
+    IllegalArgumentException("native ${aggregate.name} mapping unavailable for input type $inputType: ${reason.name}", cause) {
+    enum class Reason { MAPPING_REJECTED, NATIVE_RESULT_TYPE_MISMATCH, NATIVE_BEHAVIOR_UNAVAILABLE, INPUT_GUARANTEE_UPGRADE,
+        APPROXIMATION_PROPAGATION_UNAVAILABLE, MATHEMATICAL_QUANTIZATION_UNPROVED }
     val code: String = "NATIVE_AGGREGATE_MAPPING_UNAVAILABLE"
 }
 

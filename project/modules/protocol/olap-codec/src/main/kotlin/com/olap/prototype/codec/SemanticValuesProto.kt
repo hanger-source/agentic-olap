@@ -5,11 +5,12 @@ import com.olap.prototype.query.QueryValue as V
 import com.olap.prototype.query.QueryQuantity as Q
 import com.olap.prototype.query.QueryStageAnalysis as A
 import com.olap.prototype.query.ValuePosition as P
-import com.olap.prototype.query.ResultAggregation
 import com.olap.prototype.calculation.Calculation as C
 import com.olap.prototype.calculation.CalculationOwner as O
 import com.olap.prototype.metric.MetricAggregation
 import com.olap.prototype.metric.MetricSnapshotRule
+import com.olap.prototype.metric.MeanTarget
+import com.olap.prototype.metric.MetricValueContract.Rounding
 import com.olap.prototype.query.ScalarValueType
 import com.olap.prototype.query.GroupingLevels
 
@@ -113,18 +114,36 @@ internal object SemanticValuesProto {
         SelectionTarget.KindCase.RESULT_FILTER -> v.resultFilter.let { Q.ResultFilter(scope(it.scope), it.operationIndex, id(it.key), SemanticCalculationProto.scalar(it.member)) }
         else -> error("unit selection target kind is required")
     }
-    private fun snapshot(v: Q.Snapshot): QuantitySnapshot = QuantitySnapshot.newBuilder().setReduction(v.reduction.name).addAllTimeAxes(v.timeAxes.map(::position)).putAllBoundClocks(v.boundClocks.mapValues { SemanticTypesProto.clock(it.value) }).build()
-    private fun snapshot(v: QuantitySnapshot): Q.Snapshot = Q.Snapshot(MetricSnapshotRule.Reduction.valueOf(v.reduction), v.timeAxesList.map(::position), v.boundClocksMap.mapValues { SemanticTypesProto.clock(it.value) })
+    private fun snapshot(v: Q.Snapshot): QuantitySnapshot = QuantitySnapshot.newBuilder().setReduction(v.reduction.name).setNullPolicy(v.nullPolicy.name)
+        .addAllTimeAxes(v.timeAxes.map(::position)).putAllBoundClocks(v.boundClocks.mapValues { SemanticTypesProto.clock(it.value) })
+        .apply { v.meanTarget?.let { setMeanTarget(it.name) }; v.meanValueContract?.let { setMeanValueContract(SemanticTypesProto.value(it)) } }.build()
+    private fun snapshot(v: QuantitySnapshot): Q.Snapshot = Q.Snapshot(MetricSnapshotRule.Reduction.valueOf(v.reduction), MetricSnapshotRule.NullPolicy.valueOf(v.nullPolicy),
+        v.timeAxesList.map(::position), v.boundClocksMap.mapValues { SemanticTypesProto.clock(it.value) },
+        v.meanTarget.takeIf { v.hasMeanTarget() }?.let(MeanTarget::valueOf), v.meanValueContract.takeIf { v.hasMeanValueContract() }?.let(SemanticTypesProto::value))
     private fun order(v: Q.Order): QuantityOrder = QuantityOrder.newBuilder().setPosition(position(v.position)).setDirection(v.direction).setNulls(v.nulls).build()
     private fun order(v: QuantityOrder): Q.Order = Q.Order(position(v.position), v.direction, v.nulls)
-    private fun window(v: Q.Window): WindowQuantity = WindowQuantity.newBuilder().setAggregation(v.aggregation.name).setInput(provenance(v.input)).addAllObservations(v.observations.map(::position)).addAllPartition(v.partition.map(::position)).addAllOrder(v.order.map(::order)).setCumulative(v.cumulative).setTotalOrder(v.totalOrder).apply { v.frame?.let { setFrame(SemanticStagesProto.frame(it)) } }.build()
-    private fun window(v: WindowQuantity): Q.Window = Q.Window(ResultAggregation.Kind.valueOf(v.aggregation), provenance(v.input), v.observationsList.map(::position), v.partitionList.map(::position), v.orderList.map(::order), v.frame.takeIf { v.hasFrame() }?.let(SemanticStagesProto::frame), v.cumulative, v.totalOrder)
+    private fun window(v: Q.Window): WindowQuantity = WindowQuantity.newBuilder().setAggregate(SemanticStagesProto.aggregation(v.aggregation))
+        .setInput(provenance(v.input)).addAllObservations(v.observations.map(::position)).addAllPartition(v.partition.map(::position)).addAllOrder(v.order.map(::order))
+        .setCumulative(v.cumulative).setTotalOrder(v.totalOrder)
+        .apply { v.frame?.let { setFrame(SemanticStagesProto.frame(it)) }; v.inputDeclaration?.let { setInputDeclaration(SemanticTypesProto.value(it)) } }.build()
+    private fun window(v: WindowQuantity): Q.Window = Q.Window(required(v.hasAggregate(), "WindowQuantity.aggregate") { SemanticStagesProto.aggregation(v.aggregate) },
+        provenance(v.input), v.observationsList.map(::position), v.partitionList.map(::position), v.orderList.map(::order), v.frame.takeIf { v.hasFrame() }?.let(SemanticStagesProto::frame),
+        v.cumulative, v.totalOrder, v.inputDeclaration.takeIf { v.hasInputDeclaration() }?.let(SemanticTypesProto::value))
     private fun provenance(v: Q.Provenance): QuantityProvenance = QuantityProvenance.newBuilder().apply { when (v) {
         is Q.Raw -> setRaw(RawQuantity.newBuilder().addAllObservations(v.observations.map(::position)).apply { v.source?.let { setSource(position(it)) } })
         is Q.Constant -> setConstant(v.value)
-        is Q.Fact -> setFact(FactQuantity.newBuilder().setDefinition(SemanticProto.toProto(v.definition)).setAggregation(v.aggregation.name).setDistinct(v.distinct).setSource(position(v.source)).addAllObservations(v.observations.map(::position)).apply { v.snapshot?.let { setSnapshot(snapshot(it)) } })
+        is Q.Fact -> setFact(FactQuantity.newBuilder().setDefinition(SemanticProto.toProto(v.definition)).setAggregation(v.aggregation.name).setDistinct(v.distinct)
+            .setSource(position(v.source)).addAllObservations(v.observations.map(::position)).setValueContract(SemanticTypesProto.value(v.valueContract))
+            .apply { v.snapshot?.let { setSnapshot(snapshot(it)) }; v.meanTarget?.let { setMeanTarget(it.name) } })
         is Q.SelectedSnapshot -> setSelectedSnapshot(SelectedSnapshotQuantity.newBuilder().setInput(provenance(v.input)).addAllTimeAxes(v.timeAxes.map(::position)).apply { v.asOf?.let { setAsOf(SemanticCalculationProto.scalar(it)) } })
-        is Q.Reduction -> setReduction(ReducedQuantity.newBuilder().setAggregation(v.aggregation.name).setInput(provenance(v.input)).addAllObservations(v.observations.map(::position)))
+        is Q.Reduction -> setReduction(ReducedQuantity.newBuilder().setAggregate(SemanticStagesProto.aggregation(v.aggregation)).setInput(provenance(v.input))
+            .addAllObservations(v.observations.map(::position)).apply { v.inputDeclaration?.let { setInputDeclaration(SemanticTypesProto.value(it)) } })
+        is Q.Declared -> setDeclared(DeclaredQuantity.newBuilder().setInput(provenance(v.input))
+            .setInputDeclaration(SemanticTypesProto.value(v.inputDeclaration)).setDeclaration(SemanticTypesProto.value(v.declaration)))
+        is Q.Quantized -> setQuantized(QuantizedQuantity.newBuilder().setInput(provenance(v.input)).setInputDeclaration(SemanticTypesProto.value(v.inputDeclaration))
+            .setScale(v.scale).setRounding(v.rounding.name))
+        is Q.Cast -> setCast(CastQuantity.newBuilder().setInput(provenance(v.input)).setInputDeclaration(SemanticTypesProto.value(v.inputDeclaration))
+            .setTargetType(v.targetType.name).setRounding(v.rounding.name).apply { v.precision?.let(::setPrecision); v.scale?.let(::setScale) })
         is Q.UniformAllocation -> setUniformAllocation(AllocatedQuantity.newBuilder().setInput(provenance(v.input)).addAllSourceKeys(v.sourceKeys.map(::position)).addAllMemberKeys(v.memberKeys.map(::position)))
         is Q.Linear -> setLinear(QuantityTerms.newBuilder().addAllValues(v.terms.map(::provenance)))
         is Q.Observed -> setObserved(ObservedQuantity.newBuilder().setNature(v.nature.name).addAllComponents(v.components.map(::provenance)).addAllObservations(v.observations.map(::position)).setKnownObservation(v.knownObservation))
@@ -137,9 +156,20 @@ internal object SemanticValuesProto {
     private fun provenance(v: QuantityProvenance): Q.Provenance = when (v.kindCase) {
         QuantityProvenance.KindCase.RAW -> Q.Raw(v.raw.source.takeIf { v.raw.hasSource() }?.let(::position), v.raw.observationsList.map(::position))
         QuantityProvenance.KindCase.CONSTANT -> Q.Constant(v.constant)
-        QuantityProvenance.KindCase.FACT -> v.fact.let { Q.Fact(SemanticProto.fromProto(it.definition), MetricAggregation.valueOf(it.aggregation), it.distinct, position(it.source), it.observationsList.map(::position), it.snapshot.takeIf { _ -> it.hasSnapshot() }?.let(::snapshot)) }
+        QuantityProvenance.KindCase.FACT -> v.fact.let { Q.Fact(SemanticProto.fromProto(it.definition), MetricAggregation.valueOf(it.aggregation), it.distinct, position(it.source),
+            it.observationsList.map(::position), it.snapshot.takeIf { _ -> it.hasSnapshot() }?.let(::snapshot), it.meanTarget.takeIf { _ -> it.hasMeanTarget() }?.let(MeanTarget::valueOf),
+            required(it.hasValueContract(), "FactQuantity.valueContract") { SemanticTypesProto.value(it.valueContract) }) }
         QuantityProvenance.KindCase.SELECTED_SNAPSHOT -> Q.SelectedSnapshot(provenance(v.selectedSnapshot.input), v.selectedSnapshot.timeAxesList.map(::position), v.selectedSnapshot.asOf.takeIf { v.selectedSnapshot.hasAsOf() }?.let(SemanticCalculationProto::scalar))
-        QuantityProvenance.KindCase.REDUCTION -> Q.Reduction(ResultAggregation.Kind.valueOf(v.reduction.aggregation), provenance(v.reduction.input), v.reduction.observationsList.map(::position))
+        QuantityProvenance.KindCase.REDUCTION -> v.reduction.let { Q.Reduction(required(it.hasAggregate(), "ReducedQuantity.aggregate") { SemanticStagesProto.aggregation(it.aggregate) },
+            provenance(it.input), it.observationsList.map(::position), it.inputDeclaration.takeIf { _ -> it.hasInputDeclaration() }?.let(SemanticTypesProto::value)) }
+        QuantityProvenance.KindCase.DECLARED -> v.declared.let { Q.Declared(provenance(it.input),
+            required(it.hasInputDeclaration(), "DeclaredQuantity.inputDeclaration") { SemanticTypesProto.value(it.inputDeclaration) },
+            required(it.hasDeclaration(), "DeclaredQuantity.declaration") { SemanticTypesProto.value(it.declaration) }) }
+        QuantityProvenance.KindCase.QUANTIZED -> v.quantized.let { Q.Quantized(provenance(it.input),
+            required(it.hasInputDeclaration(), "QuantizedQuantity.inputDeclaration") { SemanticTypesProto.value(it.inputDeclaration) }, it.scale, Rounding.valueOf(it.rounding)) }
+        QuantityProvenance.KindCase.CAST -> v.cast.let { Q.Cast(provenance(it.input),
+            required(it.hasInputDeclaration(), "CastQuantity.inputDeclaration") { SemanticTypesProto.value(it.inputDeclaration) },
+            com.olap.prototype.expression.SemanticExpression.ValueType.valueOf(it.targetType), it.precision.takeIf { _ -> it.hasPrecision() }, it.scale.takeIf { _ -> it.hasScale() }, Rounding.valueOf(it.rounding)) }
         QuantityProvenance.KindCase.UNIFORM_ALLOCATION -> Q.UniformAllocation(provenance(v.uniformAllocation.input), v.uniformAllocation.sourceKeysList.map(::position), v.uniformAllocation.memberKeysList.map(::position))
         QuantityProvenance.KindCase.LINEAR -> Q.Linear(v.linear.valuesList.map(::provenance))
         QuantityProvenance.KindCase.OBSERVED -> Q.Observed(Q.Nature.valueOf(v.observed.nature), v.observed.componentsList.map(::provenance), v.observed.observationsList.map(::position), v.observed.knownObservation)

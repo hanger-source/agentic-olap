@@ -94,7 +94,7 @@ internal class GovernanceOrderFixture(val database: PlatformDatabase, val direct
             emptyMap(), listOf(EventCreateRequest.LogicUnitRefInput("order_fact.destination", 1), EventCreateRequest.LogicUnitRefInput("order_fact.customer_id", 1)),
             listOf(EventCreateRequest.LogicUnitRefInput("order_fact.pay_amount", 1)), "支付成功事件", "golden"))
         paymentId = metrics.createMetric(MetricCreateRequest("pay_amount", "支付金额", "trade", MetricDefinition.FactMeasure(EventRef(EVENT, 1), ref("order_fact.pay_amount"),
-            MetricAggregation.SUM, false, null, emptyMap(), null, money(), MetricValueContract.Rounding.NONE), "支付金额", amountMeaning(), "golden")).metric.id
+            MetricAggregation.SUM, false, null, emptyMap(), null, money()), "支付金额", amountMeaning(), "golden")).metric.id
     }
 
     private fun preparePhysical() {

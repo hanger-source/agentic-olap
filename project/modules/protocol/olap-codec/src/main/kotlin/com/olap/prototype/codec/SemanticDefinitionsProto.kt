@@ -6,7 +6,7 @@ import com.olap.prototype.calculation.MetricCalculation as C
 import com.olap.prototype.calculation.MetricInstance as I
 import com.olap.prototype.metric.MetricSnapshotRule as S
 import com.olap.prototype.metric.MetricAggregation
-import com.olap.prototype.metric.MetricValueContract.Rounding
+import com.olap.prototype.metric.MeanTarget
 import com.olap.prototype.member.MemberSourceDefinition as M
 import com.olap.prototype.member.MemberSource as U
 import com.olap.prototype.member.MemberResult as R
@@ -17,13 +17,13 @@ import com.olap.prototype.query.ScalarValueType
 internal object SemanticDefinitionsProto {
     fun metric(v: D): MetricDefinition = MetricDefinition.newBuilder().apply { when (v) {
         is D.FactMeasure -> setFactMeasure(FactMeasure.newBuilder().setEvent(SemanticProto.toProto(v.event)).setInput(SemanticExpressionsProto.expression(v.input)).setAggregation(v.aggregation.name).setDistinct(v.distinct)
-            .putAllRoles(v.roles.mapValues { SemanticTypesProto.path(it.value) }).setValueContract(SemanticTypesProto.value(v.valueContract)).setAggregationRounding(v.aggregationRounding.name)
-            .apply { v.privatePredicate?.let { setPrivatePredicate(SemanticExpressionsProto.expression(it)) }; v.snapshotRule?.let { setSnapshotRule(snapshot(it)) } })
+            .putAllRoles(v.roles.mapValues { SemanticTypesProto.path(it.value) }).setValueContract(SemanticTypesProto.value(v.valueContract))
+            .apply { v.privatePredicate?.let { setPrivatePredicate(SemanticExpressionsProto.expression(it)) }; v.snapshotRule?.let { setSnapshotRule(snapshot(it)) }; v.meanTarget?.let { setMeanTarget(it.name) } })
         is C -> setCalculation(calculation(v))
     } }.build()
     fun metric(v: MetricDefinition): D = when (v.kindCase) {
         MetricDefinition.KindCase.FACT_MEASURE -> v.factMeasure.let { D.FactMeasure(SemanticProto.fromProto(it.event), SemanticExpressionsProto.expression(it.input), MetricAggregation.valueOf(it.aggregation), it.distinct,
-            it.privatePredicate.takeIf { _ -> it.hasPrivatePredicate() }?.let(SemanticExpressionsProto::expression), it.rolesMap.mapValues { entry -> SemanticTypesProto.path(entry.value) }, it.snapshotRule.takeIf { _ -> it.hasSnapshotRule() }?.let(::snapshot), SemanticTypesProto.value(it.valueContract), Rounding.valueOf(it.aggregationRounding)) }
+            it.privatePredicate.takeIf { _ -> it.hasPrivatePredicate() }?.let(SemanticExpressionsProto::expression), it.rolesMap.mapValues { entry -> SemanticTypesProto.path(entry.value) }, it.snapshotRule.takeIf { _ -> it.hasSnapshotRule() }?.let(::snapshot), SemanticTypesProto.value(it.valueContract), it.meanTarget.takeIf { _ -> it.hasMeanTarget() }?.let(MeanTarget::valueOf)) }
         MetricDefinition.KindCase.CALCULATION -> calculation(v.calculation)
         else -> error("metric definition kind is required")
     }
@@ -34,8 +34,8 @@ internal object SemanticDefinitionsProto {
         .putAllFixedArguments(v.fixedArguments.mapValues { SemanticCalculationProto.binding(it.value) }).build()
     fun instance(v: MetricInstance): I = I(SemanticProto.fromProto(v.definition), SemanticCalculationProto.bindings(v.bindings), v.fixedArgumentsMap.mapValues { SemanticCalculationProto.value(it.value) }, v.displayName)
     fun snapshot(v: S): MetricSnapshotRule = MetricSnapshotRule.newBuilder().setReduction(v.reduction.name).setEntityRole(v.entityRole).addAllEntityKeys(v.entityKeys.map(::key)).setTimeKey(key(v.timeKey))
-        .addAllTieBreakKeys(v.tieBreakKeys.map(::key)).setNullPolicy(v.nullPolicy.name).setMeanRounding(v.meanRounding.name).apply { v.meanValueContract?.let { setMeanValueContract(SemanticTypesProto.value(it)) } }.build()
-    fun snapshot(v: MetricSnapshotRule): S = S(S.Reduction.valueOf(v.reduction), v.entityRole, v.entityKeysList.map(::key), key(v.timeKey), v.tieBreakKeysList.map(::key), S.NullPolicy.valueOf(v.nullPolicy), v.meanValueContract.takeIf { v.hasMeanValueContract() }?.let(SemanticTypesProto::value), Rounding.valueOf(v.meanRounding))
+        .addAllTieBreakKeys(v.tieBreakKeys.map(::key)).setNullPolicy(v.nullPolicy.name).apply { v.meanValueContract?.let { setMeanValueContract(SemanticTypesProto.value(it)) }; v.meanTarget?.let { setMeanTarget(it.name) } }.build()
+    fun snapshot(v: MetricSnapshotRule): S = S(S.Reduction.valueOf(v.reduction), v.entityRole, v.entityKeysList.map(::key), key(v.timeKey), v.tieBreakKeysList.map(::key), S.NullPolicy.valueOf(v.nullPolicy), v.meanValueContract.takeIf { v.hasMeanValueContract() }?.let(SemanticTypesProto::value), v.meanTarget.takeIf { v.hasMeanTarget() }?.let(MeanTarget::valueOf))
     private fun key(v: S.LogicUnitKey): LogicUnitRef = LogicUnitRef.newBuilder().setId(v.id).setVersion(v.version).build()
     private fun key(v: LogicUnitRef): S.LogicUnitKey = S.LogicUnitKey(v.id, v.version)
     fun memberDefinition(v: M): MemberSourceDefinition = MemberSourceDefinition.newBuilder().apply { when (v) { is M.Projection -> setProjection(projection(v)); is M.Computed -> setComputed(computed(v)) } }.build()

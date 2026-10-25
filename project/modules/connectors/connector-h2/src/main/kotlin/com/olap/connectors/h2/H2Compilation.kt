@@ -4,10 +4,15 @@ import com.olap.prototype.connector.CompilationSupport
 import com.olap.prototype.connector.StandardJdbcTypes
 import com.olap.prototype.contract.*
 import com.olap.prototype.expression.NativeScalarFunction
+import com.olap.prototype.expression.NativeAverageBehavior
 import com.olap.prototype.metric.MetricValueContract
 import org.apache.calcite.plan.Strong
 import org.apache.calcite.rel.type.*
 import org.apache.calcite.rex.RexNode
+import org.apache.calcite.rex.RexOver
+import org.apache.calcite.rel.core.Aggregate
+import org.apache.calcite.rel.core.AggregateCall
+import org.apache.calcite.jdbc.JavaTypeFactoryImpl
 import org.apache.calcite.sql.*
 import org.apache.calcite.sql.`fun`.*
 import org.apache.calcite.sql.parser.SqlParserPos
@@ -36,7 +41,25 @@ internal class H2Compilation : CompilationSupport {
     override val maximumDeclaredDecimalPrecision: Int = 100000
     override fun supports(capability: CompilationSupport.Capability): Boolean = capability in setOf(CompilationSupport.Capability.COLLECTION_RESULTS,
         CompilationSupport.Capability.NUMERIC_FAILURE, CompilationSupport.Capability.NUMERIC_ROUNDING, CompilationSupport.Capability.SAMPLE_STDDEV)
-    override val decimalAverageRounding = MetricValueContract.Rounding.HALF_DOWN
+    override fun averageBehavior(owner: Aggregate, call: AggregateCall): NativeAverageBehavior {
+        require(call.aggregation == nativeAggregate(SqlKind.AVG) && call.argList.size == 1 && !call.isDistinct) { "H2 requires its actual scalar AVG mapping" }
+        return averageBehavior(owner.input.rowType.fieldList[call.argList.single()].type, call.type)
+    }
+    override fun averageBehavior(over: RexOver): NativeAverageBehavior {
+        require(over.aggOperator == nativeAggregate(SqlKind.AVG) && over.operands.size == 1 && !over.isDistinct) { "H2 requires its actual scalar window AVG mapping" }
+        return averageBehavior(over.operands.single().type, over.type)
+    }
+    private fun averageBehavior(input: RelDataType, result: RelDataType): NativeAverageBehavior {
+        val factory = JavaTypeFactoryImpl(typeSystem)
+        val expected = typeSystem.deriveAvgAggType(factory, input)
+        require(SqlTypeUtil.equalSansNullability(factory, expected, result)) { "H2 AVG result differs from its actual native type" }
+        // H2 2.2.224 的普通、分区及有序窗口共用 AggregateDataAvg。
+        // NUMERIC 以 BigDecimal 无中间 MathContext 累加，计数后仅向原生 scale 做一次 HALF_DOWN 除法。
+        return if (result.sqlTypeName == SqlTypeName.DECIMAL && input.sqlTypeName in setOf(SqlTypeName.BIGINT, SqlTypeName.DECIMAL))
+            NativeAverageBehavior.QuantizedMean(MetricValueContract.Rounding.HALF_DOWN)
+        else if (SqlTypeUtil.isApproximateNumeric(result)) NativeAverageBehavior.NativeFloating
+        else throw UnsupportedOperationException("H2 AVG numerical behavior is not mapped for the actual types")
+    }
     override val division: SqlOperator = SqlStdOperatorTable.DIVIDE
     override fun sortCollection(builder: RelBuilder, value: RexNode, descending: Boolean, nullsFirst: Boolean): RexNode = throw UnsupportedOperationException("H2 connector has no verified collection ordering mapping")
     override fun collectionText(builder: RelBuilder, value: RexNode, delimiter: String, nullReplacement: String?): RexNode = throw UnsupportedOperationException("H2 connector has no verified collection text mapping")

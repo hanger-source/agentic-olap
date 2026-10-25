@@ -119,7 +119,6 @@ class ImmutableGovernancePublicationTest {
                     roles = emptyMap(),
                     snapshotRule = null,
                     valueContract = CustomerCalculationDefinitions.approximateMoney(),
-                    aggregationRounding = MetricValueContract.Rounding.NONE
                 ),
                 description = "修订口径",
                 businessMeaning = MetricBusinessMeaning("平均支付金额", "元", "订单", emptyList()),

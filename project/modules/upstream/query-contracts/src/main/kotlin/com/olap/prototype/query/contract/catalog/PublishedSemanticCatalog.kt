@@ -11,6 +11,7 @@ import com.olap.prototype.event.EventRef
 import com.olap.prototype.member.MemberRef
 import com.olap.prototype.member.MemberShape
 import com.olap.prototype.metric.MetricAggregation
+import com.olap.prototype.metric.MeanTarget
 import com.olap.prototype.metric.MetricBusinessMeaning
 import com.olap.prototype.metric.MetricSnapshotRule
 import com.olap.prototype.metric.MetricValueContract
@@ -150,7 +151,13 @@ data class PublishedSemanticCatalog(
     }
     enum class MetricKind { FACT_MEASURE, CALCULATION }
     data class Aggregation(val function: MetricAggregation,
-        val distinct: Boolean, val rounding: MetricValueContract.Rounding)
+        val distinct: Boolean, val meanTarget: MeanTarget?) {
+        init {
+            require((function == MetricAggregation.AVG) == (meanTarget != null)) {
+                "published AVG requires an explicit meanTarget; other aggregations do not declare one"
+            }
+        }
+    }
 
     sealed interface SourceScope
     class SourceExplanation(callPath: List<String>, val scope: SourceScope) {
@@ -546,7 +553,7 @@ data class PublishedSemanticCatalog(
 
 
     companion object {
-        const val FORMAT_VERSION = "olap-published-semantic-catalog/v3"
+        const val FORMAT_VERSION = "olap-published-semantic-catalog/v4"
         fun scalar(meaning: MemberSlotMeaning): ScalarSlotMeaning = meaning as? ScalarSlotMeaning ?: throw IllegalArgumentException("semantic operation requires a scalar member slot")
         fun rootValueContract(meaning: MemberSlotMeaning): MetricValueContract? = (meaning as? ScalarSlotMeaning)?.valueContract
         private fun levelTypes(levels: List<String>, types: Map<String, ScalarValueType>) {

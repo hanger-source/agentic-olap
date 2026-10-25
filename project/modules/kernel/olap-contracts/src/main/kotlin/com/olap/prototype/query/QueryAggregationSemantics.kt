@@ -47,23 +47,22 @@ object QueryAggregationSemantics {
         return when (aggregation) {
             is ResultAggregation.Collect -> QueryValue.Array(input)
             is ResultAggregation.Count -> QueryValue.Measure(QueryQuantity(countDeclaration(), Fixed(MetricValueContract.ONE),
-                Reduction(aggregation.kind, QuantityProvenance.provenance(input), observations)))
+                Reduction(aggregation, QuantityProvenance.provenance(input), observations, (input as? QueryValue.Measure)?.quantity?.declaration)))
             is ResultAggregation.Minimum, is ResultAggregation.Maximum -> {
                 if (input is QueryValue.Plain) QueryValue.anonymous()
                 else {
                     val quantity = QueryValueSemantics.measure(input)
                     requireGroupedUnits(quantity, retained)
-                    val copied = quantity.provenance as? Copied
-                    val provenance = if (copied != null && QuantityProvenance.knownObservation(copied.input) && retained.containsAll(QuantityProvenance.observations(copied.input))) copied.input
-                        else Reduction(aggregation.kind, quantity.provenance, observations)
-                    QueryValue.Measure(QueryQuantity(quantity.declaration, quantity.unit, provenance))
+                    QueryValue.Measure(QueryQuantity(quantity.declaration, quantity.unit,
+                        Reduction(aggregation, quantity.provenance, observations, quantity.declaration)))
                 }
             }
             is ResultAggregation.Numeric -> {
                 val quantity = QueryValueSemantics.measure(input)
                 requireGroupedUnits(quantity, retained)
                 QueryValueSemantics.requireDeclaration(aggregation.valueContract, quantity)
-                QueryValue.Measure(QueryQuantity(aggregation.valueContract, quantity.unit, Reduction(aggregation.kind, quantity.provenance, observations)))
+                QueryValue.Measure(QueryQuantity(aggregation.valueContract, quantity.unit,
+                    Reduction(aggregation, quantity.provenance, observations, quantity.declaration)))
             }
         }
     }
@@ -73,8 +72,8 @@ object QueryAggregationSemantics {
         val result = aggregate(aggregation, input, partition)
         if (result !is QueryValue.Measure) return result
         val actual = QuantityProvenance.provenance(input)
-        return QueryValue.Measure(QueryQuantity(result.quantity.declaration, result.quantity.unit, Window(aggregation.kind, actual, QuantityProvenance.observations(actual),
-            partition.map { ValuePosition.column(it.id) }, order, frame, cumulative, totalOrder)))
+        return QueryValue.Measure(QueryQuantity(result.quantity.declaration, result.quantity.unit, Window(aggregation, actual, QuantityProvenance.observations(actual),
+            partition.map { ValuePosition.column(it.id) }, order, frame, cumulative, totalOrder, (input as? QueryValue.Measure)?.quantity?.declaration)))
     }
 
     fun offset(input: QueryValue, partition: Collection<QueryStageAnalysis.Symbol>, order: List<Order>, function: String, distance: Int, totalOrder: Boolean): QueryValue {
@@ -121,20 +120,29 @@ object QueryAggregationSemantics {
                 hasAdditiveSourceProof(provenance.input, coordinates, false)
         }
         is UniformAllocation -> hasAdditiveSourceProof(provenance.input, retained, singleObservation)
-        is Reduction -> when (provenance.aggregation) {
+        is Reduction -> when (provenance.aggregation.kind) {
             ResultAggregation.Kind.SUM -> hasAdditiveSourceProof(provenance.input, retained, singleObservation)
             ResultAggregation.Kind.COUNT -> true
             ResultAggregation.Kind.COUNT_DISTINCT -> singleObservation
-            ResultAggregation.Kind.AVG, ResultAggregation.Kind.STDDEV_SAMP, ResultAggregation.Kind.MIN, ResultAggregation.Kind.MAX,
+            ResultAggregation.Kind.MIN, ResultAggregation.Kind.MAX -> singleObservation ||
+                (QuantityProvenance.withoutLosslessChanges(provenance.input) as? Copied)?.input?.let { original ->
+                    QuantityProvenance.knownObservation(original) && retained.containsAll(QuantityProvenance.observations(original)) &&
+                        hasAdditiveSourceProof(original, retained, false)
+                } == true
+            ResultAggregation.Kind.AVG, ResultAggregation.Kind.STDDEV_SAMP,
             ResultAggregation.Kind.ARRAY_AGG, ResultAggregation.Kind.ARRAY_AGG_DISTINCT -> singleObservation
         }
         is Linear -> (singleObservation || QuantityProvenance.commonSnapshotScope(provenance.terms, retained)) &&
             provenance.terms.all { hasAdditiveSourceProof(it, retained, singleObservation) }
-        is Observed -> QuantityProvenance.rowWise(provenance) || provenance.nature in setOf(Nature.WEIGHTED_VALUE, Nature.WEIGHTED_WEIGHT) &&
+        is Observed -> QuantityProvenance.constantScaleInput(provenance)?.let { hasAdditiveSourceProof(it, retained, singleObservation) } == true ||
+            QuantityProvenance.rowWise(provenance) || provenance.nature in setOf(Nature.WEIGHTED_VALUE, Nature.WEIGHTED_WEIGHT) &&
             provenance.knownObservation && !QuantityProvenance.hasCopied(provenance) || singleObservation
         is Window -> singleObservation
         is Offset -> singleObservation || provenance.totalOrder && hasAdditiveSourceProof(provenance.input, retained, false)
         is Delta -> hasAdditiveSourceProof(provenance.cumulative.input, retained, singleObservation)
+        is Declared -> singleObservation || QuantityProvenance.lossless(provenance) && hasAdditiveSourceProof(provenance.input, retained, false)
+        is Quantized -> singleObservation || QuantityProvenance.lossless(provenance) && hasAdditiveSourceProof(provenance.input, retained, false)
+        is Cast -> singleObservation || QuantityProvenance.lossless(provenance) && hasAdditiveSourceProof(provenance.input, retained, false)
         is Alternatives -> (singleObservation || QuantityProvenance.commonSnapshotScope(provenance.branches, retained)) &&
             provenance.branches.all { hasAdditiveSourceProof(it, retained, singleObservation) }
     }

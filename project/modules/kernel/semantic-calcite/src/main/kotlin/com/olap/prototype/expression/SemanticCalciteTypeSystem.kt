@@ -1,8 +1,11 @@
 package com.olap.prototype.expression
 
 import com.olap.prototype.connector.CompilationSupport
+import com.olap.prototype.connector.NativeAggregateMappingException
+import com.olap.prototype.metric.MetricAggregation
 import org.apache.calcite.rel.type.DelegatingTypeSystem
 import org.apache.calcite.rel.type.RelDataType
+import org.apache.calcite.rel.type.RelDataTypeFactory
 import org.apache.calcite.rel.type.RelDataTypeSystemImpl
 import org.apache.calcite.sql.type.SqlTypeName
 
@@ -16,6 +19,18 @@ class SemanticCalciteTypeSystem private constructor(private val support: Compila
     val nativeSupport: CompilationSupport get() = requireNotNull(support) { "execution requires explicit connector compilation support" }
     val maximumDeclaredDecimalPrecision: Int get() = support?.maximumDeclaredDecimalPrecision ?: getMaxPrecision(SqlTypeName.DECIMAL)
     fun supports(capability: CompilationSupport.Capability): Boolean = support?.supports(capability) == true
+
+    override fun deriveAvgAggType(factory: RelDataTypeFactory, argument: RelDataType): RelDataType = try {
+        super.deriveAvgAggType(factory, argument)
+    } catch (failure: NativeAggregateMappingException) {
+        throw failure
+    } catch (failure: IllegalArgumentException) {
+        if (semantic) throw failure
+        throw NativeAggregateMappingException(MetricAggregation.AVG, argument.fullTypeString, failure)
+    } catch (failure: UnsupportedOperationException) {
+        if (semantic) throw failure
+        throw NativeAggregateMappingException(MetricAggregation.AVG, argument.fullTypeString, failure)
+    }
 
     private object SemanticTypes : RelDataTypeSystemImpl() {
         override fun getMaxPrecision(name: SqlTypeName): Int = when (name) {

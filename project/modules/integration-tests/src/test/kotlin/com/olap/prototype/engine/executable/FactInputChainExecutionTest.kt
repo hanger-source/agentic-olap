@@ -65,7 +65,7 @@ class FactInputChainExecutionTest {
     private fun metric(store: Store, id: String, column: String, aggregation: MetricAggregation, contract: MetricValueContract,
         predicate: SemanticExpression?, snapshot: MetricSnapshotRule?, dimensions: List<ExecutableBoundAnalysisDimension>): ExecutableMetricInput {
         val metric = ExecutableMetric(MetricRef(id, "1"), MetricDefinition.FactMeasure(EventRef("orders_event", 1), ref("orders.$column"), aggregation,
-            false, predicate, emptyMap(), snapshot, contract, MetricValueContract.Rounding.NONE))
+            false, predicate, emptyMap(), snapshot, contract, if (aggregation == MetricAggregation.AVG) MeanTarget.SOURCE_NATIVE else null))
         val invocation = ExecutableMetricCall.Invocation(QueryStageAnalysis.ScopeId.root(), id, CalculationOwner.Metric(MetricInstanceRef(id)), "value", "value", metric,
             emptyMap(), CalculationBindings.empty(), null, emptyMap(), emptyMap())
         val selection = ExecutableMeasureSelection(dimensions.filterNot { it.filterOnly }.associate { it.outputAlias to dimensionRef(it.outputAlias) }, emptyMap(), null, null, emptyMap())
@@ -201,7 +201,7 @@ class FactInputChainExecutionTest {
         val levels = GroupingLevels("level", listOf(GroupingLevels.Level("leaf", listOf("region", "bucket")), GroupingLevels.Level("region", listOf("region")), GroupingLevels.Level("total", emptyList()))).bind(listOf("region", "bucket"))
         val mean = metric(store, "mean", "amount", MetricAggregation.AVG, approximateMoney(), null, null, dimensions)
         val people = definition(metric(store, "people", "customer", MetricAggregation.COUNT, records(), null, null, dimensions),
-            MetricDefinition.FactMeasure(EventRef("orders_event", 1), ref("orders.customer"), MetricAggregation.COUNT, true, null, emptyMap(), null, records(), MetricValueContract.Rounding.NONE))
+            MetricDefinition.FactMeasure(EventRef("orders_event", 1), ref("orders.customer"), MetricAggregation.COUNT, true, null, emptyMap(), null, records()))
         val rows = execute(store, measures(listOf(mean, people), levels)); assertEquals(6, rows.size)
         val region = rows.single { it[0] == "A" && (it[2] as Number).toLong() == 1L }
         assertEquals(90.0, (region[3] as Number).toDouble()); assertEquals(1L, (region[4] as Number).toLong())
@@ -214,7 +214,7 @@ class FactInputChainExecutionTest {
         (2..10).forEach { inserts += "INSERT INTO orders(id,amount,customer,observed_at) VALUES ($it,100,1,TIMESTAMP '2026-01-01')" }
         val store = store(directory, inserts)
         val snapshot = MetricSnapshotRule(MetricSnapshotRule.Reduction.MEAN, "customer", listOf(MetricSnapshotRule.LogicUnitKey("orders.customer", 1)),
-            MetricSnapshotRule.LogicUnitKey("orders.observed_at", 1), listOf(MetricSnapshotRule.LogicUnitKey("orders.id", 1)), MetricSnapshotRule.NullPolicy.IGNORE, approximateMoney(), MetricValueContract.Rounding.NONE)
+            MetricSnapshotRule.LogicUnitKey("orders.observed_at", 1), listOf(MetricSnapshotRule.LogicUnitKey("orders.id", 1)), MetricSnapshotRule.NullPolicy.IGNORE, approximateMoney(), MeanTarget.SOURCE_NATIVE)
         val amount = metric(store, "entity_mean_sum", "amount", MetricAggregation.SUM, approximateMoney(), null, snapshot, emptyList())
         assertEquals(100.0, (execute(store, measures(listOf(amount))).single().single() as Number).toDouble())
     }
@@ -226,7 +226,7 @@ class FactInputChainExecutionTest {
         val formula = SemanticExpression.Operation(SemanticExpression.Operator.DIVIDE, listOf(SemanticExpression.Literal(BigDecimal.ONE),
             SemanticExpression.Operation(SemanticExpression.Operator.MULTIPLY, listOf(large, amount))))
         fun input(id: String, predicate: SemanticExpression?): ExecutableMetricInput = definition(metric(store, id, "amount", MetricAggregation.SUM, contract, predicate, null, emptyList()),
-            MetricDefinition.FactMeasure(EventRef("orders_event", 1), formula, MetricAggregation.SUM, false, predicate, emptyMap(), null, contract, MetricValueContract.Rounding.NONE))
+            MetricDefinition.FactMeasure(EventRef("orders_event", 1), formula, MetricAggregation.SUM, false, predicate, emptyMap(), null, contract))
         val invalid = compile(store, measures(listOf(input("all", null))))
         assertInstanceOf(SQLException::class.java, assertThrows(RuntimeException::class.java) { execute(store, invalid) }.cause)
         for (consumers in listOf(1, 2)) {

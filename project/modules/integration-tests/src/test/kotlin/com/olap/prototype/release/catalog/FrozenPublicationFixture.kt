@@ -142,7 +142,8 @@ internal class FrozenPublicationFixture(directory: Path, dialect: String, unique
         fun records() = MetricValueContract(MetricValueContract.Fixed(MetricValueContract.ONE), MetricValueContract.Exact(), MetricValueContract.Integer(64), emptyMap(), MetricValueContract.Overflow.FAIL)
         fun meaning() = MetricBusinessMeaning("发布试验金额或记录数", "按值合同", "支付事实", emptyList())
         fun fact(input: SemanticExpression, aggregation: MetricAggregation, distinct: Boolean = false, predicate: SemanticExpression? = null, contract: MetricValueContract = money()) =
-            MetricDefinition.FactMeasure(EVENT, input, aggregation, distinct, predicate, emptyMap(), null, contract, MetricValueContract.Rounding.NONE)
+            MetricDefinition.FactMeasure(EVENT, input, aggregation, distinct, predicate, emptyMap(), null, contract,
+                if (aggregation == MetricAggregation.AVG) MeanTarget.SOURCE_NATIVE else null)
         fun amount(): Map<String, MetricDefinition> = mapOf("amount" to fact(ref("orders.amount"), MetricAggregation.SUM))
 
         fun metricReferences(view: ReleaseCatalogView): List<ScenarioMetricReference> = view.objectVersionRefs.filter { it.objectType == "METRIC_ADOPTION" }.mapIndexed { index, reference ->

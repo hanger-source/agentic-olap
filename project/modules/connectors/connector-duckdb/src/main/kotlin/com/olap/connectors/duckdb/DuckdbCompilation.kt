@@ -4,11 +4,15 @@ import com.olap.prototype.connector.CompilationSupport
 import com.olap.prototype.connector.StandardJdbcTypes
 import com.olap.prototype.contract.*
 import com.olap.prototype.expression.NativeScalarFunction
+import com.olap.prototype.expression.NativeAverageBehavior
 import com.olap.prototype.metric.MetricValueContract
 import org.apache.calcite.plan.Strong
 import org.apache.calcite.rel.type.*
 import org.apache.calcite.rex.RexLambdaRef
 import org.apache.calcite.rex.RexNode
+import org.apache.calcite.rex.RexOver
+import org.apache.calcite.rel.core.Aggregate
+import org.apache.calcite.rel.core.AggregateCall
 import org.apache.calcite.sql.*
 import org.apache.calcite.sql.`fun`.*
 import org.apache.calcite.sql.parser.SqlParserPos
@@ -45,7 +49,18 @@ internal class DuckdbCompilation : CompilationSupport {
         CompilationSupport.Capability.SAMPLE_STDDEV, CompilationSupport.Capability.RECURSIVE_ANCESTORS, CompilationSupport.Capability.ELAPSED_TIMESTAMPDIFF,
         CompilationSupport.Capability.WIDE_INTEGER, CompilationSupport.Capability.TIMESTAMP_PARAMETER_NATIVE_CAST, CompilationSupport.Capability.ROUND_KEEPS_INPUT_PRECISION,
         CompilationSupport.Capability.CORRELATED_DERIVED_PROJECTION)
-    override val decimalAverageRounding = MetricValueContract.Rounding.NONE
+    override fun averageBehavior(owner: Aggregate, call: AggregateCall): NativeAverageBehavior {
+        require(call.aggregation == nativeAggregate(SqlKind.AVG) && call.argList.size == 1 && !call.isDistinct) { "DuckDB requires its actual scalar AVG mapping" }
+        return averageBehavior(owner.input.rowType.fieldList[call.argList.single()].type, call.type)
+    }
+    override fun averageBehavior(over: RexOver): NativeAverageBehavior {
+        require(over.aggOperator == nativeAggregate(SqlKind.AVG) && over.operands.size == 1 && !over.isDistinct) { "DuckDB requires its actual scalar window AVG mapping" }
+        return averageBehavior(over.operands.single().type, over.type)
+    }
+    private fun averageBehavior(input: RelDataType, result: RelDataType): NativeAverageBehavior {
+        require(SqlTypeUtil.isNumeric(input) && result.sqlTypeName == SqlTypeName.DOUBLE) { "DuckDB AVG requires its actual DOUBLE result mapping" }
+        return NativeAverageBehavior.NativeFloating
+    }
     override fun sortCollection(builder: RelBuilder, value: RexNode, descending: Boolean, nullsFirst: Boolean): RexNode = collectionCall(builder, "LIST_SORT", value.type,
         listOf(value, builder.literal(if (descending) "DESC" else "ASC"), builder.literal(if (nullsFirst) "NULLS FIRST" else "NULLS LAST")))
     override fun collectionText(builder: RelBuilder, value: RexNode, delimiter: String, nullReplacement: String?): RexNode {

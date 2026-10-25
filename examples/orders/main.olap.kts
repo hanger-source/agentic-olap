@@ -337,8 +337,8 @@ fun statisticsDefinition(outputName: String): Calculation {
     val stats = Calculation.ObservationStatistics(observations, Calculation.ObjectsBy(listOf("customer")), emptyList(), listOf(
         Calculation.Reduction(reduction("gross", ResultAggregation.Sum(amountContract(), ResultAggregation.NullPolicy.IGNORE), "gross_total")),
         Calculation.Reduction(reduction("orders", ResultAggregation.Sum(countContract(), ResultAggregation.NullPolicy.IGNORE), "order_total")),
-        Calculation.Reduction(reduction("gross", ResultAggregation.Average(averageContract(), ResultAggregation.NullPolicy.IGNORE, MetricValueContract.Rounding.NONE), "customer_mean")),
-        Calculation.Reduction(reduction("price", ResultAggregation.Average(averageContract(), ResultAggregation.NullPolicy.IGNORE, MetricValueContract.Rounding.NONE), "unweighted")),
+        Calculation.Reduction(reduction("gross", ResultAggregation.Average(averageContract(), ResultAggregation.NullPolicy.IGNORE, MeanTarget.SOURCE_NATIVE), "customer_mean")),
+        Calculation.Reduction(reduction("price", ResultAggregation.Average(averageContract(), ResultAggregation.NullPolicy.IGNORE, MeanTarget.SOURCE_NATIVE), "unweighted")),
         Calculation.WeightedMean("price", "orders", "weighted", "按真实订单数加权客户均价", averageContract(), countContract(),
             averageContract(), "multiply", "divide", "IGNORE_PAIR"),
     ))
@@ -404,7 +404,7 @@ fun buildOrders(): BusinessExample.Saved {
         val contract = if (code == "orders") countContract() else amountContract()
         val fact = governance.createMetric(MetricCreateRequest("${code}_fact", code, example.actor,
             MetricDefinition.FactMeasure(EventRef(events.getValue(tableName).id, 1), SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, unit.id, 1),
-                if (code == "orders") MetricAggregation.COUNT else MetricAggregation.SUM, false, null, emptyMap(), null, contract, MetricValueContract.Rounding.NONE),
+                if (code == "orders") MetricAggregation.COUNT else MetricAggregation.SUM, false, null, emptyMap(), null, contract),
             "分别完成各事实测量，不把支付与退款明细相乘", example.meaning(code), example.actor)).metric
         example.activate("METRIC", fact.id)
         example.calculation("${code}_by_customer", aggregateDefinition(MetricRef(fact.id, "1"), contract))

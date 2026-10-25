@@ -71,7 +71,8 @@ internal object ServerFailures {
                 is MemberAdoptionConflictException -> return Projection(actualStage, "MEMBER_ADOPTION_CONFLICT", requireNotNull(cause.message),
                     mapOf("source" to cause.source, "expectedDefinition" to cause.expectedDefinition, "actualDefinition" to cause.actualDefinition))
                 is NativeAggregateMappingException -> return Projection(actualStage, cause.code, requireNotNull(cause.message),
-                    mapOf("aggregate" to cause.aggregate.name, "inputType" to cause.inputType))
+                    mapOf("aggregate" to cause.aggregate.name, "inputType" to cause.inputType,
+                        "reason" to cause.reason.name))
                 is NativeArithmeticMappingException -> return Projection(actualStage, cause.code, requireNotNull(cause.message),
                     mapOf("operation" to cause.operation, "inputTypes" to cause.inputTypes, "reason" to cause.reason.name))
                 is NativeCompilationCapabilityException -> return Projection(actualStage, cause.code, requireNotNull(cause.message),

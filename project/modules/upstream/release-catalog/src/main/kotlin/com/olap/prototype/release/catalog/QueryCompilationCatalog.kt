@@ -65,7 +65,7 @@ class QueryCompilationCatalog private constructor(private val connectors: Connec
                 val definition = value.definition
                 if (definition is MetricDefinition.FactMeasure) value.copy(definition = MetricDefinition.FactMeasure(definition.event,
                     expression(definition.input), definition.aggregation, definition.distinct, definition.privatePredicate?.let(::expression),
-                    definition.roles, definition.snapshotRule, definition.valueContract, definition.aggregationRounding)) else value
+                    definition.roles, definition.snapshotRule, definition.valueContract, definition.meanTarget)) else value
             }, metricInstances = original.metricInstances, memberSources = original.memberSources.mapValues { (_, source) -> when (source) {
                 is MemberSource.Projection -> MemberSource.Projection(source.id, source.version, source.definition, source.outputExpressions.mapValues { expression(it.value) })
                 is MemberSource.Computed -> source

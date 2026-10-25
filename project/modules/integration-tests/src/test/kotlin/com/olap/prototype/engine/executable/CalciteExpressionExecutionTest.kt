@@ -86,14 +86,11 @@ class CalciteExpressionExecutionTest {
             val b = builder(source.adopt("large_quantities", emptyMap())); val value = b.field("amount")
             val exactSum = quantity(MetricValueContract.Exact(), MetricValueContract.Decimal(38, 0, MetricValueContract.Rounding.NONE))
             val exactMean = quantity(MetricValueContract.Exact(), MetricValueContract.Decimal(38, 10, MetricValueContract.Rounding.NONE))
-            val mean = if (dialect == "h2") exactMean else quantity(MetricValueContract.Approximate("-1000000000000000000", "1000000000000000000", "2", "0"), MetricValueContract.BinaryFloat(64))
-            val rounding = if (dialect == "h2") MetricValueContract.Rounding.HALF_DOWN else MetricValueContract.Rounding.NONE
             SemanticNumericRex.aggregate(b, ResultAggregation.Sum(exactSum, ResultAggregation.NullPolicy.IGNORE), value)
-            if (dialect == "duckdb") assertThrows(IllegalArgumentException::class.java) { SemanticNumericRex.aggregate(b, ResultAggregation.Average(exactMean, ResultAggregation.NullPolicy.IGNORE, MetricValueContract.Rounding.NONE), value) }
-            SemanticNumericRex.aggregate(b, ResultAggregation.Average(mean, ResultAggregation.NullPolicy.IGNORE, rounding), value)
+            // 直接观察来源 AVG 的技术精度；不把有限样本冒充正式均值目标或误差保证。
             b.aggregate(b.groupKey(), b.sum(false, "total", value), b.avg(false, "mean", value))
             if (dialect == "duckdb") assertThrows(IllegalArgumentException::class.java) { SemanticNumericRex.output(b, b.field("mean"), exactMean) }
-            b.project(listOf(SemanticNumericRex.output(b, b.field("total"), exactSum), SemanticNumericRex.output(b, b.field("mean"), mean)), listOf("total", "mean"), true)
+            b.project(listOf(SemanticNumericRex.output(b, b.field("total"), exactSum), b.field("mean")), listOf("total", "mean"), true)
             val result = rows(source, CalciteQueryCompiler.optimize(b.build(), emptyList())).single()
             decimal(result[0], "18014398509481986")
             if (dialect == "h2") decimal(result[1], "9007199254740993")

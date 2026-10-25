@@ -5,6 +5,8 @@ import com.olap.prototype.contract.JdbcParameter
 import com.olap.prototype.engine.catalog.ExecutableRelationPosition.Expression
 import com.olap.prototype.engine.catalog.ExecutableRelationPosition.Id
 import com.olap.prototype.expression.*
+import com.olap.prototype.metric.MetricAggregation
+import com.olap.prototype.metric.MetricValueContract
 import com.olap.prototype.query.GroupingLevels
 import com.olap.prototype.query.ScopedInputContract
 import com.olap.prototype.query.SourceJoinContract
@@ -72,24 +74,27 @@ internal class FactRelationCompiler(val sourceRows: SourceRelationCompiler) {
         }
         return ordered
     }
-    private data class SharedFactColumn(val input: ExecutableMetricInput, val population: String, val predicate: String, val value: String, val aggregate: String, val matches: String)
+    private data class SharedFactColumn(val input: ExecutableMetricInput, val population: String, val predicate: String, val value: String, val aggregate: String,
+        val matches: String, val inputGuarantees: List<MetricValueContract.Arithmetic>)
     private data class SharedProjection(val dimensions: List<String>, val columns: List<SharedFactColumn>)
     private fun projectSharedInputs(b: RelBuilder, group: List<ExecutableMetricInput>, parameters: MutableList<JdbcParameter>, rows: SourceRelationCompiler.Rows): SharedProjection {
         val first = group.first()
-        val projection = SharedProjection(dimensionAliases(first), group.mapIndexed { index, input -> SharedFactColumn(input,
-            "__population_$index", "__predicate_$index", "__value_$index", "__aggregate_$index", "__matches_$index") })
         val values = mutableListOf<RexNode>(); val names = mutableListOf<String>()
         first.analysisDimensions.filterNot { it.filterOnly }.forEach { dimension ->
             val value = rows.compile(dimension.binding.expression, sourceRows.source(first).dimension(dimension.binding))
             FactAtomCompiler.requireUnitCode(value, dimension.binding, group); values.add(value); names.add(dimension.outputAlias)
         }
-        projection.columns.forEach { column ->
-            val population = sharedPopulation(b, column.input, rows)
-            val atom = FactAtomCompiler.input(b, rows, column.input, population)
+        val columns = group.mapIndexed { index, input ->
+            val population = sharedPopulation(b, input, rows)
+            val atom = FactAtomCompiler.input(b, rows, input, population)
+            val column = SharedFactColumn(input, "__population_$index", "__predicate_$index", "__value_$index", "__aggregate_$index",
+                "__matches_$index", atom.inputGuarantees)
             values.add(population); names.add(column.population)
             values.add(requireNotNull(atom.predicate)); names.add(column.predicate)
             values.add(atom.value); names.add(column.value)
+            column
         }
+        val projection = SharedProjection(dimensionAliases(first), columns)
         rows.project(values, names)
         b.filter(b.or(projection.columns.map { b.field(it.population) }))
         return projection
@@ -104,10 +109,16 @@ internal class FactRelationCompiler(val sourceRows: SourceRelationCompiler) {
     private fun aggregateSharedInputs(b: RelBuilder, projection: SharedProjection): RelNode {
         val aggregates = mutableListOf<RelBuilder.AggCall>()
         projection.columns.forEach { column ->
-            aggregates.add(FactAtomCompiler.aggregate(b, column.input.metric.factMeasure(), b.field(column.value), b.field(column.predicate), column.aggregate))
+            aggregates.add(FactAtomCompiler.aggregate(b, column.input.metric.factMeasure(), b.field(column.value), b.field(column.predicate), column.aggregate, column.inputGuarantees))
             if (projection.dimensions.isNotEmpty()) aggregates.add(b.aggregateCall(Ops.COUNT, false, b.field(column.population), column.matches, b.literal(1)))
         }
-        val aggregate = b.aggregate(b.groupKey(projection.dimensions.map(b::field)), aggregates).build()
+        b.aggregate(b.groupKey(projection.dimensions.map(b::field)), aggregates)
+        projection.columns.forEach { column ->
+            val measure = column.input.metric.factMeasure()
+            if (measure.aggregation == MetricAggregation.AVG) NativeAggregateTypes.requireAverage(b, column.aggregate,
+                requireNotNull(measure.meanTarget), measure.valueContract, column.inputGuarantees)
+        }
+        val aggregate = b.build()
         if (log.isDebugEnabled) log.debug("共享聚合人口依据：predicates={}, rel={}", aggregate.cluster.metadataQuery.getPulledUpPredicates(aggregate), aggregate)
         return aggregate
     }
@@ -160,20 +171,28 @@ internal class FactRelationCompiler(val sourceRows: SourceRelationCompiler) {
         return rows
     }
     private fun projectFactInputs(builder: RelBuilder, group: List<ExecutableMetricInput>, rows: SourceRelationCompiler.Rows, dimensions: List<String>): FactAtomCompiler.Projection {
-        val branch = group.first(); val projection = FactAtomCompiler.Projection.create(dimensions, group); val values = mutableListOf<RexNode>()
+        val branch = group.first(); val values = mutableListOf<RexNode>()
         branch.analysisDimensions.filter { !it.filterOnly && it.outputAlias in dimensions }.forEach { dimension ->
             val value = rows.compile(dimension.binding.expression, sourceRows.source(branch).dimension(dimension.binding))
             FactAtomCompiler.requireUnitCode(value, dimension.binding, group); values.add(value)
         }
-        projection.columns.forEach { column -> val atom = FactAtomCompiler.input(builder, rows, column.input, null); values.add(atom.value); if (column.predicate != null) values.add(requireNotNull(atom.predicate)) }
+        val atoms = group.map { FactAtomCompiler.input(builder, rows, it, null) }
+        val projection = FactAtomCompiler.Projection.create(dimensions, group, atoms)
+        projection.columns.zip(atoms).forEach { (column, atom) -> values.add(atom.value); if (column.predicate != null) values.add(requireNotNull(atom.predicate)) }
         val snapshot = branch.metric.factMeasure().snapshotRule
-        if (snapshot == null) rows.project(values, projection.names()) else FactSnapshotCompiler.compile(builder, rows, requireNotNull(sourceRows.source(branch).metricExpression), snapshot, projection, values)
+        if (snapshot != null) return FactSnapshotCompiler.compile(builder, rows, requireNotNull(sourceRows.source(branch).metricExpression), snapshot, projection, values)
+        rows.project(values, projection.names())
         return projection
     }
     private fun aggregateFacts(builder: RelBuilder, projection: FactAtomCompiler.Projection, levels: GroupingLevels.Bound?) {
-        val calls = projection.columns.map { FactAtomCompiler.aggregate(builder, it.measure(), builder.field(it.value), it.predicate?.let(builder::field), it.aggregate) }.toMutableList()
+        val calls = projection.columns.map { FactAtomCompiler.aggregate(builder, it.measure(), builder.field(it.value), it.predicate?.let(builder::field), it.aggregate, it.inputGuarantees) }.toMutableList()
         if (levels != null && projection.dimensions.isNotEmpty()) calls.add(builder.aggregateCall(Ops.GROUPING, projection.dimensions.map(builder::field)).`as`(levels.outputAlias))
         builder.aggregate(RelationalAggregates.groupKey(builder, projection.dimensions, levels), calls)
+        projection.columns.forEach { column ->
+            val measure = column.measure()
+            if (measure.aggregation == MetricAggregation.AVG) NativeAggregateTypes.requireAverage(builder, column.aggregate,
+                requireNotNull(measure.meanTarget), measure.valueContract, column.inputGuarantees)
+        }
     }
     private fun factOutputs(builder: RelBuilder, layout: FactAtomCompiler.Projection, levels: GroupingLevels.Bound?): RelNode {
         val projection = layout.dimensions.map(builder::field).toMutableList<RexNode>(); val aliases = layout.dimensions.toMutableList()

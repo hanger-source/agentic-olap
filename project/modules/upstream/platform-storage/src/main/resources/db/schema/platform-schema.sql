@@ -1867,4 +1867,4 @@ CREATE TABLE platform_storage_format (
 );
 
 -- 完整结构初始化完成后才写入格式身份。
-INSERT INTO platform_storage_format(singleton_id, format_version) VALUES (1, 17);
+INSERT INTO platform_storage_format(singleton_id, format_version) VALUES (1, 18);

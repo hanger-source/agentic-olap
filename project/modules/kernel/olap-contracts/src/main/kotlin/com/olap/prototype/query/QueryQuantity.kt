@@ -9,6 +9,8 @@ import com.olap.prototype.member.MemberRef
 import com.olap.prototype.metric.MetricAggregation
 import com.olap.prototype.metric.MetricSnapshotRule
 import com.olap.prototype.metric.MetricValueContract
+import com.olap.prototype.metric.MeanTarget
+import com.olap.prototype.expression.SemanticExpression
 import java.math.BigDecimal
 import java.util.Collections
 import java.util.TreeMap
@@ -26,17 +28,20 @@ data class QueryQuantity(val declaration: MetricValueContract, val unit: Unit, v
         override fun equals(other: Any?): Boolean = other is Constant && value == other.value
         override fun hashCode(): Int = value.hashCode()
     }
-    class Snapshot(val reduction: MetricSnapshotRule.Reduction, timeAxes: List<ValuePosition>, boundClocks: Map<String, TemporalClockBindings.Value>) {
+    class Snapshot(val reduction: MetricSnapshotRule.Reduction, val nullPolicy: MetricSnapshotRule.NullPolicy,
+        timeAxes: List<ValuePosition>, boundClocks: Map<String, TemporalClockBindings.Value>,
+        val meanTarget: MeanTarget?, val meanValueContract: MetricValueContract?) {
         val timeAxes: List<ValuePosition> = positions(timeAxes)
         val boundClocks: Map<String, TemporalClockBindings.Value> = Collections.unmodifiableMap(TreeMap(boundClocks))
-        override fun equals(other: Any?): Boolean = other is Snapshot && reduction == other.reduction && timeAxes == other.timeAxes && boundClocks == other.boundClocks
-        override fun hashCode(): Int = listOf(reduction, timeAxes, boundClocks).hashCode()
+        override fun equals(other: Any?): Boolean = other is Snapshot && reduction == other.reduction && nullPolicy == other.nullPolicy && timeAxes == other.timeAxes && boundClocks == other.boundClocks && meanTarget == other.meanTarget && meanValueContract == other.meanValueContract
+        override fun hashCode(): Int = listOf(reduction, nullPolicy, timeAxes, boundClocks, meanTarget, meanValueContract).hashCode()
     }
     class Fact(val definition: MetricRef, val aggregation: MetricAggregation, val distinct: Boolean,
-        val source: ValuePosition, observations: List<ValuePosition>, val snapshot: Snapshot?) : Provenance {
+        val source: ValuePosition, observations: List<ValuePosition>, val snapshot: Snapshot?,
+        val meanTarget: MeanTarget?, val valueContract: MetricValueContract) : Provenance {
         val observations: List<ValuePosition> = positions(observations)
-        override fun equals(other: Any?): Boolean = other is Fact && definition == other.definition && aggregation == other.aggregation && distinct == other.distinct && source == other.source && observations == other.observations && snapshot == other.snapshot
-        override fun hashCode(): Int = listOf(definition, aggregation, distinct, source, observations, snapshot).hashCode()
+        override fun equals(other: Any?): Boolean = other is Fact && definition == other.definition && aggregation == other.aggregation && distinct == other.distinct && source == other.source && observations == other.observations && snapshot == other.snapshot && meanTarget == other.meanTarget && valueContract == other.valueContract
+        override fun hashCode(): Int = listOf(definition, aggregation, distinct, source, observations, snapshot, meanTarget, valueContract).hashCode()
     }
     class SelectedSnapshot(val input: Provenance, timeAxes: List<ValuePosition>, val asOf: Calculation.Scalar?) : Provenance {
         val timeAxes: List<ValuePosition> = positions(timeAxes)
@@ -47,10 +52,11 @@ data class QueryQuantity(val declaration: MetricValueContract, val unit: Unit, v
         override fun equals(other: Any?): Boolean = other is SelectedSnapshot && input == other.input && timeAxes == other.timeAxes && asOf == other.asOf
         override fun hashCode(): Int = listOf(input, timeAxes, asOf).hashCode()
     }
-    class Reduction(val aggregation: ResultAggregation.Kind, val input: Provenance, observations: List<ValuePosition>) : Provenance {
+    class Reduction(val aggregation: ResultAggregation, val input: Provenance, observations: List<ValuePosition>,
+        val inputDeclaration: MetricValueContract?) : Provenance {
         val observations: List<ValuePosition> = positions(observations)
-        override fun equals(other: Any?): Boolean = other is Reduction && aggregation == other.aggregation && input == other.input && observations == other.observations
-        override fun hashCode(): Int = listOf(aggregation, input, observations).hashCode()
+        override fun equals(other: Any?): Boolean = other is Reduction && aggregation == other.aggregation && input == other.input && observations == other.observations && inputDeclaration == other.inputDeclaration
+        override fun hashCode(): Int = listOf(aggregation, input, observations, inputDeclaration).hashCode()
     }
     class UniformAllocation(val input: Provenance, sourceKeys: List<ValuePosition>, memberKeys: List<ValuePosition>) : Provenance {
         val sourceKeys: List<ValuePosition> = positions(sourceKeys)
@@ -60,13 +66,13 @@ data class QueryQuantity(val declaration: MetricValueContract, val unit: Unit, v
         override fun hashCode(): Int = listOf(input, sourceKeys, memberKeys).hashCode()
     }
     class Linear(terms: List<Provenance>) : Provenance {
-        val terms: List<Provenance> = contributions(terms, true)
+        val terms: List<Provenance> = java.util.List.copyOf(terms)
         override fun equals(other: Any?): Boolean = other is Linear && terms == other.terms
         override fun hashCode(): Int = terms.hashCode()
     }
     enum class Nature { RATIO, PRODUCT, WEIGHTED_VALUE, WEIGHTED_WEIGHT, ABSOLUTE, RANK, SCALAR_FUNCTION }
     class Observed(val nature: Nature, components: List<Provenance>, observations: List<ValuePosition>, val knownObservation: Boolean) : Provenance {
-        val components: List<Provenance> = contributions(components, false)
+        val components: List<Provenance> = java.util.List.copyOf(components)
         val observations: List<ValuePosition> = positions(observations)
         override fun equals(other: Any?): Boolean = other is Observed && nature == other.nature && components == other.components && observations == other.observations && knownObservation == other.knownObservation
         override fun hashCode(): Int = listOf(nature, components, observations, knownObservation).hashCode()
@@ -74,15 +80,15 @@ data class QueryQuantity(val declaration: MetricValueContract, val unit: Unit, v
     data class Order(val position: ValuePosition, val direction: String, val nulls: String) {
         init { require(direction in setOf("ASC", "DESC") && nulls in setOf("FIRST", "LAST")) { "quantity window order must be explicit" } }
     }
-    class Window(val aggregation: ResultAggregation.Kind, val input: Provenance, observations: List<ValuePosition>, partition: List<ValuePosition>, order: List<Order>,
+    class Window(val aggregation: ResultAggregation, val input: Provenance, observations: List<ValuePosition>, partition: List<ValuePosition>, order: List<Order>,
         val frame: WindowFrameContract.Frame?, val cumulative: Boolean,
-        val totalOrder: Boolean) : Provenance {
+        val totalOrder: Boolean, val inputDeclaration: MetricValueContract?) : Provenance {
         val observations: List<ValuePosition> = positions(observations)
         val partition: List<ValuePosition> = positions(partition)
         val order: List<Order> = java.util.List.copyOf(order)
-        init { require(!cumulative || aggregation == ResultAggregation.Kind.SUM && this.order.isNotEmpty()) { "cumulative quantity needs SUM and an actual order" } }
-        override fun equals(other: Any?): Boolean = other is Window && aggregation == other.aggregation && input == other.input && observations == other.observations && partition == other.partition && order == other.order && frame == other.frame && cumulative == other.cumulative && totalOrder == other.totalOrder
-        override fun hashCode(): Int = listOf(aggregation, input, observations, partition, order, frame, cumulative, totalOrder).hashCode()
+        init { require(!cumulative || aggregation is ResultAggregation.Sum && this.order.isNotEmpty()) { "cumulative quantity needs SUM and an actual order" } }
+        override fun equals(other: Any?): Boolean = other is Window && aggregation == other.aggregation && input == other.input && observations == other.observations && partition == other.partition && order == other.order && frame == other.frame && cumulative == other.cumulative && totalOrder == other.totalOrder && inputDeclaration == other.inputDeclaration
+        override fun hashCode(): Int = listOf(aggregation, input, observations, partition, order, frame, cumulative, totalOrder, inputDeclaration).hashCode()
     }
     class Offset(val input: Provenance, partition: List<ValuePosition>, order: List<Order>, val function: String, val distance: Int, val totalOrder: Boolean) : Provenance {
         val partition: List<ValuePosition> = positions(partition)
@@ -97,8 +103,13 @@ data class QueryQuantity(val declaration: MetricValueContract, val unit: Unit, v
         override fun hashCode(): Int = input.hashCode()
     }
     data class Delta(val cumulative: Window) : Provenance
+    data class Declared(val input: Provenance, val inputDeclaration: MetricValueContract, val declaration: MetricValueContract) : Provenance
+    data class Quantized(val input: Provenance, val inputDeclaration: MetricValueContract, val scale: Int,
+        val rounding: MetricValueContract.Rounding) : Provenance
+    data class Cast(val input: Provenance, val inputDeclaration: MetricValueContract, val targetType: SemanticExpression.ValueType,
+        val precision: Int?, val scale: Int?, val rounding: MetricValueContract.Rounding) : Provenance
     class Alternatives(branches: List<Provenance>) : Provenance {
-        val branches: List<Provenance> = contributions(branches, false)
+        val branches: List<Provenance> = contributions(branches)
         override fun equals(other: Any?): Boolean = other is Alternatives && branches == other.branches
         override fun hashCode(): Int = branches.hashCode()
     }
@@ -110,18 +121,21 @@ data class QueryQuantity(val declaration: MetricValueContract, val unit: Unit, v
         override fun equals(other: Any?): Boolean = other is RawSource && observations == other.observations
         override fun hashCode(): Int = observations.hashCode()
     }
-    class SnapshotSource(val reduction: MetricSnapshotRule.Reduction, timeColumns: List<String>, boundClocks: Map<String, TemporalClockBindings.Value>) {
+    class SnapshotSource(val reduction: MetricSnapshotRule.Reduction, val nullPolicy: MetricSnapshotRule.NullPolicy,
+        timeColumns: List<String>, boundClocks: Map<String, TemporalClockBindings.Value>, val meanTarget: MeanTarget?,
+        val meanValueContract: MetricValueContract?) {
         val timeColumns: List<String> = java.util.List.copyOf(timeColumns)
         val boundClocks: Map<String, TemporalClockBindings.Value> = Collections.unmodifiableMap(TreeMap(boundClocks))
-        override fun equals(other: Any?): Boolean = other is SnapshotSource && reduction == other.reduction && timeColumns == other.timeColumns && boundClocks == other.boundClocks
-        override fun hashCode(): Int = listOf(reduction, timeColumns, boundClocks).hashCode()
+        override fun equals(other: Any?): Boolean = other is SnapshotSource && reduction == other.reduction && nullPolicy == other.nullPolicy && timeColumns == other.timeColumns && boundClocks == other.boundClocks && meanTarget == other.meanTarget && meanValueContract == other.meanValueContract
+        override fun hashCode(): Int = listOf(reduction, nullPolicy, timeColumns, boundClocks, meanTarget, meanValueContract).hashCode()
     }
-    class FactSource(val definition: MetricRef, val aggregation: MetricAggregation, val distinct: Boolean, observations: List<String>, val snapshot: SnapshotSource?) : SourceProvenance {
+    class FactSource(val definition: MetricRef, val aggregation: MetricAggregation, val distinct: Boolean, observations: List<String>,
+        val snapshot: SnapshotSource?, val meanTarget: MeanTarget?, val valueContract: MetricValueContract) : SourceProvenance {
         val observations: List<String> = java.util.List.copyOf(observations)
         override fun bind(source: ValuePosition, symbols: Map<String, QueryStageAnalysis.SymbolId>): Provenance = Fact(definition, aggregation, distinct, source,
-            sourcePositions(observations, symbols), snapshot?.let { Snapshot(it.reduction, sourcePositions(it.timeColumns, symbols), it.boundClocks) })
-        override fun equals(other: Any?): Boolean = other is FactSource && definition == other.definition && aggregation == other.aggregation && distinct == other.distinct && observations == other.observations && snapshot == other.snapshot
-        override fun hashCode(): Int = listOf(definition, aggregation, distinct, observations, snapshot).hashCode()
+            sourcePositions(observations, symbols), snapshot?.let { Snapshot(it.reduction, it.nullPolicy, sourcePositions(it.timeColumns, symbols), it.boundClocks, it.meanTarget, it.meanValueContract) }, meanTarget, valueContract)
+        override fun equals(other: Any?): Boolean = other is FactSource && definition == other.definition && aggregation == other.aggregation && distinct == other.distinct && observations == other.observations && snapshot == other.snapshot && meanTarget == other.meanTarget && valueContract == other.valueContract
+        override fun hashCode(): Int = listOf(definition, aggregation, distinct, observations, snapshot, meanTarget, valueContract).hashCode()
     }
     data class ImportedProvenance(val provenance: Provenance) : SourceProvenance {
         override fun bind(source: ValuePosition, symbols: Map<String, QueryStageAnalysis.SymbolId>): Provenance = provenance
@@ -164,13 +178,15 @@ data class QueryQuantity(val declaration: MetricValueContract, val unit: Unit, v
 
     /** 根编译前的明确单位绑定，仅在这里把列名转为稳定符号。 */
     data class Source(val declaration: MetricValueContract, val unit: SourceUnit, val provenance: SourceProvenance) {
-        fun bind(source: QueryStageAnalysis.SymbolId, symbols: Map<String, QueryStageAnalysis.SymbolId>): QueryQuantity = QueryQuantity(declaration,
-            when (unit) {
+        fun bind(source: QueryStageAnalysis.SymbolId, symbols: Map<String, QueryStageAnalysis.SymbolId>): QueryQuantity {
+            val bound = provenance.bind(ValuePosition.column(source), symbols)
+            return QueryQuantity(declaration, when (unit) {
                 is FixedSource -> Fixed(unit.identity)
                 is DimensionSource -> Dimension(unit.axis, unit.keys.map { Key(it.reference, ValuePosition.column(requireNotNull(symbols[it.column]) { "unit dimension must be retained in the source result" })) })
                 is MemberSource -> SelectedMember(unit.reference, unit.axis, unit.member, unit.identity, Selection(ValuePosition.column(source), unit.target))
                 is ImportedSource -> unit.unit
-            }, provenance.bind(ValuePosition.column(source), symbols))
+            }, if (provenance is RawSource) Declared(bound, declaration, declaration) else bound)
+        }
         companion object {
             fun fixed(declaration: MetricValueContract, provenance: SourceProvenance): Source {
                 val fixed = declaration.unit as? MetricValueContract.Fixed ?: throw IllegalArgumentException("source does not declare a fixed unit")
@@ -201,10 +217,9 @@ data class QueryQuantity(val declaration: MetricValueContract, val unit: Unit, v
             require(values.distinct().size == values.size) { "quantity repeats an observation coordinate" }
             return java.util.List.copyOf(values)
         }
-        private fun contributions(values: List<Provenance>, linear: Boolean): List<Provenance> {
+        private fun contributions(values: List<Provenance>): List<Provenance> {
             val result = linkedSetOf<Provenance>()
-            values.forEach { value -> when { linear && value is Linear -> result.addAll(value.terms); !linear && value is Alternatives -> result.addAll(value.branches); else -> result.add(value) } }
-            require(result.size <= ScopedInputContract.MAX_INPUTS) { "quantity contributions exceed their input budget" }
+            values.forEach { value -> if (value is Alternatives) result.addAll(value.branches) else result.add(value) }
             return java.util.List.copyOf(result)
         }
         fun references(value: Provenance, result: MutableSet<ValuePosition>) {
@@ -219,15 +234,18 @@ data class QueryQuantity(val declaration: MetricValueContract, val unit: Unit, v
                 is Offset -> { result.addAll(value.partition); value.order.forEach { result.add(it.position) }; references(value.input, result) }
                 is Copied -> references(value.input, result)
                 is Delta -> references(value.cumulative, result)
+                is Declared -> references(value.input, result)
+                is Quantized -> references(value.input, result)
+                is Cast -> references(value.input, result)
                 is SelectedSnapshot -> { result.addAll(value.timeAxes); references(value.input, result) }
                 is UniformAllocation -> { result.addAll(value.sourceKeys); result.addAll(value.memberKeys); references(value.input, result) }
                 is Alternatives -> value.branches.forEach { references(it, result) }
             }
         }
         fun alternatives(values: List<Provenance>): Provenance {
-            val distinct = contributions(values, false)
+            val distinct = contributions(values)
             require(distinct.isNotEmpty()) { "quantity alternatives require actual values" }
-            return distinct.singleOrNull() ?: Alternatives(distinct)
+            return if (values.any { it is Alternatives }) Alternatives(distinct) else distinct.singleOrNull() ?: Alternatives(distinct)
         }
         fun remap(value: Provenance, symbols: Map<ValuePosition, ValuePosition>): Provenance {
             fun positions(values: List<ValuePosition>): List<ValuePosition> = values.map { symbols[it] ?: it }.distinct()
@@ -235,14 +253,17 @@ data class QueryQuantity(val declaration: MetricValueContract, val unit: Unit, v
             return when (value) {
                 is Raw -> Raw(value.source, positions(value.observations))
                 is Constant -> value
-                is Fact -> Fact(value.definition, value.aggregation, value.distinct, value.source, positions(value.observations), value.snapshot?.let { Snapshot(it.reduction, positions(it.timeAxes), it.boundClocks) })
-                is Reduction -> Reduction(value.aggregation, remap(value.input, symbols), positions(value.observations))
+                is Fact -> Fact(value.definition, value.aggregation, value.distinct, value.source, positions(value.observations), value.snapshot?.let { Snapshot(it.reduction, it.nullPolicy, positions(it.timeAxes), it.boundClocks, it.meanTarget, it.meanValueContract) }, value.meanTarget, value.valueContract)
+                is Reduction -> Reduction(value.aggregation, remap(value.input, symbols), positions(value.observations), value.inputDeclaration)
                 is Linear -> Linear(value.terms.map { remap(it, symbols) })
                 is Observed -> Observed(value.nature, value.components.map { remap(it, symbols) }, positions(value.observations), value.knownObservation)
-                is Window -> Window(value.aggregation, remap(value.input, symbols), positions(value.observations), positions(value.partition), orders(value.order), value.frame, value.cumulative, value.totalOrder)
+                is Window -> Window(value.aggregation, remap(value.input, symbols), positions(value.observations), positions(value.partition), orders(value.order), value.frame, value.cumulative, value.totalOrder, value.inputDeclaration)
                 is Offset -> Offset(remap(value.input, symbols), positions(value.partition), orders(value.order), value.function, value.distance, value.totalOrder)
                 is Copied -> Copied(remap(value.input, symbols))
                 is Delta -> Delta(remap(value.cumulative, symbols) as Window)
+                is Declared -> Declared(remap(value.input, symbols), value.inputDeclaration, value.declaration)
+                is Quantized -> Quantized(remap(value.input, symbols), value.inputDeclaration, value.scale, value.rounding)
+                is Cast -> Cast(remap(value.input, symbols), value.inputDeclaration, value.targetType, value.precision, value.scale, value.rounding)
                 is SelectedSnapshot -> SelectedSnapshot(remap(value.input, symbols), positions(value.timeAxes), value.asOf)
                 is UniformAllocation -> UniformAllocation(remap(value.input, symbols), positions(value.sourceKeys), positions(value.memberKeys))
                 is Alternatives -> Alternatives(value.branches.map { remap(it, symbols) })
@@ -329,7 +350,7 @@ data class QueryQuantity(val declaration: MetricValueContract, val unit: Unit, v
                 val first = actual.unit; val second = quantity.unit
                 require(first !is Dimension || second !is Dimension || MetricValueContract.compatibleAxes(first.axis, second.axis)) { "calculation levels use different unit axes" }
             }
-            val provenance = ImportedProvenance(alternatives(quantities.map { it.provenance }))
+            val provenance = ImportedProvenance(alternatives(quantities.map { Declared(it.provenance, it.declaration, declaration) }))
             when (val unit = declaration.unit) {
                 is MetricValueContract.Fixed -> {
                     require(fixedIdentity(actual.unit) == unit.identity) { "calculation output unit differs from its declared fixed unit" }

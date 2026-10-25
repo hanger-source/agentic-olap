@@ -94,7 +94,7 @@ class PublishedTimeSemanticsTest {
             f.seed()
             val meaning = MetricBusinessMeaning("按实体选定期内最后事实再汇总", "元", "实体期末", listOf("不是每日发生额求和"))
             val rule = MetricSnapshotRule(MetricSnapshotRule.Reduction.LAST, "order", listOf(MetricSnapshotRule.LogicUnitKey("order_fact.order_id", 1)),
-                MetricSnapshotRule.LogicUnitKey("order_fact.pay_time", 1), emptyList(), MetricSnapshotRule.NullPolicy.PRESERVE_SELECTED, null, MetricValueContract.Rounding.NONE)
+                MetricSnapshotRule.LogicUnitKey("order_fact.pay_time", 1), emptyList(), MetricSnapshotRule.NullPolicy.PRESERVE_SELECTED, null)
             fun definition(code: String, snapshot: MetricSnapshotRule) = MetricCreateRequest(
                 code = code,
                 displayName = "期末事实金额",
@@ -108,7 +108,6 @@ class PublishedTimeSemanticsTest {
                     roles = emptyMap(),
                     snapshotRule = snapshot,
                     valueContract = GovernanceOrderFixture.money(),
-                    aggregationRounding = MetricValueContract.Rounding.NONE
                 ),
                 description = "",
                 businessMeaning = meaning,
@@ -124,7 +123,7 @@ class PublishedTimeSemanticsTest {
             val scope = GovernanceOrderFixture.measurementScope(instance, timeRange = period())
             val graph = ExecutableInputGraph.index(ExecutableSemanticBinder(f.connectors).bind(publication.catalog, f.kernelRequest(publication, scope)))
             CalciteRelCompiler(f.connectors).compile(graph, ExecutableStageAnalysis.analyze(graph, f.connectors), ExecutableSourceResolver().resolve(publication.catalog, graph), OlapQueryContext("snapshot-freeze"))
-            val revised = MetricSnapshotRule(MetricSnapshotRule.Reduction.FIRST, "order", rule.entityKeys, rule.timeKey, rule.tieBreakKeys, rule.nullPolicy, null, MetricValueContract.Rounding.NONE)
+            val revised = MetricSnapshotRule(MetricSnapshotRule.Reduction.FIRST, "order", rule.entityKeys, rule.timeKey, rule.tieBreakKeys, rule.nullPolicy, null)
             f.metrics.reviseMetric(GovernanceRevisionRequest(metric.id, 1, definition("snapshot_amount", revised)))
             assertEquals(revised, f.metrics.metricSnapshotRule(metric.id, 2))
             assertEquals(hash, f.artifacts.catalogHash(request))
@@ -150,7 +149,6 @@ class PublishedTimeSemanticsTest {
             roles = emptyMap(),
             snapshotRule = null,
             valueContract = GovernanceOrderFixture.money(),
-            aggregationRounding = MetricValueContract.Rounding.NONE
         ),
         description = "完整关系金额",
         businessMeaning = MetricBusinessMeaning("完整登记关系的金额", "元", "完整登记成员", listOf("不按发生期间裁剪")),

@@ -91,22 +91,34 @@ object SemanticNumericRex {
         input.accept(object : RexVisitorImpl<Void?>(true) {
             override fun visitCall(call: RexCall): Void? {
                 requireNativeArithmetic(call.operator, declaration.arithmetic)
+                if (call.operator is NativeScalarOperator) return null
                 return super.visitCall(call)
             }
         })
         if (declaration.arithmetic is MetricValueContract.Exact) {
             input.accept(object : RexVisitorImpl<Void?>(true) {
                 override fun visitInputRef(ref: RexInputRef): Void? { requireExact(ref.type); return null }
-                override fun visitCall(call: RexCall): Void? { requireExact(call.type); return super.visitCall(call) }
+                override fun visitCall(call: RexCall): Void? { requireExact(call.type); return if (call.operator is NativeScalarOperator) null else super.visitCall(call) }
                 override fun visitDynamicParam(parameter: RexDynamicParam): Void? { requireExact(parameter.type); return null }
             })
             return input
         }
+        return finiteInputs(builder, input, guardRoot)
+    }
+
+    /** AVG 输入不借最终输出声明推导其保证；保证在实际聚合形成后单独核验。 */
+    fun averageInput(builder: RelBuilder, input: RexNode): RexNode {
+        require(SqlTypeUtil.isNumeric(input.type)) { "AVG requires a numeric native input" }
+        return finiteInputs(builder, input, true)
+    }
+
+    private fun finiteInputs(builder: RelBuilder, input: RexNode, guardRoot: Boolean): RexNode {
         if (system(builder).semantic) return input
         // 内部浮点结果先证明有限，不把最终结果域误施加给中间运算。
         return input.accept(object : RexShuttle() {
             override fun visitInputRef(ref: RexInputRef): RexNode = finite(ref, ref)
-            override fun visitCall(call: RexCall): RexNode = if (call.operator is NumericCheck) call else finite(super.visitCall(call), call)
+            override fun visitCall(call: RexCall): RexNode = if (call.operator is NumericCheck) call
+                else finite(if (call.operator is NativeScalarOperator) call else super.visitCall(call), call)
             override fun visitOver(over: RexOver): RexNode = finite(super.visitOver(over), over)
             private fun finite(value: RexNode, original: RexNode): RexNode {
                 if (!SqlTypeUtil.isApproximateNumeric(value.type) || !guardRoot && original === input) return value
@@ -118,7 +130,7 @@ object SemanticNumericRex {
 
     fun aggregate(builder: RelBuilder, aggregation: ResultAggregation, input: RexNode): RexNode = when (aggregation) {
         is ResultAggregation.Sum -> arithmetic(builder, input, aggregation.valueContract)
-        is ResultAggregation.Average -> average(builder, input, aggregation.valueContract, aggregation.rounding)
+        is ResultAggregation.Average -> averageInput(builder, input)
         is ResultAggregation.SampleDeviation -> sampleDeviation(builder, input, aggregation.valueContract)
         is ResultAggregation.Minimum, is ResultAggregation.Maximum, is ResultAggregation.Count, is ResultAggregation.Collect -> input
     }
@@ -126,12 +138,10 @@ object SemanticNumericRex {
     fun aggregateOutput(builder: RelBuilder, input: RexNode, aggregation: ResultAggregation): RexNode =
         if (aggregation is ResultAggregation.Numeric) output(builder, input, aggregation.valueContract) else input
 
-    fun factAggregate(builder: RelBuilder, aggregation: MetricAggregation, input: RexNode, declaration: MetricValueContract,
-        rounding: MetricValueContract.Rounding): RexNode {
-        require(aggregation == MetricAggregation.AVG || rounding == MetricValueContract.Rounding.NONE) { "non-AVG aggregate cannot declare native rounding" }
+    fun factAggregate(builder: RelBuilder, aggregation: MetricAggregation, input: RexNode, declaration: MetricValueContract): RexNode {
         return when (aggregation) {
             MetricAggregation.SUM -> arithmetic(builder, input, declaration)
-            MetricAggregation.AVG -> average(builder, input, declaration, rounding)
+            MetricAggregation.AVG -> averageInput(builder, input)
             MetricAggregation.STDDEV_SAMP -> sampleDeviation(builder, input, declaration)
             MetricAggregation.MIN, MetricAggregation.MAX -> if (SqlTypeUtil.isNumeric(input.type)) arithmetic(builder, input, declaration) else input
             MetricAggregation.COUNT -> input
@@ -145,17 +155,26 @@ object SemanticNumericRex {
         return arithmetic(builder, input, declaration)
     }
 
-    private fun average(builder: RelBuilder, input: RexNode, contract: MetricValueContract, rounding: MetricValueContract.Rounding): RexNode {
-        val value = arithmetic(builder, input, contract)
-        val nativeType = NativeAggregateTypes.averageType(builder.typeFactory, value.type)
-        if (SqlTypeUtil.isApproximateNumeric(nativeType)) {
-            require(contract.arithmetic !is MetricValueContract.Exact && rounding == MetricValueContract.Rounding.NONE) {
-                "native floating AVG requires explicit native arithmetic and no decimal kernel rounding claim"
+    /** 在原始来源表达式仍完整时保存实际数值保证；不从后续投影的技术类型恢复声明。 */
+    fun inputGuarantees(input: RexNode): List<MetricValueContract.Arithmetic> {
+        require(SqlTypeUtil.isNumeric(input.type)) { "arithmetic input guarantees require an actual numeric source value" }
+        fun collect(value: RexNode): List<MetricValueContract.Arithmetic> {
+            if (value is RexCall) {
+                (value.operator as? NativeScalarOperator)?.declaration?.arithmetic?.let { return listOf(it) }
+                if (value.operator is NumericCheck) return collect(value.operands.first())
+                if (value.kind == SqlKind.CAST) return if (SqlTypeUtil.isApproximateNumeric(value.type))
+                    listOf(MetricValueContract.NativeFloating()) else collect(value.operands.first())
+                if (value.kind == SqlKind.CASE) return value.operands.filterIndexed { index, _ -> index % 2 == 1 || index == value.operands.lastIndex }
+                    .flatMap(::collect)
+                if (value.kind == SqlKind.NULLIF) return collect(value.operands.first())
+                if (SqlTypeUtil.isApproximateNumeric(value.type)) return listOf(MetricValueContract.NativeFloating())
+                val operands = value.operands.filter { SqlTypeUtil.isNumeric(it.type) }.flatMap(::collect)
+                if (operands.isNotEmpty()) return operands
             }
-        } else require(system(builder).semantic || rounding == NativeAggregateTypes.averageRounding(nativeType, system(builder).nativeSupport)) {
-            "native decimal AVG requires its exact connector rounding policy"
+            return if (SqlTypeUtil.isNumeric(value.type)) listOf(if (SqlTypeUtil.isApproximateNumeric(value.type))
+                MetricValueContract.NativeFloating() else MetricValueContract.Exact()) else emptyList()
         }
-        return value
+        return java.util.List.copyOf(collect(input).distinct().ifEmpty { listOf(MetricValueContract.Exact()) })
     }
 
     private fun floatingLimit(type: RelDataType): BigDecimal = if (type.sqlTypeName == SqlTypeName.REAL) BigDecimal(java.lang.Float.toString(Float.MAX_VALUE)) else BigDecimal.valueOf(Double.MAX_VALUE)

@@ -4,6 +4,8 @@ import com.olap.prototype.calculation.*
 import com.olap.prototype.expression.SemanticExpression
 import com.olap.prototype.metric.MetricAggregation
 import com.olap.prototype.metric.MetricValueContract
+import com.olap.prototype.metric.MeanTarget
+import com.olap.prototype.event.EventRef
 import com.olap.prototype.query.*
 import com.olap.prototype.query.PostOperationContract.Derive
 import com.olap.prototype.query.PostOperationContract.Project
@@ -25,9 +27,37 @@ import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
+import java.math.BigDecimal
+import java.math.RoundingMode
 import kotlin.math.sqrt
 
 class FrozenStatisticsExecutionTest {
+    @Test
+    fun savesAndExecutesBothMeanTargetsFromTheFrozenPublication(@TempDir directory: Path) {
+        val mathematical = MetricValueContract(money().unit, MetricValueContract.Exact(),
+            MetricValueContract.Decimal(28, 12, MetricValueContract.Rounding.HALF_DOWN), emptyMap(), MetricValueContract.Overflow.FAIL)
+        val native = MetricValueContract(money().unit, MetricValueContract.Exact(),
+            MetricValueContract.Decimal(12, 2, MetricValueContract.Rounding.HALF_UP), emptyMap(), MetricValueContract.Overflow.FAIL)
+        FrozenPublicationFixture(directory, "h2", true, listOf("DELETE FROM orders",
+            "INSERT INTO orders VALUES (1,'2026-06-01',0.14,7),(2,'2026-06-01',0.15,7),(3,'2026-06-02',0.15,8),(4,'2026-06-03',NULL,9)" )).use { fixture ->
+            fun average(target: MeanTarget, contract: MetricValueContract) = MetricDefinition.FactMeasure(EventRef("payment", 1),
+                ref("orders.amount"), MetricAggregation.AVG, false, null, emptyMap(), null, contract, target)
+            val release = fixture.release(mapOf("mathematical" to average(MeanTarget.MATHEMATICAL, mathematical),
+                "source_native" to average(MeanTarget.SOURCE_NATIVE, native)), false)
+            // 正式发布序列化及持久查询读取后执行，不能沿用作者内存里的定义或目标。
+            val catalog = frozen(release)
+            PublishedQueryDefinitionFixture(directory, "mean-targets", release, catalog).use { definitions ->
+                val input = request(listOf(call(catalog, "mathematical", "mathematical"),
+                    call(catalog, "source_native", "source_native")), timed = false)
+                val saved = definitions.service.save(definitions.command("mean_targets", input), "tester")
+                val restored = definitions.service.requireByIdAndVersion(saved.definitionId, saved.definitionVersion)
+                val rows = execute(fixture, catalog, restored.intent.computation)
+                assertEquals(listOf(listOf(BigDecimal("0.44").divide(BigDecimal(3), 12, RoundingMode.HALF_DOWN),
+                    BigDecimal("0.44").divide(BigDecimal(3), 2, RoundingMode.HALF_UP))), rows)
+            }
+        }
+    }
+
     @Test
     fun freezesNativeSampleStatisticsAndReusesThemAtIndependentCallInstances(@TempDir directory: Path) {
         val deviation = MetricValueContract(money().unit, MetricValueContract.Approximate("0", "10000", "1E-9", "1E-12"),

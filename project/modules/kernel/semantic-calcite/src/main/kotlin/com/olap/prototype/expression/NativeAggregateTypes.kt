@@ -6,14 +6,22 @@ import com.olap.prototype.contract.NativeValueType
 import com.olap.prototype.contract.ProducerContractException
 import com.olap.prototype.metric.MetricAggregation
 import com.olap.prototype.metric.MetricValueContract
+import com.olap.prototype.metric.MeanTarget
 import com.olap.prototype.query.ResultAggregation
-import org.apache.calcite.jdbc.JavaTypeFactoryImpl
+import org.apache.calcite.rel.RelNode
 import org.apache.calcite.rel.core.Aggregate
+import org.apache.calcite.rel.core.AggregateCall
+import org.apache.calcite.rel.core.Project
+import org.apache.calcite.rel.core.Calc
+import org.apache.calcite.rel.logical.LogicalAggregate
+import org.apache.calcite.rel.logical.LogicalValues
 import org.apache.calcite.rel.type.RelDataType
-import org.apache.calcite.rel.type.RelDataTypeFactory
+import org.apache.calcite.rex.*
 import org.apache.calcite.sql.SqlAggFunction
 import org.apache.calcite.sql.type.SqlTypeName
 import org.apache.calcite.sql.type.SqlTypeUtil
+import org.apache.calcite.tools.RelBuilder
+import org.apache.calcite.util.ImmutableBitSet
 import org.slf4j.LoggerFactory
 
 /** 使用实际编译映射读取原生类型；不执行 SQL，也不证明业务数量合同或来源可用性。 */
@@ -21,7 +29,8 @@ object NativeAggregateTypes {
     private val log = LoggerFactory.getLogger(NativeAggregateTypes::class.java)
 
     fun describe(support: CompilationSupport, aggregation: ResultAggregation.Kind, input: NativeValueType, grouped: Boolean): NativeAggregateMapping {
-        val factory = JavaTypeFactoryImpl(SemanticCalciteTypeSystem(support))
+        val builder = CalciteCompilation.builder(support)
+        val factory = builder.typeFactory
         val type = try {
             SemanticNativeTypes.resolve(factory, input).also {
                 require(SemanticNativeTypes.describe(it) == input) { "input type must retain its exact capacity" }
@@ -39,11 +48,17 @@ object NativeAggregateTypes {
                 require(support.supports(CompilationSupport.Capability.SAMPLE_STDDEV)) { "native sample deviation is not declared" }
             if (aggregation in setOf(ResultAggregation.Kind.ARRAY_AGG, ResultAggregation.Kind.ARRAY_AGG_DISTINCT))
                 require(support.supports(CompilationSupport.Capability.COLLECTION_RESULTS)) { "native collection results are not declared" }
-            if (aggregation == ResultAggregation.Kind.AVG) averageType(factory, type)
-            val result = infer(factory, RelationalAggregates.aggregateFunction(aggregation, support), type, grouped)
+            val inputType = factory.builder().apply { if (grouped) add("group_key", SqlTypeName.INTEGER); add("input", type) }.build()
+            val inputRelation = LogicalValues.createEmpty(builder.cluster, inputType)
+            val keys = if (grouped) ImmutableBitSet.of(0) else ImmutableBitSet.of()
+            val function = RelationalAggregates.aggregateFunction(aggregation, support)
+            val call = AggregateCall.create(function, aggregation in setOf(ResultAggregation.Kind.COUNT_DISTINCT, ResultAggregation.Kind.ARRAY_AGG_DISTINCT),
+                listOf(if (grouped) 1 else 0), keys.cardinality(), inputRelation, null, "value")
+            val owner = LogicalAggregate.create(inputRelation, emptyList(), keys, listOf(keys), listOf(call))
+            val result = call.type
             requireDetermined(result)
             NativeAggregateMapping.Mapped(SemanticNativeTypes.describe(result),
-                if (aggregation == ResultAggregation.Kind.AVG) averageRounding(result, support) else MetricValueContract.Rounding.NONE)
+                if (aggregation == ResultAggregation.Kind.AVG) behavior(support, owner, call) else null)
         } catch (failure: IllegalArgumentException) {
             unavailable(aggregation, type, failure)
         } catch (failure: UnsupportedOperationException) {
@@ -51,30 +66,94 @@ object NativeAggregateTypes {
         }
     }
 
-    /** AVG 的预检与实际聚合函数必须承诺同一容量；中立语义检查不冒充原生映射。 */
-    fun averageType(factory: RelDataTypeFactory, input: RelDataType): RelDataType = try {
-        val type = factory.typeSystem.deriveAvgAggType(factory, input)
-        require(SqlTypeUtil.isNumeric(type)) { "native AVG requires a numeric result" }
-        requireDetermined(type)
-        val system = factory.typeSystem as SemanticCalciteTypeSystem
-        if (!system.semantic) {
-            val actual = infer(factory, RelationalAggregates.aggregateFunction(ResultAggregation.Kind.AVG, system.nativeSupport), input, false)
-            require(SqlTypeUtil.equalSansNullability(factory, type, actual)) { "AVG type system and native aggregate disagree" }
+    /** 追本次已发射输出的真实聚合；透明列投影不重新推导另一种聚合形态。 */
+    fun requireAverage(builder: RelBuilder, alias: String, target: MeanTarget, contract: MetricValueContract,
+        inputGuarantees: List<MetricValueContract.Arithmetic>) {
+        val system = builder.typeFactory.typeSystem as SemanticCalciteTypeSystem
+        if (system.semantic) return
+        var node: RelNode = builder.peek()
+        var index = node.rowType.fieldNames.indexOf(alias)
+        require(index >= 0) { "AVG output is outside its actual relation" }
+        val outputType = node.rowType.fieldList[index].type
+        while (node is Project || node is Calc) {
+            val expression = when (val current = node) {
+                is Project -> current.projects[index]
+                is Calc -> current.program.expandLocalRef(current.program.projectList[index])
+                else -> error("transparent AVG output")
+            }
+            val reference = expression as? RexInputRef ?: reject(outputType, NativeAggregateMappingException.Reason.NATIVE_BEHAVIOR_UNAVAILABLE)
+            index = reference.index
+            node = node.getInput(0)
         }
-        type
-    } catch (failure: IllegalArgumentException) {
-        throw NativeAggregateMappingException(MetricAggregation.AVG, input.fullTypeString, failure)
-    } catch (failure: UnsupportedOperationException) {
-        throw NativeAggregateMappingException(MetricAggregation.AVG, input.fullTypeString, failure)
+        val owner = node as? Aggregate ?: reject(outputType, NativeAggregateMappingException.Reason.NATIVE_BEHAVIOR_UNAVAILABLE)
+        val call = owner.aggCallList.getOrNull(index - owner.groupCount)
+            ?: reject(outputType, NativeAggregateMappingException.Reason.NATIVE_BEHAVIOR_UNAVAILABLE)
+        if (!SqlTypeUtil.equalSansNullability(builder.typeFactory, outputType, call.type))
+            reject(outputType, NativeAggregateMappingException.Reason.NATIVE_RESULT_TYPE_MISMATCH)
+        val inputType = owner.input.rowType.fieldList[call.argList.single()].type
+        requireTarget(inputType, call.type, behavior(system.nativeSupport, owner, call), target, contract, inputGuarantees)
     }
 
-    fun averageRounding(result: RelDataType, support: CompilationSupport): MetricValueContract.Rounding =
-        if (SqlTypeUtil.isApproximateNumeric(result)) MetricValueContract.Rounding.NONE else support.decimalAverageRounding
+    /** toRex 已形成真实窗口，NULL 政策与最终量化尚未包裹它。 */
+    fun requireAverage(builder: RelBuilder, value: RexNode, function: SqlAggFunction, target: MeanTarget, contract: MetricValueContract,
+        inputGuarantees: List<MetricValueContract.Arithmetic>) {
+        val system = builder.typeFactory.typeSystem as SemanticCalciteTypeSystem
+        if (system.semantic) return
+        val windows = mutableListOf<RexOver>()
+        value.accept(object : RexVisitorImpl<Void?>(true) {
+            override fun visitOver(over: RexOver): Void? { if (over.aggOperator === function) windows.add(over); return null }
+        })
+        val over = windows.singleOrNull() ?: reject(value.type, NativeAggregateMappingException.Reason.NATIVE_BEHAVIOR_UNAVAILABLE)
+        val inputType = over.operands.single().type
+        val behavior = try { system.nativeSupport.averageBehavior(over) }
+        catch (failure: NativeAggregateMappingException) { throw failure }
+        catch (failure: IllegalArgumentException) { throw NativeAggregateMappingException(MetricAggregation.AVG, inputType.fullTypeString, failure) }
+        catch (failure: UnsupportedOperationException) { throw NativeAggregateMappingException(MetricAggregation.AVG, inputType.fullTypeString, failure) }
+        requireTarget(inputType, over.type, behavior, target, contract, inputGuarantees)
+    }
 
-    private fun infer(factory: RelDataTypeFactory, function: SqlAggFunction, input: RelDataType, grouped: Boolean): RelDataType =
-        requireNotNull(function.inferReturnType(Aggregate.AggCallBinding(factory, function, listOf(input), if (grouped) 1 else 0, false))) {
-            "native aggregate must determine its result type"
+    private fun behavior(support: CompilationSupport, owner: Aggregate, call: AggregateCall): NativeAverageBehavior {
+        val input = owner.input.rowType.fieldList[call.argList.single()].type
+        val inferred = call.aggregation.inferReturnType(call.createBinding(owner))
+        if (inferred == null || !SqlTypeUtil.equalSansNullability(owner.cluster.typeFactory, call.type, inferred))
+            reject(input, NativeAggregateMappingException.Reason.NATIVE_RESULT_TYPE_MISMATCH)
+        return try { support.averageBehavior(owner, call) }
+        catch (failure: NativeAggregateMappingException) { throw failure }
+        catch (failure: IllegalArgumentException) { throw NativeAggregateMappingException(MetricAggregation.AVG, input.fullTypeString, failure) }
+        catch (failure: UnsupportedOperationException) { throw NativeAggregateMappingException(MetricAggregation.AVG, input.fullTypeString, failure) }
+    }
+
+    private fun requireTarget(input: RelDataType, result: RelDataType, behavior: NativeAverageBehavior, target: MeanTarget,
+        contract: MetricValueContract, inputGuarantees: List<MetricValueContract.Arithmetic>) {
+        requireDetermined(result)
+        if (!SqlTypeUtil.isNumeric(result)) reject(input, NativeAggregateMappingException.Reason.NATIVE_RESULT_TYPE_MISMATCH)
+        require(inputGuarantees.isNotEmpty()) { "AVG requires the actual input arithmetic guarantees" }
+        inputGuarantees.forEach { guarantee ->
+            try { MetricValueContract.requireArithmeticInput(contract.arithmetic, guarantee) }
+            catch (_: IllegalArgumentException) { reject(input, NativeAggregateMappingException.Reason.INPUT_GUARANTEE_UPGRADE) }
         }
+        if (contract.arithmetic is MetricValueContract.Approximate && inputGuarantees.any {
+            it is MetricValueContract.Approximate && (java.math.BigDecimal(it.absoluteTolerance).signum() != 0 || java.math.BigDecimal(it.relativeTolerance).signum() != 0)
+        })
+            reject(input, NativeAggregateMappingException.Reason.APPROXIMATION_PROPAGATION_UNAVAILABLE)
+        when (behavior) {
+            is NativeAverageBehavior.QuantizedMean -> {
+                if (result.sqlTypeName != SqlTypeName.DECIMAL) reject(input, NativeAggregateMappingException.Reason.NATIVE_RESULT_TYPE_MISMATCH)
+                if (target == MeanTarget.MATHEMATICAL && behavior.rounding != MetricValueContract.Rounding.NONE) {
+                    val output = contract.result as? MetricValueContract.Decimal
+                    if (output == null || output.scale != result.scale || output.rounding != behavior.rounding)
+                        reject(input, NativeAggregateMappingException.Reason.MATHEMATICAL_QUANTIZATION_UNPROVED)
+                }
+            }
+            NativeAverageBehavior.NativeFloating -> {
+                if (target != MeanTarget.SOURCE_NATIVE) reject(input, NativeAggregateMappingException.Reason.MATHEMATICAL_QUANTIZATION_UNPROVED)
+                if (contract.arithmetic !is MetricValueContract.NativeFloating) reject(input, NativeAggregateMappingException.Reason.INPUT_GUARANTEE_UPGRADE)
+            }
+        }
+    }
+
+    private fun reject(input: RelDataType, reason: NativeAggregateMappingException.Reason): Nothing =
+        throw NativeAggregateMappingException(MetricAggregation.AVG, input.fullTypeString, null, reason)
 
     private fun requireDetermined(type: RelDataType) {
         SemanticNativeTypes.describe(type)

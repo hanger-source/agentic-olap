@@ -620,12 +620,12 @@ internal fun CatalogOptionalPublishedSemanticCatalogAggregationFromProto(value: 
 internal fun PublishedSemanticCatalogAggregationToProto(value: com.olap.prototype.query.contract.catalog.PublishedSemanticCatalog.Aggregation): com.olap.prototype.wire.governance.PublishedSemanticCatalogAggregation = com.olap.prototype.wire.governance.PublishedSemanticCatalogAggregation.newBuilder().apply {
     setFunction(value.function.name)
     setDistinct(value.distinct)
-    setRounding(value.rounding.name)
+    value.meanTarget?.let { setMeanTarget(it.name) }
 }.build()
 internal fun PublishedSemanticCatalogAggregationFromProto(value: com.olap.prototype.wire.governance.PublishedSemanticCatalogAggregation): com.olap.prototype.query.contract.catalog.PublishedSemanticCatalog.Aggregation = com.olap.prototype.query.contract.catalog.PublishedSemanticCatalog.Aggregation(
     function = com.olap.prototype.metric.MetricAggregation.valueOf(value.getFunction()),
     distinct = value.getDistinct(),
-    rounding = com.olap.prototype.metric.MetricValueContract.Rounding.valueOf(value.getRounding())
+    meanTarget = if (value.hasMeanTarget()) com.olap.prototype.metric.MeanTarget.valueOf(value.getMeanTarget()) else null
 )
 
 internal fun PublishedSemanticCatalogMemberToProto(value: com.olap.prototype.query.contract.catalog.PublishedSemanticCatalog.Member): com.olap.prototype.wire.governance.PublishedSemanticCatalogMember = com.olap.prototype.wire.governance.PublishedSemanticCatalogMember.newBuilder().apply {

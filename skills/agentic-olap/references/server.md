@@ -4,9 +4,9 @@
 
 ## 安装与启动
 
-本仓库源码的连接器 API 为 `agentic-olap-connector/v13-kotlin-data-contract-source-adoption-calcite-1.42`，存储格式为 `17`。服务、连接器和 SDK 使用同轮交付构件；安装发行物时以实际服务及 `agentic-olap sdk` 披露的 API 为准。独立插件须使用对应正式 Maven SDK 重新构建，集合展开实现与精确绑定要求见[连接说明](connections.md)。
+本仓库源码的连接器 API 为 `agentic-olap-connector/v14-kotlin-mean-target-calcite-1.42`，存储格式为 `18`。服务、连接器和 SDK 使用同轮交付构件；安装发行物时以实际服务及 `agentic-olap sdk` 披露的 API 为准。独立插件须使用对应正式 Maven SDK 重新构建，集合展开实现与精确绑定要求见[连接说明](connections.md)。
 
-代码会话使用 `agentic-olap-kotlin-dsl/v5`，实际跨进程通信为 `agentic-olap-runtime/v7`。Kotlin 主服务直接持有正式应用、权威元数据和运行管理；语言会话在固定 REPL JVM 中保留真实 Kotlin 历史，来源工作进程承担调查、规划与执行。模型对话与账号由外部客户端持有。
+代码会话使用 `agentic-olap-kotlin-dsl/v6`，实际跨进程通信为 `agentic-olap-runtime/v8`。Kotlin 主服务直接持有正式应用、权威元数据和运行管理；语言会话在固定 REPL JVM 中保留真实 Kotlin 历史，来源工作进程承担调查、规划与执行。模型对话与账号由外部客户端持有。
 
 需要 Node.js 20 或更高版本。macOS arm64 产品通过一个 npm 包交付 JRE、自包含安装引导与命令入口；npm 安装脚本用包内 JRE 从 JitPack 取得自有 Kotlin 运行构件和内置连接器，从 Maven Central 取得第三方 JVM 库和 H2／DuckDB 驱动，全部按发行清单锁定，完成摘要校验及本地安装。需要允许该安装脚本，下载失败会使安装失败。安装完成后启动只使用本地文件，不再下载依赖。SDK 的正式 Maven 坐标和文档由 `agentic-olap sdk` 读取。使用者无需安装编译工具或自行编译产品源码：
 
@@ -22,7 +22,7 @@ agentic-olap info
 agentic-olap tools
 agentic-olap call list-data-sources --payload '{}'
 agentic-olap call describe-script-api --payload '{}'
-agentic-olap call execute-script --payload '{"executionId":"sources-001","waitMillis":0,"source":"val sources = olap.sources.list(EmptyRequest)\nolap.output(sources)","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v5","parameters":{}}'
+agentic-olap call execute-script --payload '{"executionId":"sources-001","waitMillis":0,"source":"val sources = olap.sources.list(EmptyRequest)\nolap.output(sources)","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v6","parameters":{}}'
 agentic-olap call wait-script --payload '{"executionId":"sources-001","waitMillis":1000}'
 ~~~
 
@@ -67,7 +67,7 @@ agentic-olap call wait-script --payload '{"executionId":"sources-001","waitMilli
 
 升级先停止该前台进程，执行 `npm install --global @hanger-source/agentic-olap@目标版本`，再以原 `--home` 或 `--config` 启动。所有随包文件由 npm 替换，没有第二个产品安装步骤。安装完成不会重启已运行的进程，也不会改写配置或转换持久根格式。升级前核对目标发行的存储格式与连接器 API；精确插件引用变化时明确配置插件并登记其兑现采用，数据合同或原生调用依赖改变时再修订相应定义，不自动改变旧发布引用。
 
-元数据库与保存结果分别核对格式：storage 17 描述元数据库；结果文件封套为 `olap-query-result-artifact/v5`、记录为 `olap-query-result-record/v5`。就绪报告披露实际支持格式，并区分旧结果格式不支持与文件损坏。同一元数据库格式不保证新发行能解码所有旧结果；旧文件保留原字节，使用匹配发行读取，不自动转换，也无需重新执行原业务操作来取得历史结果。
+元数据库与保存结果分别核对格式：storage 18 描述元数据库；结果文件封套为 `olap-query-result-artifact/v6`、记录为 `olap-query-result-record/v6`。就绪报告披露实际支持格式，并区分旧结果格式不支持与文件损坏。同一元数据库格式不保证新发行能解码所有旧结果；旧文件保留原字节，使用匹配发行读取，不自动转换，也无需重新执行原业务操作来取得历史结果。
 
 本地重启后用 `info` 核对安装版本与实际服务版本；不可达或版本不同会返回具体原因及非零退出，报告仍保留配置和安装位置。远程客户端用 `tools` 返回的 `serverInfo.version` 核对。连接器和来源来自已有的授权读取；未获准项明确显示，来源列表不证明真实查询成功，`sourceQuery=NOT_CHECKED` 表示没有执行来源 SQL。所选发布、保存查询与结果的可用前提可通过 `read-deployment-availability` 核对；实际业务确认使用明确选择的查询，不自动重跑全部业务用法。
 
@@ -101,7 +101,7 @@ agentic-olap call wait-script --payload '{"executionId":"sources-001","waitMilli
 
 ~~~sh
 agentic-olap call describe-script-api --payload '{"operation":"inspect-warehouse"}'
-agentic-olap call execute-script --payload '{"executionId":"sources-after-config","waitMillis":0,"source":"olap.output(olap.sources.list(EmptyRequest))","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v5","parameters":{}}'
+agentic-olap call execute-script --payload '{"executionId":"sources-after-config","waitMillis":0,"source":"olap.output(olap.sources.list(EmptyRequest))","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v6","parameters":{}}'
 agentic-olap call wait-script --payload '{"executionId":"sources-after-config","waitMillis":1000}'
 ~~~
 

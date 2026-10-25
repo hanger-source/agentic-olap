@@ -35,7 +35,7 @@ message MetricCandidateRelationParametersEntry { string key = 1; agentic.olap.se
 
 message MetricCandidate { string adoption_id = 1; int64 adoption_version = 2; string subject_area_id = 3; int64 subject_area_version = 4; string code = 5; string display_name = 6; agentic.olap.semantic.v1.MetricBusinessMeaning business_meaning = 7; agentic.olap.semantic.v1.MetricRef definition = 8; agentic.olap.semantic.v1.MetricInstanceRef instance = 9; agentic.olap.semantic.v1.MetricValueContract value_contract = 10; MetricSnapshotRuleMeaning snapshot_meaning = 11; string adoption_status = 12; string scenario_metric_ref_id = 13; string release_object_ref_id = 14; repeated MetricSource sources = 15; string definition_kind = 16; repeated MetricCandidateFixedArgumentsEntry fixed_arguments = 17; repeated MetricCandidateParametersEntry parameters = 18; repeated MetricCandidateGroupingCandidatesEntry grouping_candidates = 19; repeated MetricCandidateMemberParametersEntry member_parameters = 20; repeated MetricCandidateRelationParametersEntry relation_parameters = 21; bool required_by_default = 22; int32 sort_order = 23; }
 
-message MetricSnapshotRuleMeaning { string reduction = 1; string null_policy = 2; string entity_role = 3; string partition_scope = 4; string source_filter_stage = 5; string private_predicate_stage = 6; string unknown_time_policy = 7; string mean_population = 8; string cross_entity_null_policy = 9; string duplicate_policy = 10; agentic.olap.semantic.v1.MetricValueContract mean_value_contract = 11; string mean_rounding = 12; }
+message MetricSnapshotRuleMeaning { reserved 12; reserved "mean_rounding"; string reduction = 1; string null_policy = 2; string entity_role = 3; string partition_scope = 4; string source_filter_stage = 5; string private_predicate_stage = 6; string unknown_time_policy = 7; string mean_population = 8; string cross_entity_null_policy = 9; string duplicate_policy = 10; agentic.olap.semantic.v1.MetricValueContract mean_value_contract = 11; optional string mean_target = 13; }
 
 message MetricSource { repeated string call_path = 1; MetricSourceOrigin origin = 2; agentic.olap.semantic.v1.EventRef event = 3; }
 
@@ -410,7 +410,7 @@ message PublishedSemanticCatalogProjectionMeaning { agentic.olap.semantic.v1.Eve
 
 message CatalogOptionalPublishedSemanticCatalogAggregation { bool present = 1; PublishedSemanticCatalogAggregation value = 2; }
 
-message PublishedSemanticCatalogAggregation { string function = 1; bool distinct = 2; string rounding = 3; }
+message PublishedSemanticCatalogAggregation { reserved 3; reserved "rounding"; string function = 1; bool distinct = 2; optional string mean_target = 4; }
 
 message PublishedSemanticCatalogMemberOutputsEntry { string key = 1; MemberCandidateOutput value = 2; }
 
@@ -1165,7 +1165,7 @@ message ConnectorCapabilitiesAggregate { agentic.olap.semantic.v1.ConnectorRef c
 
 message NativeAggregateMapping { oneof kind { NativeAggregateMappingMapped mapped = 1; NativeAggregateMappingUnavailable unavailable = 2; } }
 
-message NativeAggregateMappingMapped { NativeValueType result_type = 1; string aggregation_rounding = 2; }
+message NativeAggregateMappingMapped { reserved 2; reserved "aggregation_rounding"; NativeValueType result_type = 1; agentic.olap.semantic.v1.NativeAverageBehavior average_behavior = 3; }
 
 message NativeAggregateMappingUnavailable { string code = 1; string message = 2; }
 

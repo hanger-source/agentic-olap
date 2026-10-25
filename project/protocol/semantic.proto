@@ -55,13 +55,14 @@ message Arithmetic { oneof kind { Empty exact = 1; Empty native_floating = 2; Ap
 message Approximation { string minimum = 1; string maximum = 2; string absolute_tolerance = 3; string relative_tolerance = 4; }
 message NumericResult { oneof kind { DecimalResult decimal = 1; int32 integer_bits = 2; int32 binary_float_bits = 3; } }
 message DecimalResult { int32 precision = 1; int32 scale = 2; string rounding = 3; }
+message NativeAverageBehavior { oneof kind { string quantized_mean_rounding = 1; Empty native_floating = 2; } }
 message UnitEquation { oneof kind { PreserveUnit preserve_unit = 1; FixedBinaryUnit fixed_binary = 2; Empty same_unit_ratio = 3; ScaleUnit scale = 4; PreserveUnitScale preserve_unit_scale = 5; } }
 message PreserveUnit { string operator = 1; string operand = 2; }
 message FixedBinaryUnit { string operator = 1; UnitIdentity left = 2; UnitIdentity right = 3; UnitIdentity result = 4; }
 message ScaleUnit { string operator = 1; UnitIdentity from = 2; UnitIdentity to = 3; string factor = 4; }
 message PreserveUnitScale { string operator = 1; string factor = 2; }
 message MetricBusinessMeaning { string definition = 1; string unit = 2; string grain = 3; repeated string limitations = 4; }
-message MetricSnapshotRule { string reduction = 1; string entity_role = 2; repeated LogicUnitRef entity_keys = 3; LogicUnitRef time_key = 4; repeated LogicUnitRef tie_break_keys = 5; string null_policy = 6; MetricValueContract mean_value_contract = 7; string mean_rounding = 8; }
+message MetricSnapshotRule { reserved 8; reserved "mean_rounding"; string reduction = 1; string entity_role = 2; repeated LogicUnitRef entity_keys = 3; LogicUnitRef time_key = 4; repeated LogicUnitRef tie_break_keys = 5; string null_policy = 6; MetricValueContract mean_value_contract = 7; optional string mean_target = 9; }
 
 message SetOutput { string name = 1; SetOutputShape shape = 2; }
 message SetOutputShape { oneof kind { DimensionRef dimension = 1; string dimension_slot = 2; MemberDimensionShape member_dimension = 3; PropertyShape property = 4; string scalar = 5; MetricValueContract quantity = 6; RowShape row = 7; SetOutputShape array = 8; } }
@@ -157,7 +158,7 @@ message WeightedContribution { ResultExpression value = 1; ResultExpression weig
 message UniformAllocation { ResultExpression value = 1; repeated string source_keys = 2; repeated string member_keys = 3; MetricValueContract value_contract = 4; optional string unit_equation = 5; }
 message ResultAggregation { oneof kind { NumericAggregation sum = 1; AverageAggregation average = 2; NumericAggregation sample_deviation = 3; string minimum_null_policy = 4; string maximum_null_policy = 5; CountAggregation count = 6; bool collect_distinct = 7; } }
 message NumericAggregation { MetricValueContract value_contract = 1; string null_policy = 2; }
-message AverageAggregation { MetricValueContract value_contract = 1; string null_policy = 2; string rounding = 3; }
+message AverageAggregation { reserved 3; reserved "rounding"; MetricValueContract value_contract = 1; string null_policy = 2; optional string mean_target = 4; }
 message CountAggregation { bool distinct = 1; string null_policy = 2; }
 message OrderKey { string symbol = 1; string direction = 2; string nulls = 3; }
 message ResultAggregate { string input = 1; ResultAggregation aggregation = 2; string output_alias = 3; string output_display_name = 4; }
@@ -183,7 +184,7 @@ message StageObserveWindow { repeated string input_keys = 1; repeated string par
 message StageOffset { string input = 1; repeated string partition_by = 2; string output_alias = 3; string output_display_name = 4; repeated OrderKey order_keys = 5; string function = 6; int32 distance = 7; }
 
 message MetricDefinition { oneof kind { FactMeasure fact_measure = 1; MetricCalculation calculation = 2; } }
-message FactMeasure { EventRef event = 1; SemanticExpression input = 2; string aggregation = 3; bool distinct = 4; SemanticExpression private_predicate = 5; map<string, RelationAccessPath> roles = 6; MetricSnapshotRule snapshot_rule = 7; MetricValueContract value_contract = 8; string aggregation_rounding = 9; }
+message FactMeasure { reserved 9; reserved "aggregation_rounding"; EventRef event = 1; SemanticExpression input = 2; string aggregation = 3; bool distinct = 4; SemanticExpression private_predicate = 5; map<string, RelationAccessPath> roles = 6; MetricSnapshotRule snapshot_rule = 7; MetricValueContract value_contract = 8; optional string mean_target = 10; }
 message MetricCalculation { Calculation calculation = 1; MetricValueContract value_contract = 2; string measure_output = 3; repeated string key_outputs = 4; }
 message MetricInstance { string display_name = 1; MetricRef definition = 2; CalculationBindings bindings = 3; map<string, CalculationBinding> fixed_arguments = 4; }
 message MemberSourceDefinition { oneof kind { MemberProjectionDefinition projection = 1; MemberComputedDefinition computed = 2; } }
@@ -232,15 +233,18 @@ message SelectedQuantityUnit { UnitReference reference = 1; UnitAxis axis = 2; C
 message UnitSelection { ValuePosition source = 1; SelectionTarget target = 2; }
 message SelectionTarget { oneof kind { string dimension_filter = 1; MemberSlotReference member_filter = 2; ResultUnitFilter result_filter = 3; } }
 message ResultUnitFilter { ScopeId scope = 1; int32 operation_index = 2; SymbolId key = 3; CalculationScalar member = 4; }
-message QuantityProvenance { oneof kind { RawQuantity raw = 1; string constant = 2; FactQuantity fact = 3; SelectedSnapshotQuantity selected_snapshot = 4; ReducedQuantity reduction = 5; AllocatedQuantity uniform_allocation = 6; QuantityTerms linear = 7; ObservedQuantity observed = 8; WindowQuantity window = 9; OffsetQuantity offset = 10; QuantityProvenance copied = 11; WindowQuantity delta = 12; QuantityTerms alternatives = 13; } }
+message QuantityProvenance { oneof kind { RawQuantity raw = 1; string constant = 2; FactQuantity fact = 3; SelectedSnapshotQuantity selected_snapshot = 4; ReducedQuantity reduction = 5; AllocatedQuantity uniform_allocation = 6; QuantityTerms linear = 7; ObservedQuantity observed = 8; WindowQuantity window = 9; OffsetQuantity offset = 10; QuantityProvenance copied = 11; WindowQuantity delta = 12; QuantityTerms alternatives = 13; DeclaredQuantity declared = 14; QuantizedQuantity quantized = 15; CastQuantity cast = 16; } }
 message RawQuantity { ValuePosition source = 1; repeated ValuePosition observations = 2; }
-message QuantitySnapshot { string reduction = 1; repeated ValuePosition time_axes = 2; map<string, TemporalClock> bound_clocks = 3; }
-message FactQuantity { MetricRef definition = 1; string aggregation = 2; bool distinct = 3; ValuePosition source = 4; repeated ValuePosition observations = 5; QuantitySnapshot snapshot = 6; }
+message QuantitySnapshot { string reduction = 1; repeated ValuePosition time_axes = 2; map<string, TemporalClock> bound_clocks = 3; optional string mean_target = 4; MetricValueContract mean_value_contract = 5; string null_policy = 6; }
+message FactQuantity { MetricRef definition = 1; string aggregation = 2; bool distinct = 3; ValuePosition source = 4; repeated ValuePosition observations = 5; QuantitySnapshot snapshot = 6; optional string mean_target = 7; MetricValueContract value_contract = 8; }
 message SelectedSnapshotQuantity { QuantityProvenance input = 1; repeated ValuePosition time_axes = 2; CalculationScalar as_of = 3; }
-message ReducedQuantity { string aggregation = 1; QuantityProvenance input = 2; repeated ValuePosition observations = 3; }
+message ReducedQuantity { reserved 1; reserved "aggregation"; QuantityProvenance input = 2; repeated ValuePosition observations = 3; ResultAggregation aggregate = 4; MetricValueContract input_declaration = 5; }
+message DeclaredQuantity { QuantityProvenance input = 1; MetricValueContract input_declaration = 2; MetricValueContract declaration = 3; }
+message QuantizedQuantity { QuantityProvenance input = 1; MetricValueContract input_declaration = 2; int32 scale = 3; string rounding = 4; }
+message CastQuantity { QuantityProvenance input = 1; MetricValueContract input_declaration = 2; string target_type = 3; optional int32 precision = 4; optional int32 scale = 5; string rounding = 6; }
 message AllocatedQuantity { QuantityProvenance input = 1; repeated ValuePosition source_keys = 2; repeated ValuePosition member_keys = 3; }
 message QuantityTerms { repeated QuantityProvenance values = 1; }
 message ObservedQuantity { string nature = 1; repeated QuantityProvenance components = 2; repeated ValuePosition observations = 3; bool known_observation = 4; }
 message QuantityOrder { ValuePosition position = 1; string direction = 2; string nulls = 3; }
-message WindowQuantity { string aggregation = 1; QuantityProvenance input = 2; repeated ValuePosition observations = 3; repeated ValuePosition partition = 4; repeated QuantityOrder order = 5; WindowFrame frame = 6; bool cumulative = 7; bool total_order = 8; }
+message WindowQuantity { reserved 1; reserved "aggregation"; QuantityProvenance input = 2; repeated ValuePosition observations = 3; repeated ValuePosition partition = 4; repeated QuantityOrder order = 5; WindowFrame frame = 6; bool cumulative = 7; bool total_order = 8; ResultAggregation aggregate = 9; MetricValueContract input_declaration = 10; }
 message OffsetQuantity { QuantityProvenance input = 1; repeated ValuePosition partition = 2; repeated QuantityOrder order = 3; string function = 4; int32 distance = 5; bool total_order = 6; }

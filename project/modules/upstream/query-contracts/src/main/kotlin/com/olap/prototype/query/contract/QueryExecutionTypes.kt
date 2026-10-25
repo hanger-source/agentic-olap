@@ -45,5 +45,5 @@ class QueryExecutionTypes(val formatVersion: String, metricInstances: Map<String
     }
     override fun equals(other: Any?): Boolean = other is QueryExecutionTypes && formatVersion == other.formatVersion && metricInstances == other.metricInstances && members == other.members && dimensions == other.dimensions
     override fun hashCode(): Int = listOf(formatVersion, metricInstances, members, dimensions).hashCode()
-    companion object { const val FORMAT_VERSION = "olap-query-execution-types/v5" }
+    companion object { const val FORMAT_VERSION = "olap-query-execution-types/v6" }
 }

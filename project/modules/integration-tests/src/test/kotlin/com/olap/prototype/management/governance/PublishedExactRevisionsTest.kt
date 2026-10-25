@@ -58,7 +58,6 @@ class PublishedExactRevisionsTest {
                     roles = emptyMap(),
                     snapshotRule = null,
                     valueContract = GovernanceOrderFixture.money(),
-                    aggregationRounding = MetricValueContract.Rounding.NONE
                 ),
                 description = "A目的地支付金额",
                 businessMeaning = GovernanceOrderFixture.amountMeaning(),

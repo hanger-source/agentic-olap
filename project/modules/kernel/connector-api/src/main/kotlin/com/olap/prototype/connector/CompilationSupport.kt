@@ -4,11 +4,14 @@ import com.olap.prototype.contract.JdbcColumnType
 import com.olap.prototype.contract.JdbcParameter
 import com.olap.prototype.contract.NativeValueType
 import com.olap.prototype.expression.NativeScalarFunction
-import com.olap.prototype.metric.MetricValueContract
+import com.olap.prototype.expression.NativeAverageBehavior
 import org.apache.calcite.rel.type.RelDataType
 import org.apache.calcite.rel.type.RelDataTypeFactory
 import org.apache.calcite.rel.type.RelDataTypeSystem
+import org.apache.calcite.rel.core.Aggregate
+import org.apache.calcite.rel.core.AggregateCall
 import org.apache.calcite.rex.RexNode
+import org.apache.calcite.rex.RexOver
 import org.apache.calcite.sql.SqlAggFunction
 import org.apache.calcite.sql.SqlDialect
 import org.apache.calcite.sql.SqlKind
@@ -104,8 +107,10 @@ interface CompilationSupport {
     data class CollectionValues(val element: SqlNode, val ordinal: SqlNode)
     fun sortCollection(builder: RelBuilder, value: RexNode, descending: Boolean, nullsFirst: Boolean): RexNode
     fun collectionText(builder: RelBuilder, value: RexNode, delimiter: String, nullReplacement: String?): RexNode
-    /** 原生精确 AVG 已兑现的舍入策略；与其类型系统声明的容量共同成立，不代表最终业务输出的舍入。 */
-    val decimalAverageRounding: MetricValueContract.Rounding
+    /** 描述该真实聚合调用的原生行为，包含实际分组、FILTER、DISTINCT 及输入／结果类型；未知时明确拒绝。 */
+    fun averageBehavior(owner: Aggregate, call: AggregateCall): NativeAverageBehavior
+    /** 描述该真实窗口调用的原生行为，不用普通全局聚合的推导代替实际窗口。 */
+    fun averageBehavior(over: RexOver): NativeAverageBehavior
     fun numericFailure(value: SqlNode, type: RelDataType, position: SqlParserPos): SqlNode
     fun parameter(type: RelDataType, value: Any?): JdbcParameter
     fun requireNativeCast(target: RelDataType)

@@ -47,7 +47,8 @@ class RelationArgumentExecutionTest {
         val event = ExecutableEvent("orders", "1", "orders", "1", null,
             EventIdentity(listOf(EventIdentity.LogicUnitRef("orders.id", 1)), emptyMap()), emptyMap(), null, null, null)
         fun fact(input: String, aggregation: MetricAggregation, distinct: Boolean, contract: MetricValueContract) = MetricDefinition.FactMeasure(
-            EventRef("orders", 1), SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, "orders.$input", 1), aggregation, distinct, null, emptyMap(), null, contract, MetricValueContract.Rounding.NONE)
+            EventRef("orders", 1), SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, "orders.$input", 1), aggregation, distinct, null, emptyMap(), null, contract,
+            if (aggregation == MetricAggregation.AVG) MeanTarget.SOURCE_NATIVE else null)
         val dimension = Calculation.DimensionSlot("seller", sellerReference.id, sellerReference.version.toLong(), sellerReference.id)
         val outputs = listOf(SetOutputContract("seller", sellerShape), SetOutputContract("amount", SetOutputContract.Quantity(relationMoney)),
             SetOutputContract("people", SetOutputContract.Quantity(count)))

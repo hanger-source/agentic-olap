@@ -2,7 +2,7 @@
 
 `connector-api` 为独立后端实现提供共同合同和 Calcite 1.42.0 的公开类型。它不依赖治理、服务应用或内部编译实现。连接器实现已定义语义的原生映射与来源访问，业务指标、对象资格、数量、NULL 与查询组织仍由语义定义和共同内核拥有。
 
-SDK 按精确发行标签发布到 JitPack。`agentic-olap sdk` 返回本版 API、随包文档、Maven 仓库及 `artifacts` 中的完整坐标；`sdk --repository` 只输出仓库地址。构件使用 `com.github.hanger-source.agentic-olap` group，版本为 `v` 加产品版本，公开入口为 `connector-api`，可复用 JDBC 支持为 `warehouse-jdbc`，应用装载器为 `connector-loader`。新建或确需重新构建的插件使用目标宿主命令返回的精确坐标，不使用 SNAPSHOT。API 标识为 `agentic-olap-connector/v13-kotlin-data-contract-source-adoption-calcite-1.42`。插件须实现该 API 的实际公开签名，不能仅改 manifest 的版本标签。
+SDK 按精确发行标签发布到 JitPack。`agentic-olap sdk` 返回本版 API、随包文档、Maven 仓库及 `artifacts` 中的完整坐标；`sdk --repository` 只输出仓库地址。构件使用 `com.github.hanger-source.agentic-olap` group，版本为 `v` 加产品版本，公开入口为 `connector-api`，可复用 JDBC 支持为 `warehouse-jdbc`，应用装载器为 `connector-loader`。新建或确需重新构建的插件使用目标宿主命令返回的精确坐标，不使用 SNAPSHOT。API 标识为 `agentic-olap-connector/v14-kotlin-mean-target-calcite-1.42`。插件须实现该 API 的实际公开签名，不能仅改 manifest 的版本标签。
 
 SDK 的 JAR、POM 由插件工程的 Gradle 从 JitPack 匿名取得，第三方传递依赖从 Maven Central 取得。插件开发仍需 Kotlin/Gradle 工具链；运行产品无需这些构建工具。部署到其他服务前核对该服务的实际 API，不能把本地安装版本当作远程运行版本。
 
@@ -21,7 +21,7 @@ SDK 的 JAR、POM 由插件工程的 Gradle 从 JitPack 匿名取得，第三方
 ```json
 {
   "connectorRef": {"id": "backend", "version": "1.0.0", "sha256": "完整插件组摘要"},
-  "apiVersion": "agentic-olap-connector/v13-kotlin-data-contract-source-adoption-calcite-1.42",
+  "apiVersion": "agentic-olap-connector/v14-kotlin-mean-target-calcite-1.42",
   "jars": [
     {"file": "connector-backend.jar", "sha256": "该JAR摘要"},
     {"file": "backend-jdbc.jar", "sha256": "该JAR摘要"}
@@ -41,7 +41,7 @@ SDK 的 JAR、POM 由插件工程的 Gradle 从 JitPack 匿名取得，第三方
 
 ## 数据合同与兑现采用
 
-API v13 的来源输入分为两个明确对象：
+API v14 的来源输入分为两个明确对象：
 
 | 对象 | 内容与责任 |
 | --- | --- |
@@ -72,9 +72,9 @@ fun supportsConstraintVerification(
 
 `nativeAggregate(SqlKind)` 返回该精确来源的 `SqlAggFunction`，包括真实返回类型推导。核心将已定义的聚合映射为原生 kind，并继续组织 DISTINCT、分组、窗口和数量保证；插件不接收业务指标公式。不支持的 kind 明确拒绝。例如 `STDDEV_SAMP` 的返回类型由该来源实现声明，不能由共同编译器统一假定为 DOUBLE。
 
-AVG 的类型容量、算术正确性与舍入必须共同成立。`typeSystem.deriveAvgAggType` 与 `nativeAggregate(AVG)` 的类型推导须一致；`decimalAverageRounding` 声明原生精确结果的舍入，作者的最终 DECIMAL 合同只控制后续输出。原生累加或除法若已静默产生错误，错误值仍可能落在合法输出容量内，`Overflow.FAIL` 的结果范围检查不能据此检测或修复该错误。插件不得将这种实现声明为可接受的精确 AVG，也不得改成原生浮点、猜一个 DECIMAL 或自动替换为 SUM/COUNT。
+AVG 的业务目标由 `MeanTarget` 表达，最终数量合同声明输出容量与量化。`averageBehavior(Aggregate, AggregateCall)` 和 `averageBehavior(RexOver)` 描述当前真实调用，原生结果类型取自实际节点。`QuantizedMean(rounding)` 必须兑现对参与值精确累加、精确计数且仅最后向原生 DECIMAL scale 量化，不能只表示“返回 DECIMAL、舍入名相同”；`NativeFloating` 不提供误差上界。共同编译器据此判断 MATHEMATICAL 或 SOURCE_NATIVE 能否兑现，不把原生舍入字段交给作者照填。
 
-现有 SPI 适用于能为其接受的原生输入类型和支持的执行形态给出统一、可兑现合同的策略。声明需涵盖实际参与行数、分组／窗口、NULL 及原生运算的中间容量；不能仅以少量小值、一个常量执行路径或最终结果类型作为依据。同一类型在不同执行形态上显示不同 scale 时，先区分无损表示差异与已经发生的原生舍入；单纯增大声明 precision／scale 不能恢复丢失的位数。若插件提供已证明的原生输入转换或另一原生聚合映射，必须在 SQL AST 映射及类型推导中一致表达，并保持原人口、权重及错误行为；这不是执行失败后切换的备选路径。
+原生行为按实际聚合或窗口节点声明，需涵盖其输入类型、参与人口、NULL 与中间容量；不能仅以少量小值、一个常量执行路径或最终结果类型为依据。不同执行形态可以具有不同的原生 scale，核心使用各自实际结果检查目标，不要求它们共享一个全局舍入值。单纯增大声明 precision／scale 不能恢复丢失的位数。若插件提供有依据的原生输入转换或聚合映射，SQL AST 与类型推导必须一致，保留人口、权重和错误含义，不在执行失败后切换策略。
 
 `deriveAvgAggType` 接收的是输入技术类型，不接收本次数据的最小值、最大值或行数；发现请求中的 `inputType` 也不是业务值域证明。最终数量容量及 `Approximate.minimum/maximum` 不能充当 AVG 的受限输入合同。当前没有从样本、字段名或过滤文本自动推导“安全评分范围”的机制。仅当来源先给出明确可证明的受限策略、而现有正式表达仍无法承载其前提时，才有依据讨论相应扩展；保证未知时保持拒绝。
 
@@ -84,7 +84,7 @@ AVG 的类型容量、算术正确性与舍入必须共同成立。`typeSystem.d
 
 连接器可以提供自定义 `SqlOperator`：返回类型推导接收规范化后的实际有序输入类型，`unparse` 必须生成兑现同一非截断语义的 SQL AST。原生结果仍为整型时，核心拒绝该映射。DECIMAL 的 scale 为零本身不证明静默截断：连接器可以检查可整除性，对不能精确表示的非整除输入明确失败；不能只改贴 DECIMAL 类型来掩盖实际整数运算。采用标准 DECIMAL 除法推导时，实际工作类型来自 `typeSystem.deriveDecimalDivideType`；自定义算子也可以提供自己的返回类型推导，不能假设一定调用该类型系统方法。`maximumDeclaredDecimalPrecision` 限制正式数量输出，不等于插件已证明任何中间除法策略，也不替插件决定工作类型。原生映射返回浮点时，Exact 数量合同继续拒绝，不因整数规范化而升级算术保证。
 
-除法的原生计算与最终数量输出是两个位置。`ResultNumeric` 的 DECIMAL precision／scale／rounding 在该表达式完成后应用；当前 `division` 入口不接收外围 `MetricValueContract`。例如原生 `DECIMAL(38,0) / BIGINT` 已舍入为六位商，再 CAST 成 DECIMAL(38,18)，只会增加尾零，不能兑现要求十八位 HALF_UP 的数学商。外层类型容量、BigDecimal 解码及结果保存都不能恢复已经丢失的信息；原生 AVG 的 `decimalAverageRounding` 与显式 SUM／COUNT 的 DIVIDE 无关。
+除法的原生计算与最终数量输出是两个位置。`ResultNumeric` 的 DECIMAL precision／scale／rounding 在该表达式完成后应用；当前 `division` 入口不接收外围 `MetricValueContract`。例如原生 `DECIMAL(38,0) / BIGINT` 已舍入为六位商，再 CAST 成 DECIMAL(38,18)，只会增加尾零，不能兑现要求十八位 HALF_UP 的数学商。外层类型容量、BigDecimal 解码及结果保存都不能恢复已经丢失的信息；AVG 的原生均值行为与显式 SUM／COUNT 的 DIVIDE 无关。
 
 插件应先确定真实后端对所接受输入类型的中间容量、舍入、NULL、零分母与溢出行为，再用一致的类型推导和 AST 映射表达。统一的原生策略若能兑现接受域，可以使用现有入口；尚无保证的精确输入应由自定义除法算子的返回类型推导明确拒绝，不返回猜测类型或静默转浮点。不能只把返回类型声明为 DECIMAL(38,18)，也不能为增大商的 scale 将一个需要三十八个整数位的分子提前窄化为只有二十个整数位的 DECIMAL(38,18)。
 
@@ -133,7 +133,7 @@ override val division: SqlOperator = SqlBinaryOperator(
 
 稳定性显式区分 `IMMUTABLE`、`STATEMENT`、`VOLATILE`。STATEMENT 表示同一来源 SQL 内相同参数的结果稳定，跨语句不作此承诺；它可供该 SQL 中无外部相关、子查询或递归边界的同一关系节点共享使用，不授予编译期常量折叠或跨语句缓存。VOLATILE 不参与共同关系共享；其他算子继续按自身正式稳定性处理。不能仅凭函数名或精确物理版本推断稳定性，读取表内容的函数须按真实依赖声明。共同引用的 CTE 不承诺后端物化、单次扫描或一致数据快照。函数声明不授予额外来源、物理表或查询输出权限；发布与本次执行仍核对精确插件、来源绑定及数量合同。服务的 `read-connector-capabilities` 按当前主体可访问来源返回 `connectorRef`、`nativeScalarFunctions`、`compilationCapabilities`、`parameterSubmission` 和 `configurationParameters`，调用者以实际声明和表达式合同组织调用。没有原生函数的插件显式返回空列表，不从后端产品名推测函数支持。
 
-该操作也接受 `aggregate={connectorRef,aggregation,inputType,grouped}`，用现有 `typeSystem` 与 `nativeAggregate` 推导精确输入类型的原生聚合结果，不要求另一份聚合支持表。AVG 复用编译时的 `deriveAvgAggType`、原生函数容量一致性核验及 `decimalAverageRounding`；无法兑现时返回 `UNAVAILABLE`，不猜返回类型。原生映射成功才披露适用的 `aggregationRounding`，它不等于业务最终结果的舍入。插件的这些声明必须纯粹、确定，不连接来源或依赖运行参数；实际后端映射及证据仍由插件维护。正式请求和响应见[来源合同](../../../../docs/source-access.md)。
+该操作也接受 `aggregate={connectorRef,aggregation,inputType,grouped}`，构造请求明确指定的普通全局／分组节点，使用同一 `typeSystem`、`nativeAggregate` 与 `averageBehavior` 披露 `resultType` 和 AVG 的原生行为；非 AVG 的 `averageBehavior` 为 null。不提前用另一份全局聚合校验本次形态，无法兑现返回 UNAVAILABLE。此发现不证明任意窗口、grouping sets 或业务目标已通过，真实 Query 仍逐节点核验。声明必须纯粹、确定，不连接来源或依赖运行参数；后端算法、原生容量、舍入及适用形态的依据由精确插件拥有。正式请求和响应见[来源合同](../../../../docs/source-access.md)。
 
 原生映射依赖的后端版本、locale、编码等语义前提，由精确插件及身份参数记录，并由 `SourceAccess.execute` 对实际访问兑现；冻结配置及函数稳定性声明不是环境证明。`nativeScalarCall` 不取得来源配置，TEXT 参数也不提供词法域证明。参数角色、执行核验和明确拒绝的完整责任见[原生映射的来源环境](../../../../docs/source-access.md#原生映射的来源环境)。
 

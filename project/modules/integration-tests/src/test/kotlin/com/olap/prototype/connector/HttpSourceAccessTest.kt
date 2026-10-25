@@ -14,6 +14,7 @@ import com.olap.prototype.expression.*
 import com.olap.prototype.integration.RuntimeDeploymentLimits
 import com.olap.prototype.integration.TestConnectors
 import com.olap.prototype.metric.MetricValueContract
+import com.olap.prototype.metric.MeanTarget
 import com.olap.prototype.query.*
 import com.olap.prototype.query.PostOperationContract.Derive
 import com.olap.prototype.query.PostOperationContract.JoinInput
@@ -133,7 +134,7 @@ class HttpSourceAccessTest {
             val rawNumber = listOf(Derive(nativeNumber, "number", "原始行原生数值"))
             assertEquals(15.0, (execute(rawNumber + Regroup(ResultGrouping(emptyList(), listOf(ResultAggregate("number", ResultAggregation.Sum(floating, ResultAggregation.NullPolicy.IGNORE), "total", "行贡献之和")), null)), false).single().single() as Number).toDouble())
             val completedMeans = rawNumber + listOf(
-                Regroup(ResultGrouping(listOf("record_key"), listOf(ResultAggregate("number", ResultAggregation.Average(floating, ResultAggregation.NullPolicy.IGNORE, MetricValueContract.Rounding.NONE), "mean", "每组均值")), null)),
+                Regroup(ResultGrouping(listOf("record_key"), listOf(ResultAggregate("number", ResultAggregation.Average(floating, ResultAggregation.NullPolicy.IGNORE, MeanTarget.SOURCE_NATIVE), "mean", "每组均值")), null)),
                 Derive(call("native_float", symbol("mean")), "transformed", "完成均值保留原观察"),
                 Regroup(ResultGrouping(emptyList(), listOf(ResultAggregate("transformed", ResultAggregation.Sum(floating, ResultAggregation.NullPolicy.IGNORE), "total", "实际完成均值之和")), null)))
             assertEquals(15.0, (execute(completedMeans, false).single().single() as Number).toDouble())

@@ -6,5 +6,5 @@ import com.olap.prototype.query.QueryExecutionMode
 /** 一次内核计算的精确目录、请求身份与类型化计算。 */
 data class ExecutableQueryRequest(val formatVersion: String, val requestId: String, val catalogId: String, val computation: QueryComputation.Scope,
     val executionMode: QueryExecutionMode = QueryExecutionMode.SOURCE) {
-    companion object { const val FORMAT_VERSION = "olap-kernel-query/v6" }
+    companion object { const val FORMAT_VERSION = "olap-kernel-query/v7" }
 }

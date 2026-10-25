@@ -38,7 +38,6 @@ class PublishedFactAndBudgetTest {
                     roles = emptyMap(),
                     snapshotRule = null,
                     valueContract = GovernanceOrderFixture.records(),
-                    aggregationRounding = MetricValueContract.Rounding.NONE
                 ),
                 description = "",
                 businessMeaning = meaning,
@@ -61,7 +60,6 @@ class PublishedFactAndBudgetTest {
                     roles = emptyMap(),
                     snapshotRule = null,
                     valueContract = squared,
-                    aggregationRounding = MetricValueContract.Rounding.NONE
                 ),
                 description = "逐事实计算而非聚合后计算",
                 businessMeaning = MetricBusinessMeaning("逐事实支付金额平方的和", "元平方", "支付事实", listOf("不等于支付金额总和的平方")),
@@ -102,7 +100,6 @@ class PublishedFactAndBudgetTest {
                     roles = emptyMap(),
                     snapshotRule = null,
                     valueContract = GovernanceOrderFixture.money(),
-                    aggregationRounding = MetricValueContract.Rounding.NONE
                 ),
                 description = "税额",
                 businessMeaning = MetricBusinessMeaning("支付成功订单的税额", "元", "支付成功订单", listOf("税额独立于支付本金")),

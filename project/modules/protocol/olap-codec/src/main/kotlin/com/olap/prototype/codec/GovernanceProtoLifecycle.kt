@@ -13,7 +13,7 @@ internal fun MetricSnapshotRuleMeaningToProto(value: com.olap.prototype.metric.M
     setCrossEntityNullPolicy(value.crossEntityNullPolicy)
     setDuplicatePolicy(value.duplicatePolicy)
     value.meanValueContract?.let { setMeanValueContract(SemanticProto.toProto(it)) }
-    setMeanRounding(value.meanRounding.name)
+    value.meanTarget?.let { setMeanTarget(it.name) }
 }.build()
 internal fun MetricSnapshotRuleMeaningFromProto(value: com.olap.prototype.wire.governance.MetricSnapshotRuleMeaning): com.olap.prototype.metric.MetricSnapshotRule.Meaning = com.olap.prototype.metric.MetricSnapshotRule.Meaning(
     reduction = com.olap.prototype.metric.MetricSnapshotRule.Reduction.valueOf(value.getReduction()),
@@ -27,7 +27,7 @@ internal fun MetricSnapshotRuleMeaningFromProto(value: com.olap.prototype.wire.g
     crossEntityNullPolicy = value.getCrossEntityNullPolicy(),
     duplicatePolicy = value.getDuplicatePolicy(),
     meanValueContract = if (value.hasMeanValueContract()) SemanticProto.fromProto(value.getMeanValueContract()) as com.olap.prototype.metric.MetricValueContract else null,
-    meanRounding = com.olap.prototype.metric.MetricValueContract.Rounding.valueOf(value.getMeanRounding())
+    meanTarget = if (value.hasMeanTarget()) com.olap.prototype.metric.MeanTarget.valueOf(value.getMeanTarget()) else null
 )
 
 internal fun MetricSourceToProto(value: com.olap.prototype.calculation.MetricSource): com.olap.prototype.wire.governance.MetricSource = com.olap.prototype.wire.governance.MetricSource.newBuilder().apply {
@@ -369,11 +369,11 @@ internal fun NativeAggregateMappingFromProto(value: com.olap.prototype.wire.gove
 
 internal fun NativeAggregateMappingMappedToProto(value: com.olap.prototype.expression.NativeAggregateMapping.Mapped): com.olap.prototype.wire.governance.NativeAggregateMappingMapped = com.olap.prototype.wire.governance.NativeAggregateMappingMapped.newBuilder().apply {
     setResultType(NativeValueTypeToProto(value.resultType))
-    setAggregationRounding(value.aggregationRounding.name)
+    value.averageBehavior?.let { setAverageBehavior(SemanticProto.toProto(it)) }
 }.build()
 internal fun NativeAggregateMappingMappedFromProto(value: com.olap.prototype.wire.governance.NativeAggregateMappingMapped): com.olap.prototype.expression.NativeAggregateMapping.Mapped = com.olap.prototype.expression.NativeAggregateMapping.Mapped(
     resultType = required(value.hasResultType(), "NativeAggregateMappingMapped.resultType") { NativeValueTypeFromProto(value.getResultType()) },
-    aggregationRounding = com.olap.prototype.metric.MetricValueContract.Rounding.valueOf(value.getAggregationRounding())
+    averageBehavior = if (value.hasAverageBehavior()) SemanticProto.fromProto(value.getAverageBehavior()) else null
 )
 
 internal fun NativeAggregateMappingUnavailableToProto(value: com.olap.prototype.expression.NativeAggregateMapping.Unavailable): com.olap.prototype.wire.governance.NativeAggregateMappingUnavailable = com.olap.prototype.wire.governance.NativeAggregateMappingUnavailable.newBuilder().apply {

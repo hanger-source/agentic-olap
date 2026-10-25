@@ -223,7 +223,8 @@ data class SetOutputContract(val name: String, val shape: Shape) {
                 val value = QueryValueSemantics.measure(actual)
                 QueryValueSemantics.requireDeclaration(shape.valueContract, value)
                 MetricValueContract.requireNumericValue(shape.valueContract, value.declaration)
-                QueryValue.Measure(QueryQuantity(shape.valueContract, value.unit, value.provenance))
+                QueryValue.Measure(QueryQuantity(shape.valueContract, value.unit,
+                    QueryQuantity.Declared(value.provenance, value.declaration, shape.valueContract)))
             }
             shape is Row && actual is QueryValue.Row && shape.fields.size == actual.fields.size -> QueryValue.Row(shape.fields.zip(actual.fields).map { (field, value) -> bind(field, value) })
             shape is Array && actual is QueryValue.Array -> QueryValue.Array(bind(shape.element, actual.element))

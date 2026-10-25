@@ -153,7 +153,7 @@ class PublishedExecutableCatalog(
     override fun equals(other: Any?): Boolean = other is PublishedExecutableCatalog && formatVersion == other.formatVersion && coordinate == other.coordinate && queryCapability == other.queryCapability && catalog == other.catalog && metricAdoptions == other.metricAdoptions && objectVersionRefs == other.objectVersionRefs && generatedAt == other.generatedAt && diagnosticRunId == other.diagnosticRunId
     override fun hashCode(): Int = listOf(formatVersion, coordinate, queryCapability, catalog, metricAdoptions, objectVersionRefs, generatedAt, diagnosticRunId).hashCode()
     companion object {
-        const val FORMAT_VERSION = "olap-published-executable-catalog/v7"
+        const val FORMAT_VERSION = "olap-published-executable-catalog/v8"
         private fun requireDimensionIdentity(member: MemberSource, output: MemberSourceDefinition.Output, published: MemberCandidate.Dimension) {
             val identity = when (output) {
                 is MemberSourceDefinition.DimensionOutput -> output.dimensionId to output.dimensionVersion

@@ -284,7 +284,7 @@ class MemberRelationExecutionTest {
         observationCustomerMapping(definitions, id)
         val reference = MetricRef(id, "1")
         definitions.metrics[reference.key()] = ExecutableMetric(reference, MetricDefinition.FactMeasure(EventRef(id, 1), SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, "orders.amount", 1),
-            MetricAggregation.SUM, false, null, emptyMap(), null, money, MetricValueContract.Rounding.NONE))
+            MetricAggregation.SUM, false, null, emptyMap(), null, money))
         definitions.instances[id] = MetricInstance(reference, CalculationBindings.empty(), emptyMap(), id)
         return MetricInstanceRef(id)
     }
@@ -1220,14 +1220,14 @@ class MemberRelationExecutionTest {
             val product = MetricValueContract(average.unit, average.arithmetic, average.result, mapOf("product" to MetricValueContract.FixedBinary(MetricValueContract.BinaryOperator.MULTIPLY, identity, MetricValueContract.ONE, identity)), average.overflow)
             val ratio = MetricValueContract(average.unit, average.arithmetic, average.result, mapOf("quotient" to MetricValueContract.FixedBinary(MetricValueContract.BinaryOperator.DIVIDE, identity, MetricValueContract.ONE, identity)), average.overflow)
             val selected = MemberCondition.Predicate("customer", MemberCondition.Operator.NE, listOf(Calculation.Scalar(ScalarValueType.NUMBER, "3")))
-            val customers = orderRows("rows", selected, listOf(regroup(listOf("customer"), listOf(reduction("amount", ResultAggregation.Average(average, ResultAggregation.NullPolicy.IGNORE, MetricValueContract.Rounding.NONE), "mean"), reduction("id", ResultAggregation.Count(false, ResultAggregation.NullPolicy.IGNORE), "weight")))))
+            val customers = orderRows("rows", selected, listOf(regroup(listOf("customer"), listOf(reduction("amount", ResultAggregation.Average(average, ResultAggregation.NullPolicy.IGNORE, MeanTarget.SOURCE_NATIVE), "mean"), reduction("id", ResultAggregation.Count(false, ResultAggregation.NullPolicy.IGNORE), "weight")))))
             fun reduction(input: String, aggregation: ResultAggregation, alias: String) = Calculation.Reduction(PostOperationContract.ResultAggregate(input, aggregation, alias, alias))
             val objects = Calculation.Scope(Calculation.ObservationStatistics(customers, Calculation.ObjectsBy(listOf("customer")), emptyList(), listOf(
                 Calculation.WeightedMean("mean", "weight", "weighted", "按真实记录数加权的客户均额", product, recordCount(), ratio, "product", "quotient", "IGNORE_PAIR"),
-                reduction("mean", ResultAggregation.Average(average, ResultAggregation.NullPolicy.IGNORE, MetricValueContract.Rounding.NONE), "unweighted"),
+                reduction("mean", ResultAggregation.Average(average, ResultAggregation.NullPolicy.IGNORE, MeanTarget.SOURCE_NATIVE), "unweighted"),
                 reduction("customer", ResultAggregation.Count(false, ResultAggregation.NullPolicy.IGNORE), "objects"))), emptyMap(), emptyList())
             val reference = Calculation.Scope(Calculation.ObservationStatistics(orderRows("rows", MemberCondition.Unrestricted(), emptyList()), Calculation.RawRows(), emptyList(),
-                listOf(reduction("amount", ResultAggregation.Average(average, ResultAggregation.NullPolicy.IGNORE, MetricValueContract.Rounding.NONE), "reference"))), emptyMap(), emptyList())
+                listOf(reduction("amount", ResultAggregation.Average(average, ResultAggregation.NullPolicy.IGNORE, MeanTarget.SOURCE_NATIVE), "reference"))), emptyMap(), emptyList())
             val raw = Calculation.Scope(Calculation.ObservationStatistics(orderRows("rows", selected, emptyList()), Calculation.RawRows(), emptyList(), listOf(reduction("id", ResultAggregation.Count(false, ResultAggregation.NullPolicy.IGNORE), "raw_count"))), emptyMap(), emptyList())
             val inputs = linkedMapOf("objects" to Calculation.AlignedInput(objects, emptyMap(), listOf(Calculation.AlignedValue("weighted", "weighted", Calculation.NoMatch.PRESERVE_NULL),
                 Calculation.AlignedValue("unweighted", "unweighted", Calculation.NoMatch.PRESERVE_NULL), Calculation.AlignedValue("objects", "object_count", Calculation.NoMatch.PRESERVE_NULL))),
@@ -1402,7 +1402,7 @@ class MemberRelationExecutionTest {
             val formal = Calculation.MemberSlot("rows", "事实记录", "observations", MemberShape.RAW_BAG, mapOf("customer" to Calculation.MemberProperty("customer", ScalarValueType.NUMBER, null), "amount" to Calculation.MemberProperty("amount", ScalarValueType.NUMBER, money)), MemberRef("observations", 1))
             val body = Calculation(emptyList(), listOf(formal), emptyList(), emptyList(), emptyMap(), Calculation.Scope(
                 Calculation.Members("observed_rows", "rows", listOf(Calculation.MemberProjection("customer", "customer"), Calculation.MemberProjection("amount", "amount")), null, emptyMap(), MemberCondition.Unrestricted()), emptyMap(), listOf(
-                    regroup(listOf("customer"), listOf(reduction("amount", ResultAggregation.Sum(money, ResultAggregation.NullPolicy.IGNORE), "total"), reduction("amount", ResultAggregation.Average(mean, ResultAggregation.NullPolicy.IGNORE, MetricValueContract.Rounding.NONE), "average"), reduction("amount", ResultAggregation.Count(false, ResultAggregation.NullPolicy.IGNORE), "observations"), reduction("amount", ResultAggregation.Count(true, ResultAggregation.NullPolicy.IGNORE), "distinct_amounts"))),
+                    regroup(listOf("customer"), listOf(reduction("amount", ResultAggregation.Sum(money, ResultAggregation.NullPolicy.IGNORE), "total"), reduction("amount", ResultAggregation.Average(mean, ResultAggregation.NullPolicy.IGNORE, MeanTarget.SOURCE_NATIVE), "average"), reduction("amount", ResultAggregation.Count(false, ResultAggregation.NullPolicy.IGNORE), "observations"), reduction("amount", ResultAggregation.Count(true, ResultAggregation.NullPolicy.IGNORE), "distinct_amounts"))),
                     Derive(ResultNumeric(ResultOperation(ResultOperator.SAFE_DIVIDE, listOf(symbol("total"), symbol("observations"))), ratio, "division"), "ratio", "每次观测金额"))))
             val result = MemberResult("客户", "customers", MemberShape.UNIQUE_MEMBERS, listOf("customer"), mapOf(
                 "customer" to computedProperty("客户", "customer", "customer", null), "total" to computedProperty("客户金额", "amount", "total", money),
@@ -1423,7 +1423,7 @@ class MemberRelationExecutionTest {
                 mapOf("customers" to QueryComputation.Input("ROOT", memberScope("customers", result.outputs.keys.toList(), emptyList()))))
             assertEquals(listOf(listOf(decimal("50"), decimal("50"))), numericRows(execute(engine, definitions, shared)))
             val overall = numericRows(execute(engine, definitions, memberScope("observations", listOf("amount"), listOf(regroup(emptyList(),
-                listOf(reduction("amount", ResultAggregation.Average(mean, ResultAggregation.NullPolicy.IGNORE, MetricValueContract.Rounding.NONE), "overall_average"), reduction("amount", ResultAggregation.Count(true, ResultAggregation.NullPolicy.IGNORE), "overall_distinct")))))))
+                listOf(reduction("amount", ResultAggregation.Average(mean, ResultAggregation.NullPolicy.IGNORE, MeanTarget.SOURCE_NATIVE), "overall_average"), reduction("amount", ResultAggregation.Count(true, ResultAggregation.NullPolicy.IGNORE), "overall_distinct")))))))
             assertEquals(1, overall.size); assertEquals(50.0 / 3.0, requireNotNull(overall.single()[0]).toDouble(), 1E-9); assertEquals(decimal("2"), overall.single()[1])
             val expectedSums = mapOf("average" to decimal("30"), "ratio" to decimal("30"), "distinct_amounts" to decimal("2"))
             completedSums.forEach { (field, instance) ->

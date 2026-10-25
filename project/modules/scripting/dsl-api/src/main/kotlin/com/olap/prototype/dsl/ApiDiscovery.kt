@@ -40,7 +40,7 @@ data class ApiOverview(val formatVersion: String, val dslApiVersion: String, val
 
 /** 结构来自真实公开声明；局部语义规则只读取已知模型自身合同，不执行任意 getter 或工厂。 */
 object ApiDiscovery {
-    const val VERSION = "agentic-olap-kotlin-dsl/v5"
+    const val VERSION = "agentic-olap-kotlin-dsl/v6"
     val imports: List<String> = listOf("com.olap.prototype.dsl.*", "com.olap.prototype.governance.contract.*",
         "com.olap.prototype.governance.contract.GovernanceReadRequests.AssetVersionRequest",
         "com.olap.prototype.governance.contract.GovernanceReadRequests.DefinitionDependenciesRequest",
@@ -187,6 +187,33 @@ object ApiDiscovery {
             ResultExpression.ResultOperator::class -> ResultExpression.ResultOperator.contract()
             com.olap.prototype.query.ResultAggregation.Sum::class -> com.olap.prototype.query.ResultAggregation.Sum.contract()
             com.olap.prototype.query.ResultAggregation.Count::class -> com.olap.prototype.query.ResultAggregation.Count.contract()
+            com.olap.prototype.metric.MeanTarget::class -> com.olap.prototype.metric.MeanTarget.contract()
+            com.olap.prototype.query.ResultAggregation.Average::class -> com.olap.prototype.metric.MeanTarget.contract() + mapOf(
+                "meanTarget" to "EXPLICIT_REQUIRED_TARGET_FOR_THIS_COMPLETED_OR_WINDOW_AVERAGE",
+                "quantity" to "EXPLICIT_RESULT_UNIT_ARITHMETIC_CAPACITY_AND_NODE_FINAL_QUANTIZATION",
+                "nullPolicy" to "ACTUAL_PARTICIPATING_VALUES_IGNORE_OR_PROPAGATE",
+            )
+            com.olap.prototype.calculation.MetricDefinition.FactMeasure::class -> com.olap.prototype.metric.MeanTarget.contract() + mapOf(
+                "meanTarget" to "REQUIRED_FOR_AVG_ABSENT_FOR_OTHER_FACT_AGGREGATIONS",
+                "snapshot" to "SNAPSHOT_MEAN_TARGET_AND_INTERMEDIATE_QUANTITY_ARE_INDEPENDENT_OF_OUTER_FACT_AGGREGATION",
+            )
+            com.olap.prototype.metric.MetricSnapshotRule::class -> com.olap.prototype.metric.MeanTarget.contract() + mapOf(
+                "meanTarget" to "REQUIRED_WITH_MEAN_VALUE_CONTRACT_FOR_MEAN_ABSENT_FOR_FIRST_AND_LAST",
+                "nullPolicy" to "MEAN_REQUIRES_IGNORE_OR_PROPAGATE_FIRST_AND_LAST_PRESERVE_SELECTED",
+            )
+            com.olap.prototype.expression.NativeAverageBehavior::class -> mapOf(
+                "owner" to "EXACT_CONNECTOR_ACTUAL_AGGREGATE_OR_WINDOW_IMPLEMENTATION",
+                "quantizedMean" to "EXACT_ACCUMULATION_AND_COUNT_THEN_ONE_QUANTIZATION_TO_ACTUAL_NATIVE_DECIMAL_SCALE",
+                "nativeFloating" to "NATIVE_FLOATING_MEAN_WITHOUT_UNKNOWN_DECIMAL_OR_BUSINESS_ERROR_GUARANTEES",
+                "meanTarget" to "IMPLEMENTATION_FACT_NOT_AUTHOR_TARGET_COMPILER_CHECKS_TARGET_AGAINST_ACTUAL_INPUT_AND_RESULT",
+            )
+            com.olap.prototype.source.contract.ConnectorCapabilitiesRequest.Aggregate::class,
+            com.olap.prototype.source.contract.ConnectorCapabilities.Aggregate::class -> mapOf(
+                "groupedFalse" to "GLOBAL_AGGREGATE_WITHOUT_GROUPING_KEYS",
+                "groupedTrue" to "ORDINARY_AGGREGATE_WITH_ONE_GROUPING_KEY",
+                "averageBehavior" to "DECLARATION_FOR_THIS_DISCOVERY_SHAPE_ONLY_NOT_ALL_WINDOW_OR_GROUPING_SHAPES",
+                "execution" to "NO_SOURCE_QUERY_OR_BACKEND_VALIDATION_REAL_QUERY_CHECKS_ACTUAL_AGGREGATE_OR_REXOVER",
+            )
             Calculation.ObservationStatistics::class -> Calculation.ObservationStatistics.contract()
             Calculation.ObjectsBy::class -> Calculation.ObjectsBy.contract()
             ResultExpression.ResultNativeCall::class -> mapOf(

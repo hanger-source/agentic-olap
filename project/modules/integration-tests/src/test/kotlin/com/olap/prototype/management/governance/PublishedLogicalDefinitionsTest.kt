@@ -69,7 +69,6 @@ class PublishedLogicalDefinitionsTest {
                     roles = emptyMap(),
                     snapshotRule = null,
                     valueContract = GovernanceOrderFixture.money(),
-                    aggregationRounding = MetricValueContract.Rounding.NONE
                 ),
                 description = "确认口径",
                 businessMeaning = MetricBusinessMeaning("原资格口径加本期净额", "元", "订单", emptyList()),

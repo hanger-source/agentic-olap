@@ -64,7 +64,7 @@ class PublishedSemanticCatalogProducer : ReleaseSemanticCatalogCompiler {
                 when (val definition = executable.requireMetric(dependency.reference).definition) {
                     is MetricCalculation -> CalculationDependency(dependency.reference, definition)
                     is MetricDefinition.FactMeasure -> FactDependency(dependency.reference, definition.event,
-                        Aggregation(definition.aggregation, definition.distinct, definition.aggregationRounding), definition.valueContract,
+                        Aggregation(definition.aggregation, definition.distinct, definition.meanTarget), definition.valueContract,
                         factScope(dependency.reference, definition.event.eventId, definition.event.eventVersion))
                 }
             }
@@ -77,7 +77,7 @@ class PublishedSemanticCatalogProducer : ReleaseSemanticCatalogCompiler {
         } }
         private fun metric(candidate: MetricCandidate): Metric {
             val definition = executable.requireMetric(candidate.definition).definition
-            val aggregation: CatalogOptional<Aggregation> = if (definition is MetricDefinition.FactMeasure) CatalogOptional.of(Aggregation(definition.aggregation, definition.distinct, definition.aggregationRounding)) else CatalogOptional.absent()
+            val aggregation: CatalogOptional<Aggregation> = if (definition is MetricDefinition.FactMeasure) CatalogOptional.of(Aggregation(definition.aggregation, definition.distinct, definition.meanTarget)) else CatalogOptional.absent()
             return Metric(candidate.adoptionId, candidate.adoptionVersion, candidate.subjectAreaId, candidate.subjectAreaVersion, candidate.code, candidate.displayName,
                 candidate.businessMeaning, candidate.definition, candidate.instance, candidate.valueContract, candidate.snapshotMeaning, candidate.sources,
                 MetricKind.valueOf(candidate.definitionKind), candidate.fixedArguments, candidate.parameters, candidate.groupingCandidates, candidate.memberParameters, candidate.relationParameters,

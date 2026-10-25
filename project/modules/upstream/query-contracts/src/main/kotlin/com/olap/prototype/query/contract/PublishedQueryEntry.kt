@@ -98,7 +98,7 @@ data class PublishedQueryEntry(
                     val fact = native.requireMetric(dependency.reference).definition as? MetricDefinition.FactMeasure ?: throw IllegalArgumentException("semantic fact dependency is not a frozen fact")
                     equalValue(dependency.event, fact.event); equalValue(dependency.valueContract, fact.valueContract)
                     equalValue(dependency.aggregation.function, fact.aggregation); equalValue(dependency.aggregation.distinct, fact.distinct)
-                    equalValue(dependency.aggregation.rounding, fact.aggregationRounding)
+                    equalValue(dependency.aggregation.meanTarget, fact.meanTarget)
                 }
                 is InstanceDependency -> {
                     actual.add(MetricSource.InstanceDependency(dependency.reference))

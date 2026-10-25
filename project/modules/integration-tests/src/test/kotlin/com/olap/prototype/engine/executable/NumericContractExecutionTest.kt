@@ -10,14 +10,21 @@ import com.olap.prototype.engine.calcite.FrozenCatalogSchema
 import com.olap.prototype.expression.*
 import com.olap.prototype.integration.TestConnectors
 import com.olap.prototype.metric.MetricValueContract
+import com.olap.prototype.metric.MeanTarget
 import com.olap.prototype.query.ResultAggregation
 import com.olap.prototype.query.QueryComputation
 import com.olap.prototype.query.ScopedInputContract
+import com.olap.prototype.query.ScalarValueType
 import org.apache.calcite.rel.RelNode
 import org.apache.calcite.rel.type.DelegatingTypeSystem
 import org.apache.calcite.rel.type.RelDataType
 import org.apache.calcite.rel.type.RelDataTypeFactory
 import org.apache.calcite.rex.RexNode
+import org.apache.calcite.sql.SqlNode
+import org.apache.calcite.sql.SqlDataTypeSpec
+import org.apache.calcite.sql.SqlBasicTypeNameSpec
+import org.apache.calcite.sql.parser.SqlParserPos
+import org.apache.calcite.sql.type.SqlTypeName
 import org.apache.calcite.sql.`fun`.SqlStdOperatorTable as Ops
 import org.apache.calcite.tools.RelBuilder
 import org.junit.jupiter.api.Assertions.*
@@ -46,19 +53,26 @@ class NumericContractExecutionTest {
                     if (dialect == "h2") MetricValueContract.Exact() else MetricValueContract.NativeFloating(),
                     if (dialect == "h2") MetricValueContract.Decimal(12, 2, MetricValueContract.Rounding.HALF_UP)
                     else MetricValueContract.BinaryFloat(64), emptyMap(), MetricValueContract.Overflow.FAIL)
-                val aggregate = ResultAggregation.Average(contract, ResultAggregation.NullPolicy.IGNORE, discovered.aggregationRounding)
+                val aggregate = ResultAggregation.Average(contract, ResultAggregation.NullPolicy.IGNORE, MeanTarget.SOURCE_NATIVE)
                 val b = builder(source)
                 val value = SemanticNumericRex.aggregate(b, aggregate, b.field("n"))
                 b.aggregate(b.groupKey(), b.aggregateCall(RelationalAggregates.aggregateFunction(aggregate, support), listOf(value)).`as`("average"))
+                NativeAggregateTypes.requireAverage(b, "average", aggregate.meanTarget, contract, listOf(MetricValueContract.Exact()))
                 b.project(listOf(SemanticNumericRex.aggregateOutput(b, b.field("average"), aggregate)), listOf("result"), true)
                 val actual = execute(source, b.build()).single().single()
                 if (dialect == "h2") assertEquals(rows.getBigDecimal(1).setScale(2, RoundingMode.HALF_UP), actual)
                 else assertEquals(rows.getDouble(1), (actual as Number).toDouble())
                 val invalid = builder(source)
-                val rejected = if (dialect == "h2") aggregate.copy(rounding = MetricValueContract.Rounding.NONE)
+                val rejected = if (dialect == "h2") aggregate.copy(meanTarget = MeanTarget.MATHEMATICAL)
                     else aggregate.copy(valueContract = MetricValueContract(MetricValueContract.Fixed(MetricValueContract.ONE),
                         MetricValueContract.Exact(), MetricValueContract.Decimal(12, 2, MetricValueContract.Rounding.HALF_UP), emptyMap(), MetricValueContract.Overflow.FAIL))
-                assertThrows(IllegalArgumentException::class.java) { SemanticNumericRex.aggregate(invalid, rejected, invalid.field("n")) }
+                val argument = SemanticNumericRex.aggregate(invalid, rejected, invalid.field("n"))
+                invalid.aggregate(invalid.groupKey(), invalid.aggregateCall(RelationalAggregates.aggregateFunction(rejected, support), listOf(argument)).`as`("average"))
+                val failure = assertThrows(NativeAggregateMappingException::class.java) {
+                    NativeAggregateTypes.requireAverage(invalid, "average", rejected.meanTarget, rejected.valueContract, listOf(MetricValueContract.Exact()))
+                }
+                assertEquals(if (dialect == "h2") NativeAggregateMappingException.Reason.MATHEMATICAL_QUANTIZATION_UNPROVED
+                    else NativeAggregateMappingException.Reason.INPUT_GUARANTEE_UPGRADE, failure.reason)
             } }
         }
     }
@@ -74,9 +88,118 @@ class NumericContractExecutionTest {
             }
             assertInstanceOf(NativeAggregateMapping.Unavailable::class.java, NativeAggregateTypes.describe(unsupported,
                 ResultAggregation.Kind.AVG, NativeValueType("BIGINT", null, null, true), false))
-            val factory = org.apache.calcite.jdbc.JavaTypeFactoryImpl(SemanticCalciteTypeSystem(unsupported))
+            val b = CalciteCompilation.builder(unsupported)
+            b.values(b.typeFactory.builder().add("n", org.apache.calcite.sql.type.SqlTypeName.BIGINT).build())
             assertThrows(NativeAggregateMappingException::class.java) {
-                NativeAggregateTypes.averageType(factory, factory.createSqlType(org.apache.calcite.sql.type.SqlTypeName.BIGINT))
+                b.aggregate(b.groupKey(), b.aggregateCall(RelationalAggregates.aggregateFunction(ResultAggregation.Kind.AVG, unsupported), listOf(b.field("n"))).`as`("average"))
+            }
+        }
+    }
+
+    @Test fun mathematicalAverageMatchesOneFinalQuantizationForAggregatesAndWindows(@TempDir directory: Path) {
+        val expected = BigDecimal.ONE.divide(BigDecimal(3), 10, RoundingMode.HALF_DOWN)
+        val contract = MetricValueContract(MetricValueContract.Fixed(MetricValueContract.ONE), MetricValueContract.Exact(),
+            MetricValueContract.Decimal(29, 10, MetricValueContract.Rounding.HALF_DOWN), emptyMap(), MetricValueContract.Overflow.FAIL)
+        NativeWarehouse(directory, "h2", listOf("CREATE TABLE numbers(n BIGINT)",
+            "INSERT INTO numbers VALUES (0),(0),(1),(NULL)")).use { source ->
+            val support = TestConnectors.registry.require(source.spec.connectorRef).compilation
+            val aggregation = ResultAggregation.Average(contract, ResultAggregation.NullPolicy.IGNORE, MeanTarget.MATHEMATICAL)
+            for (window in listOf(false, true)) {
+                val b = builder(source)
+                val input = SemanticNumericRex.aggregate(b, aggregation, b.field("n"))
+                val function = RelationalAggregates.aggregateFunction(aggregation, support)
+                val value = if (window) {
+                    val over = b.aggregateCall(function, listOf(input)).over()
+                        .rowsBetween(b.unboundedPreceding(), b.unboundedFollowing()).toRex()
+                    NativeAggregateTypes.requireAverage(b, over, function, aggregation.meanTarget, contract, listOf(MetricValueContract.Exact()))
+                    over
+                } else {
+                    b.aggregate(b.groupKey(), b.aggregateCall(function, listOf(input)).`as`("average"))
+                    NativeAggregateTypes.requireAverage(b, "average", aggregation.meanTarget, contract, listOf(MetricValueContract.Exact()))
+                    b.field("average")
+                }
+                b.project(listOf(SemanticNumericRex.aggregateOutput(b, value, aggregation)), listOf("result"), true)
+                assertEquals(List(if (window) 4 else 1) { listOf(expected) }, execute(source, b.build()), "window=$window")
+            }
+        }
+
+        // 达到 H2 实际容量时 AVG 不再增加原生 scale；两次量化会真正改变这组人口的答案。
+        NativeWarehouse(directory, "h2", listOf("CREATE TABLE numbers(n DECIMAL(100000,2))",
+            "INSERT INTO numbers VALUES (0.14),(0.15),(0.15),(NULL)")).use { source ->
+            val once = BigDecimal("0.44").divide(BigDecimal(3), 1, RoundingMode.HALF_UP)
+            val native = source.connection.createStatement().use { statement ->
+                statement.executeQuery("SELECT AVG(n) FROM numbers").use { rows -> assertTrue(rows.next()); rows.getBigDecimal(1) }
+            }
+            val twice = native.setScale(1, RoundingMode.HALF_UP)
+            assertNotEquals(once, twice)
+            val output = MetricValueContract(MetricValueContract.Fixed(MetricValueContract.ONE), MetricValueContract.Exact(),
+                MetricValueContract.Decimal(4, 1, MetricValueContract.Rounding.HALF_UP), emptyMap(), MetricValueContract.Overflow.FAIL)
+            val support = TestConnectors.registry.require(source.spec.connectorRef).compilation
+            val b = builder(source)
+            val aggregation = ResultAggregation.Average(output, ResultAggregation.NullPolicy.IGNORE, MeanTarget.MATHEMATICAL)
+            b.aggregate(b.groupKey(), b.aggregateCall(RelationalAggregates.aggregateFunction(aggregation, support),
+                listOf(SemanticNumericRex.aggregate(b, aggregation, b.field("n")))).`as`("average"))
+            val failure = assertThrows(NativeAggregateMappingException::class.java) {
+                NativeAggregateTypes.requireAverage(b, "average", aggregation.meanTarget, output, listOf(MetricValueContract.Exact()))
+            }
+            assertEquals(NativeAggregateMappingException.Reason.MATHEMATICAL_QUANTIZATION_UNPROVED, failure.reason)
+            NativeAggregateTypes.requireAverage(b, "average", MeanTarget.SOURCE_NATIVE, output, listOf(MetricValueContract.Exact()))
+            b.project(listOf(SemanticNumericRex.aggregateOutput(b, b.field("average"), aggregation)), listOf("result"), true)
+            assertEquals(listOf(listOf(twice)), execute(source, b.build()))
+        }
+    }
+
+    @Test fun decimalAveragePreservesNativeAndApproximateInputGuaranteesAcrossProjection(@TempDir directory: Path) {
+        NativeWarehouse(directory, "h2", listOf("CREATE TABLE numbers(n BIGINT)",
+            "INSERT INTO numbers VALUES (0),(0),(1),(NULL)")).use { source ->
+            val guarantees = linkedMapOf<String, MetricValueContract.Arithmetic>(
+                "decimal_from_float" to MetricValueContract.NativeFloating(),
+                "decimal_with_error" to MetricValueContract.Approximate("-2", "2", "0.01", "0"),
+                "decimal_without_error" to MetricValueContract.Approximate("-2", "2", "0", "0"))
+            val declarations = guarantees.map { (name, guarantee) -> NativeScalarFunction(name,
+                listOf(NativeScalarFunction.Parameter(NativeScalarFunction.ParameterKind.SCALAR, ScalarValueType.NUMBER)),
+                NativeValueType("DECIMAL", 19, 0, true), guarantee, NativeScalarFunction.Stability.IMMUTABLE) }.associateBy { it.id }
+            val original = TestConnectors.registry.require(source.spec.connectorRef).compilation
+            val support = object : CompilationSupport by original {
+                override val nativeScalarFunctions = declarations.values.toList()
+                override fun requireNativeScalarFunction(id: String): NativeScalarFunction = declarations.getValue(id)
+                override fun nativeScalarCall(function: String, arguments: List<CompilationSupport.NativeArgument>): SqlNode {
+                    require(function in declarations)
+                    val pos = SqlParserPos.ZERO
+                    var value = (arguments.single() as CompilationSupport.ScalarArgument).value
+                    if (function == "decimal_from_float") value = Ops.CAST.createCall(pos, value,
+                        SqlDataTypeSpec(SqlBasicTypeNameSpec(SqlTypeName.DOUBLE, pos), pos))
+                    return Ops.CAST.createCall(pos, value, SqlDataTypeSpec(SqlBasicTypeNameSpec(SqlTypeName.DECIMAL, 19, 0, pos), pos))
+                }
+            }
+            fun contract(arithmetic: MetricValueContract.Arithmetic) = MetricValueContract(MetricValueContract.Fixed(MetricValueContract.ONE),
+                arithmetic, MetricValueContract.Decimal(29, 10, MetricValueContract.Rounding.HALF_DOWN), emptyMap(), MetricValueContract.Overflow.FAIL)
+            val expected = BigDecimal.ONE.divide(BigDecimal(3), 10, RoundingMode.HALF_DOWN)
+            for ((function, guarantee) in guarantees) {
+                val b = builder(source)
+                val native = NativeExpressionScope(source.spec.connectorRef, support) { null }
+                val raw = native.compile(b, SemanticExpression.NativeCall(source.spec.connectorRef, function,
+                    listOf(SemanticExpression.ScalarArgument(SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, "n", 1))))) { b.field("n") }
+                val actualGuarantees = SemanticNumericRex.inputGuarantees(raw)
+                b.project(listOf(raw), listOf("value"), true)
+                val exact = contract(MetricValueContract.Exact())
+                val aggregation = ResultAggregation.Average(exact, ResultAggregation.NullPolicy.IGNORE, MeanTarget.MATHEMATICAL)
+                b.aggregate(b.groupKey(), b.aggregateCall(RelationalAggregates.aggregateFunction(aggregation, support),
+                    listOf(SemanticNumericRex.aggregate(b, aggregation, b.field("value")))).`as`("average"))
+                val upgrade = assertThrows(NativeAggregateMappingException::class.java) {
+                    NativeAggregateTypes.requireAverage(b, "average", aggregation.meanTarget, exact, actualGuarantees)
+                }
+                assertEquals(NativeAggregateMappingException.Reason.INPUT_GUARANTEE_UPGRADE, upgrade.reason, function)
+                val accepted = if (function == "decimal_with_error") {
+                    val propagation = assertThrows(NativeAggregateMappingException::class.java) {
+                        NativeAggregateTypes.requireAverage(b, "average", aggregation.meanTarget, contract(guarantee), actualGuarantees)
+                    }
+                    assertEquals(NativeAggregateMappingException.Reason.APPROXIMATION_PROPAGATION_UNAVAILABLE, propagation.reason)
+                    contract(MetricValueContract.NativeFloating())
+                } else contract(guarantee)
+                NativeAggregateTypes.requireAverage(b, "average", aggregation.meanTarget, accepted, actualGuarantees)
+                b.project(listOf(SemanticNumericRex.output(b, b.field("average"), accepted)), listOf("result"), true)
+                assertEquals(listOf(listOf(expected)), execute(source, b.build()), function)
             }
         }
     }

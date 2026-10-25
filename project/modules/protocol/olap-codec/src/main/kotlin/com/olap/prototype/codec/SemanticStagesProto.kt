@@ -5,12 +5,12 @@ import com.olap.prototype.query.PostOperationContract as D
 import com.olap.prototype.query.ResultAggregation as A
 import com.olap.prototype.query.GroupingLevels as G
 import com.olap.prototype.query.WindowFrameContract as W
-import com.olap.prototype.metric.MetricValueContract.Rounding
+import com.olap.prototype.metric.MeanTarget
 
 internal object SemanticStagesProto {
     fun aggregation(v: A): ResultAggregation = ResultAggregation.newBuilder().apply { when (v) {
         is A.Sum -> setSum(NumericAggregation.newBuilder().setValueContract(SemanticTypesProto.value(v.valueContract)).setNullPolicy(v.nullPolicy.name))
-        is A.Average -> setAverage(AverageAggregation.newBuilder().setValueContract(SemanticTypesProto.value(v.valueContract)).setNullPolicy(v.nullPolicy.name).setRounding(v.rounding.name))
+        is A.Average -> setAverage(AverageAggregation.newBuilder().setValueContract(SemanticTypesProto.value(v.valueContract)).setNullPolicy(v.nullPolicy.name).setMeanTarget(v.meanTarget.name))
         is A.SampleDeviation -> setSampleDeviation(NumericAggregation.newBuilder().setValueContract(SemanticTypesProto.value(v.valueContract)).setNullPolicy(v.nullPolicy.name))
         is A.Minimum -> setMinimumNullPolicy(v.nullPolicy.name)
         is A.Maximum -> setMaximumNullPolicy(v.nullPolicy.name)
@@ -19,7 +19,8 @@ internal object SemanticStagesProto {
     } }.build()
     fun aggregation(v: ResultAggregation): A = when (v.kindCase) {
         ResultAggregation.KindCase.SUM -> A.Sum(SemanticTypesProto.value(v.sum.valueContract), A.NullPolicy.valueOf(v.sum.nullPolicy))
-        ResultAggregation.KindCase.AVERAGE -> A.Average(SemanticTypesProto.value(v.average.valueContract), A.NullPolicy.valueOf(v.average.nullPolicy), Rounding.valueOf(v.average.rounding))
+        ResultAggregation.KindCase.AVERAGE -> A.Average(SemanticTypesProto.value(v.average.valueContract), A.NullPolicy.valueOf(v.average.nullPolicy),
+            required(v.average.hasMeanTarget(), "AverageAggregation.meanTarget") { MeanTarget.valueOf(v.average.meanTarget) })
         ResultAggregation.KindCase.SAMPLE_DEVIATION -> A.SampleDeviation(SemanticTypesProto.value(v.sampleDeviation.valueContract), A.NullPolicy.valueOf(v.sampleDeviation.nullPolicy))
         ResultAggregation.KindCase.MINIMUM_NULL_POLICY -> A.Minimum(A.NullPolicy.valueOf(v.minimumNullPolicy))
         ResultAggregation.KindCase.MAXIMUM_NULL_POLICY -> A.Maximum(A.NullPolicy.valueOf(v.maximumNullPolicy))

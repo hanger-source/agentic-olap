@@ -62,7 +62,7 @@ class PublishedCalculationArgumentsTest {
                         val display = if (distinct) "去重金额值数" else "非空金额记录数"
                         val count = f.metrics.createMetric(MetricCreateRequest(code, display, "trade", MetricDefinition.FactMeasure(
                             com.olap.prototype.event.EventRef(GovernanceOrderFixture.EVENT, 1), GovernanceOrderFixture.ref("order_fact.pay_amount"), MetricAggregation.COUNT,
-                            distinct, null, emptyMap(), null, GovernanceOrderFixture.records(), MetricValueContract.Rounding.NONE),
+                            distinct, null, emptyMap(), null, GovernanceOrderFixture.records()),
                             display, MetricBusinessMeaning(display, "个", if (distinct) "来源金额值" else "含金额的来源记录", emptyList()), "golden")).metric
                         f.activate("METRIC", count.id); f.adopt(count.id); f.grantMetric(count.id, order = if (distinct) 3 else 2)
                     }
@@ -144,7 +144,6 @@ class PublishedCalculationArgumentsTest {
                     roles = emptyMap(),
                     snapshotRule = null,
                     valueContract = GovernanceOrderFixture.records(),
-                    aggregationRounding = MetricValueContract.Rounding.NONE
                 ),
                 description = "有支付金额的订单数",
                 businessMeaning = MetricBusinessMeaning("有支付金额的成功订单数量", "单", "支付订单", emptyList()),
@@ -282,7 +281,6 @@ class PublishedCalculationArgumentsTest {
             roles = emptyMap(),
             snapshotRule = null,
             valueContract = GovernanceOrderFixture.money(),
-            aggregationRounding = MetricValueContract.Rounding.NONE
         ),
         description = "不公开采用的计算依赖",
         businessMeaning = GovernanceOrderFixture.amountMeaning(),

@@ -156,7 +156,6 @@ class PublishedRelationMembersTest {
                     roles = emptyMap(),
                     snapshotRule = null,
                     valueContract = GovernanceOrderFixture.money(),
-                    aggregationRounding = com.olap.prototype.metric.MetricValueContract.Rounding.NONE
                 ),
                 description = "关联记录数量不放大订单金额",
                 businessMeaning = GovernanceOrderFixture.amountMeaning(),

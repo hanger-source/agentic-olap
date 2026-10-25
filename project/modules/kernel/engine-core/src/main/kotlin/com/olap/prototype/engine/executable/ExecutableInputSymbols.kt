@@ -527,9 +527,10 @@ internal class ExecutableInputSymbols(private val graph: ExecutableInputGraph,
             val snapshot = definition.snapshotRule?.let { rule ->
                 val time = rule.timeKey.expression()
                 val timeColumns = fact.input.analysisDimensions.filter { !it.filterOnly && time == it.binding.expression }.map { it.outputAlias }.filter { it in identities }.distinct()
-                QueryQuantity.SnapshotSource(rule.reduction, timeColumns, emptyMap())
+                QueryQuantity.SnapshotSource(rule.reduction, rule.nullPolicy, timeColumns, emptyMap(), rule.meanTarget, rule.meanValueContract)
             }
-            return QueryQuantity.FactSource(fact.input.metric.reference, definition.aggregation, definition.distinct, identities, snapshot)
+            return QueryQuantity.FactSource(fact.input.metric.reference, definition.aggregation, definition.distinct, identities, snapshot,
+                definition.meanTarget, definition.valueContract)
         }
         private fun requireRootChild(children: Map<String, Child>, id: String): Analysis {
             val child = requireNotNull(children[id]) { "root input is not declared" }

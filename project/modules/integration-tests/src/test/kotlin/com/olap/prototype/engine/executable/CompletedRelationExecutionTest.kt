@@ -47,7 +47,7 @@ class CompletedRelationExecutionTest {
         "CREATE TABLE orders(id INTEGER PRIMARY KEY, region VARCHAR, event_hour INTEGER, customer INTEGER, amount DECIMAL(18,2))",
         "INSERT INTO orders VALUES $rows"))
     private fun dimensionRef(name: String) = ScopedInputContract.DimensionRef(name, "1", "value")
-    private fun catalog(source: NativeWarehouse): ExecutableCatalog {
+    private fun catalog(source: NativeWarehouse, amountContract: MetricValueContract = money): ExecutableCatalog {
         val names = linkedMapOf("id" to "id", "region" to "region", "hour" to "event_hour", "customer" to "customer", "amount" to "amount")
         val physical = source.adopt("orders", names.mapKeys { "orders.${it.key}" })
         val topology = ExecutableTopology("orders", "1", "orders", null, "orders", "1")
@@ -58,7 +58,7 @@ class CompletedRelationExecutionTest {
             "orders.$id", "1", SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, "orders.$id", 1), RelationAccessPath(emptyList()), emptyMap(), emptyList(), "orders", "1") }
         return ExecutableCatalog(ExecutableCatalogManifest("completed_relation", ExecutableCatalogManifest.SCHEMA_VERSION),
             metrics = mapOf(MetricRef("amount", "1").key() to ExecutableMetric(MetricRef("amount", "1"), MetricDefinition.FactMeasure(EventRef("orders", 1),
-                SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, "orders.amount", 1), MetricAggregation.SUM, false, null, emptyMap(), null, money, MetricValueContract.Rounding.NONE))),
+                SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, "orders.amount", 1), MetricAggregation.SUM, false, null, emptyMap(), null, amountContract))),
             physicalExecutionBindings = mapOf("orders@1" to physical), topologies = mapOf("orders@1" to topology), events = mapOf("orders@1" to event),
             logicUnits = names.keys.associate { id -> "orders.$id@1" to ExecutableLogicUnit("orders.$id", "1", if (id == "region") ScalarValueType.TEXT else ScalarValueType.NUMBER,
                 null, null, null, id, null, "orders", "1") }, dimensionBindings = bindings,
@@ -392,6 +392,67 @@ class CompletedRelationExecutionTest {
                 listOf("A", 3, "40", "10", "30", 1L),
                 listOf("B", 1, "7", null, null, 2L),
                 listOf("B", 2, "9", "7", "2", 1L)), rows, dialect)
+        }
+    }
+
+    @Test fun distinguishesTransformedCumulativeValuesFromOriginalContributions(@TempDir directory: Path) {
+        val original = MetricValueContract(money.unit, MetricValueContract.Exact(),
+            MetricValueContract.Decimal(20, 2, MetricValueContract.Rounding.NONE), emptyMap(), money.overflow)
+        val wider = MetricValueContract(money.unit, MetricValueContract.Exact(),
+            MetricValueContract.Decimal(24, 4, MetricValueContract.Rounding.NONE), emptyMap(), money.overflow)
+        val scaled = MetricValueContract(wider.unit, wider.arithmetic, wider.result,
+            mapOf("scale" to MetricValueContract.PreserveUnit(MetricValueContract.BinaryOperator.MULTIPLY, MetricValueContract.Operand.LEFT)), wider.overflow)
+        // H2 的 DECIMAL(24,4) / BIGINT 窗口计数实际返回 DECIMAL(62,42)，直接保留，不另行量化。
+        val allocation = MetricValueContract(wider.unit, wider.arithmetic, MetricValueContract.Decimal(62, 42, MetricValueContract.Rounding.NONE),
+            mapOf("divide" to MetricValueContract.PreserveUnit(MetricValueContract.BinaryOperator.DIVIDE, MetricValueContract.Operand.LEFT)), wider.overflow)
+        warehouse(directory, "h2", "(1,'A',1,1,0.14),(2,'A',2,2,0.15),(3,'A',3,3,NULL),(4,'A',4,4,0.26)").use { warehouse ->
+            val catalog = catalog(warehouse, original); warehouse.finishSetup()
+            val measured = measures(catalog, "primary", listOf("region", "hour"))
+            val cumulative = Cumulative("value", "hour", "ASC", listOf("region"), "cumulative", "实际累计金额",
+                ResultAggregation.Sum(original, ResultAggregation.NullPolicy.IGNORE))
+            fun scaledValue(factor: String) = ResultNumeric(ResultOperation(ResultOperator.MULTIPLY,
+                listOf(symbol("cumulative"), ResultLiteral(BigDecimal(factor)))), scaled, "scale")
+            fun sumValue(input: String, contract: MetricValueContract = wider) = ResultAggregate(input,
+                ResultAggregation.Sum(contract, ResultAggregation.NullPolicy.IGNORE), "total", "实际差分之和")
+            fun verify(label: String, transformed: List<PostOperationContract.ValidatedOperation>, expected: List<String?>,
+                expectedTotal: String, allocatable: Boolean) {
+                val operations = listOf(cumulative) + transformed + Derive(numeric(
+                    comparison("SUBTRACT", symbol("current"), symbol("previous")), wider), "difference", "实际数值相减")
+                fun execute(extra: List<PostOperationContract.ValidatedOperation>) = warehouse.execute(compile(catalog, stages(measured, operations + extra)))
+                val rows = execute(listOf(Sort(listOf(order("hour", "ASC"))), Project(listOf("hour", "difference"))))
+                assertEquals(listOf(1, 2, 3, 4), rows.map { (it[0] as Number).toInt() }, label)
+                assertEquals(expected, rows.map { row -> row[1]?.let { BigDecimal(it.toString()).stripTrailingZeros().toPlainString() } }, label)
+                val total = execute(listOf(Regroup(ResultGrouping(listOf("region"), listOf(sumValue("difference")), null)))).single()[1]
+                assertEquals(0, BigDecimal(expectedTotal).compareTo(BigDecimal(total.toString())), label)
+                val allocate = Derive(ResultUniformAllocation(symbol("difference"), listOf("region", "hour"), listOf("region", "hour"),
+                    allocation, "divide"), "allocated", "按原观察贡献分配")
+                if (allocatable) {
+                    val allocated = execute(listOf(allocate, Regroup(ResultGrouping(listOf("region"), listOf(sumValue("allocated", allocation)), null)))).single()[1]
+                    assertEquals(0, BigDecimal(expectedTotal).compareTo(BigDecimal(allocated.toString())), label)
+                } else {
+                    val failure = assertThrows(IllegalArgumentException::class.java) { compile(catalog, stages(measured, operations + allocate)) }
+                    assertTrue(requireNotNull(failure.message).contains("uniform allocation requires"), "$label: ${failure.message}")
+                }
+            }
+            verify("不同缩放不恢复原贡献", listOf(
+                Derive(scaledValue("2"), "current", "累计值乘二"),
+                Derive(scaledValue("3"), "other", "累计值乘三"),
+                OffsetValue("other", listOf("region"), "previous", "三倍累计的上期值", listOf(order("hour", "ASC")), "LAG", 1)),
+                listOf(null, "0.16", "-0.29", "0.23"), "0.10", false)
+            verify("累计后量化不恢复原贡献", listOf(
+                Derive(numeric(ResultRound(symbol("cumulative"), 1, MetricValueContract.Rounding.HALF_UP), wider), "current", "累计值量化一位"),
+                OffsetValue("cumulative", listOf("region"), "previous", "原累计的上期值", listOf(order("hour", "ASC")), "LAG", 1)),
+                listOf(null, "0.16", "0.01", "0.31"), "0.48", false)
+            verify("选择后的人口不冒充原累计", listOf(
+                Derive(numeric(symbol("cumulative"), wider), "current", "原累计值"),
+                Derive(ResultCaseWhen(listOf(ResultCaseBranch(comparison("LTE", symbol("hour"), ResultLiteral(BigDecimal("2"))),
+                    symbol("cumulative"))), ResultLiteral(null)), "selected", "只保留前两期累计值"),
+                OffsetValue("selected", listOf("region"), "previous", "所选累计的上期值", listOf(order("hour", "ASC")), "LAG", 1)),
+                listOf(null, "0.15", "0", null), "0.15", false)
+            verify("无损扩容仍保原贡献", listOf(
+                Derive(numeric(symbol("cumulative"), wider), "current", "无损扩大累计值容量"),
+                OffsetValue("cumulative", listOf("region"), "previous", "原累计的上期值", listOf(order("hour", "ASC")), "LAG", 1)),
+                listOf(null, "0.15", "0", "0.26"), "0.41", true)
         }
     }
 

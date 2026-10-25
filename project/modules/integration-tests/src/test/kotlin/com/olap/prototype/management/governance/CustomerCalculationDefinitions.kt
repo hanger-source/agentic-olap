@@ -3,6 +3,7 @@ package com.olap.prototype.management.governance
 import com.olap.prototype.calculation.*
 import com.olap.prototype.member.*
 import com.olap.prototype.metric.MetricValueContract
+import com.olap.prototype.metric.MeanTarget
 import com.olap.prototype.query.*
 
 /** 纯作者定义：不访问仓储、不构造引擎，也不由产品结果推导预期答案。 */
@@ -50,7 +51,7 @@ internal object CustomerCalculationDefinitions {
     fun regroup(input: String, aggregation: String, groups: List<String>, contract: MetricValueContract) = PostOperationContract.Regroup(PostOperationContract.ResultGrouping(groups,
         listOf(PostOperationContract.ResultAggregate(input, when (aggregation) {
             "SUM" -> ResultAggregation.Sum(contract, ResultAggregation.NullPolicy.IGNORE)
-            "AVG" -> ResultAggregation.Average(contract, ResultAggregation.NullPolicy.IGNORE, MetricValueContract.Rounding.NONE)
+            "AVG" -> ResultAggregation.Average(contract, ResultAggregation.NullPolicy.IGNORE, MeanTarget.SOURCE_NATIVE)
             else -> error("customer amount fixture requires SUM or AVG")
         }, "value", "形成金额")), null))
 }

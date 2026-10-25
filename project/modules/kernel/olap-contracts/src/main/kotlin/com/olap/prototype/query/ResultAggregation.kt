@@ -1,6 +1,7 @@
 package com.olap.prototype.query
 
 import com.olap.prototype.metric.MetricValueContract
+import com.olap.prototype.metric.MeanTarget
 
 /** 完成结果的聚合语言；数量声明、NULL 政策与舍入只存在于允许它们的聚合中。 */
 sealed interface ResultAggregation {
@@ -19,7 +20,7 @@ sealed interface ResultAggregation {
         companion object { fun contract(): Map<String, Any> = QueryAggregationSemantics.sumContract() }
     }
     data class Average(override val valueContract: MetricValueContract, override val nullPolicy: NullPolicy,
-        val rounding: MetricValueContract.Rounding) : Numeric {
+        val meanTarget: MeanTarget) : Numeric {
         override val kind: Kind get() = Kind.AVG
     }
     data class SampleDeviation(override val valueContract: MetricValueContract, override val nullPolicy: NullPolicy) : Numeric {

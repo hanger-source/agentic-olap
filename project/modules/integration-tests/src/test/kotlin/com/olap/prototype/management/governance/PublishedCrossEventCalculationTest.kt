@@ -39,7 +39,6 @@ class PublishedCrossEventCalculationTest {
                     roles = emptyMap(),
                     snapshotRule = null,
                     valueContract = GovernanceOrderFixture.money(),
-                    aggregationRounding = MetricValueContract.Rounding.NONE
                 ),
                 description = "退款金额",
                 businessMeaning = MetricBusinessMeaning("成功退款金额", "元", "退款", emptyList()),

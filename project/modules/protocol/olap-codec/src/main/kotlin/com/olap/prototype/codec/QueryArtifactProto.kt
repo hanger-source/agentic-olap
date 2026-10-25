@@ -8,7 +8,7 @@ import java.time.Instant
 
 /** 官方Protobuf结果资产：外封套保护精确记录字节；不会重新运行查询。 */
 object QueryArtifactProto {
-    const val FORMAT = "olap-query-result-artifact/v5"
+    const val FORMAT = "olap-query-result-artifact/v6"
     fun toProto(v: QueryExecutionDiagnostics): WDiagnostics = WDiagnostics.newBuilder().setSql(v.sql).putAllAliasMapping(v.aliasMapping).apply { v.auditReport?.let(::setAuditReport) }.build()
     fun fromProto(v: WDiagnostics) = QueryExecutionDiagnostics(v.sql, v.aliasMappingMap.toMap(), if (v.hasAuditReport()) v.auditReport else null)
     fun toProto(v: SavedQueryResultRecord): WRecord = WRecord.newBuilder().setFormatVersion(v.formatVersion).setRunId(v.runId).setPublication(QueryProto.toProto(v.publication))

@@ -33,10 +33,10 @@ agentic-olap call describe-script-api --payload '{"type":"com.olap.prototype.cal
 
 ## 会话中调用正式能力
 
-`execute-script` 向持续 Kotlin 会话提交一个完整代码片段。DSL 为 `agentic-olap-kotlin-dsl/v5`，实际版本取服务发现结果。省略或留空 `sessionId` 创建会话；后续用实际返回的 `sessionId` 在同一 JVM 中继续。首次调用可以读取来源并保留 Kotlin 对象：
+`execute-script` 向持续 Kotlin 会话提交一个完整代码片段。DSL 为 `agentic-olap-kotlin-dsl/v6`，实际版本取服务发现结果。省略或留空 `sessionId` 创建会话；后续用实际返回的 `sessionId` 在同一 JVM 中继续。首次调用可以读取来源并保留 Kotlin 对象：
 
 ~~~sh
-agentic-olap call execute-script --payload '{"executionId":"sources-001","waitMillis":0,"source":"val sources = olap.sources.list(EmptyRequest)\nolap.output(sources)","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v5","parameters":{}}'
+agentic-olap call execute-script --payload '{"executionId":"sources-001","waitMillis":0,"source":"val sources = olap.sources.list(EmptyRequest)\nolap.output(sources)","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v6","parameters":{}}'
 agentic-olap call wait-script --payload '{"executionId":"sources-001","waitMillis":1000}'
 ~~~
 
@@ -325,6 +325,12 @@ Unit
 
 方程与实际运算符、操作数单位或精确倍率不匹配时返回 `RESULT_UNIT_EQUATION_MISMATCH`，路径指向实际算术节点，`expectedKind/actualKind` 区分运算符、左右单位和倍率问题；NUMERIC 的输出单位与计算结果不一致时返回 `RESULT_UNIT_MISMATCH`，路径指向该节点的 `valueContract/unit`。两者同属 `ANALYZE_STAGES`，不把数量声明不成立误报成来源故障或必须补建 Metric。
 
+均值使用共同的显式计算目标。`MeanTarget.MATHEMATICAL` 对实际参与值求数学均值，再完成该节点声明的最终量化；`SOURCE_NATIVE` 有意采用本发布所选实现的原生均值，再应用输出合同。目标与 `Exact / Approximate / NativeFloating` 独立，结果表示为 DECIMAL 不会恢复输入已失去的保证。作者声明人口、NULL、单位、结果容量和最终舍入，不填写后端原生舍入。来源无法兑现目标时明确拒绝，不改变业务目标或自动换算法。
+
+事实 AVG 使用 `FactMeasure.meanTarget`，完成关系、partition／window 与观察窗口使用 `ResultAggregation.Average(valueContract, nullPolicy, meanTarget)`，快照 MEAN 使用 `MetricSnapshotRule.meanTarget`。快照的 `meanValueContract` 在每个实体的时间均值处量化，随后外层聚合是另一项计算；不能把两步压成一次全总体均值。非 AVG／MEAN 不携带均值目标。
+
+真实输入的算术保证在投影前保留；选择数学算法、扩大容量或显式转成 DECIMAL 都不将 NativeFloating 提升为 Exact 或已知误差界。当前没有为非零 Approximate 误差建立通用均值传播规则，不能仅凭相同容差继续承诺。作者可保留诚实的数量声明；执行器无法满足组合时返回受控原因，不自动改变声明。已完成数值继续可以参与 CASE、SET、求和及后续定义，数量来历保留均值目标、NULL 政策与实际量化，不把未证明等价当作计算非法。
+
 以下程序完整构造一项记录计数和一项金额求和，不写入元数据。事件与逻辑字段引用由参数提供，必须先从实际定义读取精确身份。金额例子假设来源是精确 DECIMAL、业务单位已确认为人民币元；结果声明 `DECIMAL(24,2)`，超出容量时失败，不额外舍入。来源为浮点或业务单位尚未确认时，应根据真实来源及业务含义选择合同。
 
 ~~~kotlin
@@ -351,8 +357,7 @@ val recordCount = MetricDefinition.FactMeasure(
     privatePredicate = null,
     roles = emptyMap(),
     snapshotRule = null,
-    valueContract = countValue,
-    aggregationRounding = MetricValueContract.Rounding.NONE
+    valueContract = countValue
 )
 val amountValue = MetricValueContract(
     unit = MetricValueContract.Fixed(MetricValueContract.UnitIdentity("example.billing", "CNY", 1)),
@@ -373,8 +378,7 @@ val amountSum = MetricDefinition.FactMeasure(
     privatePredicate = null,
     roles = emptyMap(),
     snapshotRule = null,
-    valueContract = amountValue,
-    aggregationRounding = MetricValueContract.Rounding.NONE
+    valueContract = amountValue
 )
 Unit
 ~~~

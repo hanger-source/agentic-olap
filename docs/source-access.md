@@ -2,7 +2,7 @@
 
 完整 MCP 服务通过来源插件访问数据。使用方提供与其网络、鉴权和查询协议相符的插件，服务负责语义管理、发布、规划、SQL 生成、执行要求检查及结果合同校验。HTTP 查询服务是来源访问实现，不需要数据库端口、JDBC URL、数据库凭据或 catalog 权限。业务公式、资格规则和指标组合仍通过语义定义和 Query 表达。
 
-本文描述源码中的来源访问合同：连接器 API 为 `agentic-olap-connector/v13-kotlin-data-contract-source-adoption-calcite-1.42`，元数据存储格式为 `17`。产品运行构件按同一发行装配；独立插件核对目标宿主的连接器合同与实际运行要求，产品版或 SDK 坐标变化本身不要求重构原插件，具体采用规则见[安装与发布](installation-release.md)。旧存储格式明确拒绝，服务不会自动改写已有持久根。
+本文描述源码中的来源访问合同：连接器 API 为 `agentic-olap-connector/v14-kotlin-mean-target-calcite-1.42`，元数据存储格式为 `18`。产品运行构件按同一发行装配；独立插件核对目标宿主的连接器合同与实际运行要求，产品版或 SDK 坐标变化本身不要求重构原插件，具体采用规则见[安装与发布](installation-release.md)。旧存储格式明确拒绝，服务不会自动改写已有持久根。
 
 ## 配置来源
 
@@ -85,7 +85,7 @@ JDBC 实现的 `identityParameters` 为 `jdbcUrl`、可选 `username` 和 `drive
 
 `sourceRequirements` 持有稳定 `dataContract`、明确选定的 `adoption`、本次实际使用的 `columns` 与 `constraintUses`。前者给出 P 的精确列和约束要求，后者给出实际绑定、连接器、方言、表坐标及该 S 的冻结证据；不能从 P 的原出处推导执行来源。`NOT_NULL.name` 直接标识列，其他约束项定位 P 的实际键或规则，插件无需解析 SQL 猜测来源列。`relationChecks` 另行给出 SQL、类型参数与违例码。两者都属于执行合同，参数顺序、比较语义与检查范围必须保留。
 
-API v13 的插件按上述两个正式对象实现纯能力声明及执行核验，不自行登记或选择采用。`adoption.requireContract(dataContract)` 只核冻结证据能否兑现 P，`requireDeployment(source)` 只核当前精确绑定；实际保证仍由本次 `execute` 兑现。`JdbcSourceRequirement.snapshotUniqueKeys` 来自 P，`sourceCollections` 只选取兑现 P 声明的登记，不能把 B 的其他观察自动提升为查询要求。可选 `JdbcSupport.supportsColumnInspection` 和 `supportsConstraintSnapshot` 接收 `PhysicalSourceEvidence`，核验使用所选 S 的出处和数据库／驱动观察，不沿用 P 原出处的技术信息。完整签名与字段责任见[连接器 API](../project/modules/kernel/connector-api/README.md#数据合同与兑现采用)。
+API v14 的插件按上述两个正式对象实现纯能力声明及执行核验，不自行登记或选择采用。`adoption.requireContract(dataContract)` 只核冻结证据能否兑现 P，`requireDeployment(source)` 只核当前精确绑定；实际保证仍由本次 `execute` 兑现。`JdbcSourceRequirement.snapshotUniqueKeys` 来自 P，`sourceCollections` 只选取兑现 P 声明的登记，不能把 B 的其他观察自动提升为查询要求。可选 `JdbcSupport.supportsColumnInspection` 和 `supportsConstraintSnapshot` 接收 `PhysicalSourceEvidence`，核验使用所选 S 的出处和数据库／驱动观察，不沿用 P 原出处的技术信息。完整签名与字段责任见[连接器 API](../project/modules/kernel/connector-api/README.md#数据合同与兑现采用)。
 
 源端原生强制约束可以免去同一非空条件的数据扫描，但插件必须核验约束确实作用于本次精确来源和列、覆盖已有数据与本次可读数据，而且在主查询期间不会因 DDL、表替换或连接切换失效。仅约束名称相同、目录返回 `nullable=false`、只约束后续写入、一次历史 catalog 观察或 `DECLARED` 结构都不足以证明这些条件。核验与使用之间的 schema 稳定性应由来源实际机制保证，例如同一受保护事务或 statement 的稳定 schema；不能靠先查目录再独立提交查询推断。源端只兑现非空约束时，也不能据此声明可以为优化器兑现所有冻结 PK／UK 等约束。
 
@@ -99,13 +99,13 @@ API v13 的插件按上述两个正式对象实现纯能力声明及执行核验
 
 候选值读取同样提交完整 `SourceSqlRequest` 给 `execute`，保留精确来源、参数、输出类型和实际采用的保证。候选值入口另行核对单列标量结果、类型和分页边界，不要求插件实现另一套候选执行通路。连接器的 `CompilationSupport.nativeAggregate` 提供实际来源的原生聚合运算符与结果类型推导；核心继续决定业务公式及数量保证，不能以某一数据库的返回类型代替所有来源的事实。
 
-精确 AVG 的原生结果由连接器 `typeSystem.deriveAvgAggType`、`nativeAggregate` 和 `decimalAverageRounding` 如实声明，核心再处理最终业务结果的 DECIMAL 容量和舍入。作者指定最终精度不能补救原生聚合已丢失的信息。原生类型推导明确拒绝时返回 `NATIVE_AGGREGATE_MAPPING_UNAVAILABLE` 和实际输入类型；插件实现者应先研究真实后端映射，不能用浮点、客户端舍入或未经证明的 SUM/COUNT 改写替代。
+`MeanTarget.MATHEMATICAL` 对实际参与值求数学均值，再完成该节点声明的最终量化；`SOURCE_NATIVE` 有意采用本发布所选实现的原生均值，再应用输出合同。目标与 `Exact / Approximate / NativeFloating` 独立，结果表示为 DECIMAL 不会恢复输入已失去的保证。作者声明人口、NULL、单位、结果容量和最终舍入，不填写后端原生舍入。来源无法兑现目标时明确拒绝，不改变业务目标或自动换算法。
 
-这三项声明还须覆盖所接受的原生输入类型、实际参与行数及支持的分组／窗口执行形态。原生 AVG 静默算错时，错误值也可能落在合法结果容量内；结果范围、有限值及 `Overflow.FAIL` 检查不构成对后端算术实现的验证。已知错误或尚无保证的映射应继续拒绝，不把最终 DECIMAL、单独的舍入声明或小值样本当作修复。
+连接器的 `averageBehavior(Aggregate, AggregateCall)` 与 `averageBehavior(RexOver)` 读取实际节点的输入、原生结果类型、分组／窗口、FILTER 和 DISTINCT。`QuantizedMean(rounding)` 说明精确累加与计数、仅最后向实际原生 DECIMAL scale 量化；`NativeFloating` 不提供误差上界。类型系统、原生函数及真实调用的结果容量必须一致。内核在真实节点形成后、最终量化前核验目标，不用空人口全局聚合代替本次形态，也不把声明相同舍入或多保留几位当作一次最终量化的证明。
 
-如果同一输入类型在不同执行形态上返回不同 scale，须区分只增加尾零的表示差异与原生计算已经不同舍入的情况。宽类型只提供容纳空间，不能补回原生结果已经丢失的信息。插件只有在能兑现统一的实际容量及原生舍入时才能声明映射；已证明的原生输入转换或另一原生策略须通过确定的 SQL AST 映射和相同类型推导表达，保留人口、NULL、权重和错误，不在来源执行失败后切换。
+原生 AVG 静默算错时，合法容量、有限值及 Overflow.FAIL 不会修复它。已知错误或尚无数值依据的映射明确拒绝，返回 `NATIVE_AGGREGATE_MAPPING_UNAVAILABLE`、实际输入类型和受控 `reason`；不猜 DECIMAL、不转 DOUBLE、不在客户端补算。H2 已有依据的精确路径允许声明 QuantizedMean(HALF_DOWN)，数学目标的支持范围仍须与实际最终量化相容；这不是所有来源的通用数值政策。
 
-`DIVIDE` 与 `SAFE_DIVIDE` 表达允许小数的算术商，不按输入的整数技术类型自动截断。显式 `SUM(x)/COUNT(x)` 使用 `CompilationSupport.division`，不使用 AVG 的 `decimalAverageRounding`；来源表达式、完成关系及分摊计算使用同一除法入口。两个输入都是整数 SQL 类型时，核心按各自完整整数域无损转换为 `DECIMAL(p,0)` 并保留 NULL，例如 BIGINT 转为 `DECIMAL(19,0)`。这是输入表示规范化，不会将最终输出的 precision／scale 提前施加给操作数，也不改变 SAFE_DIVIDE 的零分母 NULL 政策。
+`DIVIDE` 与 `SAFE_DIVIDE` 表达允许小数的算术商，不按输入的整数技术类型自动截断。显式 `SUM(x)/COUNT(x)` 使用 `CompilationSupport.division`，不使用 AVG 的原生均值行为合同；来源表达式、完成关系及分摊计算使用同一除法入口。两个输入都是整数 SQL 类型时，核心按各自完整整数域无损转换为 `DECIMAL(p,0)` 并保留 NULL，例如 BIGINT 转为 `DECIMAL(19,0)`。这是输入表示规范化，不会将最终输出的 precision／scale 提前施加给操作数，也不改变 SAFE_DIVIDE 的零分母 NULL 政策。
 
 该入口可返回自定义 `SqlOperator`，用规范化后的实际输入类型推导返回类型并渲染已证明的非截断原生 AST；标准 DECIMAL 除法使用 `typeSystem.deriveDecimalDivideType`，自定义算子可有自己的类型推导。来源仍返回整型商时明确拒绝；返回 DOUBLE 的映射仍不能满足 Exact。DECIMAL 的 scale 为零本身不构成截断证据，连接器可以检查可整除性并明确拒绝不能精确表示的输入。不能仅修改返回类型来掩盖实际 SQL 的整数截断，也不能因为结果是 numeric 就宣称已经实现数学上的目标精度。
 
@@ -140,9 +140,9 @@ olap.output(olap.sources.connectorCapabilities(
 
 `aggregation` 使用正式聚合枚举；`inputType` 是传入聚合的表达式原生类型，包含实际可空性和完整容量，不是最终业务结果合同。DECIMAL 必须指定 precision、scale，有长度的文本必须指定 precision；类型或容量不能被后端类型工厂静默改写。`grouped=false` 表示没有分组键的全局聚合，`true` 表示存在普通分组键；分组集合中的空分组按全局方式查询。该上下文用于原生结果可空性推导。
 
-响应的 `aggregate.mapping` 为 `MAPPED` 时给出 `resultType` 和 `aggregationRounding`；AVG 使用实际类型系统、原生聚合函数及舍入声明，二者容量不一致时明确拒绝。浮点 AVG 的 aggregationRounding 为 NONE，非 AVG 也为 NONE。`UNAVAILABLE` 携带 `NATIVE_AGGREGATE_MAPPING_UNAVAILABLE`，表示插件没有为该类型兑现映射；不会返回推测的容量或舍入。精确连接器必须用于本主体获准的来源，不能借此读取任意已安装插件。
+响应的 `aggregate.mapping` 为 `MAPPED` 时给出 `resultType`；AVG 另给出 `averageBehavior`，非 AVG 为 null。发现与真实编译消费同一原生行为声明。`UNAVAILABLE` 携带受控不可用原因，不返回猜测的容量或数值行为。精确连接器必须属于本主体获准的来源。
 
-读取不连接数据源、不执行 SQL，披露的是精确插件的编译声明，不验证后端实际版本、连接状态或完整 Query。`MAPPED` 不代替单位、算术保证、NULL、溢出和最终结果容量检查。数值 AVG 的 `valueContract` 仍为必填；事实度量的 `aggregationRounding`、完成关系中 `ResultAggregation.Average.rounding` 都须明确接受相应原生策略，`valueContract.result.rounding` 仅负责额外的最终输出舍入。原 SQL 没有 ROUND，不能据此把原生策略填为 NONE；插件也不能用未经核实的统一舍入值宣称支持。
+发现只读取明确请求的普通全局或分组映射，不连接来源、不执行 SQL，不证明后端环境、任意 grouping sets、窗口或完整 Query 已可执行。作者以 `meanTarget` 与非空 `valueContract` 表达所需含义；真实 Query 的实际 Aggregate／RexOver、输入保证及最终量化共同决定能否兑现。原生均值行为不直接成为作者的业务目标，SOURCE_NATIVE 也不承诺不同实现返回相同值。
 
 `expandCollection(outputType,tableAlias)` 返回原生展开的放置计划：`CollectionExpansion.Relation` 提供 FROM 生成器，`InputProjection` 提供完整输入上的单个 SELECT-list SRF；取值回调只接收当前作用域的数组和生成值引用，返回完整元素与序号表达式。核心构造输入透传、逐行人口、INNER／OUTER 及输出投影，不向插件开放任意关系改写。FROM 计划用核心 LEFT JOIN 兑现 OUTER；输入投影的 OUTER 要求明确的 `COLLECTION_PROJECTION_OUTER`，由核心绑定存在标记、用 typed singleton NULL 数组保留空／NULL 输入，再补整个元素和序号 NULL。该原生类型与方言组合未兑现时，编译以 `NATIVE_COMPILATION_CAPABILITY_MISSING` 和 `EXPAND_COLLECTION_OUTER` 明确拒绝。实际 NULL 元素仍有从 1 开始的位置，重复度、完整 ROW 和求值作用域不变。完整接口与原生映射范式见[连接器 API](../project/modules/kernel/connector-api/README.md)。常量数组或其他后端的成功不替代真实表行、聚合结果及目标后端正式 Query 的验收。
 

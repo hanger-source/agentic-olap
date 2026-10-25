@@ -34,7 +34,7 @@ import java.util.HexFormat
 class TemporalInputExecutionTest {
     private val unit = MetricValueContract.Fixed(MetricValueContract.UnitIdentity("iso4217", "USD", 1))
     private val exact = MetricValueContract(unit, MetricValueContract.Exact(), MetricValueContract.Decimal(38, 2, MetricValueContract.Rounding.NONE), emptyMap(), MetricValueContract.Overflow.FAIL)
-    private val mean = MetricValueContract(unit, MetricValueContract.Approximate("-1000000000000", "1000000000000", "0.000000001", "0.000000000001"), MetricValueContract.BinaryFloat(64), emptyMap(), MetricValueContract.Overflow.FAIL)
+    private val nativeFloatingMean = MetricValueContract(unit, MetricValueContract.NativeFloating(), MetricValueContract.BinaryFloat(64), emptyMap(), MetricValueContract.Overflow.FAIL)
     private val decimalMean = MetricValueContract(unit, MetricValueContract.Exact(), MetricValueContract.Decimal(38, 12, MetricValueContract.Rounding.NONE), emptyMap(), MetricValueContract.Overflow.FAIL)
     private val ordinal = MetricValueContract(MetricValueContract.Fixed(MetricValueContract.ONE), MetricValueContract.Exact(), MetricValueContract.Integer(64), emptyMap(), MetricValueContract.Overflow.FAIL)
     private val local = RelationAccessPath(emptyList())
@@ -92,7 +92,7 @@ class TemporalInputExecutionTest {
         val dimension = ExecutableBoundAnalysisDimension(ExecutableAnalysisDimension("historical_region", "1", "历史地区", "historical_region", "region", null), "region", "value", event,
             ExecutableDimension("region", "1", null, "history", null, null), binding, ExecutableLogicUnit("history.region", "1", ScalarValueType.TEXT, null, null, null, "region", null, "history", "1"), ScalarValueType.TEXT,
             emptyList(), definitions.physical.getValue("history@1"), false, "same_historical_region", "PROVEN_SAME_KEY")
-        val metric = ExecutableMetric(MetricRef("history_amount", "1"), MetricDefinition.FactMeasure(EventRef("facts", 1), SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, "facts.amount", 1), MetricAggregation.SUM, false, null, emptyMap(), null, exact, MetricValueContract.Rounding.NONE))
+        val metric = ExecutableMetric(MetricRef("history_amount", "1"), MetricDefinition.FactMeasure(EventRef("facts", 1), SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, "facts.amount", 1), MetricAggregation.SUM, false, null, emptyMap(), null, exact))
         val selection = ExecutableMeasureSelection(mapOf("region" to ScopedInputContract.DimensionRef("historical_region", "1", "value")), emptyMap(), null, null, clocks)
         val invocation = ExecutableMetricCall.Invocation(QueryStageAnalysis.ScopeId.root(), "payment", CalculationOwner.Metric(MetricInstanceRef("payment")), "value", "value", metric, emptyMap(), CalculationBindings.empty(), null, emptyMap(), emptyMap())
         val fact = ExecutableMetricInput(invocation, selection, event, definitions.topologies.getValue("fact_history@1"), null, null, listOf(dimension), unrestricted, emptyMap(), emptyList())
@@ -195,14 +195,14 @@ class TemporalInputExecutionTest {
     }
     private fun snapshotInput(definitions: Definitions, dialect: String, mode: String): ExecutableInputScope {
         val reduction = when (mode) { "FIRST" -> MetricSnapshotRule.Reduction.FIRST; "LAST", "LAST_QUALIFIED" -> MetricSnapshotRule.Reduction.LAST; else -> MetricSnapshotRule.Reduction.MEAN }
-        val isMean = reduction == MetricSnapshotRule.Reduction.MEAN; val meanContract = if (dialect == "h2") decimalMean else mean
+        val isMean = reduction == MetricSnapshotRule.Reduction.MEAN; val meanContract = if (dialect == "h2") decimalMean else nativeFloatingMean
         val policy = if (!isMean) MetricSnapshotRule.NullPolicy.PRESERVE_SELECTED else if (mode == "MEAN_PROPAGATE") MetricSnapshotRule.NullPolicy.PROPAGATE else MetricSnapshotRule.NullPolicy.IGNORE
         val rule = MetricSnapshotRule(reduction, "account", listOf(MetricSnapshotRule.LogicUnitKey("snapshots.customer", 1), MetricSnapshotRule.LogicUnitKey("snapshots.book", 1)),
             MetricSnapshotRule.LogicUnitKey("snapshots.occurred", 1), listOf(MetricSnapshotRule.LogicUnitKey("snapshots.id", 1)), policy, if (isMean) meanContract else null,
-            if (isMean && dialect == "h2") MetricValueContract.Rounding.HALF_DOWN else MetricValueContract.Rounding.NONE)
+            if (isMean) MeanTarget.SOURCE_NATIVE else null)
         val predicate = if (mode.endsWith("QUALIFIED")) SemanticExpression.Operation(SemanticExpression.Operator.EQ, listOf(SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, "snapshots.eligible", 1), SemanticExpression.Literal(true))) else null
         val metric = ExecutableMetric(MetricRef("balance", "1"), MetricDefinition.FactMeasure(EventRef("snapshots", 1), SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, "snapshots.amount", 1), MetricAggregation.SUM, false, predicate,
-            emptyMap(), rule, if (isMean) meanContract else exact, MetricValueContract.Rounding.NONE))
+            emptyMap(), rule, if (isMean) meanContract else exact))
         val event = definitions.events.getValue("snapshots@1"); val source = definitions.physical.getValue("snapshots@1")
         fun bound(id: String, column: String, type: ScalarValueType, filter: Boolean) = ExecutableBoundAnalysisDimension(
             definitions.analyses["$id@1"] ?: ExecutableAnalysisDimension(id, "1", id, id, id, null), id, if (id == "time") "instant" else "value", event,
@@ -230,6 +230,63 @@ class TemporalInputExecutionTest {
             warehouse.connection.createStatement().use { statement -> statement.executeQuery("WITH selected AS (SELECT *, ROW_NUMBER() OVER (PARTITION BY customer,book ORDER BY occurred DESC,id DESC) rn FROM snapshots WHERE eligible AND occurred >= TIMESTAMP '2026-01-01 00:00:00' AND occurred < TIMESTAMP '2026-02-01 00:00:00') SELECT SUM(amount) FROM selected WHERE rn=1 AND region='A'").use { wrong ->
                 assertTrue(wrong.next()); assertEquals(69.0, wrong.getDouble(1))
             } }
+        }
+    }
+    @Test fun quantizesMathematicalSnapshotMeansBeforeFurtherAggregationAndPreservesNullParticipation(@TempDir directory: Path) {
+        snapshotWarehouse(directory, "h2").use { warehouse ->
+            val definitions = snapshotCatalog(warehouse)
+            warehouse.finishSetup()
+            val intermediate = MetricValueContract(unit, MetricValueContract.Exact(), MetricValueContract.Decimal(38, 12, MetricValueContract.Rounding.HALF_DOWN),
+                emptyMap(), MetricValueContract.Overflow.FAIL)
+            val outerMean = MetricValueContract(unit, MetricValueContract.Exact(), MetricValueContract.Decimal(60, 22, MetricValueContract.Rounding.HALF_DOWN),
+                emptyMap(), MetricValueContract.Overflow.FAIL)
+            fun input(aggregation: MetricAggregation, policy: MetricSnapshotRule.NullPolicy, withSnapshot: Boolean = true): ExecutableInputScope {
+                val base = snapshotInput(definitions, "h2", if (policy == MetricSnapshotRule.NullPolicy.PROPAGATE) "MEAN_PROPAGATE" else "MEAN_IGNORE")
+                val original = base.metrics.single()
+                val fact = original.metric.factMeasure()
+                val oldRule = requireNotNull(fact.snapshotRule)
+                val rule = if (withSnapshot) MetricSnapshotRule(oldRule.reduction, oldRule.entityRole, oldRule.entityKeys,
+                    oldRule.timeKey, oldRule.tieBreakKeys, policy, intermediate, MeanTarget.MATHEMATICAL) else null
+                val output = when (aggregation) {
+                    MetricAggregation.COUNT -> ordinal
+                    MetricAggregation.AVG -> if (withSnapshot) outerMean else intermediate
+                    else -> intermediate
+                }
+                val definition = MetricDefinition.FactMeasure(fact.event, fact.input, aggregation, false, fact.privatePredicate, fact.roles,
+                    rule, output, if (aggregation == MetricAggregation.AVG) MeanTarget.MATHEMATICAL else null)
+                val invocation = original.invocation.copy(metric = original.metric.copy(definition = definition))
+                val selected = ExecutableMetricInput(invocation, original.selection, original.event, original.topology, original.timeAnchor,
+                    original.rangeDimension, original.analysisDimensions, original.filterExpression, original.relationConditions, original.objectRestrictions)
+                return ExecutableInputScope(base.inputMode, base.measures().copy(calls = listOf(ExecutableMetricCall.Fact(selected))),
+                    base.objectRestrictions, base.additionalInputs, base.postOps)
+            }
+            for (policy in listOf(MetricSnapshotRule.NullPolicy.IGNORE, MetricSnapshotRule.NullPolicy.PROPAGATE)) {
+                for (aggregation in listOf(MetricAggregation.SUM, MetricAggregation.COUNT, MetricAggregation.AVG)) {
+                    val values = warehouse.execute(compile(definitions.catalog(), input(aggregation, policy))).associate { it[0] as String to it[1] }
+                    assertEquals(setOf("A", "B", "C"), values.keys)
+                    val label = "$aggregation:$policy"
+                    // A 有四个完整实体：52/3、30、10、2。先向12位量化，再对四个完成值聚合。
+                    when (aggregation) {
+                        MetricAggregation.SUM -> assertEquals(BigDecimal("59.333333333333"), values["A"], label)
+                        MetricAggregation.COUNT -> assertEquals(4L, values["A"], label)
+                        MetricAggregation.AVG -> assertEquals(BigDecimal("14.8333333333332500000000"), values["A"], label)
+                        else -> error("this snapshot trial uses SUM, COUNT and AVG")
+                    }
+                    for ((region, amount) in listOf("B" to "7", "C" to "3")) {
+                        if (aggregation == MetricAggregation.COUNT) {
+                            assertEquals(if (policy == MetricSnapshotRule.NullPolicy.PROPAGATE) 0L else 1L, values[region], "$label:$region")
+                        } else if (policy == MetricSnapshotRule.NullPolicy.PROPAGATE) {
+                            assertNull(values[region], "$label:$region")
+                        } else {
+                            val scale = if (aggregation == MetricAggregation.AVG) 22 else 12
+                            assertEquals(BigDecimal(amount).setScale(scale), values[region], "$label:$region")
+                        }
+                    }
+                }
+            }
+            val raw = warehouse.execute(compile(definitions.catalog(), input(MetricAggregation.AVG, MetricSnapshotRule.NullPolicy.IGNORE, false)))
+                .associate { it[0] as String to it[1] }
+            assertEquals(mapOf("A" to BigDecimal("16.750000000000"), "B" to BigDecimal("7.000000000000"), "C" to BigDecimal("3.000000000000")), raw)
         }
     }
     private fun temporalTable(definitions: Definitions, warehouse: NativeWarehouse, table: String, types: Map<String, ScalarValueType>, dimensions: Map<String, String>, accountColumn: String? = null) {
@@ -359,8 +416,8 @@ class TemporalInputExecutionTest {
     private fun snapshotObservations(definitions: Definitions): MemberRef {
         val metric = MetricRef("observed-balance", "1")
         val snapshot = MetricSnapshotRule(MetricSnapshotRule.Reduction.LAST, "account", listOf(MetricSnapshotRule.LogicUnitKey("snapshots.customer", 1), MetricSnapshotRule.LogicUnitKey("snapshots.book", 1)),
-            MetricSnapshotRule.LogicUnitKey("snapshots.occurred", 1), listOf(MetricSnapshotRule.LogicUnitKey("snapshots.id", 1)), MetricSnapshotRule.NullPolicy.PRESERVE_SELECTED, null, MetricValueContract.Rounding.NONE)
-        definitions.metrics[metric.key()] = ExecutableMetric(metric, MetricDefinition.FactMeasure(EventRef("snapshots", 1), SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, "snapshots.amount", 1), MetricAggregation.SUM, false, null, emptyMap(), snapshot, exact, MetricValueContract.Rounding.NONE))
+            MetricSnapshotRule.LogicUnitKey("snapshots.occurred", 1), listOf(MetricSnapshotRule.LogicUnitKey("snapshots.id", 1)), MetricSnapshotRule.NullPolicy.PRESERVE_SELECTED, null)
+        definitions.metrics[metric.key()] = ExecutableMetric(metric, MetricDefinition.FactMeasure(EventRef("snapshots", 1), SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, "snapshots.amount", 1), MetricAggregation.SUM, false, null, emptyMap(), snapshot, exact))
         val names = listOf("customer", "book", "time")
         val calculation = Calculation(names.map { Calculation.DimensionSlot(it, it, 1, it) }, emptyList(), emptyList(), emptyList(), emptyMap(), Calculation.Scope(Calculation.Measures(
             listOf(Calculation.Call("balance", Calculation.Fixed(metric), "value", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()))), names, emptyList(), "time",

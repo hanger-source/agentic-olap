@@ -11,6 +11,7 @@ import com.olap.prototype.query.ResultAggregation
 import com.olap.prototype.query.ResultExpression
 import com.olap.prototype.query.ResultExpressionTree
 import com.olap.prototype.query.ScopedInputContract
+import com.olap.prototype.metric.MetricValueContract
 import org.apache.calcite.rel.RelNode
 import org.apache.calcite.rel.core.JoinRelType
 import org.apache.calcite.rel.logical.LogicalJoin
@@ -56,10 +57,10 @@ object CompletedRelationCompiler {
                     CompletedExpressionCompiler.compile(builder, op.expression, parameters, native)
                 }
                 is PostOperationContract.PartitionAggregate -> appendColumn(op) { builder ->
-                    SemanticNumericRex.aggregateOutput(builder, CompletedWindows.partitionAggregate(builder, op), op.aggregation)
+                    SemanticNumericRex.aggregateOutput(builder, CompletedWindows.partitionAggregate(builder, op, averageGuarantees(stage, op.input, op.aggregation)), op.aggregation)
                 }
                 is PostOperationContract.WindowAggregate -> appendColumn(op) { builder ->
-                    SemanticNumericRex.aggregateOutput(builder, CompletedWindows.windowAggregate(builder, op), op.aggregation)
+                    SemanticNumericRex.aggregateOutput(builder, CompletedWindows.windowAggregate(builder, op, averageGuarantees(stage, op.input, op.aggregation)), op.aggregation)
                 }
                 is PostOperationContract.OffsetValue -> appendColumn(op) { builder ->
                     builder.aggregateCall(if (op.function == "LAG") Ops.LAG else Ops.LEAD,
@@ -86,7 +87,7 @@ object CompletedRelationCompiler {
                 is PostOperationContract.JoinInput -> atBoundary { join(stage, op) }
                 is PostOperationContract.SelectVersions -> atBoundary { observations.selectVersions(op) }
                 is PostOperationContract.ObserveWindow -> atBoundary {
-                    observations.observeWindow(op)
+                    observations.observeWindow(op, averageGuarantees(stage, op.inputKeys.first(), op.aggregation))
                     display[op.outputAlias] = op.outputDisplayName
                 }
                 is PostOperationContract.ExpandCollection -> atBoundary { expand(op) }
@@ -98,7 +99,7 @@ object CompletedRelationCompiler {
                     display.keys.retainAll(op.symbols)
                 }
                 is PostOperationContract.Regroup -> atBoundary {
-                    regroup(b, op.grouping)
+                    regroup(b, op.grouping, stage)
                     display.keys.retainAll(op.grouping.groupBy)
                     op.grouping.groupingLevels?.let { display[it.outputAlias] = it.outputAlias }
                     op.grouping.aggregates.forEach { display[it.outputAlias] = it.outputDisplayName }
@@ -204,7 +205,12 @@ object CompletedRelationCompiler {
             throw NativeCompilationCapabilityException(CompilationSupport.Capability.COLLECTION_RESULTS, collectionStage.operation.operationType)
     }
 
-    private fun regroup(b: RelBuilder, grouping: PostOperationContract.ResultGrouping) {
+    private fun averageGuarantees(stage: QueryStageAnalysis.Stage, input: String, aggregation: ResultAggregation): List<MetricValueContract.Arithmetic> =
+        if (aggregation is ResultAggregation.Average) listOf(requireNotNull(stage.inputs.first { it.name == input }.quantity) {
+            "AVG input must retain its analyzed quantity guarantee"
+        }.declaration.arithmetic) else emptyList()
+
+    private fun regroup(b: RelBuilder, grouping: PostOperationContract.ResultGrouping, stage: QueryStageAnalysis.Stage) {
         val reserved = (b.peek().rowType.fieldNames + grouping.aggregates.map { it.outputAlias }).toCollection(linkedSetOf())
         val calls = mutableListOf<RelBuilder.AggCall>()
         val knownCounts = linkedMapOf<String, String>()
@@ -230,6 +236,11 @@ object CompletedRelationCompiler {
         val levels = grouping.groupingLevels
         if (levels != null && grouping.groupBy.isNotEmpty()) calls.add(b.aggregateCall(Ops.GROUPING, grouping.groupBy.map(b::field)).`as`(levels.outputAlias))
         b.aggregate(RelationalAggregates.groupKey(b, grouping.groupBy, levels), calls)
+        grouping.aggregates.forEach { aggregate ->
+            val average = aggregate.aggregation as? ResultAggregation.Average ?: return@forEach
+            NativeAggregateTypes.requireAverage(b, aggregate.outputAlias, average.meanTarget, average.valueContract,
+                averageGuarantees(stage, aggregate.input, average))
+        }
         val names = grouping.groupBy.toMutableList()
         val values = grouping.groupBy.map(b::field).toMutableList<RexNode>()
         if (levels != null) {

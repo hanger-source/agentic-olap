@@ -337,7 +337,7 @@ fun dailyMeanMetric(axes: Map<String, Calculation.DimensionSlot>, usage: MemberR
         JoinInput("usage", "usage", "LEFT", op(ResultOperator.EQ, symbol("day"), symbol("usage__day"))),
         Regroup(ResultGrouping(listOf("day"), listOf(ResultAggregate("usage__id", ResultAggregation.Count(false, ResultAggregation.NullPolicy.IGNORE), "daily_events", "当日实际使用事件数，未匹配事件为零")), null)),
         ObserveWindow(listOf("daily_events"), emptyList(), "daily_mean", "完整七个公历日的使用事件日均", listOf(OrderKey("day", "ASC", "LAST")),
-            ResultAggregation.Average(mean, ResultAggregation.NullPolicy.IGNORE, MetricValueContract.Rounding.NONE), sevenDays(), ObservationDomain.CALENDAR, "day",
+            ResultAggregation.Average(mean, ResultAggregation.NullPolicy.IGNORE, MeanTarget.SOURCE_NATIVE), sevenDays(), ObservationDomain.CALENDAR, "day",
             dateRange("2026-03-02", "2026-03-09"), dateRange("2026-03-08", "2026-03-09"), CalendarAxis("calendar", "day")),
         Project(listOf("day", "daily_mean")),
     )))
@@ -434,7 +434,7 @@ fun buildSubscriptions(): BusinessExample.Saved {
     val chargesUnit = tables.getValue("subscription_charges").units.getValue("amount")
     val charges = governance.createMetric(MetricCreateRequest("confirmed_charges", "实际确认账款", example.actor,
         MetricDefinition.FactMeasure(EventRef(events.getValue("subscription_charges").id, 1), SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, chargesUnit.id, 1),
-            MetricAggregation.SUM, false, null, emptyMap(), null, balance(), MetricValueContract.Rounding.NONE), "确认账款独立于时点存量", example.meaning("确认账款"), example.actor)).metric
+            MetricAggregation.SUM, false, null, emptyMap(), null, balance()), "确认账款独立于时点存量", example.meaning("确认账款"), example.actor)).metric
     example.activate("METRIC", charges.id)
     val definitions = linkedMapOf("historical_balance" to stockMetric(slots, formed.result), "window_people" to usageMetric(slots, rows.getValue("usage"), rows.getValue("calendar")),
         "calendar_daily_mean" to dailyMeanMetric(slots, rows.getValue("usage"), rows.getValue("calendar")), "destination_allocation" to allocationMetric(slots, rows.getValue("destinations")),

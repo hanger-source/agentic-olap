@@ -63,7 +63,8 @@ internal object WorkerFailures {
             if (mappingCause is NativeAggregateMappingException) return mapOf(
                 "stage" to if (failure is EngineExecutionException) failure.stage else "COMPILE_REL",
                 "code" to mappingCause.code, "message" to mappingCause.message,
-                "evidenceContext" to mapOf("aggregate" to mappingCause.aggregate.name, "inputType" to mappingCause.inputType))
+                "evidenceContext" to mapOf("aggregate" to mappingCause.aggregate.name, "inputType" to mappingCause.inputType,
+                    "reason" to mappingCause.reason.name))
             if (mappingCause is NativeArithmeticMappingException) return mapOf(
                 "stage" to if (failure is EngineExecutionException) failure.stage else "COMPILE_REL",
                 "code" to mappingCause.code, "message" to mappingCause.message,

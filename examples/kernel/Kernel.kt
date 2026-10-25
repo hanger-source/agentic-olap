@@ -267,7 +267,7 @@ object Kernel {
     }
 
     private fun fact(reference: MetricRef, input: String, aggregation: MetricAggregation, contract: MetricValueContract) = ExecutableMetric(reference,
-        MetricDefinition.FactMeasure(EventRef(EVENT, 1), logical(input), aggregation, false, null, emptyMap(), null, contract, MetricValueContract.Rounding.NONE))
+        MetricDefinition.FactMeasure(EventRef(EVENT, 1), logical(input), aggregation, false, null, emptyMap(), null, contract))
 
     private fun perRecord(): MetricCalculation {
         val customer = Calculation.DimensionSlot("customer", "customer", 1, "customer")
