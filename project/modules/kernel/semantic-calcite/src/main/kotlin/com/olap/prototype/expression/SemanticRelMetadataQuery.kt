@@ -4,6 +4,8 @@ import org.apache.calcite.plan.RelOptCluster
 import org.apache.calcite.plan.RelOptPredicateList
 import org.apache.calcite.rel.RelNode
 import org.apache.calcite.rel.core.Calc
+import org.apache.calcite.rel.core.Join
+import org.apache.calcite.rel.core.JoinRelType
 import org.apache.calcite.rel.logical.LogicalFilter
 import org.apache.calcite.rel.logical.LogicalProject
 import org.apache.calcite.rel.metadata.JaninoRelMetadataProvider
@@ -25,6 +27,13 @@ open class SemanticRelMetadataQuery(cluster: RelOptCluster) : RelMetadataQuery(J
     }
 
     override fun areColumnsUnique(rel: RelNode, columns: ImmutableBitSet, ignoreNulls: Boolean): Boolean? {
+        // 空键唯一表示实际关系至多一行。两侧都满足时，INNER/LEFT/RIGHT JOIN
+        // 仍至多一行；Calcite 的普通 JOIN 推导只处理含列的键，遗漏这一标量情形。
+        // FULL JOIN 则可能保留两侧各一条未匹配记录，不能作此推导。
+        if (columns.isEmpty && rel is Join &&
+            rel.joinType in setOf(JoinRelType.INNER, JoinRelType.LEFT, JoinRelType.RIGHT) &&
+            areColumnsUnique(rel.left, ImmutableBitSet.of(), false) == true &&
+            areColumnsUnique(rel.right, ImmutableBitSet.of(), false) == true) return true
         if (rel !is CollectionExpansionRel) return super.areColumnsUnique(rel, columns, ignoreNulls)
         val ordinal = rel.rowType.fieldCount - 1
         if (!columns[ordinal]) return null

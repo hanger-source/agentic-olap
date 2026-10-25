@@ -131,7 +131,7 @@ override val division: SqlOperator = SqlBinaryOperator(
 
 `SourceSqlRequest.sourceRequirements` 的 `uses` 明确区分 `ROWS` 与 `NATIVE_TABLE`，同一表可以同时具有两种用途。插件保留两者的精确来源和表身份核对；行约束与有限集合核验只对实际行读取要求执行。原生函数随本次 SQL 求值，不在客户端预取结果。
 
-稳定性显式区分 `IMMUTABLE`、`STATEMENT`、`VOLATILE`，不能仅凭函数名把调用视为可折叠常量或可共享计算。精确物理表版本不冻结其数据，读取表内容的函数须按真实依赖声明稳定性。函数声明不授予额外来源、物理表或查询输出权限；发布与本次执行仍核对精确插件、来源绑定及数量合同。服务的 `read-connector-capabilities` 按当前主体可访问来源返回 `connectorRef`、`nativeScalarFunctions`、`compilationCapabilities`、`parameterSubmission` 和 `configurationParameters`，调用者以实际声明和表达式合同组织调用。没有原生函数的插件显式返回空列表，不从后端产品名推测函数支持。
+稳定性显式区分 `IMMUTABLE`、`STATEMENT`、`VOLATILE`。STATEMENT 表示同一来源 SQL 内相同参数的结果稳定，跨语句不作此承诺；它可供该 SQL 中无外部相关、子查询或递归边界的同一关系节点共享使用，不授予编译期常量折叠或跨语句缓存。VOLATILE 不参与共同关系共享；其他算子继续按自身正式稳定性处理。不能仅凭函数名或精确物理版本推断稳定性，读取表内容的函数须按真实依赖声明。共同引用的 CTE 不承诺后端物化、单次扫描或一致数据快照。函数声明不授予额外来源、物理表或查询输出权限；发布与本次执行仍核对精确插件、来源绑定及数量合同。服务的 `read-connector-capabilities` 按当前主体可访问来源返回 `connectorRef`、`nativeScalarFunctions`、`compilationCapabilities`、`parameterSubmission` 和 `configurationParameters`，调用者以实际声明和表达式合同组织调用。没有原生函数的插件显式返回空列表，不从后端产品名推测函数支持。
 
 该操作也接受 `aggregate={connectorRef,aggregation,inputType,grouped}`，用现有 `typeSystem` 与 `nativeAggregate` 推导精确输入类型的原生聚合结果，不要求另一份聚合支持表。AVG 复用编译时的 `deriveAvgAggType`、原生函数容量一致性核验及 `decimalAverageRounding`；无法兑现时返回 `UNAVAILABLE`，不猜返回类型。原生映射成功才披露适用的 `aggregationRounding`，它不等于业务最终结果的舍入。插件的这些声明必须纯粹、确定，不连接来源或依赖运行参数；实际后端映射及证据仍由插件维护。正式请求和响应见[来源合同](../../../../docs/source-access.md)。
 

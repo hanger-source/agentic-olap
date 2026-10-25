@@ -6,12 +6,16 @@ import com.olap.prototype.connector.JdbcAccess
 import com.olap.prototype.connector.CompilationSupport
 import com.olap.prototype.connector.NativeCompilationCapabilityException
 import com.olap.prototype.contract.JdbcParameter
+import com.olap.prototype.contract.NativeTableDependency
+import com.olap.prototype.contract.NativeValueType
 import com.olap.prototype.engine.calcite.CalciteQueryCompiler
 import com.olap.prototype.engine.calcite.FrozenCatalogSchema
 import com.olap.prototype.engine.calcite.SemanticRexCompiler
 import com.olap.prototype.engine.catalog.ExecutablePhysicalExecutionBinding
 import com.olap.prototype.engine.catalog.ExecutableRelationPosition.Id
 import com.olap.prototype.expression.CalciteSqlRendering
+import com.olap.prototype.expression.NativeExpressionScope
+import com.olap.prototype.expression.NativeScalarFunction
 import com.olap.prototype.expression.SemanticExpression
 import com.olap.prototype.expression.SemanticNumericRex
 import com.olap.prototype.integration.TestConnectors
@@ -48,9 +52,10 @@ class CalciteSqlConversionExecutionTest {
         "INSERT INTO observations VALUES (1,'A',1),(2,'A',2),(3,'B',NULL),(4,'C',10)"))
     private fun builder(source: NativeWarehouse, binding: ExecutablePhysicalExecutionBinding = source.adopt("observations", emptyMap())): RelBuilder =
         CalciteQueryCompiler.inputs(listOf(binding), binding.physicalColumnBindings.keys, emptySet(), TestConnectors.registry).builder.scan(FrozenCatalogSchema.path(binding))
-    private fun rows(source: NativeWarehouse, plan: RelNode, parameters: List<JdbcParameter> = emptyList()): List<List<Any?>> {
+    private fun rows(source: NativeWarehouse, plan: RelNode, parameters: List<JdbcParameter> = emptyList(),
+        support: CompilationSupport = TestConnectors.registry.require(source.spec.connectorRef).compilation): List<List<Any?>> {
         val connector = TestConnectors.registry.require(source.spec.connectorRef)
-        val sql = CalciteSqlRendering.render(plan, connector.compilation, parameters)
+        val sql = CalciteSqlRendering.render(plan, support, parameters)
         val ordered = CalciteSqlRendering.orderedParameters(sql, parameters)
         return source.connection.prepareStatement(sql.sql).use { statement ->
             ordered.forEachIndexed { index, parameter -> parameter.bind(statement, index + 1) }
@@ -143,22 +148,61 @@ class CalciteSqlConversionExecutionTest {
             listOf("3", "10", "10").forEachIndexed { index, value -> decimal(result[index][1], value) }
         }
     }
-    @Test fun fourConsumersReferenceTheSameCompletedAggregate(@TempDir directory: Path) {
+    @Test fun fourConsumersShareStatementStableQualificationBeforeIndependentAggregates(@TempDir directory: Path) {
         for (dialect in listOf("h2", "duckdb")) source(directory, dialect).use { source ->
-            source.connection.createStatement().use { it.execute("INSERT INTO observations VALUES (5,'D',100)") }
-            val b = builder(source)
+            source.connection.createStatement().use {
+                it.execute("INSERT INTO observations VALUES (5,'D',100),(6,'E',50),(7,NULL,8)")
+                it.execute("CREATE TABLE profiles(region VARCHAR(8),profile_day VARCHAR(8))")
+                it.execute("INSERT INTO profiles VALUES ('A','20000102'),('A','20000102'),('B','20000102'),('C','20000102'),('D','20000102'),('E','20000101'),(NULL,'20000102')")
+            }
+            val observations = source.adopt("observations", emptyMap())
+            val profiles = source.adopt("profiles", emptyMap())
+            val profileTable = SemanticExpression.TableArgument(profiles.physicalTableId, profiles.physicalTableVersion.toLong())
+            val profileDependency = NativeTableDependency(profiles.dataContract, profiles.adoption)
+            val declaration = NativeScalarFunction("latest_profile_day", listOf(NativeScalarFunction.Parameter(
+                NativeScalarFunction.ParameterKind.PHYSICAL_TABLE, null)), NativeValueType("VARCHAR", 8, null, true),
+                null, NativeScalarFunction.Stability.STATEMENT)
+            val baseSupport = TestConnectors.registry.require(source.spec.connectorRef).compilation
+            val support = object : CompilationSupport by baseSupport {
+                override val nativeScalarFunctions = listOf(declaration)
+                override fun requireNativeScalarFunction(id: String): NativeScalarFunction {
+                    require(id == declaration.id) { "native scalar function is outside the trial's exact declaration: $id" }
+                    return declaration
+                }
+                override fun nativeScalarCall(function: String, arguments: List<CompilationSupport.NativeArgument>): SqlNode {
+                    require(function == declaration.id)
+                    val table = arguments.single() as CompilationSupport.TableArgument
+                    val pos = SqlParserPos.ZERO
+                    val query = SqlSelect(pos, null, SqlNodeList(listOf(Ops.MAX.createCall(pos, SqlIdentifier("profile_day", pos))), pos),
+                        SqlIdentifier(table.qualifiedPath, pos), null, null, null, null, null, null, null, null, null)
+                    return Ops.SCALAR_QUERY.createCall(pos, query)
+                }
+            }
+            val bindings = listOf(observations, profiles.copy(nativeTableDependencies = mapOf(profileTable.key() to profileDependency)))
+            val b = CalciteQueryCompiler.inputs(bindings, bindings.flatMap { it.physicalColumnBindings.keys }.toSet(),
+                setOf(profileTable), TestConnectors.registry).builder.scan(FrozenCatalogSchema.path(observations))
             val parameter = b.rexBuilder.makeDynamicParam(b.typeFactory.createSqlType(SqlTypeName.VARCHAR, 8), 0)
             b.filter(b.notEquals(b.field("region"), parameter))
-            b.aggregate(b.groupKey("region"), b.sum(false, "total", b.field("amount")),
-                b.count(false, "known", b.field("amount")), b.count(false, "records"), b.max("maximum", b.field("amount")),
-                b.count(true, "unconsumed", b.field("id")))
+            b.scan(FrozenCatalogSchema.path(profiles))
+            val native = NativeExpressionScope(source.spec.connectorRef, support) { table ->
+                require(table.key() == profileTable.key())
+                profileDependency
+            }
+            val latest = native.compile(b, SemanticExpression.NativeCall(source.spec.connectorRef, declaration.id, listOf(profileTable))) {
+                error("latest profile day has no scalar arguments")
+            }
+            b.filter(b.equals(b.field("profile_day"), latest)).project(listOf(b.field("region")), listOf("qualified_region"), true)
+            b.join(JoinRelType.SEMI, b.equals(b.field(2, 0, "region"), b.field(2, 1, "qualified_region")))
             val completed = b.build()
-            b.push(completed).filter(b.greaterThanOrEqual(b.field("known"), b.literal(0)))
-            val knownPopulation = b.build()
-            b.push(completed).filter(b.greaterThan(b.field("records"), b.literal(0)))
-            val recordedPopulation = b.build()
             val calls = listOf("total", "known", "records", "maximum").mapIndexed { index, quantity ->
-                b.push(if (index < 2) knownPopulation else recordedPopulation)
+                b.push(completed)
+                val aggregate = when (quantity) {
+                    "total" -> b.sum(false, quantity, b.field("amount"))
+                    "known" -> b.count(false, quantity, b.field("amount"))
+                    "records" -> b.count(false, quantity)
+                    else -> b.max(quantity, b.field("amount"))
+                }
+                b.aggregate(b.groupKey("region"), aggregate)
                 b.project(listOf(b.field("region"), b.call(Ops.DIVIDE, b.field(quantity), b.literal(BigDecimal("2.0")))),
                     listOf("region_$index", "average_$index"), true)
                 b.build()
@@ -172,7 +216,6 @@ class CalciteSqlConversionExecutionTest {
                 listOf("region", "amount", "known", "records", "maximum"), true).sort(b.field("region"))
             val parameters = listOf(JdbcParameter.of(Types.VARCHAR, "VARCHAR", 8, 0, "D"))
             val plan = CalciteQueryCompiler.optimize(b.build(), parameters)
-            val support = TestConnectors.registry.require(source.spec.connectorRef).compilation
             val sql = CalciteSqlRendering.render(plan, support, parameters)
             val statement = SqlParser.create(sql.sql).parseQuery() as SqlWith
             val references = mutableMapOf<String, Int>()
@@ -183,20 +226,24 @@ class CalciteSqlConversionExecutionTest {
                     return null
                 }
             })
-            assertEquals(1, references["observations"], "$dialect duplicated the completed relation in generated SQL")
-            assertNull(references["unconsumed"], "$dialect retained an aggregate no caller consumes")
+            assertEquals(1, references["observations"], "$dialect duplicated the qualified input in generated SQL")
+            assertEquals(2, references["profiles"], "$dialect duplicated the SEMI qualification or its native latest-day lookup")
             statement.withList.forEach { definition ->
                 val name = (definition as SqlWithItem).name.simple
                 assertTrue(requireNotNull(references[name]) > 1, "$dialect emitted an unused shared relation: $name")
             }
             assertEquals(if (support.parameterSubmission == CompilationSupport.ParameterSubmission.BIND_PARAMETERS)
                 parameters else emptyList(), CalciteSqlRendering.orderedParameters(sql, parameters))
-            val result = rows(source, plan, parameters)
+            val result = rows(source, plan, parameters, support)
             assertEquals(listOf("A", "B", "C"), result.map { it[0] })
             val expected = listOf(listOf("1.5", "1", "1", "1"), listOf(null, "0", "0.5", null), listOf("5", "0.5", "0.5", "5"))
             expected.forEachIndexed { row, values -> values.forEachIndexed { column, value ->
                 if (value == null) assertNull(result[row][column + 1]) else decimal(result[row][column + 1], value)
             } }
+            source.connection.createStatement().use { it.execute("INSERT INTO profiles VALUES ('C','20000103')") }
+            val nextStatement = rows(source, plan, parameters, support)
+            assertEquals(listOf("C"), nextStatement.map { it[0] })
+            expected.last().forEachIndexed { column, value -> decimal(nextStatement.single()[column + 1], requireNotNull(value)) }
         }
     }
     @Test fun eachConsumerEvaluatesItsOwnNonDeterministicObservation(@TempDir directory: Path) {

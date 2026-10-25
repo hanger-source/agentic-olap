@@ -14,8 +14,18 @@ class NativeScalarFunction(
     val stability: Stability,
 ) {
     val parameters: List<Parameter> = java.util.List.copyOf(parameters)
-    /** 读持续变化表数据的函数必须声明 STATEMENT 或 VOLATILE。 */
-    enum class Stability { IMMUTABLE, STATEMENT, VOLATILE }
+    /** 稳定性由连接器按实际原生行为兑现；读取持续变化表数据的函数不得声明 IMMUTABLE。 */
+    enum class Stability {
+        /** 结果只依赖不可变参数值，不因执行时点或可变表数据改变。 */
+        IMMUTABLE,
+        /**
+         * 相同参数在同一条来源 SQL statement 内返回相同值，不承诺不同 statement 的值相同。
+         * 允许在该 statement 内共享同一实际关系，不授权编译期常量折叠或跨 statement 缓存。
+         */
+        STATEMENT,
+        /** 即使参数相同，同一 statement 内的不同求值也可能返回不同值。 */
+        VOLATILE
+    }
     enum class ParameterKind { SCALAR, PHYSICAL_TABLE }
     data class Parameter(val kind: ParameterKind, val scalarType: ScalarValueType?) {
         init { require((kind == ParameterKind.SCALAR) == (scalarType != null)) { "only scalar parameters declare a scalar type" } }

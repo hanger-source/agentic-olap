@@ -2,17 +2,21 @@ package com.olap.prototype.management.governance
 
 import com.olap.prototype.metric.MetricAggregation
 import com.olap.prototype.calculation.*
+import com.olap.prototype.contract.InputContractException
+import com.olap.prototype.engine.EngineExecutionException
 import com.olap.prototype.event.EventIdentity
 import com.olap.prototype.event.EventRef
 import com.olap.prototype.event.RelationAccessPath
 import com.olap.prototype.governance.contract.*
 import com.olap.prototype.member.*
+import com.olap.prototype.metric.MetricValueContract
 import com.olap.prototype.query.*
 import com.olap.prototype.query.contract.*
 import com.olap.prototype.query.definition.*
 import com.olap.prototype.release.catalog.JdbcPublishedQueryEntryProvider
 import com.olap.prototype.storage.PlatformDatabase
 import com.olap.prototype.integration.RuntimeDeploymentLimits
+import com.olap.prototype.time.TemporalWindow
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
@@ -20,6 +24,101 @@ import java.math.BigDecimal
 import java.nio.file.Path
 
 class PublishedRelationMembersTest {
+    @Test
+    fun inlineNominalUnitsExecuteWithoutPublishedMetricsAndKeepQuantityAndStageChecks(@TempDir directory: Path) {
+        PlatformDatabase.inMemory().use { database ->
+            val f = GovernanceOrderFixture(database, directory, listOf(
+                "INSERT INTO orders VALUES ('1',100,'A','2026-07-01','p1'),('2',300,'A','2026-07-02','p1')," +
+                    "('3',NULL,'A','2026-07-02','p2'),('4',NULL,'B','2026-07-01','p3')," +
+                    "('5',500,'C','2026-07-01','p4'),('6',9000,'A','2026-08-01','p5')"))
+            f.seedDefinitions(); f.approveDefinitions()
+            f.subjects.createSubjectArea(SubjectAreaCreateRequest("travel", 1, "trade", "记录分析", "analyst", "本次内联计算", "golden"))
+            val nativeUnit = MetricValueContract.UnitIdentity("example", "source-scale", 1)
+            val reportUnit = MetricValueContract.UnitIdentity("example", "report-scale", 1)
+            val ratioUnit = MetricValueContract.UnitIdentity("example", "report-per-participant", 1)
+            val otherUnit = MetricValueContract.UnitIdentity("example", "other-scale", 1)
+            val raw = MetricValueContract(MetricValueContract.Fixed(nativeUnit), MetricValueContract.Exact(),
+                MetricValueContract.Decimal(18, 2, MetricValueContract.Rounding.NONE), emptyMap(), MetricValueContract.Overflow.FAIL)
+            fun floating(unit: MetricValueContract.UnitIdentity, equations: Map<String, MetricValueContract.UnitEquation>) = MetricValueContract(
+                MetricValueContract.Fixed(unit), MetricValueContract.NativeFloating(), MetricValueContract.BinaryFloat(64), equations, MetricValueContract.Overflow.FAIL)
+            val local = RelationAccessPath(emptyList())
+            val member = f.adoptions.createMemberSource(MemberSourceCreateRequest(GovernanceOrderFixture.SUBJECT, 1, "records", "原尺度记录",
+                MemberSourceDefinition.Projection(EventRef(GovernanceOrderFixture.EVENT, 1), MemberResult("记录", "record", MemberShape.RAW_BAG,
+                    emptyList(), mapOf(
+                        "group" to MemberSourceDefinition.PropertyOutput("分组", "group", ScalarValueType.TEXT, "order_fact.destination", 1, local, null),
+                        "participant" to MemberSourceDefinition.PropertyOutput("参与者引用", "participant", ScalarValueType.TEXT, "order_fact.customer_id", 1, local, null),
+                        "amount" to MemberSourceDefinition.PropertyOutput("原数值", "amount", ScalarValueType.NUMBER, "order_fact.pay_amount", 1, local, raw),
+                        "paid" to MemberSourceDefinition.PropertyOutput("记录日期", "day", ScalarValueType.DATE, "order_fact.pay_time", 1, local, null)),
+                    mapOf("group" to listOf(MemberCondition.Operator.IN)), "paid", emptyMap(), "保留原人口及NULL")),
+                CalculationBindings.empty(), emptyMap(), "golden"))
+            val scenario = f.scenarios.createScenario(ScenarioCreateRequest(GovernanceOrderFixture.SUBJECT, 1, "inline", "内联记录报告", "analyst", "不采用指标", "golden")).scenario
+            f.scenarios.createScenarioMemberSourceRef(ScenarioMemberSourceRefCreateRequest(scenario.id, 1, member.id, 1,
+                MemberQueryPermission(listOf("group", "participant", "amount"), emptyList(), mapOf("group" to listOf(MemberCondition.Operator.IN)), true, emptyList())))
+            val expressions = ExpressionAuthorization.current()
+            f.scenarios.createScenarioPipelineRule(ScenarioPipelineRuleCreateRequest(scenario.id, 1, PostOperationContract.DERIVE, 1,
+                StageAuthorization(PostOperationContract.DERIVE, emptySet(), emptySet(), ExpressionAuthorization(
+                    expressions.kinds - ExpressionAuthorization.Kind.ROUND, expressions.operators, expressions.functions, expressions.castTypes, expressions.literalTypes))))
+            f.scenarios.createScenarioPipelineRule(ScenarioPipelineRuleCreateRequest(scenario.id, 1, PostOperationContract.REGROUP, 2,
+                StageAuthorization.current(PostOperationContract.REGROUP)))
+            f.activate("SUBJECT_AREA", GovernanceOrderFixture.SUBJECT)
+            assertEquals(0, f.build("inline_units").metricsFrozen)
+            val publication = f.publication("inline_units", scenario = scenario.id)
+            assertTrue(publication.queryCapability.metricCandidates.isEmpty())
+            val report = floating(reportUnit, emptyMap())
+            val ratio = floating(ratioUnit, mapOf("per_participant" to MetricValueContract.FixedBinary(
+                MetricValueContract.BinaryOperator.DIVIDE, reportUnit, MetricValueContract.ONE, ratioUnit)))
+            val root = QueryComputation.Members("records", MemberRef(member.id, 1), emptyMap(),
+                listOf("group", "participant", "amount").map { QueryComputation.Slot(it, it) },
+                TemporalWindow(TemporalWindow.ValueType.DATE, TemporalWindow.BOUNDARY, "2026-07-01", "2026-07-03"), emptyMap(),
+                MemberCondition.Predicate("group", MemberCondition.Operator.IN, listOf("A", "B", "D").map { Calculation.Scalar(ScalarValueType.TEXT, it) }),
+                emptyMap(), emptyMap())
+            fun divide(left: ResultExpression, right: ResultExpression) = ResultExpression.ResultOperation(ResultExpression.ResultOperator.DIVIDE, listOf(left, right))
+            fun scope(factor: String = "100", from: MetricValueContract.UnitIdentity = nativeUnit,
+                declaredOutput: MetricValueContract.UnitIdentity = reportUnit): QueryComputation.Scope {
+                val scaled = floating(declaredOutput, mapOf("scale" to MetricValueContract.Scale(
+                    MetricValueContract.BinaryOperator.DIVIDE, from, reportUnit, "100")))
+                return QueryComputation.Scope(root, emptyMap(), listOf(
+                    PostOperationContract.Derive(ResultExpression.ResultNumeric(divide(ResultExpression.ResultSymbol("amount"),
+                        ResultExpression.ResultLiteral(BigDecimal(factor))), scaled, "scale"), "row_report", "逐行原尺度除100"),
+                    PostOperationContract.Regroup(PostOperationContract.ResultGrouping(listOf("group"), listOf(
+                        PostOperationContract.ResultAggregate("row_report", ResultAggregation.Sum(report, ResultAggregation.NullPolicy.IGNORE), "total", "报告数值之和"),
+                        PostOperationContract.ResultAggregate("participant", ResultAggregation.Count(true, ResultAggregation.NullPolicy.IGNORE), "participants", "同人口参与者引用去重数")), null)),
+                    PostOperationContract.Derive(ResultExpression.ResultNumeric(divide(ResultExpression.ResultSymbol("total"),
+                        ResultExpression.ResultSymbol("participants")), ratio, "per_participant"), "ratio", "完成量除同人口计数")))
+            }
+            val rows = f.execute(publication, scope()).result.resultFrame.rows.associateBy { it["group"] }
+            assertEquals(setOf("A", "B"), rows.keys)
+            val a = rows.getValue("A")
+            assertEquals(4.0, (a["total"] as Number).toDouble())
+            assertEquals(2L, (a["participants"] as Number).toLong())
+            assertEquals(2.0, (a["ratio"] as Number).toDouble())
+            val b = rows.getValue("B")
+            assertNull(b["total"]); assertEquals(1L, (b["participants"] as Number).toLong()); assertNull(b["ratio"])
+
+            // 同一正式发布下，错误方程在来源提交之前失败，位置来自实际计算节点。
+            for ((invalid, expectedRule) in listOf(scope(factor = "10") to InputContractException.Rule.RESULT_UNIT_EQUATION_MISMATCH,
+                scope(from = otherUnit) to InputContractException.Rule.RESULT_UNIT_EQUATION_MISMATCH,
+                scope(declaredOutput = otherUnit) to InputContractException.Rule.RESULT_UNIT_MISMATCH)) {
+                val failure = assertThrows(EngineExecutionException::class.java) { f.execute(publication, invalid) }
+                assertEquals("ANALYZE_STAGES", failure.stage)
+                assertEquals(false, failure.sourceExecutionStarted)
+                val contract = generateSequence<Throwable>(failure) { it.cause }.filterIsInstance<InputContractException>().single()
+                assertEquals(expectedRule, contract.rule)
+                assertEquals(if (expectedRule == InputContractException.Rule.RESULT_UNIT_MISMATCH) listOf("input", "postOps", 0, "expression", "valueContract", "unit")
+                    else listOf("input", "postOps", 0, "expression", "expression"), contract.details["fieldPath"])
+            }
+            val approved = scope()
+            val forbidden = QueryComputation.Scope(approved.root, approved.inputs, approved.stages + PostOperationContract.Derive(
+                ResultExpression.ResultNumeric(ResultExpression.ResultRound(ResultExpression.ResultSymbol("ratio"), 1, MetricValueContract.Rounding.HALF_UP), ratio, null),
+                "rounded", "场景未批准ROUND"))
+            val denied = assertThrows(EngineExecutionException::class.java) { f.execute(publication, forbidden) }
+            assertEquals("AUTHORIZE_INPUT", denied.stage)
+            assertEquals("EXECUTABLE_QUERY_NOT_PUBLISHED", denied.code)
+            assertTrue(denied.message.contains("ROUND"), denied.message)
+            assertNull(denied.compiledQuery)
+        }
+    }
+
     @Test
     fun relatedExistenceFiltersPreserveTheAmountPopulation(@TempDir directory: Path) {
         PlatformDatabase.inMemory().use { database ->

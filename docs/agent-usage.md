@@ -33,10 +33,10 @@ agentic-olap call describe-script-api --payload '{"type":"com.olap.prototype.cal
 
 ## 会话中调用正式能力
 
-`execute-script` 向持续 Kotlin 会话提交一个完整代码片段。DSL 为 `agentic-olap-kotlin-dsl/v4`，实际版本取服务发现结果。省略或留空 `sessionId` 创建会话；后续用实际返回的 `sessionId` 在同一 JVM 中继续。首次调用可以读取来源并保留 Kotlin 对象：
+`execute-script` 向持续 Kotlin 会话提交一个完整代码片段。DSL 为 `agentic-olap-kotlin-dsl/v5`，实际版本取服务发现结果。省略或留空 `sessionId` 创建会话；后续用实际返回的 `sessionId` 在同一 JVM 中继续。首次调用可以读取来源并保留 Kotlin 对象：
 
 ~~~sh
-agentic-olap call execute-script --payload '{"executionId":"sources-001","waitMillis":0,"source":"val sources = olap.sources.list(EmptyRequest)\nolap.output(sources)","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v4","parameters":{}}'
+agentic-olap call execute-script --payload '{"executionId":"sources-001","waitMillis":0,"source":"val sources = olap.sources.list(EmptyRequest)\nolap.output(sources)","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v5","parameters":{}}'
 agentic-olap call wait-script --payload '{"executionId":"sources-001","waitMillis":1000}'
 ~~~
 
@@ -277,6 +277,10 @@ val dayStatistics = Calculation.Scope(
 
 结果算术的局部规则从 `ResultExpression.ResultNumeric`、`ResultRound`、`ResultOperation` 和 `ResultOperator` 的 `rules` 读取。`ResultNumeric` 提供当前位置可见的数量声明；声明可以传给 CASE 的结果分支、ROUND、CAST 或算术操作数，内层 NUMERIC 则使用自己的声明。单位方程的作用域更窄：`unitEquation` 只供这个 NUMERIC **直接包住的算术节点**使用，不穿透 ROUND、CASE、CAST、函数或操作数。乘除双方均为单位 ONE 时可省略方程，其他乘除必须在实际算术位置显式声明。
 
+内联 Query 可以在本次 `valueContract.unitEquations` 中声明显式的名义单位方程，无需先创建 Metric，也不要求方程出现在某个已发布 Metric 的输出合同中。`Scale` 核对实际来源单位、维数一的精确倍率字面量与目标单位；`FixedBinary` 核对运算符、左右实际单位及声明的结果单位。例如，把来源原尺度除以 100 表达为报告尺度，应在该 DIVIDE 的 NUMERIC 合同中声明 `Scale(DIVIDE, 原尺度, 报告尺度, "100")`，不能只给原值更换单位标签。是否逐行换算后归约、采用哪批人口、如何处理 NULL 与重复度，仍由实际计算体明确。
+
+这些方程属于本次计算声明，不登记或覆盖长期定义，也不因声明单位 authority/id 就获得来源、成员、指标或场景权限。查询仍只能使用精确发布获准的输入、节点和算子；真实数量检查保留输入单位、算术保证、容量、倍率、NULL 与来源。需要稳定命名、审阅和反复调用的完整口径时，再保存、采用和发布计算定义，不创建只有方程的空壳 Metric。成员数量出口及关系形参继续声明其已经具有的数量事实，单位运算留在实际计算体。
+
 ROUND 在分析子表达式之前，就需要当前位置可见的数量合同。因此 `ResultRound(ResultNumeric(...), scale, rounding)` 中的内层 NUMERIC 不能给外层 ROUND 补合同；外层已有 NUMERIC 声明时，也可以经 CASE 的结果分支传给 ROUND，不要求所有 ROUND 都紧贴一个 NUMERIC。
 
 CASE 与 COALESCE 分别检查单位、算术保证和结果表示。同一单位、同一算术保证的数量分支可以采用不同容量：例如 Exact DECIMAL(12,2) 与 DECIMAL(18,2) 直接形成无损的 DECIMAL(18,2)，无需在每个分支重复包装合同。不同尺度使用足以容纳全部整数位与小数位的共同容量，分支选择本身不舍入；外层 NUMERIC、ROUND 或 CAST 才承担所声明的量化。已有分支丢失的数位不会恢复，单位不同或算术保证不一致仍需作者明确处理，不能把原生浮点提升为 Exact。ROW 与 ARRAY 内的数量按相同规则递归检查。SET 继续使用作者声明的共同槽位合同，并验证每一分支的数量保证和无损容量；关系参数同样检查实际完成数量是否满足目标槽位。
@@ -318,6 +322,8 @@ Unit
 内层 NUMERIC 的方程用于 DIVIDE，外层 NUMERIC 为 ROUND 提供数量合同；N 不大于零时返回 NULL。`DIVIDE` 表达数值商，整数操作数不表示先截取整数商；`SAFE_DIVIDE` 的零分母返回 NULL，其余采用相同的商语义。结果容量和显式舍入仍生效，连接器必须兑现实际类型及算术保证；不支持时明确拒绝。NUMERIC、ROUND 或后置 CAST 都不能恢复输入或原生计算已经丢失的数位。这个构造示例不替代来源的精度保证，也不证明任意分母或原生 AVG 已受支持。
 
 缺少当前位置数量声明返回 `RESULT_NUMERIC_CONTRACT_REQUIRED`，缺少乘除单位方程返回 `RESULT_UNIT_EQUATION_REQUIRED`，阶段均为 `ANALYZE_STAGES`。诊断的 `fieldPath` 定位到绑定后的输入作用域、`postOps` 阶段和实际嵌套表达式；例如 `input / postOps / 3 / expression / branches / 0 / then / expression / expression`。列表下标从零开始，子输入或保存计算的作用域也保留在路径中。这是正式计算中的节点坐标，不是 Kotlin 源码行号。结合 `expectedKind`、`actualKind` 与请求诊断坐标修正该节点，无需猜测整条查询或重放已成功的写操作。
+
+方程与实际运算符、操作数单位或精确倍率不匹配时返回 `RESULT_UNIT_EQUATION_MISMATCH`，路径指向实际算术节点，`expectedKind/actualKind` 区分运算符、左右单位和倍率问题；NUMERIC 的输出单位与计算结果不一致时返回 `RESULT_UNIT_MISMATCH`，路径指向该节点的 `valueContract/unit`。两者同属 `ANALYZE_STAGES`，不把数量声明不成立误报成来源故障或必须补建 Metric。
 
 以下程序完整构造一项记录计数和一项金额求和，不写入元数据。事件与逻辑字段引用由参数提供，必须先从实际定义读取精确身份。金额例子假设来源是精确 DECIMAL、业务单位已确认为人民币元；结果声明 `DECIMAL(24,2)`，超出容量时失败，不额外舍入。来源为浮点或业务单位尚未确认时，应根据真实来源及业务含义选择合同。
 

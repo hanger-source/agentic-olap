@@ -14,11 +14,15 @@ object QueryValueSemantics {
         "valueContract" to "EXPLICIT_UNIT_ARITHMETIC_RESULT_CAPACITY_AND_OVERFLOW",
         "declarationScope" to "REPLACES_THE_VISIBLE_DECLARATION_FOR_THIS_EXPRESSION_AND_ITS_DECLARATION_INHERITING_CHILDREN",
         "unitEquation" to "OPTIONAL_NAME_IN_THIS_VALUE_CONTRACT_APPLIED_ONLY_TO_THE_DIRECTLY_WRAPPED_ARITHMETIC_NODE",
+        "equationDeclaration" to "INLINE_QUERY_MAY_DECLARE_ITS_OWN_EXPLICIT_NOMINAL_EQUATIONS_WITHOUT_A_SAVED_METRIC",
+        "equationMeaning" to "CHECKS_ACTUAL_OPERAND_UNITS_OPERATOR_AND_EXACT_SCALE_FACTOR_WITHOUT_REGISTERING_OR_REPLACING_A_BUSINESS_DEFINITION",
         "equationPropagation" to "DOES_NOT_CROSS_ROUND_CAST_CASE_FUNCTION_ARGUMENTS_OR_OPERATION_OPERANDS",
         "precision" to "CANNOT_RECOVER_PRECISION_ALREADY_LOST_BY_AN_INPUT_OR_NATIVE_OPERATION",
         "alternatives" to alternativeContract(),
         "violationCodes" to listOf(InputContractException.Rule.RESULT_NUMERIC_CONTRACT_REQUIRED.code,
-            InputContractException.Rule.RESULT_UNIT_EQUATION_REQUIRED.code),
+            InputContractException.Rule.RESULT_UNIT_EQUATION_REQUIRED.code,
+            InputContractException.Rule.RESULT_UNIT_EQUATION_MISMATCH.code,
+            InputContractException.Rule.RESULT_UNIT_MISMATCH.code),
     )
     fun alternativeContract(): Map<String, Any> = mapOf(
         "operations" to listOf("CASE", "COALESCE"),
@@ -51,7 +55,9 @@ object QueryValueSemantics {
         "nativeGuarantee" to "FOR_SOURCE_EXECUTION_EXACTNESS_AND_NATIVE_TYPE_SUPPORT_MUST_BE_FULFILLED_BY_THE_EXACT_CONNECTOR_MAPPING",
         "coreGuarantee" to "EXPLICIT_CORE_FINALIZATION_USES_ITS_COMPILED_SCALAR_SUPPORT_AND_EXACT_INTERMEDIATE_ARITHMETIC_NOT_CONNECTOR_DIVISION",
         "violationCodes" to listOf(InputContractException.Rule.RESULT_NUMERIC_CONTRACT_REQUIRED.code,
-            InputContractException.Rule.RESULT_UNIT_EQUATION_REQUIRED.code),
+            InputContractException.Rule.RESULT_UNIT_EQUATION_REQUIRED.code,
+            InputContractException.Rule.RESULT_UNIT_EQUATION_MISMATCH.code,
+            InputContractException.Rule.RESULT_UNIT_MISMATCH.code),
     )
     fun expression(expression: ResultExpression, symbols: Map<String, QueryStageAnalysis.Symbol>,
         nativeFunctions: Map<ResultNativeCall, NativeScalarFunction> = emptyMap(), fieldPath: List<Any> = emptyList()): QueryValue =
@@ -155,10 +161,15 @@ object QueryValueSemantics {
     private fun allocatedValue(allocation: ResultUniformAllocation, symbols: Map<String, QueryStageAnalysis.Symbol>,
         nativeFunctions: Map<ResultNativeCall, NativeScalarFunction>, path: List<Any>): QueryValue {
         val quantity = measure(declaredValue(ResultNumeric(allocation.value, allocation.valueContract, null), symbols, nativeFunctions, path, path + "value"))
-        val equation = allocation.unitEquation?.let { requireNotNull(allocation.valueContract.unitEquations[it]) { "uniform allocation requires its declared division unit equation" } }
+        val equation = allocation.unitEquation?.let {
+            allocation.valueContract.unitEquations[it] ?: throw InputContractException.violation(
+                InputContractException.Rule.RESULT_UNIT_EQUATION_MISMATCH, path + "unitEquation",
+                "uniform allocation requires a division unit equation declared in this value contract",
+                "DECLARED_UNIT_EQUATION", "UNDECLARED_UNIT_EQUATION")
+        }
         val unit = binaryUnit(ResultOperator.DIVIDE, quantity.unit, QueryQuantity.Fixed(MetricValueContract.ONE), equation, null, path)
         val divided = QueryQuantity(quantity.declaration, unit, quantity.provenance)
-        requireDeclaration(allocation.valueContract, divided)
+        requireDeclaration(allocation.valueContract, divided, path + listOf("valueContract", "unit"))
         return uniformAllocation(QueryValue.Measure(divided), allocation.sourceKeys.map { requireNotNull(symbols[it]) }, allocation.memberKeys.map { requireNotNull(symbols[it]) })
     }
     private fun declaredValue(numeric: ResultNumeric, symbols: Map<String, QueryStageAnalysis.Symbol>,
@@ -170,7 +181,7 @@ object QueryValueSemantics {
             return QueryValue.Measure(QueryQuantity(numeric.valueContract, QueryQuantity.Fixed(MetricValueContract.ONE), QueryQuantity.Raw(value.source, emptyList())))
         }
         val quantity = measure(value)
-        requireDeclaration(numeric.valueContract, quantity)
+        requireDeclaration(numeric.valueContract, quantity, path + listOf("valueContract", "unit"))
         return QueryValue.Measure(QueryQuantity(numeric.valueContract, quantity.unit, quantity.provenance))
     }
     private fun conditionalValue(conditional: ResultCaseWhen, symbols: Map<String, QueryStageAnalysis.Symbol>, declaration: MetricValueContract?,
@@ -232,17 +243,27 @@ object QueryValueSemantics {
             "VISIBLE_NUMERIC_VALUE_CONTRACT", kind)
     fun measure(value: QueryValue): QueryQuantity = (value as? QueryValue.Measure)?.quantity ?: throw IllegalArgumentException("categorical values and collections cannot be consumed as scalar quantities")
 
-    fun requireDeclaration(declaration: MetricValueContract, actual: QueryQuantity) {
+    fun requireDeclaration(declaration: MetricValueContract, actual: QueryQuantity, fieldPath: List<Any> = emptyList()) {
         val unit = declaration.unit
-        if (unit is MetricValueContract.Fixed) require(QueryQuantity.fixedIdentity(actual.unit) == unit.identity) { "numeric output differs from its declared fixed unit" }
+        if (unit is MetricValueContract.Fixed) {
+            if (QueryQuantity.fixedIdentity(actual.unit) != unit.identity) throw InputContractException.violation(
+                InputContractException.Rule.RESULT_UNIT_MISMATCH, fieldPath,
+                "numeric output differs from its declared fixed unit", "DECLARED_FIXED_UNIT", "DIFFERENT_ACTUAL_UNIT")
+        }
         else {
             val axis = when (unit) { is MetricValueContract.AnalysisDimension -> unit.axis; is MetricValueContract.SlotDimension -> unit.axis; is MetricValueContract.EventDimension -> unit.axis; is MetricValueContract.Fixed -> error("fixed unit handled above") }
             val actualUnit = actual.unit
             val actualAxis = when (actualUnit) { is QueryQuantity.Dimension -> actualUnit.axis; is QueryQuantity.SelectedMember -> actualUnit.axis; is QueryQuantity.Fixed -> null }
-            require(actualAxis != null && MetricValueContract.compatibleAxes(axis, actualAxis)) { "numeric output differs from its declared unit axis" }
+            if (actualAxis == null || !MetricValueContract.compatibleAxes(axis, actualAxis)) throw InputContractException.violation(
+                InputContractException.Rule.RESULT_UNIT_MISMATCH, fieldPath,
+                "numeric output differs from its declared unit axis", "COMPATIBLE_DECLARED_UNIT_AXIS", "DIFFERENT_ACTUAL_UNIT_AXIS")
             if (unit is MetricValueContract.AnalysisDimension) when (actualUnit) {
-                is QueryQuantity.Dimension -> require(actualUnit.keys.any { (it.reference as? QueryQuantity.AnalysisDimensionRef)?.dimension == unit.dimension }) { "numeric output does not retain its declared adopted unit dimension" }
-                is QueryQuantity.SelectedMember -> require((actualUnit.reference as? QueryQuantity.AnalysisDimensionRef)?.dimension == unit.dimension) { "numeric output restriction belongs to a different adopted unit dimension" }
+                is QueryQuantity.Dimension -> if (actualUnit.keys.none { (it.reference as? QueryQuantity.AnalysisDimensionRef)?.dimension == unit.dimension })
+                    throw InputContractException.violation(InputContractException.Rule.RESULT_UNIT_MISMATCH, fieldPath,
+                        "numeric output does not retain its declared adopted unit dimension", "DECLARED_ANALYSIS_UNIT_DIMENSION", "MISSING_ANALYSIS_UNIT_DIMENSION")
+                is QueryQuantity.SelectedMember -> if ((actualUnit.reference as? QueryQuantity.AnalysisDimensionRef)?.dimension != unit.dimension)
+                    throw InputContractException.violation(InputContractException.Rule.RESULT_UNIT_MISMATCH, fieldPath,
+                        "numeric output restriction belongs to a different adopted unit dimension", "DECLARED_ANALYSIS_UNIT_DIMENSION", "DIFFERENT_ANALYSIS_UNIT_DIMENSION")
                 is QueryQuantity.Fixed -> Unit
             }
         }
@@ -276,23 +297,45 @@ object QueryValueSemantics {
         val divide = operation != ResultOperator.MULTIPLY
         val operator = if (divide) MetricValueContract.BinaryOperator.DIVIDE else MetricValueContract.BinaryOperator.MULTIPLY
         if (equation is MetricValueContract.SameUnitRatio) {
-            require(divide && QueryQuantity.sameUnit(left, right)) { "ratio equation requires division of equal units" }
+            if (!divide) throw unitEquationMismatch(path, "ratio equation requires division", "DIVIDE", operation.name)
+            if (!QueryQuantity.sameUnit(left, right)) throw unitEquationMismatch(path,
+                "ratio equation requires division of equal units", "SAME_UNIT_AS_NUMERATOR", "DIFFERENT_OPERAND_UNIT")
             return QueryQuantity.Fixed(MetricValueContract.ONE)
         }
         val first = QueryQuantity.fixedIdentity(left); val second = QueryQuantity.fixedIdentity(right)
         return when (equation) {
             is MetricValueContract.PreserveUnit -> {
-                require(equation.operator == operator && (if (equation.operand == MetricValueContract.Operand.LEFT) second else first) == MetricValueContract.ONE) { "unit-preserving arithmetic requires its other operand to be dimensionless" }
+                if (equation.operator != operator) throw unitEquationMismatch(path,
+                    "arithmetic operator differs from its unit equation", equation.operator.name, operator.name)
+                val other = if (equation.operand == MetricValueContract.Operand.LEFT) 1 else 0
+                if ((if (other == 1) second else first) != MetricValueContract.ONE) throw unitEquationMismatch(path,
+                    "unit-preserving arithmetic requires its other operand to be dimensionless", "DIMENSIONLESS_UNIT", "DIFFERENT_OPERAND_UNIT")
                 if (equation.operand == MetricValueContract.Operand.LEFT) left else right
             }
-            is MetricValueContract.FixedBinary -> { require(equation.operator == operator && first == equation.left && second == equation.right) { "numeric operands differ from the declared unit equation" }; QueryQuantity.Fixed(equation.result) }
+            is MetricValueContract.FixedBinary -> {
+                if (equation.operator != operator) throw unitEquationMismatch(path,
+                    "arithmetic operator differs from its unit equation", equation.operator.name, operator.name)
+                if (first != equation.left) throw unitEquationMismatch(path,
+                    "left numeric operand differs from the declared unit equation", "DECLARED_LEFT_UNIT", "DIFFERENT_OPERAND_UNIT")
+                if (second != equation.right) throw unitEquationMismatch(path,
+                    "right numeric operand differs from the declared unit equation", "DECLARED_RIGHT_UNIT", "DIFFERENT_OPERAND_UNIT")
+                QueryQuantity.Fixed(equation.result)
+            }
             is MetricValueContract.Scale -> {
-                require(equation.operator == operator && first == equation.from && second == MetricValueContract.ONE) { "unit conversion operands differ from their declared equation" }
-                requireFactor(rightOperand, equation.factor); QueryQuantity.Fixed(equation.to)
+                if (equation.operator != operator) throw unitEquationMismatch(path,
+                    "arithmetic operator differs from its unit equation", equation.operator.name, operator.name)
+                if (first != equation.from) throw unitEquationMismatch(path,
+                    "unit conversion input differs from its declared source unit", "DECLARED_SOURCE_UNIT", "DIFFERENT_OPERAND_UNIT")
+                if (second != MetricValueContract.ONE) throw unitEquationMismatch(path,
+                    "unit conversion factor must be dimensionless", "DIMENSIONLESS_UNIT", "DIFFERENT_OPERAND_UNIT")
+                requireFactor(rightOperand, equation.factor, path); QueryQuantity.Fixed(equation.to)
             }
             is MetricValueContract.PreserveUnitScale -> {
-                require(equation.operator == operator && second == MetricValueContract.ONE) { "unit-preserving scale requires its declared dimensionless factor" }
-                requireFactor(rightOperand, equation.factor); left
+                if (equation.operator != operator) throw unitEquationMismatch(path,
+                    "arithmetic operator differs from its unit equation", equation.operator.name, operator.name)
+                if (second != MetricValueContract.ONE) throw unitEquationMismatch(path,
+                    "unit-preserving scale requires a dimensionless factor", "DIMENSIONLESS_UNIT", "DIFFERENT_OPERAND_UNIT")
+                requireFactor(rightOperand, equation.factor, path); left
             }
             null -> {
                 if (first != MetricValueContract.ONE || second != first) throw InputContractException.violation(
@@ -304,9 +347,14 @@ object QueryValueSemantics {
             is MetricValueContract.SameUnitRatio -> error("ratio handled above")
         }
     }
-    private fun requireFactor(expression: ResultExpression?, factor: String) {
+    private fun unitEquationMismatch(path: List<Any>, message: String, expectedKind: String, actualKind: String): InputContractException =
+        InputContractException.violation(InputContractException.Rule.RESULT_UNIT_EQUATION_MISMATCH, path, message, expectedKind, actualKind)
+
+    private fun requireFactor(expression: ResultExpression?, factor: String, path: List<Any>) {
         val value = when (expression) { is ResultLiteral -> expression.value as? BigDecimal; is ResultQuantityLiteral -> expression.value; else -> null }
-        require(value != null && value.compareTo(BigDecimal(factor)) == 0) { "unit scale must consume its declared exact factor" }
+        if (value == null || value.compareTo(BigDecimal(factor)) != 0) throw unitEquationMismatch(path,
+            "unit scale must consume its declared exact factor", "DECLARED_EXACT_FACTOR_LITERAL",
+            if (value == null) "NON_LITERAL_FACTOR" else "DIFFERENT_EXACT_FACTOR")
     }
     fun weightedContribution(actual: QueryValue, value: QueryValue, weight: QueryValue, observations: Collection<QueryStageAnalysis.Symbol>, component: WeightedComponent): QueryValue {
         val quantity = measure(actual)

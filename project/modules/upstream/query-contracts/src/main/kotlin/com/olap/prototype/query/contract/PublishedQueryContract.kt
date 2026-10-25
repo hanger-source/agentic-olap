@@ -6,7 +6,6 @@ import com.olap.prototype.contract.InputContractException
 import com.olap.prototype.engine.catalog.ExecutableCatalog
 import com.olap.prototype.member.MemberCondition
 import com.olap.prototype.member.MemberSource
-import com.olap.prototype.metric.MetricValueContract
 import com.olap.prototype.query.*
 import com.olap.prototype.time.TemporalWindow
 
@@ -43,7 +42,6 @@ object PublishedQueryContract {
         private val relationFilters = linkedMapOf<String, RelationFilterCandidate>()
         private val timeDimensions = linkedMapOf<String, TimeAnalysisDimensionCandidate>()
         private val clocks = linkedMapOf<String, MutableSet<TemporalWindow.ValueType>>()
-        private val unitEquations = linkedMapOf<String, MutableSet<MetricValueContract.UnitEquation>>()
         private val matrix = linkedMapOf<MetricInstanceRef, MutableList<MetricAnalysisDimensionCapability>>()
         private val stageRules = linkedMapOf<String, MutableList<PostProcessCapability>>()
 
@@ -58,7 +56,6 @@ object PublishedQueryContract {
             capability.relationFilterCandidates.forEach { relationFilters.putIfAbsent(it.definition.relation.id, it) }
             capability.timeAnalysisDimensionCandidates.forEach { timeDimensions.putIfAbsent(key(it.analysisDimensionId, it.analysisDimensionVersion), it) }
             capability.temporalClockCandidates.forEach { clocks.getOrPut(it.clockRef) { linkedSetOf() }.add(it.valueType) }
-            capability.metricCandidates.forEach { metric -> metric.valueContract.unitEquations.forEach { (name, equation) -> unitEquations.getOrPut(name) { linkedSetOf() }.add(equation) } }
             capability.metricAnalysisDimensionMatrix.forEach { matrix.getOrPut(it.instance) { mutableListOf() }.add(it) }
             capability.postProcessCapabilities.filter { it.available }.forEach { stageRules.getOrPut(it.ruleType) { mutableListOf() }.add(it) }
         }
@@ -72,7 +69,6 @@ object PublishedQueryContract {
                 is QueryComputation.SetInputs -> {
                     count[0] += root.inputs.size
                     root.inputs.forEach { requireRootInput(scope, it.inputId, path) }
-                    root.outputSlots.forEach { authorizeSetQuantities(it.shape) }
                 }
             }
             QueryComputation.rootInputs(scope.root).forEach { requireRootInput(scope, it, path) }
@@ -96,7 +92,6 @@ object PublishedQueryContract {
             val calculation = root.calculation
             if (calculation.callSites().any { it.call.target is Calculation.Fixed }) fail("public inline calculations must select approved measurement instances")
             root.bindings.measurements.values.forEach { if (metric(it).adoptionStatus != "ACTIVE") fail("metric adoption is not active") }
-            calculation.measurementSlots.forEach { authorizeUnitEquations(it.valueContract.adopted(root.bindings)) }
             val catalog = compilationCatalog
             catalog.requireBindings(calculation, root.bindings)
             root.bindings.dimensions.values.forEach { authorizeDimensionBinding(it, catalog) }
@@ -144,12 +139,8 @@ object PublishedQueryContract {
                         authorizeMembers(QueryComputation.Members(root.callId, call.source, supplied, bound.outputs.map { QueryComputation.Slot(it.key, it.value) }, bound.range, clocks, bound.condition, call.members, call.relations), depth, false)
                     }
                 }
-                is Calculation.SetCombination -> root.outputSlots.forEach { authorizeSetQuantities(it.adopted(bindings).shape) }
-                is Calculation.ObservationStatistics -> root.statistics.forEach { statistic -> when (statistic) {
-                    is Calculation.Reduction -> (statistic.aggregate.aggregation as? ResultAggregation.Numeric)?.let { authorizeUnitEquations(it.valueContract.adopted(bindings)) }
-                    is Calculation.WeightedMean -> listOf(statistic.numeratorContract, statistic.weightSumContract, statistic.resultContract).forEach { authorizeUnitEquations(it.adopted(bindings)) }
-                } }
-                is Calculation.Input, is Calculation.Relation, is Calculation.ObjectMeasure, is Calculation.AlignMeasurements -> kotlin.Unit
+                is Calculation.Input, is Calculation.Relation, is Calculation.ObjectMeasure, is Calculation.AlignMeasurements,
+                is Calculation.SetCombination, is Calculation.ObservationStatistics -> kotlin.Unit
             }
             CalculationInstantiation.stages(scope.stages, arguments, owner, bindings, aliases).forEach(::authorizeStage)
             scope.children().values.forEach { authorizePublicComputeScope(it.computation, owner, bindings, arguments, catalog, depth + 1) }
@@ -410,24 +401,10 @@ object PublishedQueryContract {
             }
         }
         private fun authorizeStage(stage: PostOperationContract.ValidatedOperation) {
-            PostOperationTraversal.valueContracts(stage).forEach(::authorizeUnitEquations)
             val rules = stageRules[stage.operationType].orEmpty()
             if (rules.size != 1) fail("query stage requires one exact approved rule: ${stage.operationType}")
             try { PublishedStagePolicy.require(stage, rules.single().authorization, "query.stages") }
             catch (failure: Exception) { throw ProducerContractException("query stage differs from frozen permission: ${failure.message}", failure) }
-        }
-        private fun authorizeSetQuantities(shape: SetOutputContract.Shape) {
-            when (shape) {
-                is SetOutputContract.Quantity -> authorizeUnitEquations(shape.valueContract)
-                is SetOutputContract.Row -> shape.fields.forEach(::authorizeSetQuantities)
-                is SetOutputContract.Array -> authorizeSetQuantities(shape.element)
-                else -> kotlin.Unit
-            }
-        }
-        private fun authorizeUnitEquations(declaration: MetricValueContract) {
-            declaration.unitEquations.forEach { (name, equation) ->
-                if (!MetricValueContract.builtinEquation(equation) && equation !in unitEquations[name].orEmpty()) fail("nominal unit conversions must reference an exact equation from the frozen published metric contracts")
-            }
         }
         private fun metric(instance: MetricInstanceRef): MetricCandidate = metrics[instance] ?: fail("metric instance is not published: $instance")
         private fun member(id: String, version: Long): MemberCandidate = members[key(id, version)] ?: fail("member source is not published: $id@$version")

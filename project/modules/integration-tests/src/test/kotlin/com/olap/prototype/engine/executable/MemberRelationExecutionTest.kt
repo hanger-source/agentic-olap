@@ -997,7 +997,7 @@ class MemberRelationExecutionTest {
         return QueryComputation.Scope(QueryComputation.Compute(calculation, bindings, emptyMap(), emptyMap(), emptyMap()), emptyMap(), emptyList())
     }
     @Test fun alignsIndependentFactPopulationsAndZerosOnlyGenuinelyAbsentMeasurements(@TempDir directory: Path) {
-        NativeWarehouse(directory, "duckdb", listOf("CREATE TABLE orders(id INTEGER PRIMARY KEY, customer INTEGER, period INTEGER, kind INTEGER, amount DECIMAL(18,2))",
+        for (dialect in listOf("h2", "duckdb")) NativeWarehouse(directory, dialect, listOf("CREATE TABLE orders(id INTEGER PRIMARY KEY, customer INTEGER, period INTEGER, kind INTEGER, amount DECIMAL(18,2))",
             "INSERT INTO orders VALUES (1,1,1,1,10),(2,2,1,1,NULL),(3,3,1,1,20),(4,1,1,2,2),(5,2,1,2,NULL),(6,4,1,2,7)")).use { warehouse ->
             val definitions = observationCatalog(warehouse)
             val purchases = installObservationFact(definitions, "purchases", semanticEquals("kind", 1)); val refunds = installObservationFact(definitions, "refunds", semanticEquals("kind", 2))
@@ -1007,12 +1007,38 @@ class MemberRelationExecutionTest {
                 "refunds" to Calculation.AlignedInput(observationMeasure("refunds", true), mapOf("customer" to "customer"), listOf(Calculation.AlignedValue("value", "refunded", Calculation.NoMatch.ZERO_WHEN_ABSENT))))
             warehouse.finishSetup(); val engine = engine(warehouse)
             val baseline = listOf(listOf(decimal("1"), decimal("10"), decimal("2")), listOf(decimal("2"), null, null), listOf(decimal("3"), decimal("20"), decimal("0")))
-            for (population in listOf(Calculation.PopulationKind.BASE, Calculation.PopulationKind.UNION, Calculation.PopulationKind.INTERSECTION)) {
-                val selected = if (population == Calculation.PopulationKind.BASE) listOf("purchases") else listOf("purchases", "refunds")
+            val populations = Calculation.PopulationKind.entries.map { it to listOf("purchases") } + listOf(
+                Calculation.PopulationKind.UNION to listOf("purchases", "refunds"),
+                Calculation.PopulationKind.INTERSECTION to listOf("purchases", "refunds"))
+            for ((population, selected) in populations) {
                 val body = Calculation.Scope(Calculation.AlignMeasurements(inputs, listOf("customer"), Calculation.AlignmentPopulation(population, selected)), emptyMap(),
                     listOf(PostOperationContract.Project(listOf("customer", "purchased", "refunded"))))
-                val expected = when (population) { Calculation.PopulationKind.UNION -> baseline + listOf(listOf(decimal("4"), decimal("0"), decimal("7"))); Calculation.PopulationKind.INTERSECTION -> baseline.dropLast(1); else -> baseline }
-                assertEquals(expected, numericRows(execute(engine, definitions, observationCompute(body, emptyList(), slots, bindings))))
+                val expected = when {
+                    selected.size == 1 -> baseline
+                    population == Calculation.PopulationKind.UNION -> baseline + listOf(listOf(decimal("4"), decimal("0"), decimal("7")))
+                    else -> baseline.dropLast(1)
+                }
+                val catalog = definitions.catalog()
+                val executed = engine.execute(catalog, ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION,
+                    "alignment_${population.name}_${selected.size}", catalog.manifest.catalogId,
+                    observationCompute(body, emptyList(), slots, bindings)), observer, RuntimeDeploymentLimits.CONTROL)
+                assertEquals(expected, numericRows(executed.businessResult), "$dialect $population $selected")
+                if (selected.size == 1) assertEquals(1, executed.compiledQuery.sqlPlan.count {
+                    it.operator == "LogicalJoin" && it.joinType == "LEFT"
+                }, "$dialect $population must only attach the independent refunds relation")
+            }
+            val scalarBase = Calculation.Scope(observationMeasure("purchases", false).root, emptyMap(), listOf(PostFilter(
+                ResultOperation(ResultOperator.GT, listOf(ResultSymbol("value"), ResultQuantityLiteral(BigDecimal("1000"), money))))))
+            val scalarInputs = linkedMapOf(
+                "purchases" to Calculation.AlignedInput(scalarBase, emptyMap(), listOf(Calculation.AlignedValue("value", "purchased", Calculation.NoMatch.ZERO_WHEN_ABSENT))),
+                "refunds" to Calculation.AlignedInput(observationMeasure("refunds", false), emptyMap(), listOf(Calculation.AlignedValue("value", "refunded", Calculation.NoMatch.ZERO_WHEN_ABSENT))))
+            val scalarSlots = listOf(observationMeasurement("purchases", false), observationMeasurement("refunds", false))
+            for (population in Calculation.PopulationKind.entries) {
+                val body = Calculation.Scope(Calculation.AlignMeasurements(scalarInputs, emptyList(),
+                    Calculation.AlignmentPopulation(population, listOf("purchases"))), emptyMap(), emptyList())
+                val result = execute(engine, definitions, observationCompute(body, emptyList(), scalarSlots, bindings))
+                assertEquals(listOf("purchased", "refunded"), result.columns.map { it.symbol.name })
+                assertTrue(result.rows.isEmpty(), "$dialect $population must retain the empty scalar population despite a populated refunds relation")
             }
         }
         NativeWarehouse(directory, "duckdb", listOf("CREATE TABLE orders(id INTEGER PRIMARY KEY, customer INTEGER, period INTEGER, kind INTEGER, amount DECIMAL(18,2))",

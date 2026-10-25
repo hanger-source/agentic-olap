@@ -4,7 +4,7 @@ description: 使用 Agentic OLAP 服务调查业务数据、建设和复用可�
 license: Apache-2.0
 metadata:
   author: hanger
-  version: "0.14.1"
+  version: "0.21.0"
   repository: https://github.com/hanger-source/agentic-olap
 ---
 
@@ -46,10 +46,10 @@ agentic-olap call describe-script-api --payload '{"type":"com.olap.prototype.cal
 
 `LogicUnitInput.rules.valueTypeRules` 要求标量 `logicType` 与容器 `valueShape` 恰好选一个：标量的 `valueShape=null`；容器的 `logicType=null`，形状为正式 `SetOutputContract.Container` 的 ARRAY／ROW。普通金额字段使用 `LogicType.NUMBER`，数量合同中的单位、算术和结果容量不填入字段的容器形状。
 
-`execute-script` 向持续 Kotlin 会话提交一个完整片段。DSL 为 `agentic-olap-kotlin-dsl/v4`，以服务发现结果为准。`executionId` 必填；不填 `sessionId` 创建会话，后续使用实际返回的会话 ID：
+`execute-script` 向持续 Kotlin 会话提交一个完整片段。DSL 为 `agentic-olap-kotlin-dsl/v5`，以服务发现结果为准。`executionId` 必填；不填 `sessionId` 创建会话，后续使用实际返回的会话 ID：
 
 ~~~sh
-agentic-olap call execute-script --payload '{"executionId":"sources-001","waitMillis":0,"source":"val sources = olap.sources.list(EmptyRequest)\nolap.output(sources)","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v4","parameters":{}}'
+agentic-olap call execute-script --payload '{"executionId":"sources-001","waitMillis":0,"source":"val sources = olap.sources.list(EmptyRequest)\nolap.output(sources)","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v5","parameters":{}}'
 agentic-olap call wait-script --payload '{"executionId":"sources-001","waitMillis":1000}'
 ~~~
 
@@ -92,6 +92,8 @@ agentic-olap call wait-script --payload '{"executionId":"sources-001","waitMilli
 完整查询使用 `QueryIntent(publication, computation)`；`scope/query/input/stage` 帮助构造现有 `QueryComputation.Scope`、根、输入与有序阶段。成员槽保留对象身份和属性角色；测量槽接收可调用实例；关系槽接收显式 ROOT 完成关系并核对列、维度、数量及完整键。金额和人数不能为了传参伪装为成员属性。
 
 来源条件通过定义声明的 CONDITION 参数显式传给指定事实，不自动继承到子树。长期人口与资格规则沉淀到定义，本次期间与选择由调用者明确。保留单位、算术、缺组、NULL、重复度与贡献关系，不补零、加 MAX、拼身份或去重来制造通过。
+
+本次内联 Query 可以在 NUMERIC 的 `valueContract.unitEquations` 中显式声明名义单位方程，不必先创建 Metric，也不借用已发布 Metric 的输出合同授权方程。方程只作用于这个 NUMERIC 直接包住的运算；引擎核对实际单位、运算符、精确倍率及输出合同，场景对输入、节点和算子的权限继续生效。声明不登记或覆盖长期定义；需要复用完整口径时保存真实计算，不创建只有方程的空壳 Metric。成员出口和关系形参只声明数量事实，方程留在计算体。规则与可定位的单位错误见[数量合同与人口](https://github.com/hanger-source/agentic-olap/blob/main/docs/agent-usage.md#数量合同与人口)。
 
 `COUNT` 使用 `MetricValueContract.Fixed(MetricValueContract.ONE)`，对象身份及去重政策由测量本身表达，不能给计数另造实体单位。完整 COUNT、精确金额数量合同及人口合同读取示例见[数量合同与人口](https://github.com/hanger-source/agentic-olap/blob/main/docs/agent-usage.md#数量合同与人口)。
 

@@ -174,7 +174,7 @@ olap.output(olap.sources.connectorCapabilities(
 
 原生函数交出标量，不能以该入口返回表、数组或记录。数值结果必须声明算术保证：`EXACT_DECIMAL` 为精确算术，`NATIVE_APPROXIMATION` 明确结果域及绝对、相对容差，`NATIVE_FLOATING` 沿用原生浮点算术且不声明这些界限。`NATIVE_FLOATING` 仍接受容量、有限值及溢出核验；它不能通过 CAST、输出为 DECIMAL 或定义组合取得精确性或误差界限。结果的技术表示与算术保证分别核验，不能相互替代。
 
-`IMMUTABLE/STATEMENT/VOLATILE` 按函数实际依赖声明稳定性；精确物理版本不冻结表内数据，不能据此宣称读取该表的结果恒定。函数调用不能因显示名相同而被当作常量或共享。插件只映射已校验参数到 SQL AST，业务定义与 Query 继续拥有业务公式、对象总体和计算阶段；函数声明不扩大来源、表或公开输出权限。
+`IMMUTABLE/STATEMENT/VOLATILE` 按函数实际依赖声明稳定性。STATEMENT 要求同一来源 SQL 中相同参数具有稳定结果，跨语句不作此承诺；精确物理版本不冻结表内数据。SQL 转换可以在无外部相关、子查询或递归边界的同一实际共享关系中使用这项声明，仍不将 STATEMENT 作为可在编译期折叠的 IMMUTABLE，也不跨语句缓存。VOLATILE 不进入共同关系共享。CTE 不保证后端物化或单次扫描，函数稳定性也不证明整份来源数据的一致快照。插件只映射已校验参数到 SQL AST，业务定义与 Query 继续拥有业务公式、对象总体和计算阶段；函数声明不扩大来源、表或公开输出权限。
 
 ### 原生映射的来源环境
 

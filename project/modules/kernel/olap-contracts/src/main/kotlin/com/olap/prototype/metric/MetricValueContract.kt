@@ -127,22 +127,6 @@ class MetricValueContract(val unit: Unit, val arithmetic: Arithmetic, val result
         val PERCENT = UnitIdentity("olap", "percent", 1)
         private fun decimal(value: String): BigDecimal = BigDecimal(MetricDefinition.text(value, "exact decimal text"))
 
-        fun builtinEquation(equation: UnitEquation): Boolean = when (equation) {
-            is SameUnitRatio, is PreserveUnitScale, is PreserveUnit -> true
-            is FixedBinary -> when (equation.operator) {
-                BinaryOperator.MULTIPLY -> equation.left == ONE && equation.result == equation.right || equation.right == ONE && equation.result == equation.left
-                BinaryOperator.DIVIDE -> equation.right == ONE && equation.result == equation.left || equation.left == equation.right && equation.result == ONE
-            }
-            is Scale -> {
-                val factor = decimal(equation.factor)
-                when {
-                    equation.from == ONE && equation.to == PERCENT -> equation.operator == BinaryOperator.MULTIPLY && factor.compareTo(BigDecimal("100")) == 0 || equation.operator == BinaryOperator.DIVIDE && factor.compareTo(BigDecimal("0.01")) == 0
-                    equation.from == PERCENT && equation.to == ONE -> equation.operator == BinaryOperator.DIVIDE && factor.compareTo(BigDecimal("100")) == 0 || equation.operator == BinaryOperator.MULTIPLY && factor.compareTo(BigDecimal("0.01")) == 0
-                    else -> false
-                }
-            }
-        }
-
         fun compatibleAxes(left: UnitAxis, right: UnitAxis): Boolean = left.dimensionId == right.dimensionId && left.dimensionVersion == right.dimensionVersion &&
             left.role == right.role && left.memberType == right.memberType && left.members.none { first -> right.members.any { second -> first.member.sameValue(second.member) && first.unit != second.unit } }
 

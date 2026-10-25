@@ -25,8 +25,17 @@ internal class ObservationAlignmentCompiler(private val builder: RelBuilder,
     fun compile(display: MutableMap<String, String>): RelNode {
         check(inputs.keys == aligned.keys.keys) { "all declared observation inputs must be attached before alignment" }
         val normalized = normalize(display)
-        var result = population(normalized.mapValues { it.value.relation })
-        normalized.forEach { (id, measurement) -> result = attach(result, id, measurement) }
+        val populationInput = aligned.population.inputIds.singleOrNull()
+        // 单元素人口就是已核验的完成关系本身；其值不必从键集合再关联回来。
+        var result = if (populationInput != null) {
+            builder.push(normalized.getValue(populationInput).relation)
+            val names = aligned.observationKeys + aligned.values.getValue(populationInput).map { it.outputAlias }
+            builder.project(names.map(builder::field), names, true)
+            builder.build()
+        } else population(normalized.mapValues { it.value.relation })
+        normalized.forEach { (id, measurement) ->
+            if (id != populationInput) result = attach(result, id, measurement)
+        }
         builder.push(result)
         val outputs = aligned.observationKeys + aligned.values.values.flatten().map { it.outputAlias }
         builder.project(outputs.map(builder::field), outputs, true)
@@ -41,7 +50,10 @@ internal class ObservationAlignmentCompiler(private val builder: RelBuilder,
             expressions += builder.field(aligned.keys.getValue(id).getValue(key)); names += key; display[key] = key
         }
         aligned.values.getValue(id).forEach { value ->
-            expressions += builder.field(value.symbol); names += value.outputAlias; display[value.outputAlias] = value.outputAlias
+            val field = builder.field(value.symbol)
+            if (value.noMatch == Calculation.NoMatch.ZERO_WHEN_ABSENT)
+                require(SqlTypeUtil.isNumeric(field.type)) { "absent measurement zero requires an actual numeric result" }
+            expressions += field; names += value.outputAlias; display[value.outputAlias] = value.outputAlias
         }
         var marker = "__alignment_presence_$index"
         while (marker in names) marker += "_"
@@ -81,7 +93,6 @@ internal class ObservationAlignmentCompiler(private val builder: RelBuilder,
         aligned.values.getValue(id).forEach { value ->
             var field: RexNode = builder.field(leftNames.size + rightNames.indexOf(value.outputAlias))
             if (value.noMatch == Calculation.NoMatch.ZERO_WHEN_ABSENT) {
-                require(SqlTypeUtil.isNumeric(field.type)) { "absent measurement zero requires an actual numeric result" }
                 field = builder.call(SqlStdOperatorTable.CASE, builder.isNull(presence), builder.rexBuilder.makeZeroLiteral(field.type), field)
             }
             expressions += field; names += value.outputAlias
