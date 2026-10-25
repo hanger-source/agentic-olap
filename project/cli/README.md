@@ -49,11 +49,11 @@ agentic-olap call execute-script --payload '{"executionId":"sources-1","waitMill
 
 业务连接器由使用者独立提供。在 `info` 指出的配置文件中登记插件 manifest、来源身份、插件参数和凭据引用。来源支持 HTTP 等访问实现，结构可由调查取得，也可通过 MCP 显式登记；catalog 权限不是必备条件。同一来源 ID 可以部署多个不同绑定；从 `list-data-sources` 选择并原样使用其 `sourceIdentityHash`，不按同名来源自动切换。业务 Agent 经 MCP 发现正式 Kotlin API，并以完整 kts 程序调用 `olap.sources/semantics/governance/queries/results`。定义与 Query 由正式构造器产生，写入、执行与结果交付仍走统一服务。服务不启动模型。
 
-源码构建的连接器 API 为 `agentic-olap-connector/v14-kotlin-mean-target-calcite-1.42`，元数据存储格式为 `18`。安装发行物时遵循目标宿主声明的接口和运行要求。既有持久根不会被自动改写。
+源码构建的连接器 API 为 `agentic-olap-connector/v14-kotlin-mean-target-calcite-1.42`，元数据存储格式为 `19`。安装发行物时遵循目标宿主声明的接口和运行要求。既有持久根不会被自动改写。
 
 需要独立持久根时，相关命令使用同一 `--home /absolute/path`。已有远程服务的客户端使用 `--url https://your-service/mcp --token-env OLAP_TOKEN`。服务器远程访问使用显式 `start --config /absolute/server.json` 和外部 JWT 认证配置；默认本机令牌模式只允许回环监听。
 
-升级使用同一正式入口：停止当前前台服务，执行 `npm install --global @hanger-source/agentic-olap@目标版本`，再用原 `--home` 或 `--config` 启动。本地服务启动后用 `agentic-olap info` 核对实际运行版本；远程服务通过 `tools` 返回的 `serverInfo.version` 核对。npm 安装不会自动重启已有进程，也不会改写业务配置或转换持久资产格式。
+升级使用同一正式入口：先核对目标存储格式，再停止当前前台服务，执行 `npm install --global @hanger-source/agentic-olap@目标版本`。持久格式匹配时使用原 `--home` 或 `--config`；格式不匹配时为目标版本选择独立持久根，保留原根供匹配版本读取，不把旧根交给新格式运行时。本地服务启动后用 `agentic-olap info` 核对实际运行版本；远程服务通过 `tools` 返回的 `serverInfo.version` 核对。npm 安装不会自动重启已有进程，也不会改写业务配置或转换持久资产格式。
 
 SDK 声明与内置插件随 npm 一起替换。独立插件不因产品版本或 SDK Maven 坐标变化就必须重构：连接器 API 相同，插件所用公共接口的二进制合同及 JVM、Kotlin、Calcite 要求满足目标宿主时，可保留原 manifest、JAR 和完整 `connectorRef`。宿主核验精确字节和 provider 身份，不比较插件构建所用的产品版本。API 字符串相同或装载成功不能替代实际使用能力的查询验证。原插件与来源身份参数未变时，来源绑定不变，无需为产品升级重登记目录或修订资产。
 
