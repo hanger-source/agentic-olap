@@ -45,7 +45,7 @@ enum WorkerKind {
 }
 
 message Bootstrap {
-  string protocol = 1; // agentic-olap-runtime/v6，版本必须精确一致。
+  string protocol = 1; // agentic-olap-runtime/v11，版本必须精确一致。
   bytes limits_json = 3;
   repeated string connector_manifests = 4;
   WorkerKind worker_kind = 5;

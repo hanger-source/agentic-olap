@@ -18,13 +18,18 @@ object ExecutableStageAnalysis {
     fun analyze(graph: ExecutableInputGraph, connectors: ConnectorRegistry): Map<ScopeId, Analysis> = Session(graph, connectors).analyze()
 
     /** 保留同一绑定图和已经完成的子计算，只重分析物理切点上的来源前缀。 */
-    fun sourcePrefix(graph: ExecutableInputGraph, fullAnalyses: Map<ScopeId, Analysis>, cut: CoreFinalizationGraph.SourceCut,
+    fun sourcePrefixes(graph: ExecutableInputGraph, fullAnalyses: Map<ScopeId, Analysis>, cuts: List<CoreFinalizationGraph.SourceCut>,
         connectors: ConnectorRegistry): Map<ScopeId, Analysis> {
-        val sourceScope = cut.scope
-        check(sourceScope in fullAnalyses && graph.scope(sourceScope) != null) { "core source cut must identify an actual analyzed scope" }
-        check(cut.stageCount in 0..fullAnalyses.getValue(sourceScope).stages.size) { "source prefix exceeds its actual scope stages" }
-        if (cut.stageCount == fullAnalyses.getValue(sourceScope).stages.size) return fullAnalyses
-        return Session(graph, connectors, fullAnalyses - sourceScope, mapOf(sourceScope to cut.stageCount)).analyze(sourceScope)
+        check(cuts.isNotEmpty() && cuts.map { it.scope }.distinct().size == cuts.size) { "source completions require one boundary per actual scope" }
+        cuts.forEach { cut ->
+            check(cut.scope in fullAnalyses && graph.scope(cut.scope) != null) { "core source cut must identify an actual analyzed scope" }
+            check(cut.stageCount in 0..fullAnalyses.getValue(cut.scope).stages.size) { "source prefix exceeds its actual scope stages" }
+        }
+        val counts = cuts.associate { it.scope to it.stageCount }
+        val session = Session(graph, connectors, fullAnalyses - counts.keys, counts)
+        var result = fullAnalyses
+        cuts.forEach { result = session.analyze(it.scope) }
+        return result
     }
 
     private class Session(private val graph: ExecutableInputGraph, private val connectors: ConnectorRegistry,

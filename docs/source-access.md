@@ -164,7 +164,7 @@ olap.output(olap.sources.connectorCapabilities(
 
 通过 `olap.sources.connectorCapabilities(ConnectorCapabilitiesRequest(aggregate=null))` 读取当前主体可访问来源所用的精确连接器；响应的 `connectors` 每项包含 `connectorRef`、`nativeScalarFunctions`、`compilationCapabilities`、`parameterSubmission` 和 `configurationParameters`。这些是精确插件的声明，不连接来源或证明完整查询可用。函数声明给出 `id`、有序 `parameters`、`resultType`、`arithmetic` 和 `stability`，不按 SQL 方言或产品名称猜函数。
 
-`compilationCapabilities` 只列出插件明确支持的编译能力。`CORRELATED_DERIVED_PROJECTION` 表示派生关系投影可以引用外层查询值，普通 EXISTS 的条件相关不需要这项能力。若数值求值绑定实际需要这种投影而插件未声明，编译在提交 SQL 前返回 `NATIVE_COMPILATION_CAPABILITY_MISSING`，并指出 `capability=CORRELATED_DERIVED_PROJECTION`、`operation=NUMERIC_EVALUATION_BINDING`。不退回重复内联、移除人口守卫或提前计算未选中分支。
+`compilationCapabilities` 只列出插件明确支持的编译能力。`CORRELATED_DERIVED_PROJECTION` 表示派生关系投影可以引用外层查询值，普通 EXISTS 的条件相关不需要这项能力。若 SQL 求值绑定实际需要这种投影而插件未声明，编译在提交 SQL 前返回 `NATIVE_COMPILATION_CAPABILITY_MISSING`，并指出 `capability=CORRELATED_DERIVED_PROJECTION`、`operation=SQL_EVALUATION_BINDING`。不退回重复内联、移除人口守卫或提前计算未选中分支。
 
 来源表达式使用 `SemanticExpression.NativeCall`，提交精确 `connectorRef`、`function` 和有序 `arguments`。参数使用正式 Scalar 与 PhysicalTable 变体，分别持有来源表达式或精确物理表身份和版本。作者阶段核对精确函数声明和 P 可引用，不从 P 暗选兑现实现；发布／编译核验实际采用与函数的精确连接器一致。`NativeCall(A)` 不会因发布选择 B 而被改写，冲突需明确修订定义。仅作为函数参数的 P 也作为真实来源依赖冻结和授权。来源表达式中的内联调用只允许本次精确发布的表闭包；它不是表名文本，也不接受任意 SQL。技术调查 `profile-relationship` 不提供已采用表解析，不支持此类调用。
 

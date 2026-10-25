@@ -47,13 +47,16 @@ class OlapSemanticCompiler(private val compiler: CalciteRelCompiler) {
         }
         val sourceAnalyses = if (coreGraph == null) analyses else timed(context, "COMPILE_SOURCE_PREFIX") {
             phase("ANALYZE_SOURCE_PREFIX", "EXECUTABLE_SOURCE_PREFIX_ANALYSIS_FAILED", "Source completion boundary analysis failed", query) {
-                ExecutableStageAnalysis.sourcePrefix(graph, analyses, coreGraph.source, compiler.connectors)
+                ExecutableStageAnalysis.sourcePrefixes(graph, analyses, coreGraph.sources, compiler.connectors)
             }
         }
-        val observationIdentity = if (coreGraph == null) null else phase("COMPILE_CORE_FINALIZATION", "CORE_FINALIZATION_PLAN_FAILED", "Core finalization population validation failed", query) {
-            coreGraph.requireCommonPopulation(analyses, sourceAnalyses.getValue(coreGraph.sourceScope))
+        val sourceInputs = if (coreGraph == null) null else phase("COMPILE_CORE_FINALIZATION", "CORE_FINALIZATION_PLAN_FAILED", "Core finalization population validation failed", query) {
+            coreGraph.sourceInputs(analyses, sourceAnalyses)
         }
-        val relational = try { compiler.compile(graph, sourceAnalyses, resolved, context, coreGraph?.sourceScope ?: ScopeId.root(), observationIdentity) }
+        val relational = try {
+            if (sourceInputs == null) compiler.compile(graph, sourceAnalyses, resolved, context)
+            else compiler.compileCore(graph, sourceAnalyses, resolved, context, sourceInputs)
+        }
         catch (cancelled: java.util.concurrent.CancellationException) { throw cancelled }
         catch (failure: EngineExecutionException) { throw EngineExecutionException(failure.stage, failure.code, failure.message, failure,
             observedEvidence(query) + failure.evidenceContext, query, failure.sourceFailure, failure.sourceReadEvidence, failure.sourceExecutionStarted, failure.stageNanos) }
@@ -67,10 +70,10 @@ class OlapSemanticCompiler(private val compiler: CalciteRelCompiler) {
         if (coreGraph != null) {
             val core = timed(context, "COMPILE_CORE_FINALIZATION") {
                 phase("COMPILE_CORE_FINALIZATION", "CORE_FINALIZATION_PLAN_FAILED", "Core finalization plan compilation failed", observed) {
-                    CoreFinalizationPlan.compile(relational.lowering.outputContract, analyses, coreGraph)
+                    CoreFinalizationPlan.compile(relational.lowering.outputLayout, analyses, coreGraph)
                 }
             }
-            context.addAuditLog("Core finalization: sourceScope=${coreGraph.sourceScope.path}, sourceStageCount=${coreGraph.source.stageCount}, localScopes=${coreGraph.scopes.map { it.path }}")
+            context.addAuditLog("Core finalization: sourceCuts=${coreGraph.sources.map { it.scope.path to it.stageCount }}, localScopes=${coreGraph.scopes.map { it.path }}")
             observed = observed.copy(coreFinalizationPlan = core)
         }
         return timed(context, "COMPILE_PLAN_EVIDENCE") {

@@ -14,6 +14,10 @@ import org.apache.calcite.sql.type.SqlTypeName
 
 internal object H2Dialect {
     fun create(): SqlDialect = object : H2SqlDialect(H2SqlDialect.DEFAULT_CONTEXT.withDataTypeSystem(H2NativeTypes())) {
+        override fun quoteStringLiteral(builder: StringBuilder, charsetName: String?, value: String) {
+            // H2 的 Unicode 字符串使用普通引号，不接受 Calcite 的 _charset introducer。
+            super.quoteStringLiteral(builder, null, value)
+        }
         override fun getCastSpec(type: RelDataType): SqlNode? {
             if (type.sqlTypeName != SqlTypeName.ROW) return super.getCastSpec(type)
             val pos = SqlParserPos.ZERO

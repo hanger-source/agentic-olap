@@ -23,7 +23,7 @@ data class QueryExplanationView(val requestId: String, val summary: Summary, val
     data class RelationCheck(val code: String, val scope: QueryStageAnalysis.ScopeId?, val keys: List<String>, val reason: String?)
     data class Summary(val scopeCount: Int, val sourceInputCount: Int, val executionBoundary: String,
         val populationContract: PopulationContract, val actualSourceStatistics: String, val rowNullAttribution: String,
-        val sourceOutputScope: QueryStageAnalysis.ScopeId)
+        val sourceOutputScopes: List<QueryStageAnalysis.ScopeId>)
     data class PopulationMode(val mode: String, val fields: List<String>, val groups: String, val inputs: String?)
     data class PopulationContract(val formatVersion: String, val required: Boolean, val modes: List<PopulationMode>,
         val scope: String, val grain: String, val unmatchedMetrics: String, val calculationMetric: String, val emptyPopulation: String, val coverage: String)

@@ -60,8 +60,8 @@ object QueryExplanationProto {
         v.scope, v.grain, v.unmatchedMetrics, v.calculationMetric, v.emptyPopulation, v.coverage)
     fun toProto(v: View.Summary): ExplanationSummary = ExplanationSummary.newBuilder().setScopeCount(v.scopeCount).setSourceInputCount(v.sourceInputCount)
         .setExecutionBoundary(v.executionBoundary).setPopulationContract(toProto(v.populationContract)).setActualSourceStatistics(v.actualSourceStatistics).setRowNullAttribution(v.rowNullAttribution)
-        .setSourceOutputScope(SemanticProto.toProto(v.sourceOutputScope)).build()
-    fun fromProto(v: ExplanationSummary): View.Summary { require(v.hasPopulationContract() && v.hasSourceOutputScope()); return View.Summary(v.scopeCount, v.sourceInputCount, v.executionBoundary, fromProto(v.populationContract), v.actualSourceStatistics, v.rowNullAttribution, SemanticProto.fromProto(v.sourceOutputScope)) }
+        .addAllSourceOutputScopes(v.sourceOutputScopes.map(SemanticProto::toProto)).build()
+    fun fromProto(v: ExplanationSummary): View.Summary { require(v.hasPopulationContract() && v.sourceOutputScopesCount > 0); return View.Summary(v.scopeCount, v.sourceInputCount, v.executionBoundary, fromProto(v.populationContract), v.actualSourceStatistics, v.rowNullAttribution, v.sourceOutputScopesList.map(SemanticProto::fromProto)) }
     fun toProto(v: QueryStageAnalysis.Key): ExplanationKey = ExplanationKey.newBuilder().apply { when (v) {
         is QueryStageAnalysis.UniqueKey -> { provenUnique = true; addAllColumns(v.columns.sortedWith(compareBy({ it.scope.path.joinToString("\u0000") }, { it.position })).map(SemanticProto::toProto)) }
         QueryStageAnalysis.UnknownKey.INSTANCE -> provenUnique = false

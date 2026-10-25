@@ -427,7 +427,7 @@ class MemberRelationExecutionTest {
             assertEquals(listOf(executed.sourceReadEvidence), completed)
             assertEquals(SourceExecutionState.SUCCEEDED, executed.sourceReadEvidence.request.execution)
             // 来源只交付分子、分母与键，最终合同不能被来源列替代。
-            assertEquals(listOf("customer", "numerator", "denominator"), requireNotNull(executed.compiledQuery.executableLoweringResult).outputContract.columns.map { it.symbol.name })
+            assertEquals(listOf("customer", "numerator", "denominator"), requireNotNull(executed.compiledQuery.executableLoweringResult).outputLayout.fields.map { it.name })
             assertEquals(columns, executed.businessResult.columns.map { it.symbol.name })
             val repeated = coreQuery(definitions, computation, coreBasis(memberEquals("customer", 2)), query.stages)
             val second = engine(warehouse).execute(catalog, ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION, "core-reused",
@@ -441,7 +441,7 @@ class MemberRelationExecutionTest {
                 catalog.manifest.catalogId, referenced, QueryExecutionMode.CORE_FINALIZATION), observed, RuntimeDeploymentLimits.CONTROL)
             assertEquals(expected.map { listOf(it[0], it[3], it[10]) }, numericRows(sharedResult.businessResult))
             assertEquals(sharedColumns, sharedResult.businessResult.columns.map { it.symbol.name })
-            assertEquals(listOf("customer", "numerator", "denominator"), requireNotNull(sharedResult.compiledQuery.executableLoweringResult).outputContract.columns.map { it.symbol.name })
+            assertEquals(listOf("customer", "numerator", "denominator"), requireNotNull(sharedResult.compiledQuery.executableLoweringResult).outputLayout.fields.map { it.name })
             val differentPopulation = coreQuery(definitions, caller, coreBasis(memberEquals("customer", 2)), continued)
             val sharedSecond = engine(warehouse).execute(catalog, ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION, "core-shared-reused",
                 catalog.manifest.catalogId, differentPopulation, QueryExecutionMode.CORE_FINALIZATION), observed, RuntimeDeploymentLimits.CONTROL)
@@ -450,10 +450,13 @@ class MemberRelationExecutionTest {
         }
     }
 
-    @Test fun finalizesIndependentSavedCallsFromOneCompleteBasisWithoutJoiningTheirRows(@TempDir directory: Path) {
+    @Test fun finalizesIndependentSavedCallsWithTheirOwnCompletedPopulations(@TempDir directory: Path) {
         coreNumbers(directory).use { warehouse ->
-            warehouse.connection.createStatement().use { it.execute("""UPDATE orders SET kind = CASE id
-                WHEN 1 THEN 4 WHEN 3 THEN -1 WHEN 4 THEN 0 WHEN 6 THEN 0 WHEN 10 THEN 6 WHEN 11 THEN 0 ELSE NULL END""") }
+            warehouse.connection.createStatement().use {
+                it.execute("""UPDATE orders SET kind = CASE id
+                    WHEN 1 THEN 4 WHEN 3 THEN -1 WHEN 4 THEN 0 WHEN 6 THEN 0 WHEN 10 THEN 6 WHEN 11 THEN 0 ELSE NULL END""")
+                it.execute("INSERT INTO orders VALUES (18,NULL,1,0,6)")
+            }
             val definitions = coreDefinitions(warehouse)
             val original = definitions.members.getValue("orders@1") as MemberSource.Projection
             val declared = original.definition.result
@@ -494,6 +497,49 @@ class MemberRelationExecutionTest {
                 if (separateBasis) inputs["basis_copy"] = Calculation.InputScope("ROOT", basis)
                 return Calculation.Scope(Calculation.Compute(calculation, Calculation.ExplicitBindings(bindings, emptyMap(), actual), emptyMap()), inputs, listOf(Project(listOf("customer", "first_mean", "second_mean"))))
             }
+            val filteredDefinitions = listOf(
+                ResultOperation(ResultOperator.OR, listOf(
+                    ResultOperation(ResultOperator.IS_NULL, listOf(symbol("value"))),
+                    ResultOperation(ResultOperator.NE, listOf(symbol("value"), ResultQuantityLiteral(BigDecimal("0.333333333333333333"), result))))),
+                ResultOperation(ResultOperator.OR, listOf(
+                    ResultOperation(ResultOperator.IS_NULL, listOf(symbol("value"))),
+                    ResultOperation(ResultOperator.LTE, listOf(symbol("value"), ResultQuantityLiteral(BigDecimal("1.5"), result)))))
+            ).map { predicate -> coreCalculation(listOf(
+                shared.computation.stages.first(), PostFilter(predicate), Project(listOf("customer", "value")))) }
+            val instances = listOf("first", "second").mapIndexed { index, name ->
+                val reference = MetricRef("${name}_filtered_mean", "1")
+                definitions.metrics[reference.key()] = ExecutableMetric(reference, MetricCalculation(filteredDefinitions[index], "value", listOf("customer"), result))
+                val id = "${name}_filtered_mean"
+                definitions.instances[id] = MetricInstance(reference, CalculationBindings(
+                    observationBindings(definitions, emptyMap(), emptyMap()).dimensions, emptyMap(), emptyMap(), emptyMap(),
+                    mapOf("completed" to CalculationBindings.RelationParameter())), emptyMap(), name)
+                name to MetricInstanceRef(id)
+            }.toMap()
+            val independentInputs = listOf("first" to "amount", "second" to "kind").associate { (name, field) ->
+                "${name}_basis" to Calculation.InputScope("ROOT", Calculation.Scope(basis.root, basis.inputs, listOf(
+                    regroup(listOf("customer"), listOf(
+                        reduction(field, ResultAggregation.Sum(coreDecimal(38, 0, MetricValueContract.Rounding.NONE), ResultAggregation.NullPolicy.IGNORE), "${name}_sum"),
+                        reduction(field, ResultAggregation.Count(false, ResultAggregation.NullPolicy.IGNORE), "${name}_count"))),
+                    Project(listOf("customer", "${name}_sum", "${name}_count")))))
+            }
+            fun selectedCalls(names: List<String>, population: List<String>): Calculation.Scope {
+                val selected = names.map { name -> Calculation.Call(name, Calculation.Instance(instances.getValue(name)), "${name}_mean",
+                    emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(),
+                    mapOf("completed" to CalculationBindings.LocalRelation("${name}_basis", mapOf(
+                        "customer" to "customer", "numerator" to "${name}_sum", "denominator" to "${name}_count")))) }
+                return Calculation.Scope(Calculation.Measures(selected,
+                    listOf(Calculation.PublishedDimension(ScopedInputContract.DimensionRef("customers", "1", "customer"))), emptyList(), null, emptyMap(),
+                    Calculation.Condition(DimensionCondition.Unrestricted()), DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(population), null),
+                    names.associate { "${it}_basis" to independentInputs.getValue("${it}_basis") },
+                    listOf(Project(listOf("customer") + names.map { "${it}_mean" })))
+            }
+            val alignedInputs = listOf("first", "second").associateWith { name ->
+                val selected = selectedCalls(listOf(name), listOf(name))
+                val knownIdentity = Calculation.Scope(selected.root, selected.inputs, selected.stages + PostFilter(
+                    ResultOperation(ResultOperator.IS_NOT_NULL, listOf(symbol("customer")))))
+                Calculation.AlignedInput(knownIdentity, mapOf("customer" to "customer"), listOf(
+                    Calculation.AlignedValue("${name}_mean", "${name}_mean", Calculation.NoMatch.ZERO_WHEN_ABSENT)))
+            }
             val source = com.olap.prototype.connector.SourceProvider(warehouse.spec.source(), TestConnectors.registry)
             val delegate = SourceExecutableSqlExecutor({ if (it == source.bindingRef) source else null }, RuntimeDeploymentLimits.result, RuntimeDeploymentLimits.nativeMemoryBytes, null)
             var submissions = 0
@@ -503,30 +549,43 @@ class MemberRelationExecutionTest {
             }, RuntimeDeploymentLimits.result)
             warehouse.finishSetup()
             val catalog = definitions.catalog()
-            val expected = listOf(listOf("1", "33333333333333333333.333333333333333333", "1.5"),
+            val expected = listOf(listOf(null, "6", "0"), listOf("1", "33333333333333333333.333333333333333333", "1.5"),
                 listOf("2", "0.333333333333333333", "0"), listOf("3", null, null), listOf("4", "-1", "3"))
                 .map { row -> row.map { it?.let(::decimal) } }
-            // 两个定义的局部列都叫value，各自分量的NULL人口不同；人口子集仍保持同一份完成行。
-            for (population in listOf(listOf("first"), listOf("first", "second"))) {
+            fun execute(query: Calculation.Scope): ExecutableBusinessResult {
                 val before = submissions
-                val executed = engine.execute(catalog, ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION, "core-shared-$before", catalog.manifest.catalogId,
-                    query(population), QueryExecutionMode.CORE_FINALIZATION), observer, RuntimeDeploymentLimits.CONTROL)
-                assertEquals(expected, numericRows(executed.businessResult))
-                assertEquals(before + 1, submissions, "共同basis只允许一次实际来源执行")
-                assertEquals(listOf("customer", "first_sum", "first_count", "second_sum", "second_count"),
-                    requireNotNull(executed.compiledQuery.executableLoweringResult).outputContract.columns.map { it.symbol.name })
+                val executed = engine.execute(catalog, ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION, "core-populations-$before", catalog.manifest.catalogId,
+                    query, QueryExecutionMode.CORE_FINALIZATION), observer, RuntimeDeploymentLimits.CONTROL)
+                assertEquals(before + 1, submissions, "每次共同或独立cut组合只执行一次实际来源")
                 assertEquals(SourceExecutionState.SUCCEEDED, executed.sourceReadEvidence.request.execution)
+                return executed.businessResult
             }
-            val before = submissions
-            val failure = assertThrows(EngineExecutionException::class.java) {
-                engine.execute(catalog, ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION, "core-distinct-basis", catalog.manifest.catalogId,
-                    query(listOf("first", "second"), true), QueryExecutionMode.CORE_FINALIZATION), observer, RuntimeDeploymentLimits.CONTROL)
+            // 同一完成位置和两个精确完成位置都保留每个定义的商值、NULL人口与NULL分组键。
+            for (separateBasis in listOf(false, true)) {
+                for (population in listOf(listOf("first"), listOf("first", "second"))) {
+                    assertEquals(expected, numericRows(execute(query(population, separateBasis))))
+                }
             }
-            assertEquals("CORE_FINALIZATION_UNSUPPORTED", failure.code)
-            assertEquals(listOf("input", "computation", "\$metric", "second", "root"), failure.evidenceContext["fieldPath"])
-            assertEquals(before, submissions, "同SQL的不同完成位置也不能暗中合并或再发来源请求")
-            assertEquals(false, failure.sourceExecutionStarted)
-            assertNull(failure.sourceReadEvidence)
+            val firstPopulation = listOf(listOf(null, "6", "0"), listOf("1", "33333333333333333333.333333333333333333", "1.5"),
+                listOf("3", null, null), listOf("4", "-1", null)).map { row -> row.map { it?.let(::decimal) } }
+            val allPopulations = (firstPopulation + listOf(listOf(decimal("2"), null, decimal("0"))))
+                .sortedWith(compareBy(nullsFirst()) { it.first() })
+            assertEquals(firstPopulation, numericRows(execute(selectedCalls(listOf("first", "second"), listOf("first")))))
+            assertEquals(allPopulations, numericRows(execute(selectedCalls(listOf("first", "second"), listOf("first", "second")))))
+            val base = listOf(listOf("1", "33333333333333333333.333333333333333333", "1.5"), listOf("3", null, null), listOf("4", "-1", "0"))
+                .map { row -> row.map { it?.let(::decimal) } }
+            for (population in Calculation.PopulationKind.entries) {
+                val selected = if (population == Calculation.PopulationKind.BASE) listOf("first") else listOf("first", "second")
+                val aligned = Calculation.Scope(Calculation.AlignMeasurements(alignedInputs, listOf("customer"),
+                    Calculation.AlignmentPopulation(population, selected)), emptyMap(), listOf(Project(listOf("customer", "first_mean", "second_mean"))))
+                val alignedExpected = when (population) {
+                    Calculation.PopulationKind.BASE -> base
+                    Calculation.PopulationKind.UNION -> (base + listOf(listOf(decimal("2"), decimal("0"), decimal("0"))))
+                        .sortedWith(compareBy(nullsFirst()) { it.first() })
+                    Calculation.PopulationKind.INTERSECTION -> base.take(2)
+                }
+                assertEquals(alignedExpected, numericRows(execute(aligned)), "$population: CORE先排NULL键，缺组才补0，存在的NULL不补0")
+            }
         }
     }
 
@@ -611,7 +670,7 @@ class MemberRelationExecutionTest {
                 assertEquals(before + 1, submissions, "前缀关系与末尾标量只允许一次实际来源执行")
                 assertEquals(SourceExecutionState.SUCCEEDED, executed.sourceReadEvidence.request.execution)
                 assertEquals(listOf("customer", "numerator", "denominator"),
-                    requireNotNull(executed.compiledQuery.executableLoweringResult).outputContract.columns.map { it.symbol.name })
+                    requireNotNull(executed.compiledQuery.executableLoweringResult).outputLayout.fields.map { it.name })
                 return executed.businessResult
             }
             val common = listOf(listOf("1", "33333333333333333333.333333333333333333"), listOf("2", "0.333333333333333333"))
@@ -622,7 +681,7 @@ class MemberRelationExecutionTest {
         }
     }
 
-    @Test fun rejectsSourceFilteringOfACoreCalculatedValueBeforeSubmittingItsNativeInputs(@TempDir directory: Path) {
+    @Test fun filtersCoreValuesAfterQuantizationAndEvaluatesTailArithmeticWithoutDerive(@TempDir directory: Path) {
         coreNumbers(directory).use { warehouse ->
             val definitions = coreDefinitions(warehouse)
             val source = com.olap.prototype.connector.SourceProvider(warehouse.spec.source(), TestConnectors.registry)
@@ -632,20 +691,32 @@ class MemberRelationExecutionTest {
                 submissions++
                 delegate.execute(lowering, context, control)
             }, RuntimeDeploymentLimits.result)
-            val calculation = coreCalculation(listOf(Derive(ResultNumeric(ResultOperation(ResultOperator.DIVIDE,
-                listOf(symbol("numerator"), symbol("denominator"))), coreDecimal(38, 18, MetricValueContract.Rounding.HALF_UP), null), "mean", "CORE完成均值")))
+            val result = coreDecimal(38, 2, MetricValueContract.Rounding.HALF_UP)
+            val quotient = ResultNumeric(ResultOperation(ResultOperator.DIVIDE,
+                listOf(symbol("numerator"), symbol("denominator"))), result, null)
+            val calculation = coreCalculation(listOf(Derive(quotient, "mean", "先将精确商量化到两位")))
+            fun selected(expression: ResultExpression) = PostFilter(ResultOperation(ResultOperator.AND, listOf(
+                ResultOperation(ResultOperator.GTE, listOf(expression, ResultQuantityLiteral(BigDecimal.ZERO, result))),
+                ResultOperation(ResultOperator.LT, listOf(expression, ResultQuantityLiteral(BigDecimal("0.333"),
+                    coreDecimal(38, 3, MetricValueContract.Rounding.NONE)))))))
             warehouse.finishSetup()
             val catalog = definitions.catalog()
-            val failure = assertThrows(EngineExecutionException::class.java) {
-                engine.execute(catalog, ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION, "core-unsupported", catalog.manifest.catalogId,
-                    coreQuery(definitions, calculation, coreBasis(MemberCondition.Unrestricted()),
-                        listOf(PostFilter(ResultOperation(ResultOperator.IS_NOT_NULL, listOf(symbol("mean")))))), QueryExecutionMode.CORE_FINALIZATION), observer, RuntimeDeploymentLimits.CONTROL)
+            fun execute(query: Calculation.Scope): ExecutableBusinessResult {
+                val before = submissions
+                val executed = engine.execute(catalog, ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION, "core-filter-$before", catalog.manifest.catalogId,
+                    query, QueryExecutionMode.CORE_FINALIZATION), observer, RuntimeDeploymentLimits.CONTROL)
+                assertEquals(before + 1, submissions, "CORE过滤不重新提交来源")
+                assertEquals(SourceExecutionState.SUCCEEDED, executed.sourceReadEvidence.request.execution)
+                return executed.businessResult
             }
-            assertEquals("CORE_FINALIZATION_UNSUPPORTED", failure.code)
-            assertEquals(listOf("input", "postOps", 0), failure.evidenceContext["fieldPath"])
-            assertEquals(0, submissions)
-            assertEquals(false, failure.sourceExecutionStarted)
-            assertNull(failure.sourceReadEvidence)
+            val filtered = coreQuery(definitions, calculation, coreBasis(MemberCondition.Unrestricted()),
+                listOf(selected(symbol("mean")), Project(listOf("customer", "mean"))))
+            assertEquals(listOf(listOf(decimal("2"), decimal("0.33"))), numericRows(execute(filtered)),
+                "0.33小于0.333；未量化的1/3则不满足，NULL比较也不保行")
+            val tail = Calculation.Scope(Calculation.Input("basis"), mapOf("basis" to Calculation.InputScope("ROOT", coreBasis(MemberCondition.Unrestricted()))),
+                listOf(selected(quotient), Project(listOf("customer", "numerator", "denominator"))))
+            assertEquals(listOf(listOf(decimal("2"), decimal("1"), decimal("3"))), numericRows(execute(tail)),
+                "无Derive的尾部PostFilter仍在CORE完成精确除法和量化")
         }
     }
 

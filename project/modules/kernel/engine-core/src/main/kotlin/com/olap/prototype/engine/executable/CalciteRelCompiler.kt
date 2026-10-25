@@ -15,8 +15,10 @@ import com.olap.prototype.query.QueryStageAnalysis.Analysis
 import com.olap.prototype.query.QueryStageAnalysis.ScopeId
 import org.apache.calcite.plan.RelOptUtil
 import org.apache.calcite.rel.RelNode
+import org.apache.calcite.rel.core.JoinRelType
 import org.apache.calcite.rel.type.RelDataType
 import org.apache.calcite.rex.RexNode
+import org.apache.calcite.sql.`fun`.SqlStdOperatorTable
 import org.apache.calcite.tools.RelBuilder
 
 /** 已分析Scope→原生关系→优化→SQL；各阶段交出完整事实。 */
@@ -31,7 +33,111 @@ class CalciteRelCompiler private constructor(val connectors: ConnectorRegistry, 
     }
 
     fun compile(graph: ExecutableInputGraph, analyses: Map<ScopeId, Analysis>, resolvedSources: ResolvedInputSources, context: OlapQueryContext,
-        outputScope: ScopeId = ScopeId.root(), observationIdentity: List<String>? = null): Compilation {
+        outputScope: ScopeId = ScopeId.root(), observationIdentity: List<String>? = null): Compilation =
+        lower(graph, analyses, resolvedSources, context) { relations, builder ->
+            val outputInput = requireNotNull(graph.scope(outputScope)) { "native output scope is outside the bound input graph" }
+            val completed = relations.compile(outputInput, outputScope)
+            requireObservation(builder, completed.relation, observationIdentity, outputScope, relations.relationChecks)
+            SourceOutput(completed.relation, completed.displayNames) { type -> ExecutableSourceLayout.single(relations.contract(outputScope, type)) }
+        }
+
+    fun compileCore(graph: ExecutableInputGraph, analyses: Map<ScopeId, Analysis>, resolvedSources: ResolvedInputSources, context: OlapQueryContext,
+        sources: List<CoreFinalizationGraph.SourceInput>): Compilation {
+        require(sources.isNotEmpty() && sources.map { it.cut.scope }.distinct().size == sources.size) { "core source cuts must select one explicit boundary per scope" }
+        sources.forEach { source ->
+            require(analyses.getValue(source.cut.scope).stages.size == source.cut.stageCount) { "native source analysis differs from its selected prefix boundary" }
+        }
+        return lower(graph, analyses, resolvedSources, context) { relations, builder ->
+            val completed = sources.associateWith { source ->
+                val input = requireNotNull(graph.scope(source.cut.scope)) { "core source cut is outside the bound input graph" }
+                relations.compile(input, source.cut.scope)
+            }
+            if (sources.size == 1) {
+                val source = sources.single()
+                val output = completed.getValue(source)
+                // 单一来源出口直接保留原袋，不为运输增加唯一键要求或关联。
+                SourceOutput(output.relation, output.displayNames) { type -> ExecutableSourceLayout.single(relations.contract(source.cut.scope, type)) }
+            } else {
+                val contracts = completed.mapValues { (source, output) -> relations.contract(source.cut.scope, output.relation.rowType) }
+                val keys = sources.first().keys.keys.toList()
+                require(keys.all(String::isNotBlank)) { "core transport identity names must be explicit" }
+                sources.forEach { source ->
+                    require(source.keys.keys == keys.toSet() && source.keys.values.distinct().size == keys.size) { "core source cuts require the same explicit transport identity" }
+                    RelationalIdentity.requireUnique(completed.getValue(source).relation, keys.map(source.keys::getValue), "core source transport")
+                }
+                val keyTypes = keys.associateWith { key -> SemanticNativeTypes.commonType(builder.typeFactory,
+                    sources.map { source -> requireNotNull(completed.getValue(source).relation.rowType.getField(source.keys.getValue(key), true, false)) {
+                        "core transport identity is absent from its actual source cut"
+                    }.type }, "core source identity $key") }
+                val occupied = completed.values.flatMapTo(keys.toCollection(linkedSetOf())) { it.relation.rowType.fieldNames }
+                val scopes = linkedMapOf<ScopeId, ExecutableSourceLayout.Scope>()
+                val display = keys.associateWithTo(linkedMapOf()) { "core source identity: $it" }
+                val branches = sources.map { source ->
+                    val output = completed.getValue(source)
+                    val contract = contracts.getValue(source)
+                    builder.push(output.relation)
+                    val expressions = keys.mapTo(mutableListOf<RexNode>()) { key ->
+                        val field = builder.field(source.keys.getValue(key))
+                        val target = builder.typeFactory.createTypeWithNullability(keyTypes.getValue(key), field.type.isNullable)
+                        builder.rexBuilder.makeCast(target, field)
+                    }
+                    val names = keys.toMutableList()
+                    val columns = linkedMapOf<String, String>()
+                    contract.columns.forEach { field ->
+                        val physical = SemanticNativeTypes.internalAlias(occupied, "__core_value_")
+                        expressions += builder.field(field.symbol.name); names += physical
+                        columns[field.symbol.name] = physical
+                        display[physical] = output.displayNames[field.symbol.name] ?: field.symbol.name
+                    }
+                    val presence = SemanticNativeTypes.internalAlias(occupied, "__core_presence_")
+                    expressions += builder.literal(true); names += presence; display[presence] = "core source group present"
+                    scopes[source.cut.scope] = ExecutableSourceLayout.Scope(contract, columns, presence)
+                    builder.project(expressions, names, true).build()
+                }
+                val transported = transport(builder, branches, keys)
+                SourceOutput(transported, display) { type ->
+                    ExecutableSourceLayout(type.fieldList.map { ExecutableSourceLayout.Field(it.name, it.type) }, scopes)
+                }
+            }
+        }
+    }
+
+    private data class SourceOutput(val relation: RelNode, val displayNames: Map<String, String>, val layout: (RelDataType) -> ExecutableSourceLayout)
+
+    /** 仅组装无损物理运输；不决定任何正式根的最终人口或缺席值。 */
+    private fun transport(builder: RelBuilder, branches: List<RelNode>, keys: List<String>): RelNode {
+        var result = branches.first()
+        branches.drop(1).forEach { right ->
+            val leftNames = result.rowType.fieldNames
+            val rightNames = right.rowType.fieldNames
+            builder.push(result).push(right)
+            val equality = keys.map { key ->
+                val leftKey = builder.field(2, 0, key)
+                val rightKey = builder.field(2, 1, key)
+                builder.or(builder.and(builder.isNull(leftKey), builder.isNull(rightKey)),
+                    builder.and(SemanticCalciteOperators.codeEquals(builder, leftKey, rightKey), builder.equals(leftKey, rightKey)))
+            }
+            builder.join(JoinRelType.FULL, builder.and(equality))
+            val expressions = keys.mapTo(mutableListOf<RexNode>()) { key ->
+                builder.call(SqlStdOperatorTable.COALESCE, builder.field(leftNames.indexOf(key)), builder.field(leftNames.size + rightNames.indexOf(key)))
+            }
+            val names = keys.toMutableList()
+            leftNames.forEachIndexed { index, name -> if (name !in keys) { expressions += builder.field(index); names += name } }
+            rightNames.forEachIndexed { index, name -> if (name !in keys) { expressions += builder.field(leftNames.size + index); names += name } }
+            result = builder.project(expressions, names, true).build()
+        }
+        return result
+    }
+
+    private fun requireObservation(builder: RelBuilder, completed: RelNode, keys: List<String>?, scope: ScopeId, checks: MutableList<RelationalCheck>) {
+        keys?.let {
+            RelationalIdentity.requireUnique(completed, it, "completed observation")
+            RelationalIdentity.checkKnown(builder, completed, it, "OBSERVATION_OBJECT_IDENTITY_NULL", checks, scope)
+        }
+    }
+
+    private fun lower(graph: ExecutableInputGraph, analyses: Map<ScopeId, Analysis>, resolvedSources: ResolvedInputSources, context: OlapQueryContext,
+        build: (Relations, RelBuilder) -> SourceOutput): Compilation {
         val frozen = timed(context, "COMPILE_SCHEMA") { frozenInputs(graph, resolvedSources) }
         val builder = frozen.nativeInputs.builder
         val support = connectors.require(frozen.source.connectorRef).compilation
@@ -39,13 +145,8 @@ class CalciteRelCompiler private constructor(val connectors: ConnectorRegistry, 
             throw IllegalArgumentException("completed native scalar calls cannot introduce physical tables; use SemanticExpression.NativeCall in an adopted source expression")
         }
         val relations = Relations(graph, builder, analyses, resolvedSources, native)
-        val outputInput = requireNotNull(graph.scope(outputScope)) { "native output scope is outside the bound input graph" }
-        val raw = timed(context, "COMPILE_BUILD_REL") { relations.compile(outputInput, outputScope).relation.also { completed ->
-            observationIdentity?.let { keys ->
-                RelationalIdentity.requireUnique(completed, keys, "completed observation")
-                RelationalIdentity.checkKnown(builder, completed, keys, "OBSERVATION_OBJECT_IDENTITY_NULL", relations.relationChecks, outputScope)
-            }
-        } }
+        val output = timed(context, "COMPILE_BUILD_REL") { build(relations, builder) }
+        val raw = output.relation
         val parameters = relations.parameters
         val optimized = timed(context, "COMPILE_OPTIMIZE_REL") {
             phase("OPTIMIZE_REL", "EXECUTABLE_REL_OPTIMIZATION_FAILED", "Native relational optimization failed") {
@@ -68,11 +169,11 @@ class CalciteRelCompiler private constructor(val connectors: ConnectorRegistry, 
         }
         val sql = rendered.sql
         val aliases = optimized.rowType.fieldNames.associateWith { it }
-        val display = relations.outputs.getValue(outputScope).displayNames.filterKeys(aliases::containsKey)
-        context.addAuditLog("Calcite: frozen scans -> Rex/Rel -> HepPlanner -> RelToSqlConverter; inputScopes=${graph.inputs.size}, root=${outputInput.root.javaClass.simpleName}, outputScope=${outputScope.path}, dataSource=${frozen.source.dataSourceId}")
-        val output = ExecutableOutputContract.compiled(analyses.filterKeys { it in relations.outputs }, optimized.rowType, relations.inputTypes(), outputScope)
+        val display = output.displayNames.filterKeys(aliases::containsKey)
+        val layout = output.layout(optimized.rowType)
+        context.addAuditLog("Calcite: frozen scans -> Rex/Rel -> HepPlanner -> RelToSqlConverter; inputScopes=${graph.inputs.size}, outputScopes=${layout.scopes.keys.map { it.path }}, dataSource=${frozen.source.dataSourceId}")
         return Compilation(ExecutableLoweringResult(sql.sql, frozen.source.dataSourceId, frozen.source.connectorRef, support, frozen.source.dialect,
-            CalciteSqlRendering.orderedParameters(sql, parameters), aliases, display, frozen.nativeInputs.sourceRequirements(), nativeChecks, output), raw, optimized,
+            CalciteSqlRendering.orderedParameters(sql, parameters), aliases, display, frozen.nativeInputs.sourceRequirements(), nativeChecks, layout), raw, optimized,
             rendered.relation, CompilationScale.capture(raw, optimized, rendered))
     }
 
@@ -95,6 +196,8 @@ class CalciteRelCompiler private constructor(val connectors: ConnectorRegistry, 
             facts.sharedFacts(builder, graph.inputs, parameters)) { scope, display -> relation(requireNotNull(graph.scope(scope)), scope, display) }
         val outputs = linkedMapOf<ScopeId, ScopeOutput>()
         fun inputTypes(): Map<ScopeId, RelDataType> = outputs.mapValues { it.value.inputType }
+        fun contract(scope: ScopeId, type: RelDataType): ExecutableOutputContract =
+            ExecutableOutputContract.compiled(analyses.filterKeys { it in outputs }, type, inputTypes(), scope)
         private fun relation(input: ExecutableInputScope, scope: ScopeId, display: MutableMap<String, String>): RelNode = compile(input, scope).let { display.putAll(it.displayNames); it.relation }
         fun compile(input: ExecutableInputScope, scope: ScopeId): ScopeOutput {
             outputs[scope]?.let { check(it.input === input) { "one analyzed scope has different completed input identities" }; return it }

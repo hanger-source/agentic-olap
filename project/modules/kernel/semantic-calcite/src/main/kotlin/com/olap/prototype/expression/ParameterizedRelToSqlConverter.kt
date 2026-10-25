@@ -141,7 +141,7 @@ class ParameterizedRelToSqlConverter(private val support: CompilationSupport, pr
             node.accept(object : RexShuttle() {
                 override fun visitCorrelVariable(variable: RexCorrelVariable): RexNode { correlated = true; return variable }
             })
-            if (correlated) throw NativeCompilationCapabilityException(CompilationSupport.Capability.CORRELATED_DERIVED_PROJECTION, "NUMERIC_EVALUATION_BINDING")
+            if (correlated) throw NativeCompilationCapabilityException(CompilationSupport.Capability.CORRELATED_DERIVED_PROJECTION, "SQL_EVALUATION_BINDING")
         }
         val converted = shared[node]?.let { sharedReference(node, it) } ?: super.dispatch(node)
         if (node !in evaluationBoundaries) return converted
@@ -285,6 +285,9 @@ class ParameterizedRelToSqlConverter(private val support: CompilationSupport, pr
 
     override fun visitInput(parent: RelNode, ordinal: Int, anon: Boolean, ignoreClauses: Boolean, expectedClauses: Set<Clause>): Result {
         var input = parent.getInput(ordinal)
+        // Aggregate(Project) 的默认 ignoreClauses 会再次把列程序展开到每个聚合参数。
+        // dispatch 已把它变为有名 FROM；仍须保留消费者实际要追加的 WHERE/SELECT/GROUP BY 等子句。
+        if (input in evaluationBoundaries) return super.visitInput(parent, ordinal, anon, false, expectedClauses)
         if (parent is Project && input is Window) return super.visitInput(parent, ordinal, anon, false, setOf(Clause.FROM, Clause.SELECT))
         if (parent is Window) {
             while (input is Project || input is Filter) input = input.getInput(0)

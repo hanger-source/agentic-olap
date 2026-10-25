@@ -23,7 +23,7 @@ fun main(args: Array<String>) {
     System.setOut(privateDiagnostics)
     require(args.contentEquals(arrayOf("--mode", "script"))) { "runtime --mode script" }
     val frame = ScriptProtocolPeer.readFrame(protocolInput, 64 * 1024 * 1024) ?: error("session bootstrap is required")
-    require(frame.hasBootstrap() && frame.bootstrap.protocol == "agentic-olap-runtime/v10" && frame.bootstrap.hasScripting()) {
+    require(frame.hasBootstrap() && frame.bootstrap.protocol == "agentic-olap-runtime/v11" && frame.bootstrap.hasScripting()) {
         "unsupported session protocol bootstrap"
     }
     val configuration = frame.bootstrap.scripting

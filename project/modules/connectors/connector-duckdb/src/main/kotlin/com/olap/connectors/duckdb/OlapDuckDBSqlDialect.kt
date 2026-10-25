@@ -21,6 +21,10 @@ import org.apache.calcite.util.Litmus
 internal object OlapDuckDBSqlDialect : DuckDBSqlDialect(DuckDBSqlDialect.DEFAULT_CONTEXT.withDataTypeSystem(DuckdbNativeTypes())) {
     private val elapsedTime = SqlBasicFunction.create("DATE_SUB", ReturnTypes.BIGINT_NULLABLE,
         OperandTypes.family(SqlTypeFamily.CHARACTER, SqlTypeFamily.DATETIME, SqlTypeFamily.DATETIME), SqlFunctionCategory.TIMEDATE)
+    override fun quoteStringLiteral(builder: StringBuilder, charsetName: String?, value: String) {
+        // DuckDB 的 Unicode 字符串使用普通引号，不接受 Calcite 的 _charset introducer。
+        super.quoteStringLiteral(builder, null, value)
+    }
     override fun getCastSpec(type: RelDataType): SqlNode? = when {
         type.sqlTypeName == SqlTypeName.ROW -> SqlDataTypeSpec(StructType(type), SqlParserPos.ZERO)
         type.sqlTypeName == SqlTypeName.ARRAY -> SqlDataTypeSpec(ArrayType(type), SqlParserPos.ZERO)

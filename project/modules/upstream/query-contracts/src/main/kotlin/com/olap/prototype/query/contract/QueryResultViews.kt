@@ -14,7 +14,7 @@ data class SavedQueryResultRecord(val formatVersion: String, val runId: String, 
     val startedAt: Instant, val completedAt: Instant, val receipt: QueryExecutionReceipt, val explanation: QueryExplanationView?,
     val diagnostics: QueryExecutionDiagnostics?, val intentHash: String) {
     init { require(formatVersion == FORMAT && runId == receipt.runId && publication == intent.publication && intentHash.matches(Regex("[0-9a-f]{64}"))) { "saved result identity differs from its execution" } }
-    companion object { const val FORMAT = "olap-query-result-record/v6" }
+    companion object { const val FORMAT = "olap-query-result-record/v7" }
 }
 enum class ResultLengthUnit { VALUE, MEMBERS, UNICODE_CODE_POINTS }
 enum class ResultMetadataSection { RUN, SOURCE_EVIDENCE, PUBLICATION, COLUMNS, INPUT_COLUMNS, SCOPE_INPUT_COLUMNS, SOURCE_SYMBOLS, QUERY_INTENT, EXPLANATION }

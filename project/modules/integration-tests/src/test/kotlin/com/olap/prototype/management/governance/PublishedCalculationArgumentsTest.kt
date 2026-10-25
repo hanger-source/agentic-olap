@@ -117,10 +117,13 @@ class PublishedCalculationArgumentsTest {
                 listOf(ResultSymbol("selected_count"), ResultQuantityLiteral(BigDecimal("2"), count))))))
             val expected = mapOf("A" to 1, "B" to 0, "D" to 0, "E" to 1)
             for (mode in listOf(QueryExecutionMode.CORE_FINALIZATION, QueryExecutionMode.SOURCE)) {
-                val rows = f.execute(publication, query, mode).result.resultFrame.rows
-                assertEquals(expected.size, rows.size, "$mode: 每个保留的目的地只输出一行")
-                val actual = rows.associate { row ->
-                    row["destination"].toString() to BigDecimal(row["selected_count"].toString()).intValueExact()
+                val result = f.execute(publication, query, mode).businessResult
+                assertEquals(expected.size, result.rows.size, "$mode: 每个保留的目的地只输出一行")
+                val destinationIndex = result.columns.indexOfFirst { it.symbol.name == "destination" }
+                val countIndex = result.columns.indexOfFirst { it.symbol.name == "selected_count" }
+                val actual = result.rows.associate { row ->
+                    (row[destinationIndex] as ExecutableBusinessResult.ScalarValue).value to
+                        BigDecimal((row[countIndex] as ExecutableBusinessResult.ScalarValue).value).intValueExact()
                 }
                 assertEquals(expected, actual, "$mode: 重复与NULL不增加票数，FALSE/UNKNOWN组保留真实的0")
             }
@@ -148,6 +151,7 @@ class PublishedCalculationArgumentsTest {
                         ResultExpression.ResultNativeCall(ref, "native_float", listOf(ResultExpression.ResultSymbol("quantity"))), "value", "来源原生数量表示"),
                         PostOperationContract.Project(listOf("value"))))), "value", emptyList(), nativeQuantity)
                 val nativeOrders = listOf("INSERT INTO main.orders VALUES ('1',100,'A','2026-07-21','c1'),('2',40,'B','2026-07-21','c2'),('3',100,'A','2026-07-22','c3'),('4',20,'B','2026-08-01','c1')")
+                var selectedAdoptions: List<SourceAdoptionRef> = emptyList()
                 PlatformDatabase.openSingleInstance(metadata).use { database ->
                     val f = GovernanceOrderFixture(database, directory, nativeOrders, connectors = registry, deployedSource = source)
                     f.seed()
@@ -175,10 +179,12 @@ class PublishedCalculationArgumentsTest {
                     val count = f.metrics.listMetrics().first { it.code == "native_amount_records" }
                     f.grantMetric(count.id, scenario = restricted.id)
                     f.activateSubjectGraph()
+                    selectedAdoptions = f.sourceAdoptions
                 }
                 // 重开持久根后由正式发布读取定义；不能依赖创建响应中残留的原生节点。
                 PlatformDatabase.openSingleInstance(metadata).use { database ->
                     val f = GovernanceOrderFixture(database, directory, connectors = registry, deployedSource = source)
+                    f.sourceAdoptions = selectedAdoptions
                     f.build("published_native_scalar")
                     val publication = f.publication("published_native_scalar")
                     fun complete(code: String) = measures(listOf(invocation("count", instance(f, code), "quantity")))
@@ -218,6 +224,7 @@ class PublishedCalculationArgumentsTest {
     @Test
     fun publishesPersistedRelationParametersAndComputesFromCompletedFactInputs(@TempDir directory: Path) {
         val metadata = directory.resolve("platform")
+        var selectedAdoptions: List<SourceAdoptionRef> = emptyList()
         PlatformDatabase.openSingleInstance(metadata).use { database ->
             val f = GovernanceOrderFixture(database, directory, orders)
             f.seed()
@@ -248,11 +255,13 @@ class PublishedCalculationArgumentsTest {
             f.grantMetric(average.id, order = 3)
             f.scenarios.createScenarioPipelineRule(ScenarioPipelineRuleCreateRequest(GovernanceOrderFixture.SCENARIO, 1, "DERIVE", 1, StageAuthorization.current("DERIVE")))
             f.activateSubjectGraph()
+            selectedAdoptions = f.sourceAdoptions
         }
 
         // 发布在重开后从采用表读取关系参数，不能依赖创建响应里的内存绑定。
         PlatformDatabase.openSingleInstance(metadata).use { database ->
             val f = GovernanceOrderFixture(database, directory)
+            f.sourceAdoptions = selectedAdoptions
             f.build("completed_relation_arguments")
             val publication = f.publication("completed_relation_arguments")
             val calls = listOf(

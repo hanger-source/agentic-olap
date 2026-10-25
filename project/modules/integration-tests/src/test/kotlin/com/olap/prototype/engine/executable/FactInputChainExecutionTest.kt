@@ -92,9 +92,8 @@ class FactInputChainExecutionTest {
     }
     private fun execute(store: Store, scope: ExecutableInputScope) = execute(store, compile(store, scope))
     private fun execute(store: Store, compiled: ExecutableLoweringResult): List<List<Any?>> = DeadlineExecutionControl(120_000).use { control ->
-        SourceProvider(store.spec.source(), TestConnectors.registry).execute(SourceSqlRequest("execute-query", compiled.sql, compiled.parameters,
-            compiled.aliasMapping, compiled.aliasDisplayNames, compiled.outputContract.columns.associate { it.symbol.name to it.type }, compiled.sourceRequirements,
-            compiled.relationChecks, null), control, RuntimeDeploymentLimits.result, RuntimeDeploymentLimits.nativeMemoryBytes) { _, _ -> }.frame.rows.map { row -> row.cells.map { it.value } }
+        SourceProvider(store.spec.source(), TestConnectors.registry).execute(compiled.toSourceRequest("execute-query", null),
+            control, RuntimeDeploymentLimits.result, RuntimeDeploymentLimits.nativeMemoryBytes) { _, _ -> }.frame.rows.map { row -> row.cells.map { it.value } }
     }
     private fun scannedOrderRows(store: Store, compiled: ExecutableLoweringResult): Long = TestConnectors.open("duckdb", store.spec.jdbcUrl).use { connection ->
         connection.prepareStatement("EXPLAIN (ANALYZE, FORMAT JSON) ${compiled.sql}").use { statement ->

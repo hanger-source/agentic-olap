@@ -109,7 +109,7 @@ override val division: SqlOperator = SqlBinaryOperator(
 
 只读属性 `CompilationSupport.parameterSubmission` 必须明确声明 `BIND_PARAMETERS` 或 `TYPED_LITERALS`。前者保留有序参数，后者通过 `parameterLiteral` 将已校验值映射成 SQL AST 字面量并保留编译类型 CAST；共同默认映射覆盖参数编码中的精确数值、文本、布尔与时间值，后端特殊映射由插件明确实现。主查询、关系检查和候选值均使用该选择，不做问号文本替换或运行失败后的自动切换。
 
-`CORRELATED_DERIVED_PROJECTION` 声明派生关系的投影能引用外层查询值。普通 `EXISTS` 条件相关不要求这项能力；数量合同的行内求值槽若必须把外层人口条件绑定在派生投影中，则按本次实际构造检查。缺失时在提交 SQL 前抛出 `NativeCompilationCapabilityException`，公开错误 `NATIVE_COMPILATION_CAPABILITY_MISSING` 包含 `capability` 与 `operation=NUMERIC_EVALUATION_BINDING`。插件依据真实后端行为声明，它不代表来源事务或快照能力。内核不删除人口保护、不重复内联检查，也不在执行失败后切换方案。DuckDB 声明此能力；当前 H2 不声明。
+`CORRELATED_DERIVED_PROJECTION` 声明派生关系的投影能引用外层查询值。普通 `EXISTS` 条件相关不要求这项能力；数量合同的行内求值槽若必须把外层人口条件绑定在派生投影中，则按本次实际构造检查。缺失时在提交 SQL 前抛出 `NativeCompilationCapabilityException`，公开错误 `NATIVE_COMPILATION_CAPABILITY_MISSING` 包含 `capability` 与 `operation=SQL_EVALUATION_BINDING`。插件依据真实后端行为声明，它不代表来源事务或快照能力。内核不删除人口保护、不重复内联检查，也不在执行失败后切换方案。DuckDB 声明此能力；当前 H2 不声明。
 
 主查询和候选值读取都通过 `SourceAccess.execute` 接收完整 `SourceSqlRequest`。候选结果的单列、类型和分页边界由候选应用核验；插件按同一执行合同交付结果，不实现单独的候选查询方法。
 

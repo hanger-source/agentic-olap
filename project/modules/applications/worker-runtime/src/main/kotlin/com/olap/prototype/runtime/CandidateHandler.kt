@@ -195,7 +195,7 @@ internal class CandidateHandler(private val connectors: ConnectorRegistry, priva
             budgets.materialization.copy(depth = 1), budgets.nativeMemoryBytes, null)
             .execute(plan.lowering, OlapQueryContext(plan.requestId), control)
         return candidateResult(result, JdbcSourceRequirement.requireSingleBinding(plan.sourceRequirements), "execute-query", control) { frame ->
-            ExecutableBusinessResults.produce(frame, plan.lowering.outputContract, plan.lowering.compilationSupport)
+            ExecutableBusinessResults.produce(frame, plan.lowering.outputLayout.scopes.getValue(QueryStageAnalysis.ScopeId.root()).contract, plan.lowering.compilationSupport)
             val values = frame.rows.map { row ->
                 require(row.cells.size == 1) { "member candidate plan requires exactly one output column" }
                 val value = requireNotNull(row.cells.single().value) { "candidate plan returned null" }

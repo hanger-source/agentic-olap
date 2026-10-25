@@ -35,11 +35,11 @@ object CalciteSqlRendering {
                 super.visit(node, ordinal, parent)
             }
         }.go(plan)
-        // 每个查询根只做一次方言准备；之后的数量求值边界与公共关系引用共享同一节点身份。
+        // 每个查询根只做一次方言准备；之后的标量求值边界与公共关系引用共享同一节点身份。
         val nativePlan = prepare(plan, dialect)
-        val numeric = NumericSqlProjection()
-        val relation = numeric.lower(nativePlan)
-        var statement = ParameterizedRelToSqlConverter(support, numeric.boundaries).statement(relation)
+        val evaluation = SqlEvaluationProjection()
+        val relation = evaluation.lower(nativePlan)
+        var statement = ParameterizedRelToSqlConverter(support, evaluation.boundaries).statement(relation)
         if (support.parameterSubmission == CompilationSupport.ParameterSubmission.TYPED_LITERALS) {
             statement = requireNotNull(statement.accept(object : SqlShuttle() {
                 override fun visit(parameter: SqlDynamicParam): SqlNode = support.parameterLiteral(parameters[parameter.index])
@@ -69,7 +69,7 @@ object CalciteSqlRendering {
                 return requireNotNull(super.visit(call))
             }
         })
-        return Rendering(statement.toSqlString(dialect), relation, numeric.bindings, numeric.reusedChecks, numericChecks, cases)
+        return Rendering(statement.toSqlString(dialect), relation, evaluation.numericBindings, evaluation.reusedChecks, numericChecks, cases)
     }
 
     private fun prepare(plan: RelNode, dialect: SqlDialect): RelNode {

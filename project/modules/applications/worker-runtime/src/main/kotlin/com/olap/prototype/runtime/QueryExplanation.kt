@@ -15,7 +15,7 @@ internal object QueryExplanation {
     fun describe(query: CompiledQuery): View {
         val analyses = query.stageAnalyses.associateBy { it.scope }
         val coreScopes = query.coreFinalizationPlan?.scopes.orEmpty()
-        val sourceOutputScope = query.coreFinalizationPlan?.sourceScope ?: QueryStageAnalysis.ScopeId.root()
+        val sourceOutputScopes = query.coreFinalizationPlan?.sourceScopes ?: setOf(QueryStageAnalysis.ScopeId.root())
         val scopes = query.scopes.map { scope ->
             val analysis = analyses.getValue(scope.scope)
             val root = root(scope.root)
@@ -32,7 +32,7 @@ internal object QueryExplanation {
                 analysis.stages.map { View.Stage(it.index, it.operation.operationType, it.operation, it.inputs.map { symbol -> symbol.id },
                     it.imports.map { symbol -> symbol.id }, it.outputs, it.key,
                     if (query.coreFinalizationPlan?.isCoreStage(scope.scope, it.index) == true) View.ExecutionLocation.CORE else View.ExecutionLocation.SOURCE) },
-                if (scope.scope in coreScopes && scope.scope != sourceOutputScope) View.ExecutionLocation.CORE else View.ExecutionLocation.SOURCE)
+                if (scope.scope in coreScopes && scope.scope !in sourceOutputScopes) View.ExecutionLocation.CORE else View.ExecutionLocation.SOURCE)
         }
         val scale = query.compilationScale?.let { v ->
             fun size(s: com.olap.prototype.engine.compiler.CompilationScale.RelationSize) = View.RelationSize(s.nodes, s.edges, s.scalarCalls, s.numericChecks, s.repeatedNumericChecks)
@@ -49,7 +49,7 @@ internal object QueryExplanation {
         }
         val boundary = if (query.coreFinalizationPlan == null) "ONE_EXACT_SOURCE_BINDING" else "ONE_EXACT_SOURCE_BINDING_THEN_CORE_SCALAR_FINALIZATION"
         return View(query.requestId, View.Summary(scopes.size, query.resolvedSources.size, boundary, RowPopulationContract.contract(),
-            "NOT_OBSERVED", "NOT_OBSERVED", sourceOutputScope), scopes, query.resolvedSources.map(::source), query.sqlPlan, scale, requirements)
+            "NOT_OBSERVED", "NOT_OBSERVED", sourceOutputScopes.sortedBy { it.path.joinToString("/") }), scopes, query.resolvedSources.map(::source), query.sqlPlan, scale, requirements)
     }
     private fun sourceConstraints(source: JdbcSourceRequirement): View.SourceConstraints {
         val constraints = source.constraintUses.sortedWith(compareBy({ it.kind.name }, { it.name ?: "" })).map { use ->

@@ -48,7 +48,7 @@ object ExecutableBusinessResults {
         return ExecutableBusinessResult(inputColumns(root.fields), scopes, columns, contract.sourceSymbols, rows)
     }
     private fun inputColumns(fields: List<ExecutableOutputContract.Field>): List<Column> = fields.mapIndexed { index, field -> ExecutableOutputContract.column("i$index", field, null) }
-    private fun value(value: Any?, type: RelDataType): Value = when (value) {
+    internal fun value(value: Any?, type: RelDataType): Value = when (value) {
         null -> NullValue()
         is SqlResultValues.ArrayValue -> ArrayValue(value.elements.map { value(it, requireNotNull(type.componentType)) })
         is SqlResultValues.RowValue -> RowValue(value.fields.mapIndexed { index, field -> value(field, type.fieldList[index].type) })

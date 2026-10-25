@@ -20,6 +20,7 @@ import com.olap.prototype.expression.SemanticExpression
 import com.olap.prototype.expression.SemanticNumericRex
 import com.olap.prototype.integration.TestConnectors
 import com.olap.prototype.metric.MetricValueContract
+import com.olap.prototype.query.ScalarValueType
 import org.apache.calcite.avatica.util.TimeUnit
 import org.apache.calcite.rel.RelNode
 import org.apache.calcite.rel.core.JoinRelType
@@ -120,16 +121,17 @@ class CalciteSqlConversionExecutionTest {
     }
     @Test fun semiAndAntiDoNotCaptureProjectedLeftFieldsInTheRightScope(@TempDir directory: Path) {
         for (dialect in listOf("h2", "duckdb")) source(directory, dialect).use { source ->
-            source.connection.createStatement().use { it.execute("DELETE FROM observations"); it.execute("INSERT INTO observations VALUES (0,'L',1),(1,'L',2),(1,'L',3),(NULL,'L',4),(2,'R',9)") }
+            source.connection.createStatement().use { it.execute("DELETE FROM observations"); it.execute("INSERT INTO observations VALUES (0,'左''🧭',1),(1,'左''🧭',2),(1,'左''🧭',3),(NULL,'左''🧭',4),(2,'右''🧭',9)") }
             for (join in listOf(JoinRelType.SEMI, JoinRelType.ANTI)) {
                 val b = builder(source)
-                b.filter(b.equals(b.field("region"), b.literal("L")))
-                b.project(listOf(b.call(Ops.PLUS, b.field("id"), b.literal(1)), b.field("amount")), listOf("id", "amount"), true)
+                b.filter(b.equals(b.field("region"), b.literal("左'🧭")))
+                b.project(listOf(b.call(Ops.PLUS, b.field("id"), b.literal(1)), b.field("amount"), b.field("region")), listOf("id", "amount", "region"), true)
                 b.scan(FrozenCatalogSchema.path(source.adopt("observations", emptyMap())))
-                b.filter(b.equals(b.field("region"), b.literal("R"))).project(listOf(b.field("id")), listOf("id"), true)
+                b.filter(b.equals(b.field("region"), b.literal("右'🧭"))).project(listOf(b.field("id")), listOf("id"), true)
                 b.join(join, b.equals(b.field(2, 0, "id"), b.field(2, 1, "id"))).sort(b.field("amount"))
                 val result = rows(source, b.build())
                 assertEquals(2, result.size)
+                assertEquals(listOf("左'🧭", "左'🧭"), result.map { it[2] })
                 if (join == JoinRelType.SEMI) { decimal(result[0][1], "2"); decimal(result[1][1], "3") }
                 else { decimal(result[0][1], "1"); decimal(result[1][1], "4"); assertNull(result[1][0]) }
             }
@@ -262,6 +264,75 @@ class CalciteSqlConversionExecutionTest {
             result.forEach { assertNotEquals((it[1] as Number).toLong(), (it[2] as Number).toLong(), "$dialect incorrectly shared sequence observation for id=${it[0]}") }
         }
     }
+    @Test fun oneRegroupReusesGuardedNativeValuesAfterInnerMatching(@TempDir directory: Path) {
+        for (dialect in listOf("h2", "duckdb")) NativeWarehouse(directory, dialect, listOf(
+            "CREATE TABLE observations(id INTEGER,object_key VARCHAR(16),activity_day DATE,amount_text VARCHAR(32),should_parse BOOLEAN,existing_decimal DECIMAL(38,18))",
+            "INSERT INTO observations VALUES " +
+                "(1,'matched',DATE '2026-01-01','10.25',TRUE,NULL),(1,'matched',DATE '2026-01-01','10.25',TRUE,NULL)," +
+                "(2,'null_value',DATE '2026-01-01',NULL,TRUE,NULL),(3,'case_guard',DATE '2026-01-01','case-invalid',FALSE,NULL)," +
+                "(4,'coalesce_guard',DATE '2026-01-01','coalesce-invalid',TRUE,3.50),(5,'unmatched',DATE '2026-01-01','unmatched-invalid',TRUE,NULL)," +
+                "(6,NULL,DATE '2026-01-01','null-key-invalid',TRUE,NULL),(7,'all_null',DATE '2026-01-01',NULL,TRUE,NULL)," +
+                "(8,'wrong_day',DATE '2026-01-01','wrong-day-invalid',TRUE,NULL),(9,'unknown_guard',DATE '2026-01-01','unknown-invalid',NULL,NULL)",
+            "CREATE TABLE ownership(object_key VARCHAR(16),activity_day DATE,region VARCHAR(8))",
+            "INSERT INTO ownership VALUES ('matched',DATE '2026-01-01','A'),('null_value',DATE '2026-01-01','A')," +
+                "('case_guard',DATE '2026-01-01','A'),('coalesce_guard',DATE '2026-01-01','A'),('unknown_guard',DATE '2026-01-01','A')," +
+                "('all_null',DATE '2026-01-01','B'),(NULL,DATE '2026-01-01','C'),('wrong_day',DATE '2026-01-02','D')")).use { source ->
+            val declaration = NativeScalarFunction("parse_decimal", listOf(NativeScalarFunction.Parameter(
+                NativeScalarFunction.ParameterKind.SCALAR, ScalarValueType.TEXT)), NativeValueType("DECIMAL", 38, 18, true),
+                MetricValueContract.Exact(), NativeScalarFunction.Stability.IMMUTABLE)
+            val baseSupport = TestConnectors.registry.require(source.spec.connectorRef).compilation
+            var parserExpansions = 0
+            val support = object : CompilationSupport by baseSupport {
+                override val nativeScalarFunctions = listOf(declaration)
+                override fun requireNativeScalarFunction(id: String): NativeScalarFunction {
+                    require(id == declaration.id)
+                    return declaration
+                }
+                override fun nativeScalarCall(function: String, arguments: List<CompilationSupport.NativeArgument>): SqlNode {
+                    require(function == declaration.id)
+                    parserExpansions++
+                    val value = (arguments.single() as CompilationSupport.ScalarArgument).value
+                    val pos = SqlParserPos.ZERO
+                    return Ops.CAST.createCall(pos, value, SqlDataTypeSpec(SqlBasicTypeNameSpec(SqlTypeName.DECIMAL, 38, 18, pos), pos))
+                }
+            }
+            val observations = source.adopt("observations", emptyMap())
+            val ownership = source.adopt("ownership", emptyMap())
+            val bindings = listOf(observations, ownership)
+            val b = CalciteQueryCompiler.inputs(bindings, bindings.flatMap { it.physicalColumnBindings.keys }.toSet(),
+                emptySet(), TestConnectors.registry).builder.scan(FrozenCatalogSchema.path(observations))
+            b.scan(FrozenCatalogSchema.path(ownership))
+            b.join(JoinRelType.INNER, b.and(
+                b.equals(b.field(2, 0, "object_key"), b.field(2, 1, "object_key")),
+                b.equals(b.field(2, 0, "activity_day"), b.field(2, 1, "activity_day"))))
+            b.project(listOf(b.field("region"), b.field("should_parse"), b.field("existing_decimal"), b.field("amount_text")),
+                listOf("region", "should_parse", "existing_decimal", "amount_text"), true)
+            val native = NativeExpressionScope(source.spec.connectorRef, support) { null }
+            val parsed = native.compileScalar(b, source.spec.connectorRef, declaration.id, listOf(b.field("amount_text")))
+            val guarded = b.call(Ops.CASE, b.field("should_parse"),
+                b.call(Ops.COALESCE, b.field("existing_decimal"), parsed), b.rexBuilder.makeNullLiteral(parsed.type))
+            b.project(listOf(b.field("region"), guarded), listOf("region", "parsed_number"), true)
+            val money = MetricValueContract(MetricValueContract.Fixed(MetricValueContract.UnitIdentity("iso4217", "CNY", 1)),
+                MetricValueContract.Exact(), MetricValueContract.Decimal(38, 18, MetricValueContract.Rounding.NONE),
+                emptyMap(), MetricValueContract.Overflow.FAIL)
+            val amount = SemanticNumericRex.output(b, b.call(Ops.MULTIPLY, b.field("parsed_number"), b.literal(BigDecimal.ONE)), money)
+            b.project(listOf(b.field("region"), b.field("parsed_number"), amount), listOf("region", "parsed_number", "amount"), true)
+            b.aggregate(b.groupKey(b.field("region")), b.sum(false, "total", b.field("amount")),
+                b.count(false, "parsed_count", b.field("parsed_number")), b.count(false, "amount_count", b.field("amount")))
+                .sort(b.field("region"))
+            val plan = CalciteQueryCompiler.optimize(b.build(), emptyList())
+            val result = rows(source, plan, support = support)
+            assertEquals(listOf("A", "B"), result.map { it[0] }, "$dialect changed INNER matching or group population")
+            decimal(result[0][1], "24.00")
+            assertEquals(listOf(3L, 3L), result[0].drop(2).map { (it as Number).toLong() }, "$dialect lost repeated matched occurrences")
+            assertNull(result[1][1])
+            assertEquals(listOf(0L, 0L), result[1].drop(2).map { (it as Number).toLong() }, "$dialect converted NULL values into counted observations")
+            // 编译发射只展开一份原生调用；不据此推导数据库物化或物理求值次数。
+            assertEquals(1, parserExpansions, "$dialect expanded the same guarded parser separately for SUM/COUNT consumers")
+            source.connection.createStatement().use { it.execute("UPDATE observations SET should_parse=TRUE WHERE object_key='case_guard'") }
+            assertThrows(SQLException::class.java) { rows(source, plan, support = support) }
+        }
+    }
     @Test fun existsQuantityConditionsPreserveCorrelationAndConditionalEvaluationSlots(@TempDir directory: Path) {
         val contract = MetricValueContract(MetricValueContract.Fixed(MetricValueContract.ONE), MetricValueContract.NativeFloating(),
             MetricValueContract.BinaryFloat(64), emptyMap(), MetricValueContract.Overflow.FAIL)
@@ -288,7 +359,7 @@ class CalciteSqlConversionExecutionTest {
             if (!support.supports(CompilationSupport.Capability.CORRELATED_DERIVED_PROJECTION)) {
                 val failure = assertThrows(NativeCompilationCapabilityException::class.java) { CalciteSqlRendering.compile(selected, support) }
                 assertEquals(CompilationSupport.Capability.CORRELATED_DERIVED_PROJECTION, failure.capability)
-                assertEquals("NUMERIC_EVALUATION_BINDING", failure.operation)
+                assertEquals("SQL_EVALUATION_BINDING", failure.operation)
                 val outer = builder(source)
                 var variable: RexCorrelVariable? = null
                 outer.variable { variable = it }

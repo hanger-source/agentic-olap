@@ -17,6 +17,15 @@ internal data class SqlStatementRelations(val sharedRelations: List<RelNode>, va
             visit(plan)
             SqlStatementRelations(sharedRelations(), parameters.types.toMap(), occupied.toSet())
         }
+
+        /** 同一 SQL 内可复用相同实参的调用；不授权常量折叠或跨语句缓存。 */
+        fun statementStable(call: RexCall): Boolean = when (val native = call.operator as? NativeScalarOperator) {
+            null -> call.operator.isDeterministic && !call.operator.isDynamicFunction
+            else -> when (native.declaration.stability) {
+                NativeScalarFunction.Stability.IMMUTABLE, NativeScalarFunction.Stability.STATEMENT -> true
+                NativeScalarFunction.Stability.VOLATILE -> false
+            }
+        }
     }
 
     private class Graph {
@@ -47,14 +56,7 @@ internal data class SqlStatementRelations(val sharedRelations: List<RelNode>, va
             val expressions = object : RexShuttle() {
                 var safe = true
                 override fun visitCall(call: RexCall): RexNode {
-                    val native = call.operator as? NativeScalarOperator
-                    // STATEMENT 只授权这条 SQL 内的实际关系共享，不改变 planner 的常量折叠合同。
-                    val stable = if (native == null) call.operator.isDeterministic && !call.operator.isDynamicFunction
-                        else when (native.declaration.stability) {
-                            NativeScalarFunction.Stability.IMMUTABLE, NativeScalarFunction.Stability.STATEMENT -> true
-                            NativeScalarFunction.Stability.VOLATILE -> false
-                        }
-                    safe = safe && stable
+                    safe = safe && statementStable(call)
                     return super.visitCall(call)
                 }
                 override fun visitCorrelVariable(variable: RexCorrelVariable): RexNode { safe = false; return variable }

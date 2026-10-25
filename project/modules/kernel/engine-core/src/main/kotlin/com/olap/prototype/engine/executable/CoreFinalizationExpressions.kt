@@ -3,6 +3,7 @@ package com.olap.prototype.engine.executable
 import com.olap.prototype.engine.EngineExecutionException
 import com.olap.prototype.expression.SemanticExpression
 import com.olap.prototype.expression.ScalarFunction
+import com.olap.prototype.expression.SemanticNativeTypes
 import com.olap.prototype.metric.MetricValueContract
 import com.olap.prototype.query.ResultExpression
 import com.olap.prototype.query.ResultExpression.*
@@ -291,6 +292,13 @@ internal class CoreFinalizationExpressions(private val symbols: Map<String, Core
             type.sqlTypeName == SqlTypeName.NULL -> CoreScalarType.Kind.NULL
             else -> CoreScalarType.Kind.PRESERVED
         }, type.isNullable || type.sqlTypeName == SqlTypeName.NULL, type)
+        fun projectionType(types: List<CoreScalarType>, nullable: Boolean, path: List<Any>): CoreScalarType {
+            val kinds = types.map { it.kind }.filter { it != CoreScalarType.Kind.NULL }.distinct()
+            if (kinds.size > 1) unsupported(path, "completed identity projections require the same actual scalar kind")
+            val storage = types.map { requireNotNull(it.storage) { "completed projection needs its actual representation" } }
+            val common = SemanticNativeTypes.commonType(factory, storage, "completed projection")
+            return CoreScalarType(kinds.singleOrNull() ?: CoreScalarType.Kind.NULL, nullable, factory.createTypeWithNullability(common, nullable))
+        }
         fun resultType(result: MetricValueContract.Result, nullable: Boolean): RelDataType = when (result) {
             is MetricValueContract.Decimal -> decimalType(result.precision, result.scale, nullable)
             is MetricValueContract.Integer -> when (result.bits) {
