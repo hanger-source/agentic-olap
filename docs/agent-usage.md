@@ -119,6 +119,10 @@ JSON 输入预算拒绝使用 `JSON_INPUT_RESOURCE_LIMIT`；诊断给出 `resour
 
 ## 定义建设与持续复用
 
+治理目录的 `GovernanceReadRequests.PageInput`、`SourceDiscoveriesInput`、`SnapshotPageInput`、`DiscoveredTablePageInput`、`SourcePageInput`、`VersionPageInput` 和 `SubjectPageInput` 共用实际列表分页合同：`offset` 为非负 Int，`limit` 为正 Int，不另设页长额度。两个参数可分别显式传 `null`，对应取偏移量 0、页长 50；`null` 不表示读取全部。Kotlin 构造仍需提供这两个参数，正式协议中缺失的可选字段解码为 `null`。超过末尾返回空页和实际 `total`，`nextOffset` 仅在有后续项目时返回；无需预先使 offset+limit 落在 Int 内。规则可从各类型及治理读取操作的输入形态发现，非法分页以 `INVALID_PAGINATION/CONTRACT_INPUT` 给出具体字段、实际值与允许范围。
+
+`DefinitionDependenciesRequest` 对精确资产的已装载依赖列表分页，同样使用非负 Int 偏移量和正 Int 页长；它的 Kotlin 参数为非空必填，没有上述 null 默认值。定义搜索 `DefinitionDiscovery.Request` 是另一项游标搜索合同，不能从治理目录或依赖读取推定其合法范围。读取目录、版本成员、来源调查记录或已保存依赖不查询业务来源；大响应按实际消息完整存档交付，不以隐藏页长限额代替资源预算。
+
 `olap.semantics.search` 使用 `SemanticCatalogReads.SearchRequest` 搜索获准精确发布中的语义目录。`offset` 为非负 Int，`limit` 为正 Int，按实际匹配列表切页，不另设页长额度。超过末尾返回空页并保留实际总数，仅在仍有匹配项时返回 `nextOffset`；这项读取不访问业务来源。
 
 先读取已有定义、精确版本、实际来源和业务资料。构造正式模型本身没有写入；调用 `olap.governance.*` 才执行相应治理命令。例如：

@@ -121,18 +121,12 @@ internal class GovernanceReads(
             ?: throw ProducerContractException("unsupported governance read operation: $name")
 
         private fun <T> page(rows: List<T>, requestedOffset: Int?, requestedLimit: Int?): Page<T> {
-            val offset = pageNumber(requestedOffset, "offset", 0, 0, Int.MAX_VALUE)
-            val limit = pageNumber(requestedLimit, "limit", 50, 1, 200)
+            val offset = GovernanceReadRequests.pageOffset(requestedOffset)
+            val limit = GovernanceReadRequests.pageLimit(requestedLimit)
             val ordered = rows
             val start = minOf(offset, ordered.size)
             val end = minOf(start.toLong() + limit, ordered.size.toLong()).toInt()
             return Page(ordered.subList(start, end), ordered.size, if (end < ordered.size) end else null)
-        }
-
-        private fun pageNumber(value: Int?, name: String, default: Int, minimum: Int, maximum: Int): Int {
-            val selected = value ?: return default
-            if (selected !in minimum..maximum) throw ProducerContractException("$name is outside allowed range")
-            return selected
         }
 
         private fun requiredText(value: String?, field: String): String = value?.takeIf { it.isNotBlank() }

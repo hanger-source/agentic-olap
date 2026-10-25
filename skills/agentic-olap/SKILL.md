@@ -107,6 +107,8 @@ agentic-olap call wait-script --payload '{"executionId":"sources-001","waitMilli
 
 `olap.semantics.search` 的 `SemanticCatalogReads.SearchRequest` 在获准的精确发布目录中搜索；`offset` 为非负 Int，`limit` 为正 Int，使用同样的实际列表边界，不另设页长额度。超过匹配项末尾返回空页和实际 `total`；仅在还有匹配项时返回 `nextOffset`。
 
+治理目录 `GovernanceReadRequests.PageInput` 及带来源、快照、版本、主题身份的同族分页输入使用非负 Int `offset` 和正 Int `limit`，不另设页长额度。显式 `null` 分别取 0／50，不表示全量；Kotlin 构造仍需提供参数。`DefinitionDependenciesRequest` 的两个 Kotlin 参数则为非空必填，没有 null 默认值。各输入的正式 `rules` 披露范围与默认语义；越尾空页，只有还存在项目时才给 `nextOffset`，非法值用 `INVALID_PAGINATION` 指出字段、实际值与允许范围。上述读取都不重新查询业务来源，也不改变独立 `DefinitionDiscovery.Request` 搜索的合同。
+
 官方 SDK 生成的完整最终 JSON/MCP 消息不超过 `responseBytes` 时直接返回，超过时自动完整保存在 `dataRoot/responses`。当前消息给出简短提示、`location` 和 `read.operation/read.payload`；将实际 `read.payload` 原样用于 `read-response`，其中的 `reference={responseId,sha256}` 是精确存档引用。读取按字节 `offset` 和可选 `length` 分段，必须从 UTF-8 字符起点开始，段尾不截破字符；按返回的 `nextOffset` 继续。服务不截断删减，不要求预先保存，不重执行业务，也不增加存储配额或审批。成功保持成功，失败响应完整保存后仍保留原失败。
 
 保存查询用于复用模型；`QueryDefinitionResult` 返回 `definition/reference`，执行保存版本时用真实精确 `reference`。执行的 `saveResult=true` 显式保存历史 SQL 结果，只用实际返回的 `resultReference` 分页读取；它与完整响应自动存档及 SQL 结果物化限额分别成立。保留精确数值、NULL、单位和 ROW／ARRAY。

@@ -221,7 +221,7 @@ internal class InstalledProduct(private val tarballs: Path, private val root: Pa
                 envelope = client.delivered(raw); report = envelope.objectAt("result")
             }
             check(report.string("executionId") == id && report.string("sessionId") == session)
-            return ScriptResult(raw, envelope, report).succeeded()
+            return ScriptResult(raw, envelope, report)
         }
         try {
             val declaration = submit("""
@@ -235,7 +235,7 @@ internal class InstalledProduct(private val tarballs: Path, private val root: Pa
                     }
                     check(units.size == table.logicUnitCount && units.map { it.record.code }.toSet() == setOf("ORDER_ID", "AMOUNT", "CALENDAR_DAYS"))
                 }
-            """.trimIndent())
+            """.trimIndent()).succeeded()
             check(declaration.report.array("calls").isEmpty())
             val reports = (1..4).map {
                 submit("""
@@ -243,15 +243,37 @@ internal class InstalledProduct(private val tarballs: Path, private val root: Pa
                         readInstalledFields(parameters.text("logicalTableId"), listOf(parameters.text("orderUnitId"), parameters.text("amountUnitId"), parameters.text("daysUnitId")))
                         if (round % 6 == 5) olap.output(ScriptValue.Text("completed:" + (round + 1)))
                     }
-                """.trimIndent()).report.also { report ->
+                """.trimIndent()).succeeded().report.also { report ->
                     check(report["workerId"] == declaration.report["workerId"] && report.getValue("sessionUsable").jsonPrimitive.boolean)
                     val calls = report.array("calls").map { it.jsonObject }
                     check(calls.size == 96 && calls.all { call -> call.string("state") == "COMPLETED" && call.getValue("success").jsonPrimitive.boolean && call.array("effects").isEmpty() })
                     check(report.array("outputs").map { it.jsonObject.objectAt("value").string("text") } == listOf("completed:6", "completed:12", "completed:18", "completed:24"))
                 }
             }
+            val catalog = submit("""
+                val regularCatalog = olap.semantics.subjectAreas(GovernanceReadRequests.PageInput(0, 1000))
+                val wideCatalog = olap.semantics.subjectAreas(GovernanceReadRequests.PageInput(0, Int.MAX_VALUE))
+                val defaultCatalog = olap.semantics.subjectAreas(GovernanceReadRequests.PageInput(null, null))
+                val pastCatalog = olap.semantics.subjectAreas(GovernanceReadRequests.PageInput(Int.MAX_VALUE, Int.MAX_VALUE))
+                check(regularCatalog.total > 0 && regularCatalog.items.size == regularCatalog.total)
+                check(wideCatalog.items == regularCatalog.items && defaultCatalog.items == regularCatalog.items)
+                check(pastCatalog.items.isEmpty() && pastCatalog.total == regularCatalog.total && pastCatalog.nextOffset == null)
+                olap.output(ScriptValue.Text("governance-catalog-read"))
+            """.trimIndent()).succeeded()
+            check(catalog.report.array("calls").size == 4 && catalog.report.array("effects").isEmpty())
+            val rejected = submit("GovernanceReadRequests.PageInput(0, 0)")
+            check(!rejected.envelope.getValue("success").jsonPrimitive.boolean && rejected.report.array("calls").isEmpty()
+                && rejected.report.array("effects").isEmpty() && rejected.report.getValue("sessionUsable").jsonPrimitive.boolean)
+            val diagnostic = rejected.report.array("diagnostics").map { it.jsonObject }.single { it["code"] == text("INVALID_PAGINATION") }
+            check(diagnostic["stage"] == text("CONTRACT_INPUT") && diagnostic["fieldPath"] == JsonArray(listOf(text("limit")))
+                && diagnostic["actual"] == text("0") && diagnostic.objectAt("location").getValue("startLine").jsonPrimitive.int > 0)
+            val continued = submit("olap.output(olap.semantics.subjectAreas(GovernanceReadRequests.PageInput(0, 1000)))").succeeded()
+            check(continued.report["workerId"] == catalog.report["workerId"] && rejected.report["workerId"] == catalog.report["workerId"]
+                && continued.report.getValue("sessionUsable").jsonPrimitive.boolean && continued.report.array("effects").isEmpty())
             return objectOf("sessionId" to text(requireNotNull(session)), "fragments" to number(reports.size),
-                "completedReads" to number(reports.sumOf { it.array("calls").size }), "effects" to number(0))
+                "completedReads" to number(reports.sumOf { it.array("calls").size }), "effects" to number(0),
+                "governancePagination" to objectOf("wideAndDefaultRead" to bool(true), "pastEnd" to bool(true),
+                    "rejectedInput" to diagnostic, "continuedOnSameWorker" to bool(true)))
         } finally {
             session?.let { check(client.call("close-script-session", objectOf("sessionId" to text(it))).jsonObject.string("state") == "CLOSED") }
         }

@@ -152,6 +152,16 @@ object ApiDiscovery {
             com.olap.prototype.query.contract.QueryExplanationRequest::class -> com.olap.prototype.query.contract.QueryExplanationRequest.contract()
             com.olap.prototype.query.contract.QueryExplanationSection::class -> com.olap.prototype.query.contract.QueryExplanationSection.contract()
             ResultMetadataRequest::class -> ResultMetadataRequest.contract()
+            com.olap.prototype.governance.contract.GovernanceReadRequests.PageInput::class,
+            com.olap.prototype.governance.contract.GovernanceReadRequests.SourceDiscoveriesInput::class,
+            com.olap.prototype.governance.contract.GovernanceReadRequests.SnapshotPageInput::class,
+            com.olap.prototype.governance.contract.GovernanceReadRequests.DiscoveredTablePageInput::class,
+            com.olap.prototype.governance.contract.GovernanceReadRequests.SourcePageInput::class,
+            com.olap.prototype.governance.contract.GovernanceReadRequests.VersionPageInput::class,
+            com.olap.prototype.governance.contract.GovernanceReadRequests.SubjectPageInput::class ->
+                com.olap.prototype.governance.contract.GovernanceReadRequests.paginationContract()
+            com.olap.prototype.governance.contract.GovernanceReadRequests.DefinitionDependenciesRequest::class ->
+                com.olap.prototype.governance.contract.GovernanceReadRequests.DefinitionDependenciesRequest.contract()
             com.olap.prototype.query.contract.catalog.SemanticCatalogReads.SearchRequest::class ->
                 com.olap.prototype.query.contract.catalog.SemanticCatalogReads.SearchRequest.contract()
             com.olap.prototype.query.contract.CandidateRequest::class -> com.olap.prototype.query.contract.CandidateRequest.contract()

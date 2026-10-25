@@ -140,7 +140,7 @@ class DefinitionImpactService(private val database: PlatformDatabase) {
         }
     }
     fun direct(request: DefinitionImpactRequest, offset: Int, limit: Int): DefinitionDependencies {
-        require(offset >= 0 && limit in 1..1000) { "invalid dependency page" }
+        GovernanceReadRequests.requirePage(offset, limit)
         return database.inReadSnapshot {
             val target = reference(request.assetType, request.id, request.version)
             val items = ImpactGraph().also { it.requireTarget(target); it.connectDefinitions(); it.connectContexts() }.dependencies(target)
