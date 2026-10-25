@@ -2,11 +2,11 @@
 
 `connector-api` 为独立后端实现提供共同合同和 Calcite 1.42.0 的公开类型。它不依赖治理、服务应用或内部编译实现。连接器实现已定义语义的原生映射与来源访问，业务指标、对象资格、数量、NULL 与查询组织仍由语义定义和共同内核拥有。
 
-SDK 按精确发行标签发布到 JitPack。`agentic-olap sdk` 返回本版 API、随包文档、Maven 仓库及 `artifacts` 中的完整坐标；`sdk --repository` 只输出仓库地址。构件使用 `com.github.hanger-source.agentic-olap` group，版本为 `v` 加产品版本，公开入口为 `connector-api`，可复用 JDBC 支持为 `warehouse-jdbc`，应用装载器为 `connector-loader`。新建或确需重新构建的插件使用目标宿主命令返回的精确坐标，不使用 SNAPSHOT。API 标识为 `agentic-olap-connector/v12-kotlin-native-collection-placement-calcite-1.42`。
+SDK 按精确发行标签发布到 JitPack。`agentic-olap sdk` 返回本版 API、随包文档、Maven 仓库及 `artifacts` 中的完整坐标；`sdk --repository` 只输出仓库地址。构件使用 `com.github.hanger-source.agentic-olap` group，版本为 `v` 加产品版本，公开入口为 `connector-api`，可复用 JDBC 支持为 `warehouse-jdbc`，应用装载器为 `connector-loader`。新建或确需重新构建的插件使用目标宿主命令返回的精确坐标，不使用 SNAPSHOT。API 标识为 `agentic-olap-connector/v13-kotlin-data-contract-source-adoption-calcite-1.42`。插件须实现该 API 的实际公开签名，不能仅改 manifest 的版本标签。
 
 SDK 的 JAR、POM 由插件工程的 Gradle 从 JitPack 匿名取得，第三方传递依赖从 Maven Central 取得。插件开发仍需 Kotlin/Gradle 工具链；运行产品无需这些构建工具。部署到其他服务前核对该服务的实际 API，不能把本地安装版本当作远程运行版本。
 
-产品版本或 SDK 坐标变化本身不要求重新构建插件。同一连接器 API 下，插件实际使用的公共 ABI 及 JVM、Kotlin、Calcite 要求仍满足时，可以沿用原完整插件组、manifest、`ConnectorRef` 和来源绑定。装载器核验精确字节与接口身份，不比较插件构建时的产品版本；API 字符串相同或装载成功，也不单独证明所有延迟执行分支可用。真正更换构件字节时，生成新的精确引用及来源绑定，通过现有显式治理修订、采用和发布处理变化，不能覆写旧字节或自动切换已有发布。
+产品版本或 SDK 坐标变化本身不要求重新构建插件。同一连接器 API 下，插件实际使用的公共 ABI 及 JVM、Kotlin、Calcite 要求仍满足时，可以沿用原完整插件组、manifest、`ConnectorRef` 和来源绑定。装载器核验精确字节与接口身份，不比较插件构建时的产品版本；API 字符串相同或装载成功，也不单独证明所有延迟执行分支可用。真正更换构件字节时，生成新的精确引用及来源绑定，为未变的数据合同登记新兑现采用，再由新发布明确选择其引用；不能覆写旧字节或自动切换已有发布。数据合同或原生函数的精确依赖发生变化时，才修订相应定义。
 
 `OlapConnector` 使用 Kotlin 接口，通过 JVM ServiceLoader 注册；只读属性 `id`、`version`、`apiVersion`、`compilation` 声明实现与编译能力，`access(verifiedIdentity)` 接收装载器核验后的精确身份并返回来源访问实现。发现和纯编译不读取源凭据、不打开业务连接。原生类型、参数、转换、数值失败与标量解码按实际输入类型实现，不支持的映射明确拒绝。
 
@@ -21,7 +21,7 @@ SDK 的 JAR、POM 由插件工程的 Gradle 从 JitPack 匿名取得，第三方
 ```json
 {
   "connectorRef": {"id": "backend", "version": "1.0.0", "sha256": "完整插件组摘要"},
-  "apiVersion": "agentic-olap-connector/v12-kotlin-native-collection-placement-calcite-1.42",
+  "apiVersion": "agentic-olap-connector/v13-kotlin-data-contract-source-adoption-calcite-1.42",
   "jars": [
     {"file": "connector-backend.jar", "sha256": "该JAR摘要"},
     {"file": "backend-jdbc.jar", "sha256": "该JAR摘要"}
@@ -37,7 +37,36 @@ SDK 的 JAR、POM 由插件工程的 Gradle 从 JitPack 匿名取得，第三方
 
 ## 消费与责任
 
-`ConnectorRegistry.require(ref)` 返回精确 `ResolvedConnector`。编译消费者使用其 `compilation`，来源消费者使用其 `access`；不能按方言名称重新选择实现，也没有全局当前后端。数据源连接身份、物理采用证据、冻结执行绑定和实际编译结果保留相同连接器引用，执行时核对部署与冻结内容一致。
+`ConnectorRegistry.require(ref)` 返回精确 `ResolvedConnector`。编译消费者使用其 `compilation`，来源消费者使用其 `access`；不能按方言名称重新选择实现，也没有全局当前后端。物理版本只拥有稳定数据合同，所选兑现采用、冻结执行绑定和实际编译结果保留精确连接器引用，执行时核对部署与冻结内容一致。
+
+## 数据合同与兑现采用
+
+API v13 的来源输入分为两个明确对象：
+
+| 对象 | 内容与责任 |
+| --- | --- |
+| `PhysicalDataContract` | 精确物理版本 P、稳定来源和表坐标、按列名配对的精确列版本与 SQL 类型／NULL、约束、快照唯一规则及 anchor、封存集合的原完整声明。P 不选择连接器、方言或结构快照。 |
+| `PhysicalSourceAdoption` | 发布明确选定的不可变采用，包含采用引用、P 引用、精确 `SourceBindingRef`、连接器、方言、表坐标及具体结构快照 S 的兑现证据。 |
+| `PhysicalSourceEvidence` | S 的精确身份、结构出处、观察摘要与所选声明列类型，以及实际数据库／驱动观察、约束、快照唯一证明 ID 和该绑定的集合登记。它不等于本次执行已经核验。 |
+
+`SourceAccess` 的纯能力声明签名为：
+
+```kotlin
+fun supportsConstraintVerification(
+    dataContract: PhysicalDataContract,
+    adoption: PhysicalSourceAdoption
+): Boolean
+```
+
+该声明同时取得 P 的要求和所选实现的证据，不连接来源，也不从 P 原结构出处推导执行绑定。`SourceAccess.execute` 的 `SourceSqlRequest.sourceRequirements` 每项持有 `dataContract`、`adoption`、本次实际 `columns`、`uses` 与 `constraintUses`。`dataSourceId/connectorRef/dialect/table/bindingRef()` 来自所选采用；`snapshotUniqueKeys` 来自 P，`sourceCollections` 只包含兑现 P 声明的对应登记。`adoption.evidence` 给出实际 S 的观察，不能使用 P 的原观察冒称另一实现已核验。
+
+`adoption.requireContract(dataContract)` 核对冻结证据能否兑现 P；`requirement.requireDeployment(source)` 核对当前配置是否仍是其精确绑定。两者都不替代 `execute` 对实际读基础、约束及关系检查的兑现。B 可以提供额外列，但 P 声明的每个列类型／NULL 和实际依赖的保证都必须成立；不能用完整列数或结构摘要相同代替核验。
+
+采用的登记与发布由完整服务负责，插件不创建、修订或选择采用。初次 `createPhysicalTable` 在同一事务返回首份 `SourceAdoptions`；更换兑现实现使用 `registerSourceAdoptions`，已有采用按精确 S 读取，Kotlin 将正式返回的 `references` 直接传给 `buildRelease`。发布计算实际 P 闭包，缺少采用或同 P 多选明确拒绝，未用余项不成为依赖；不按最近记录选择。相同 P、绑定的不同 S 可以产生不同精确采用，审计主体与时间不产生另一份内容身份。
+
+旧发布保留原采用；读取不可变采用只要求元数据读取权限，执行仍要求其精确绑定当前可用。原生表达式的 `NativeCall(A)` 是真实精确依赖，发布选择 B 不会将它改写，冲突需明确修订相应定义。未变的数据合同及业务定义不因实现替换而修订。采用和定义冻结不固定动态数据的 `SourceReadBasis`。
+
+可选 JDBC 支持的 `supportsColumnInspection` 与 `supportsConstraintSnapshot` 均接收 `PhysicalSourceEvidence`。内置 JDBC 按选定 S 的 `structureProvenance` 决定 catalog／技术观察核验，数据库产品／版本及驱动名／版本与该证据比较；不从 P 原出处继承 A 的核验，也不要求 HTTP 来源提供 JDBC 元数据。具体执行要求见[来源访问合同](../../../../docs/source-access.md)。
 
 `CompilationSupport` 提供 `SqlDialect`、`RelDataTypeSystem`、JDBC 类型映射、表坐标、参数、精确文本身份比较、类型化集合展开及原生数值操作。`matchesNativeResult(NativeValueType, JdbcColumnType)` 核验来源响应或显式合同提供的 SQL 标量类型能否承载编译类型；原始观察元数据保持原值，DuckDB 的 HUGEINT 等专属匹配由对应插件拥有。共同编译器继续组织关系与阶段、进行类型和数量分析并生成 SQL，内核保留结果容器形态、NULL 与逐值数值约束。
 
@@ -116,7 +145,7 @@ override val division: SqlOperator = SqlBinaryOperator(
 
 `readBasis` 如实为 Unknown 或 Versioned；来源支持强制精确数据版本时才声明 PINNED_READ 并落实 `SourceSqlRequest.expectedReadBasis`。返回基础必须与要求相符，不能忽略 pin 后读取最新。分区名或访问绑定本身不证明内容不可变，也不保证历史版本永远可用。
 
-`SourceAccess.supportsConstraintVerification` 是不连接来源的纯能力声明，用于决定是否向优化器提供冻结键等约束。返回 false 不会把真实非空列改为可空：冻结非空类型进入 Calcite 时仍产生精确列的 `NOT_NULL` 采用，即使只是单表 RAW_BAG 投影。`SourceSqlRequest.sourceRequirements` 给出精确绑定、表版本、表坐标、实际列类型与 `constraintUses`；`NOT_NULL.name` 是列名，其他项引用冻结键或规则。插件不解析 SQL 猜测检查对象，也不能仅凭业务 EventIdentity 推断检查范围。
+`SourceAccess.supportsConstraintVerification(dataContract, adoption)` 是不连接来源的纯能力声明，用于决定是否向优化器提供 P 的冻结键等约束。返回 false 不会把真实非空列改为可空：冻结非空类型进入 Calcite 时仍产生精确列的 `NOT_NULL` 采用，即使只是单表 RAW_BAG 投影。`SourceSqlRequest.sourceRequirements` 分别交出 P 的要求及实际采用的来源证据；`NOT_NULL.name` 是列名，其他项引用 P 的冻结键或规则。插件不解析 SQL 猜测检查对象，也不能仅凭业务 EventIdentity 推断检查范围。
 
 `SourceAccess.execute` 拥有本次全部保证。访问层的 `CONSISTENT_READ` 要求检查与计算针对一致数据状态成立，可使用事务快照、原子 statement 或不可变数据版本，不把 `TRANSACTION_SNAPSHOT` 作为所有实现的前置。源端真实强制且覆盖既有数据的约束，也可在核验精确对象并保证执行期间 schema 稳定后兑现相应保证；仅目录 NULL 标记、约束名称、历史调查、DECLARED 或只检查后续写入的约束都不够。仅支持原生非空约束不代表能向优化器提供所有冻结键。内置 JDBC 继续使用数据非空见证，不因新增文档路径跳过扫描。
 

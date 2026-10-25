@@ -97,7 +97,7 @@ npx skills add hanger-source/agentic-olap --skill agentic-olap
 
 空库启动后，使用方在 `info` 返回的配置路径登记独立连接器与实际业务源，重启服务，再由 Agent 通过 MCP 调查与建设语义资产。已有适用资产时直接复用；连接器、远程认证和授权配置见[服务说明](skills/agentic-olap/references/server.md)。本机默认启动不依赖外部身份系统。
 
-业务源保留稳定 ID，每份访问绑定具有精确 `sourceIdentityHash`。Agent 从授权源列表选择绑定后调查或登记结构，物理版本与发布保留该选择；更换端点或插件不会自动改写旧发布。精确插件还可声明只读原生标量函数，Agent 从服务读取声明后在共同表达式中调用，物理表参数继续受精确采用与来源权限约束。配置、结构登记及插件扩展见[来源访问说明](docs/source-access.md)。
+业务源保留稳定 ID，每份访问绑定具有精确 `sourceIdentityHash`。物理版本 P 保存稳定数据合同；Agent 对授权绑定调查或登记结构，再明确接受其兑现 P 的采用，由发布选择精确采用引用。更换端点或插件时，未变的数据合同与业务定义继续使用原精确版本，旧发布不会自动切换。数据合同或原生函数精确依赖变化时才修订相应定义。精确插件声明的原生标量函数仍受采用与来源权限约束。配置、结构登记及插件扩展见[来源访问说明](docs/source-access.md)。
 
 [订单业务示例](examples/orders/README.md)用作者给出的数据和定义展示以下实际计算，完整研发运行命令见[示例导航](examples/README.md)：
 

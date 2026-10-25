@@ -75,7 +75,7 @@ JDBC 实现的 `identityParameters` 为 `jdbcUrl`、可选 `username` 和 `drive
 | --- | --- |
 | `validateConfiguration` | 校验自身参数与凭据槽；不把数据库探测作为通用前置 |
 | `capabilities` | 按实际配置声明独立能力 |
-| `supportsConstraintVerification` | 纯声明能否兑现交给优化器的冻结键等约束，不连接来源；返回 false 不会改变真实列的非空类型，也不免除本次 `NOT_NULL` 要求 |
+| `supportsConstraintVerification(dataContract, adoption)` | 分别接收 `PhysicalDataContract` 的要求和 `PhysicalSourceAdoption` 的精确兑现证据，纯声明能否兑现交给优化器的冻结键等约束，不连接来源；返回 false 不会改变真实列的非空类型，也不免除本次 `NOT_NULL` 要求 |
 | `execute` | 执行核心给出的 `SourceSqlRequest`，兑现 SQL、参数、关系检查、来源保证和本次资源要求 |
 | `discover` / `snapshot` / `describe` | 可选结构供应或调查；没有实现时准确拒绝对应操作 |
 | `preview` / `profile` / `profileRelationship` | 可选样本、列和关系调查；分别按能力检查 |
@@ -84,6 +84,8 @@ JDBC 实现的 `identityParameters` 为 `jdbcUrl`、可选 `username` 和 `drive
 执行请求包含 SQL、无损类型参数、结果别名和输出类型，以及实际依赖的来源证据、约束和关系检查。插件不能丢弃附带检查后只执行主 SQL。存在关系检查或采用约束时，`CONSISTENT_READ` 要求检查与本次计算针对一致的数据状态成立；事务快照、同一原子 statement 内检查或精确绑定的不可变数据版本，都可以兑现该要求。一次 HTTP 请求、一个 SQL 批次或“先检查再查询”本身不能证明一致性。插件不认识或无法兑现的要求应明确拒绝，不改写业务语义。
 
 `sourceRequirements` 持有稳定 `dataContract`、明确选定的 `adoption`、本次实际使用的 `columns` 与 `constraintUses`。前者给出 P 的精确列和约束要求，后者给出实际绑定、连接器、方言、表坐标及该 S 的冻结证据；不能从 P 的原出处推导执行来源。`NOT_NULL.name` 直接标识列，其他约束项定位 P 的实际键或规则，插件无需解析 SQL 猜测来源列。`relationChecks` 另行给出 SQL、类型参数与违例码。两者都属于执行合同，参数顺序、比较语义与检查范围必须保留。
+
+API v13 的插件按上述两个正式对象实现纯能力声明及执行核验，不自行登记或选择采用。`adoption.requireContract(dataContract)` 只核冻结证据能否兑现 P，`requireDeployment(source)` 只核当前精确绑定；实际保证仍由本次 `execute` 兑现。`JdbcSourceRequirement.snapshotUniqueKeys` 来自 P，`sourceCollections` 只选取兑现 P 声明的登记，不能把 B 的其他观察自动提升为查询要求。可选 `JdbcSupport.supportsColumnInspection` 和 `supportsConstraintSnapshot` 接收 `PhysicalSourceEvidence`，核验使用所选 S 的出处和数据库／驱动观察，不沿用 P 原出处的技术信息。完整签名与字段责任见[连接器 API](../project/modules/kernel/connector-api/README.md#数据合同与兑现采用)。
 
 源端原生强制约束可以免去同一非空条件的数据扫描，但插件必须核验约束确实作用于本次精确来源和列、覆盖已有数据与本次可读数据，而且在主查询期间不会因 DDL、表替换或连接切换失效。仅约束名称相同、目录返回 `nullable=false`、只约束后续写入、一次历史 catalog 观察或 `DECLARED` 结构都不足以证明这些条件。核验与使用之间的 schema 稳定性应由来源实际机制保证，例如同一受保护事务或 statement 的稳定 schema；不能靠先查目录再独立提交查询推断。源端只兑现非空约束时，也不能据此声明可以为优化器兑现所有冻结 PK／UK 等约束。
 

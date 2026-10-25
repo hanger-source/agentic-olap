@@ -27,7 +27,7 @@ repositories {
     }
 }
 dependencies {
-    compileOnly("com.github.hanger-source.agentic-olap:connector-api:v0.20.1")
+    compileOnly("com.github.hanger-source.agentic-olap:connector-api:v0.20.2")
 }
 ```
 
@@ -37,7 +37,7 @@ dependencies {
 
 - 产品版本或 SDK Maven 坐标变化本身不要求重构。原插件与目标宿主的连接器 API 相同，所用公共接口的二进制合同及 JVM、Kotlin、Calcite 要求满足时，可原样使用完整插件组。装载器核验 manifest、逐 JAR 摘要、组摘要、唯一 provider 及其完整身份，不比较产品发行号或 Maven 构建版本。API 字符串相同和装载成功不单独证明所有尚未调用的分支；升级需验证实际使用的编译和访问能力。
 - 原插件字节、完整 `connectorRef` 和来源身份配置均未改变时，来源绑定不变。宿主产品版本与 SDK 坐标不参与 `sourceIdentityHash`，无需仅为产品升级重登记来源结构或修订依赖资产。
-- 真正更换插件字节、provider 版本或来源身份参数时，使用真实生成的 manifest 与新精确引用，为目标绑定取得结构证据。通过 `read-asset-definition/read-definition-dependencies/read-definition-impact` 读取精确定义与影响，再用 `revise-physical-table` 及对应依赖定义的修订／采用入口显式组织新版本；`read-definition-revision-diff` 供核对差异，`activate/build-release` 明确激活、发布。已有版本与发布保留原引用，缺失精确绑定时失败；不存在自动传播目标绑定的迁移操作。完整调用见[连接说明](../skills/agentic-olap/references/connections.md#更换插件与显式采用)。
+- 真正更换插件字节、provider 版本或来源身份参数时，使用真实生成的 manifest 与新精确引用，为目标绑定取得结构快照 S。物理数据合同 P 未变时，调用 `register-source-adoptions` 登记兑现原精确 P 的新采用，或按精确 S 读取已有采用，将正式返回的 `references` 直接交给 `build-release`。发布负责取用实际依赖，不要求作者重抄逐表引用，不猜最近采用；缺失或同 P 多选明确拒绝。数据合同或原生函数精确依赖改变时，才结合定义、影响及差异读取修订相应版本。旧发布保留原采用，旧绑定未部署会影响执行，获授权的不可变元数据读取不要求该绑定仍部署。完整调用见[连接说明](../skills/agentic-olap/references/connections.md#更换插件与显式采用)。
 
 产品自身的运行 JAR、脚本环境和内置插件仍按同一发行标签装配。连接器 API 管理插件与宿主之间的正式合同；破坏该边界的接口、所需共享类型或运行要求时必须更新 API 身份，不能只更换产品版本后仍声称原合同成立。SDK 的其他公共定义不因共享一个 Maven 发行版本而自动取得连接器 SPI 的跨版保证。
 
@@ -47,7 +47,7 @@ dependencies {
 
 一次语言会话固定产品构建、Kotlin 版本、DSL、classpath、默认 imports 与 JVM 目标，不在存活会话里替换 JAR。升级沿明确停止服务、安装并启动的现有入口进行；旧语言内存结束，持久业务资产按各自格式和授权继续读取，不承诺跨版本搬运 JVM 对象。
 
-产品 0.20.1 的公开作者环境为 `agentic-olap-kotlin-dsl/v4`，内部进程合同为 `agentic-olap-runtime/v7`。创建场景阶段规则必须提供作者显式选择的 `authorization`；历史分页使用 `Long` 坐标和正 `Int` 页长，治理目录、解释及结果元数据按实际内存列表使用非负 `Int` 坐标和正 `Int` 页长，准确类型与默认行为通过服务发现。提交源码使用目标服务披露的 DSL，不自动改用旧作者合同。连接器 API 为 v13，元数据库格式为 17、Query intent 为 v7；查询定义制品 v11、结果封套／记录 v5 和发行清单 v4 各自保持原格式职责。
+产品 0.20.2 的公开作者环境为 `agentic-olap-kotlin-dsl/v4`，内部进程合同为 `agentic-olap-runtime/v7`。创建场景阶段规则必须提供作者显式选择的 `authorization`；历史分页使用 `Long` 坐标和正 `Int` 页长，治理目录、解释及结果元数据按实际内存列表使用非负 `Int` 坐标和正 `Int` 页长，准确类型与默认行为通过服务发现。提交源码使用目标服务披露的 DSL，不自动改用旧作者合同。连接器 API 为 v13，元数据库格式为 17、Query intent 为 v7；查询定义制品 v11、结果封套／记录 v5 和发行清单 v4 各自保持原格式职责。
 
 来源访问插件通过 API v13 分别取得物理数据合同要求和发布选定的兑现采用，按随产品提供的 SDK 构建。替换插件或精确来源绑定后，先为原数据合同登记新采用，再由新发布显式选择其 references；没有变化的业务定义继续引用自身精确版本。旧发布的采用不自动切换，当前部署未提供其精确实现时返回不可用原因。采用登记不承诺来源快照、历史数据重放或后端行为等价。
 

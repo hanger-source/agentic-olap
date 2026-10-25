@@ -89,11 +89,12 @@ olap.output(when (parameters.text("phase")) {
         val columns = olap.semantics.discoveredColumns(GovernanceReadRequests.DiscoveredTablePageInput(observed.id, 0, 20)).items
         check(columns.size == 3 && columns.all { it.autoIncrement == null && it.generated == null })
         val physical = olap.governance.createPhysicalTable(PhysicalTableCreateRequest(
-            "sales_orders", "SALES_ORDERS", "销售订单", "安装后真实H2订单", "sales", actor, "PUBLIC", "installed-sales", "business", "h2",
-            observed.catalogName, observed.schemaName, requireNotNull(observed.schemaHash),
-            PhysicalTableCreateRequest.SourceConstraintsInput(observed.id, emptyList()), actor,
+            "sales_orders", "SALES_ORDERS", "销售订单", "安装后真实H2订单", "sales", actor, "PUBLIC", "installed-sales", "business",
+            observed.catalogName, observed.schemaName,
+            PhysicalTableCreateRequest.SourceAdoptionInput(observed.id, emptyList()), actor,
             columns.map { PhysicalTableCreateRequest.ColumnInput(it.columnName, it.columnName, it.typeName, "PUBLIC", requireNotNull(it.nullable),
                 "订单原始字段", JdbcColumnType(it.jdbcType, it.typeName, it.precision, it.scale, it.nullable)) }))
+        val sourceAdoptions = physical.sourceAdoptions.references
         activate(GovernanceActivationObjectType.PHYSICAL_TABLE, physical.physicalTable.id)
         val logical = olap.governance.createLogicalTable(LogicalTableCreateRequest(physical.physicalTable.id, 1, "sales_orders", "销售订单",
             LogicalTableRole.FACT, "一条记录是一笔订单", actor, actor,
@@ -149,7 +150,7 @@ olap.output(when (parameters.text("phase")) {
         }
         olap.governance.createScenarioPipelineRule(ScenarioPipelineRuleCreateRequest(scenario.id, 1, "DERIVE", 1, StageAuthorization.current("DERIVE")))
         activate(GovernanceActivationObjectType.SUBJECT_AREA, subject.id)
-        olap.governance.buildRelease(SubjectAreaReleaseBuildRequest("installed-sales", "1", "安装后销售口径", subject.id, 1, actor))
+        olap.governance.buildRelease(SubjectAreaReleaseBuildRequest("installed-sales", "1", "安装后销售口径", subject.id, 1, actor, sourceAdoptions))
         val coordinate = QueryCapabilityRequest(scenario.id, 1, "installed-sales", "1")
         val publication = olap.semantics.publication(coordinate)
         val semanticMatches = olap.semantics.search(com.olap.prototype.query.contract.catalog.SemanticCatalogReads.SearchRequest(
@@ -263,7 +264,7 @@ olap.output(when (parameters.text("phase")) {
         val carry = olap.semantics.contextSelection(SubjectContextSelectionRequest(subject.id, 1)).selection
         olap.governance.reviseSubjectArea(SubjectContextRevisionRequest(subject.id, 1, subjectDefinition, carry))
         activate(GovernanceActivationObjectType.SUBJECT_AREA, subject.id, 2)
-        olap.governance.buildRelease(SubjectAreaReleaseBuildRequest("installed-sales", "2", "延续订单分析", subject.id, 2, actor))
+        olap.governance.buildRelease(SubjectAreaReleaseBuildRequest("installed-sales", "2", "延续订单分析", subject.id, 2, actor, sourceAdoptions))
         val nextCoordinate = QueryCapabilityRequest(scenario.id, 2, "installed-sales", "2")
         val nextPublication = olap.semantics.publication(nextCoordinate)
         val continued = execute(QueryIntent(nextCoordinate, computation(nextPublication)), "修订上下文后保持订单口径")

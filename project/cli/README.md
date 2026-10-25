@@ -57,7 +57,7 @@ agentic-olap call execute-script --payload '{"executionId":"sources-1","waitMill
 
 SDK 声明与内置插件随 npm 一起替换。独立插件不因产品版本或 SDK Maven 坐标变化就必须重构：连接器 API 相同，插件所用公共接口的二进制合同及 JVM、Kotlin、Calcite 要求满足目标宿主时，可保留原 manifest、JAR 和完整 `connectorRef`。宿主核验精确字节和 provider 身份，不比较插件构建所用的产品版本。API 字符串相同或装载成功不能替代实际使用能力的查询验证。原插件与来源身份参数未变时，来源绑定不变，无需为产品升级重登记目录或修订资产。
 
-确实更换插件字节或来源身份时，显式配置新精确引用、为目标绑定取得结构证据，再用 `read-asset-definition/read-definition-dependencies/read-definition-impact` 读取精确正文及影响，通过 `revise-physical-table` 和各依赖定义的正式修订／采用入口组织新版本，使用 `read-definition-revision-diff` 核对后激活并 `build-release`。新目录不会改写旧物理版本或发布，也没有自动传播目标绑定的迁移操作。外部业务插件由使用方提供，具体调用见[连接说明](../../skills/agentic-olap/references/connections.md#更换插件与显式采用)。所选发布、保存查询和历史结果可以通过 `read-deployment-availability` 核对读取或编译前提，再执行明确选择的业务查询确认；读取可用性本身不连接业务数据库。
+确实更换插件字节或来源身份时，显式配置新精确引用并为目标绑定取得结构快照 S。原物理数据合同 P 未变时，使用 `register-source-adoptions` 为原精确 P 登记新兑现采用，或用 `read-source-adoptions` 按精确 S 取得已有采用；Kotlin 将正式返回的 `references` 直接交 `build-release`。发布计算实际 P 闭包，不要求作者重抄逐表引用；缺失或多选明确拒绝。数据合同、业务含义或原生函数精确依赖改变时，再用正式定义、影响与差异读取组织相应修订。旧发布不自动切换，旧绑定未部署仅影响执行，不妨碍获授权的不可变元数据读取。外部业务插件由使用方提供，具体调用见[连接说明](../../skills/agentic-olap/references/connections.md#更换插件与显式采用)。所选发布、保存查询和历史结果可通过 `read-deployment-availability` 核对读取或编译前提；读取可用性本身不连接业务数据库。
 
 Agent 使用指引通过 GitHub 安装：
 
