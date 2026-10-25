@@ -143,6 +143,7 @@ object ApiDiscovery {
             ResultExpression.ResultNumeric::class -> ResultExpression.ResultNumeric.contract()
             ResultExpression.ResultRound::class -> ResultExpression.ResultRound.contract()
             ResultExpression.ResultOperation::class -> ResultExpression.ResultOperation.contract()
+            com.olap.prototype.query.QueryExecutionMode::class -> com.olap.prototype.query.QueryExecutionMode.contract()
             ResultExpression.ResultOperator::class -> ResultExpression.ResultOperator.contract()
             com.olap.prototype.query.ResultAggregation.Sum::class -> com.olap.prototype.query.ResultAggregation.Sum.contract()
             com.olap.prototype.query.ResultAggregation.Count::class -> com.olap.prototype.query.ResultAggregation.Count.contract()

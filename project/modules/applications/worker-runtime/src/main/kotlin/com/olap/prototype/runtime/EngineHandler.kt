@@ -14,6 +14,7 @@ import com.olap.prototype.engine.compiler.OlapSemanticCompiler
 import com.olap.prototype.engine.executable.*
 import com.olap.prototype.engine.catalog.ExecutableCatalogManifest
 import com.olap.prototype.query.QueryStageAnalysis
+import com.olap.prototype.query.QueryExecutionMode
 import com.olap.prototype.query.contract.*
 import com.olap.prototype.warehouse.WarehouseExecutionControl
 import com.olap.prototype.warehouse.contract.SourceConfiguration
@@ -77,11 +78,12 @@ internal class EngineHandler(private val connectors: ConnectorRegistry, private 
         return EngineWorkerResult.Loaded(id, contentHash)
     }
 
-    private fun authorize(publication: PublishedExecutableCatalog, id: String, requestId: String, intent: QueryIntent): ExecutableQueryRequest = try {
+    private fun authorize(publication: PublishedExecutableCatalog, id: String, requestId: String, intent: QueryIntent,
+        executionMode: QueryExecutionMode): ExecutableQueryRequest = try {
         require(requestId.isNotBlank()) { "query request identity is required" }
         require(intent.publication == publication.coordinate) { "query publication differs from the frozen catalog" }
         PublishedQueryContract.authorize(intent, publication.queryCapability)
-        ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION, requestId, id, intent.computation)
+        ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION, requestId, id, intent.computation, executionMode)
     } catch (failure: InputContractException) {
         throw failure
     } catch (failure: IllegalArgumentException) {
@@ -92,7 +94,7 @@ internal class EngineHandler(private val connectors: ConnectorRegistry, private 
     private fun resolve(command: EngineWorkerCommand.Inspect, control: WarehouseExecutionControl): EngineInputResolution {
         val id = command.catalogId
         val loaded = catalogs[id] ?: error("exact catalog is not loaded")
-        val request = authorize(loaded.publication, id, command.requestId, command.intent)
+        val request = authorize(loaded.publication, id, command.requestId, command.intent, command.executionMode)
         control.checkCancellation()
         val context = com.olap.prototype.engine.context.OlapQueryContext(request.requestId)
         val compiler = OlapSemanticCompiler(CalciteRelCompiler(connectors))
@@ -110,10 +112,11 @@ internal class EngineHandler(private val connectors: ConnectorRegistry, private 
             context.stageTimes, if (command.mode == InspectionMode.EXPLAIN) QueryExplanation.describe(requireNotNull(compiled)) else null)
     }
 
-    private fun observer(control: WarehouseExecutionControl): ExecutableExecutionObserver = object : ExecutableExecutionObserver {
+    private fun observer(control: WarehouseExecutionControl, sourceCompleted: (SourceReadEvidence) -> Unit = {}): ExecutableExecutionObserver = object : ExecutableExecutionObserver {
         override fun bindingCompleted(input: ExecutableInputScope) = control.checkCancellation()
         override fun stageAnalysisCompleted(analyses: List<QueryStageAnalysis.Analysis>) = control.checkCancellation()
         override fun sourceResolutionCompleted(evidence: List<CompiledQuery.SourceEvidence>) = control.checkCancellation()
+        override fun sourceCompleted(evidence: SourceReadEvidence) = sourceCompleted.invoke(evidence)
         override fun loweringCompleted(lowered: ExecutableLoweringResult) {
             control.checkCancellation()
             val sqlBytes = lowered.sql.toByteArray(Charsets.UTF_8).size.toLong() + lowered.relationChecks.sumOf { it.sql.toByteArray(Charsets.UTF_8).size.toLong() }
@@ -134,16 +137,19 @@ internal class EngineHandler(private val connectors: ConnectorRegistry, private 
         try {
             control.checkCancellation()
             val authorizationStart = System.nanoTime()
-            val definition = try { authorize(publication, id, command.requestId, command.intent) }
+            val definition = try { authorize(publication, id, command.requestId, command.intent, command.executionMode) }
             finally { stages["COMPILE_AUTHORIZE"] = System.nanoTime() - authorizationStart }
             val sources = DeployedSources(configured, connectors)
             val engine = OlapEngine(OlapSemanticCompiler(CalciteRelCompiler(connectors)),
-                SourceExecutableSqlExecutor(sources::requireProvider, budgets.materialization, budgets.nativeMemoryBytes, command.readBasis))
+                SourceExecutableSqlExecutor(sources::requireProvider, budgets.materialization, budgets.nativeMemoryBytes, command.readBasis), budgets.materialization)
             sourceExecutionStarted = null
-            val computation = engine.execute(publication.catalog, definition, observer(control), control)
+            val computation = engine.execute(publication.catalog, definition, observer(control) { evidence ->
+                completedReadEvidence = evidence
+                sourceExecutionStarted = true
+                sourceCompleted(evidence)
+            }, control)
             completedReadEvidence = computation.sourceReadEvidence
             sourceExecutionStarted = true
-            sourceCompleted(computation.sourceReadEvidence)
             stages.putAll(computation.result.stageNanos); stages["ENGINE_TOTAL"] = System.nanoTime() - started
             return EngineExecutionPayload(publication.coordinate, command.requestId, computation.businessResult, computation.sourceReadEvidence,
                 stages.toMap(), EngineExecutionDiagnostics(computation.result.sql, computation.result.aliasMapping, computation.result.auditReport),

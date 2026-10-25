@@ -355,7 +355,47 @@ else olap.output(olap.results.read(ResultReadRequest(result, 0, 100, null)))
 
 一次完整计算限于同一精确来源绑定、方言和连接器。多个定义与事实不等于跨来源联邦执行。已保存结果也不是另一条 Query 的关系输入。
 
-完成关系是计算中的语义边界：它保留已经形成的列、键、人口和数量来源。`RelationSlot`、`RELATION`、`ObjectsBy` 与后续阶段继续进入同一原生关系计划，不在这些位置先取回行再由服务内存计算。目前没有作者入口显式选择“来源交付完成关系，核心再执行最终 DIVIDE／ROUND”；这些算术同样编译给精确来源连接器执行。来源返回之后，内核核验并无损物化结果，不重新执行查询表达式。来源必须兑现完整原生计划的类型和算术保证，不支持时应明确拒绝，不能用后置舍入或结果读取补回原生运算已丢失的精度。
+完成关系保留已经形成的列、键、人口和数量来源，本身不指定执行位置。执行、校验与解释请求通过 `executionMode` 选择本次物理执行：`QueryExecutionMode.SOURCE` 将完整计算交给精确来源；`CORE_FINALIZATION` 在同一引擎 worker 内先接收同源完成关系，再执行根计算绑定后的标量阶段。它不是来源失败后的自动切换，也不读取其他运行的保存结果。
+
+核心终算支持 DERIVE／PROJECT，以及精确数值、布尔、NULL、CASE、NUMERIC、ROUND 和数值 CAST；具体节点、运算与限制从 `QueryExecutionMode.rules` 读取。不支持的本地阶段、函数、类型或表达式在提交来源前拒绝。子输入中的扫描、JOIN、归约、对齐、窗口及来源函数继续在来源完成；如果这些操作位于待终算的根阶段，则应把它们明确组织为同源 ROOT 输入，不能假定核心已经支持任意关系运算。
+
+例如，`completed` 是已按真实对象完成的同源 `QueryComputation.Scope`，含 `object_key`、Exact DECIMAL 的 `numerator` 和 Exact Integer64 的 `denominator`。下例假设两项数量的单位均为 ONE；具有业务单位的数量须在实际乘除节点使用已声明的单位方程。
+
+~~~kotlin
+val quotientContract = MetricValueContract(
+    MetricValueContract.Fixed(MetricValueContract.ONE), MetricValueContract.Exact(),
+    MetricValueContract.Decimal(38, 18, MetricValueContract.Rounding.HALF_UP),
+    emptyMap(), MetricValueContract.Overflow.FAIL
+)
+val finalization = QueryComputation.Scope(
+    QueryComputation.Reuse("completed"),
+    mapOf("completed" to QueryComputation.Input("ROOT", completed)),
+    listOf(
+        PostOperationContract.Derive(
+            ResultExpression.ResultNumeric(
+                ResultExpression.ResultOperation(ResultExpression.ResultOperator.SAFE_DIVIDE, listOf(
+                    ResultExpression.ResultSymbol("numerator"), ResultExpression.ResultSymbol("denominator")
+                )), quotientContract, null
+            ), "mean", "按已完成人口计算均值"
+        ),
+        PostOperationContract.Project(listOf("object_key", "mean"))
+    )
+)
+val selection = QuerySelection.Inline(QueryIntent(publication, finalization))
+val receipt = olap.queries.execute(QueryExecutionRequest(
+    selection, true, "明确在核心终算同源完成数量", null,
+    executionMode = QueryExecutionMode.CORE_FINALIZATION
+))
+olap.output(receipt)
+~~~
+
+这里 SAFE_DIVIDE 明确选择零分母为 NULL；使用普通 DIVIDE 不会隐式改变其除零政策。查询可以直接执行，不要求先校验；若需要解释或校验同一个计划，其请求也应显式选择相同 `executionMode`。解释的摘要给出实际 `sourceOutputScope`，每个根及阶段分别给出 `rootExecutionLocation` 与 `executionLocation=SOURCE/CORE`；SQL 及原生计划只代表来源部分，保存回执保留实际执行模式。
+
+共同计算仍可沉淀为定义：定义以正式关系形参接收完成数量，根使用该关系，阶段表达共同的 DERIVE／PROJECT；查询用根 Compute 调用它并明确绑定 ROOT 输入，选择 CORE_FINALIZATION。根上的单一精确计算调用可以继续引用另一层保存定义；被调用定义的阶段、调用输出的别名投影和数量合同、调用者后续阶段均保留真实作用域并在核心执行，来源子输入继续在来源完成。多调用对齐、分组层次、额外人口及调用根过滤需要关系装配，不会被隐式提升为本地运算；应明确组织为来源 ROOT 输入。调用者无需复制定义内部公式，也不能通过该模式绕过采用与发布授权。
+
+核心以精确有理数保存量化前的数值中间结果，在实际 NUMERIC、ROUND 或 CAST 节点按各自合同量化、检查容量；外层声明继承不等于把每次内层除法提前舍入。例如仅在最后量化的 `(1/3)*3` 仍为 1；明确对内层 `1/3` 量化为两位后再乘 3，则保留 0.99。NONE 遇到必须丢弃的数位时拒绝，不伪装成精确结果。DECIMAL(38,18) 只有 20 位整数容量，超出仍按 FAIL 处理。
+
+来源必须兑现切点之前的类型、聚合及无损交付保证，核心不能补回其已经丢失的数位，也不能把 UNKNOWN 读取基础提升为固定快照。来源返回后先交出实际读取事实；核心求值、容量核验或取消随后失败时保留来源结局，不重跑来源。核心完成结果沿用现有物化预算、正式保存和完整读取链路；大消息按现有规则自动完整保存，不另加行数额度或保存审批。
 
 ## 校验、解释与保存
 

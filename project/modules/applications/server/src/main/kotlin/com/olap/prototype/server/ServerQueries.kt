@@ -7,6 +7,7 @@ import com.olap.prototype.contract.ProducerContractException
 import com.olap.prototype.dsl.*
 import com.olap.prototype.protocol.CapabilityEffect
 import com.olap.prototype.query.QueryExplanationContent
+import com.olap.prototype.query.QueryExecutionMode
 import com.olap.prototype.query.contract.*
 import com.olap.prototype.query.definition.*
 import com.olap.prototype.query.usage.QueryResultArtifact
@@ -51,7 +52,7 @@ internal class ServerQueries(private val queries: JdbcQueryDefinitionRepository,
         request.work.timed("METADATA_AUTHORIZE_PUBLICATION") { authorization.publication(request.principal, "execute-query", publication.entry) }
         val run = usage.accept("run-${UUID.randomUUID().toString().replace("-", "")}", request.principal.subject,
             publication.entry, selected.intent, selected.reference, historyEnabled, input.saveResult, input.question)
-        val executed = executeAccepted(request, selected, publication, run, input.readBasis)
+        val executed = executeAccepted(request, selected, publication, run, input.readBasis, input.executionMode)
         val receipt = executed.receipt.copy(timingNanos = executed.receipt.timingNanos + request.work.timingNanos +
             ("METADATA_TOTAL" to System.nanoTime() - started))
         val prepared = try { request.work.timed("METADATA_PREPARE_ARTIFACT") {
@@ -66,7 +67,7 @@ internal class ServerQueries(private val queries: JdbcQueryDefinitionRepository,
     private data class Executed(val receipt: QueryExecutionReceipt, val payload: EngineExecutionPayload?)
     private fun executeAccepted(request: ServerRequest, selected: Selected,
         publication: JdbcPublishedQueryEntryProvider.Publication, run: QueryUsageRepository.Run,
-        readBasis: SourceReadBasis.Versioned?): Executed {
+        readBasis: SourceReadBasis.Versioned?, executionMode: QueryExecutionMode): Executed {
         var payload: EngineExecutionPayload? = null
         var dispatched = false
         var status = QueryExecutionStatus.SUCCEEDED
@@ -78,7 +79,7 @@ internal class ServerQueries(private val queries: JdbcQueryDefinitionRepository,
         var errorRecord: String? = null
         val timings = linkedMapOf<String, Long>()
         try {
-            val resolution = inspect(request, selected.intent, publication, InspectionMode.RESOLVE)
+            val resolution = inspect(request, selected.intent, publication, InspectionMode.RESOLVE, executionMode)
             resolution.timingNanos.forEach { (stage, nanos) -> timings["RESOLVE_$stage"] = nanos }
             requireResolution(selected.intent, resolution, publication)
             authorization.source(request.principal, "execute-query", resolution.binding.dataSourceId)
@@ -89,7 +90,7 @@ internal class ServerQueries(private val queries: JdbcQueryDefinitionRepository,
                 usage.dispatched(run.runId)
                 dispatched = true
                 (worker.engine(EngineWorkerCommand.Execute(publication.executable.catalog.manifest.catalogId,
-                    run.runId, selected.intent, listOf(source.bindingRef()), readBasis)) as EngineWorkerResult.Executed).value
+                    run.runId, selected.intent, listOf(source.bindingRef()), readBasis, executionMode)) as EngineWorkerResult.Executed).value
             }
             require(payload.publication == selected.intent.publication && payload.requestId == run.runId) {
                 "engine execution differs from accepted query"
@@ -118,6 +119,8 @@ internal class ServerQueries(private val queries: JdbcQueryDefinitionRepository,
             val notStarted = workerFailure?.sourceExecutionStarted == false
             sourceState = sourceRequest?.execution ?: if (dispatched && !notStarted) SourceExecutionState.UNKNOWN else SourceExecutionState.NOT_SUBMITTED
             status = when {
+                workerFailure?.error?.path("stage")?.textValue() == "AFTER_SOURCE" && readEvidence != null -> QueryExecutionStatus.OUTCOME_UNKNOWN
+                workerFailure?.error?.path("code")?.textValue() == "CANCELLED" && sourceState == SourceExecutionState.SUCCEEDED -> QueryExecutionStatus.CANCELLED
                 sourceState == SourceExecutionState.CANCELLED -> QueryExecutionStatus.CANCELLED
                 sourceState in setOf(SourceExecutionState.UNKNOWN, SourceExecutionState.RUNNING) -> QueryExecutionStatus.OUTCOME_UNKNOWN
                 !dispatched && client != QueryClientOutcome.COMPLETED -> QueryExecutionStatus.NOT_EXECUTED
@@ -127,7 +130,7 @@ internal class ServerQueries(private val queries: JdbcQueryDefinitionRepository,
         }
         val actual = payload.takeIf { status == QueryExecutionStatus.SUCCEEDED }
         val receipt = QueryExecutionReceipt(run.runId, status, null, actual?.result, false,
-            actual?.result?.rows?.size?.toLong() ?: 0, client, sourceState, sourceRequest, readEvidence, timings.toMap(), error)
+            actual?.result?.rows?.size?.toLong() ?: 0, client, sourceState, sourceRequest, readEvidence, timings.toMap(), error, executionMode)
         val outcome = when (status) {
             QueryExecutionStatus.SUCCEEDED -> QueryUsageRepository.Execution.SUCCEEDED
             QueryExecutionStatus.OUTCOME_UNKNOWN -> QueryUsageRepository.Execution.INTERRUPTED
@@ -141,11 +144,12 @@ internal class ServerQueries(private val queries: JdbcQueryDefinitionRepository,
     }
 
     private fun inspect(request: ServerRequest, intent: QueryIntent,
-        publication: JdbcPublishedQueryEntryProvider.Publication, mode: InspectionMode): EngineInputResolution =
+        publication: JdbcPublishedQueryEntryProvider.Publication, mode: InspectionMode,
+        executionMode: QueryExecutionMode = QueryExecutionMode.SOURCE): EngineInputResolution =
         workers.borrow(WorkerPool.Kind.ENGINE, emptyList(), request.work).use { worker ->
             WorkerPublications.engine(worker, publication)
             (worker.engine(EngineWorkerCommand.Inspect(mode, publication.executable.catalog.manifest.catalogId,
-                request.work.requestId, intent)) as EngineWorkerResult.Resolved).value
+                request.work.requestId, intent, executionMode)) as EngineWorkerResult.Resolved).value
         }
 
     private fun requireResolution(intent: QueryIntent, resolution: EngineInputResolution,
@@ -160,7 +164,7 @@ internal class ServerQueries(private val queries: JdbcQueryDefinitionRepository,
         val selected = select(request, input.query)
         val publication = publications.readPublication(selected.intent.publication)
         authorization.publication(request.principal, "validate-query", publication.entry)
-        requireResolution(selected.intent, inspect(request, selected.intent, publication, InspectionMode.VALIDATE), publication)
+        requireResolution(selected.intent, inspect(request, selected.intent, publication, InspectionMode.VALIDATE, input.executionMode), publication)
         return QueryValidationResult(true, QueryCapabilityHash.requireValid(publication.entry.capability))
     }
 
@@ -168,7 +172,7 @@ internal class ServerQueries(private val queries: JdbcQueryDefinitionRepository,
         val selected = select(request, input.query)
         val publication = publications.readPublication(selected.intent.publication)
         authorization.publication(request.principal, "explain-query", publication.entry)
-        val resolution = inspect(request, selected.intent, publication, InspectionMode.EXPLAIN)
+        val resolution = inspect(request, selected.intent, publication, InspectionMode.EXPLAIN, input.executionMode)
         requireResolution(selected.intent, resolution, publication)
         authorization.source(request.principal, "explain-query", resolution.binding.dataSourceId)
         val view = requireNotNull(resolution.explanation)

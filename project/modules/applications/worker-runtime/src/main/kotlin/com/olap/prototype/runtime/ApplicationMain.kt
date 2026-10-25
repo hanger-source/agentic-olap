@@ -13,7 +13,7 @@ fun main(args: Array<String>) {
     require(args.contentEquals(arrayOf("--mode", "worker"))) { "runtime --mode worker" }
     val input = BufferedInputStream(System.`in`)
     val initial = ProtocolPeer.readFrame(input, 64 * 1024 * 1024) ?: error("worker bootstrap is required")
-    require(initial.bodyCase == Frame.BodyCase.BOOTSTRAP && initial.bootstrap.protocol == "agentic-olap-runtime/v4") {
+    require(initial.bodyCase == Frame.BodyCase.BOOTSTRAP && initial.bootstrap.protocol == "agentic-olap-runtime/v5") {
         "unsupported runtime protocol bootstrap"
     }
     val bootstrap = initial.bootstrap
@@ -23,7 +23,11 @@ fun main(args: Array<String>) {
         budgets.requireWorkerHeap()
         WorkerApplication(bootstrap, budgets).use { worker ->
             peer.send(Frame.newBuilder().setResponse(Response.newBuilder().setRequestId("bootstrap").setSuccess(true)).build())
-            peer.serve(worker::response)
+            peer.serve { request -> worker.response(request) { evidence ->
+                peer.send(com.olap.prototype.protocol.Frame.newBuilder().setSourceReadCompleted(
+                    com.olap.prototype.protocol.SourceReadCompleted.newBuilder().setRequestId(request.requestId)
+                        .setEvidence(com.olap.prototype.codec.QuerySourceProto.toProto(evidence))).build())
+            } }
         }
     }
 }

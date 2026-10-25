@@ -551,7 +551,7 @@ class TemporalInputExecutionTest {
         QueryComputation.Measures(calls, grouping, null, emptyMap(), unrestricted, unrestricted, emptyList(), RowPopulationContract.calls(calls.map { it.callId }), null), emptyMap(), emptyList())
     private fun executeTemporal(definitions: Definitions, warehouse: NativeWarehouse, requestId: String, scope: QueryComputation.Scope): ExecutableExecutionResult {
         val catalog = definitions.catalog(); val provider = SourceProvider(warehouse.spec.source(), TestConnectors.registry)
-        val engine = OlapEngine(OlapSemanticCompiler(CalciteRelCompiler(TestConnectors.registry)), SourceExecutableSqlExecutor({ if (it == provider.bindingRef) provider else null }, RuntimeDeploymentLimits.result, RuntimeDeploymentLimits.nativeMemoryBytes, null))
+        val engine = OlapEngine(OlapSemanticCompiler(CalciteRelCompiler(TestConnectors.registry)), SourceExecutableSqlExecutor({ if (it == provider.bindingRef) provider else null }, RuntimeDeploymentLimits.result, RuntimeDeploymentLimits.nativeMemoryBytes, null), RuntimeDeploymentLimits.result)
         return engine.execute(catalog, ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION, requestId, catalog.manifest.catalogId, scope), object : ExecutableExecutionObserver {
             override fun bindingCompleted(input: ExecutableInputScope) {}
             override fun stageAnalysisCompleted(analyses: List<QueryStageAnalysis.Analysis>) {}

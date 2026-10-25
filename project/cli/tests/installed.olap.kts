@@ -206,6 +206,27 @@ olap.output(when (parameters.text("phase")) {
         })
         val numericResult = olap.queries.execute(QueryExecutionRequest(QuerySelection.Inline(numericIntent), true, "同请求整数SUM/COUNT、完整BIGINT域与零分母", null))
         check(numericResult.status == QueryExecutionStatus.SUCCEEDED && numericResult.saved) { numericResult.error.toString() }
+        val coreIntent = QueryIntent(coordinate, QueryComputation.Scope(numericIntent.computation.root,
+            numericIntent.computation.inputs, numericIntent.computation.stages + PostOperationContract.Derive(
+                ResultNumeric(ResultOperation(ResultOperator.DIVIDE, listOf(ResultSymbol("day_sum"),
+                    ResultQuantityLiteral(BigDecimal("3"), count))), mean, "days_per_valid_contribution"),
+                "third_of_days", "来源完成天数和的三分之一，核心量化")))
+        check(olap.queries.validate(QueryValidationRequest(QuerySelection.Inline(coreIntent), QueryExecutionMode.CORE_FINALIZATION)).valid)
+        val coreExplanation = olap.queries.explain(QueryExplanationRequest(QuerySelection.Inline(coreIntent),
+            QueryExplanationSection.SCOPES, 0, 100, QueryExecutionMode.CORE_FINALIZATION)).content as QueryExplanationContent.Scopes
+        check(coreExplanation.items.flatMap { it.stages }.all { it.executionLocation == QueryExplanationView.ExecutionLocation.CORE })
+        val coreResult = olap.queries.execute(QueryExecutionRequest(QuerySelection.Inline(coreIntent), true,
+            "同源完成数量经核心终算并保存无损结果", null, QueryExecutionMode.CORE_FINALIZATION))
+        check(coreResult.status == QueryExecutionStatus.SUCCEEDED && coreResult.saved &&
+            coreResult.executionMode == QueryExecutionMode.CORE_FINALIZATION && coreResult.sourceState == SourceExecutionState.SUCCEEDED) { coreResult.error.toString() }
+        val corePage = olap.results.read(ResultReadRequest(requireNotNull(coreResult.resultReference), 0, 10, null))
+        check(corePage.totalRows == 1 && corePage.rows.size == 1 && corePage.nextOffset == null)
+        val coreValues = corePage.columns.map { it.symbol.name }.zip(corePage.rows.single()).toMap()
+        check(scalar(coreValues.getValue("mean_days")).value == "30.250000000000000000")
+        check(scalar(coreValues.getValue("third_of_days")).value == "40.333333333333333333")
+        check((coreValues.getValue("zero_ratio") as ResultValueView.Complete).value is ExecutableBusinessResult.NullValue)
+        val coreRun = olap.results.run(QueryRunRequest(coreResult.runId, 0, 20)).run
+        check(coreRun.receipt?.executionMode == QueryExecutionMode.CORE_FINALIZATION && coreRun.receipt?.resultReference == coreResult.resultReference)
         val carry = olap.semantics.contextSelection(SubjectContextSelectionRequest(subject.id, 1)).selection
         olap.governance.reviseSubjectArea(SubjectContextRevisionRequest(subject.id, 1, subjectDefinition, carry))
         activate(GovernanceActivationObjectType.SUBJECT_AREA, subject.id, 2)
@@ -219,7 +240,8 @@ olap.output(when (parameters.text("phase")) {
             "subjectAreaId" to text(subject.id), "orderColumnVersion" to text(orderColumnVersion),
             "logicalTableId" to text(logical.logicalTable.id), "orderUnitId" to text(units.getValue("ORDER_ID").id),
             "amountUnitId" to text(units.getValue("AMOUNT").id), "daysUnitId" to text(units.getValue("CALENDAR_DAYS").id),
-            "numericResult" to ScriptValue.ResultReferenceValue(requireNotNull(numericResult.resultReference)))
+            "numericResult" to ScriptValue.ResultReferenceValue(requireNotNull(numericResult.resultReference)),
+            "coreResult" to ScriptValue.ResultReferenceValue(requireNotNull(coreResult.resultReference)))
     }
     "reopen" -> {
         val query = QueryReference(parameters.text("definitionId"), parameters.text("definitionVersion").toLong(), parameters.text("querySha256"))

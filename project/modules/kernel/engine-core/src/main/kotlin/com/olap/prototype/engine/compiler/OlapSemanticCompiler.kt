@@ -7,6 +7,7 @@ import com.olap.prototype.engine.catalog.ExecutablePhysicalExecutionBinding
 import com.olap.prototype.engine.catalog.SourceBindingConflictException
 import com.olap.prototype.engine.context.OlapQueryContext
 import com.olap.prototype.engine.executable.*
+import com.olap.prototype.query.QueryExecutionMode
 import com.olap.prototype.query.QueryStageAnalysis.Analysis
 import com.olap.prototype.query.QueryStageAnalysis.ScopeId
 import org.apache.calcite.plan.RelOptUtil
@@ -34,7 +35,22 @@ class OlapSemanticCompiler(private val compiler: CalciteRelCompiler) {
 
     fun compile(catalog: ExecutableCatalog, request: ExecutableQueryRequest, context: OlapQueryContext, observer: ExecutableExecutionObserver): CompiledQuery {
         val (graph, analyses, resolved, query) = prepare(catalog, request, context, observer)
-        val relational = try { compiler.compile(graph, analyses, resolved, context) }
+        val corePath = if (request.executionMode != QueryExecutionMode.CORE_FINALIZATION) null else {
+            phase("COMPILE_CORE_FINALIZATION", "CORE_FINALIZATION_PLAN_FAILED", "Core finalization root selection failed", query) {
+                CoreFinalizationPath.select(request, graph, analyses)
+            }
+        }
+        if (corePath != null) timed(context, "COMPILE_CORE_PREFLIGHT") {
+            phase("COMPILE_CORE_FINALIZATION", "CORE_FINALIZATION_PLAN_FAILED", "Core finalization stage selection failed", query) {
+                CoreFinalizationPlan.requireSupportedStages(analyses, corePath)
+            }
+        }
+        val sourceAnalyses = if (corePath == null) analyses else timed(context, "COMPILE_SOURCE_PREFIX") {
+            phase("ANALYZE_SOURCE_PREFIX", "EXECUTABLE_SOURCE_PREFIX_ANALYSIS_FAILED", "Source completion boundary analysis failed", query) {
+                ExecutableStageAnalysis.sourcePrefix(graph, analyses, corePath.sourceScope, compiler.connectors)
+            }
+        }
+        val relational = try { compiler.compile(graph, sourceAnalyses, resolved, context, corePath?.sourceScope ?: ScopeId.root()) }
         catch (cancelled: java.util.concurrent.CancellationException) { throw cancelled }
         catch (failure: EngineExecutionException) { throw EngineExecutionException(failure.stage, failure.code, failure.message, failure,
             observedEvidence(query) + failure.evidenceContext, query, failure.sourceFailure, failure.sourceReadEvidence, failure.sourceExecutionStarted, failure.stageNanos) }
@@ -44,7 +60,15 @@ class OlapSemanticCompiler(private val compiler: CalciteRelCompiler) {
         } catch (failure: RuntimeException) {
             throw EngineExecutionException("COMPILE_REL", "EXECUTABLE_REL_COMPILATION_FAILED", "Native relational compilation failed: ${failure.message}", failure, observedEvidence(query), query)
         }
-        val observed = query.copy(executableLoweringResult = relational.lowering)
+        var observed = query.copy(executableLoweringResult = relational.lowering)
+        if (corePath != null) {
+            val core = timed(context, "COMPILE_CORE_FINALIZATION") {
+                phase("COMPILE_CORE_FINALIZATION", "CORE_FINALIZATION_PLAN_FAILED", "Core finalization plan compilation failed", observed) {
+                    CoreFinalizationPlan.compile(relational.lowering.outputContract, analyses, corePath)
+                }
+            }
+            observed = observed.copy(coreFinalizationPlan = core)
+        }
         return timed(context, "COMPILE_PLAN_EVIDENCE") {
             phase("CAPTURE_PLAN", "EXECUTABLE_PLAN_CAPTURE_FAILED", "Native relational plan capture failed", observed) {
                 observed.copy(rawRelationalPlan = RelOptUtil.toString(relational.raw),
@@ -70,7 +94,7 @@ class OlapSemanticCompiler(private val compiler: CalciteRelCompiler) {
         }
         observer.stageAnalysisCompleted(analyses.values.toList())
         var observed = CompiledQuery(request.requestId, catalog.manifest.catalogId, analyses.values.toList(),
-            scopes = CompiledScopeExplanation.collect(graph))
+            scopes = CompiledScopeExplanation.collect(graph), executionMode = request.executionMode)
         val resolved = timed(context, "COMPILE_RESOLVE_SOURCE") {
             phase("RESOLVE_SOURCES", "EXECUTABLE_SOURCE_RESOLUTION_FAILED", "Source resolution failed", observed) { sourceResolver.resolve(catalog, graph) }
         }

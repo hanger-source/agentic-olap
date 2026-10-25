@@ -30,7 +30,8 @@ class CalciteRelCompiler private constructor(val connectors: ConnectorRegistry, 
         fun memberCandidateValues(connectors: ConnectorRegistry, offset: Int, limit: Int): CalciteRelCompiler = CalciteRelCompiler(connectors, CandidatePage(offset, limit))
     }
 
-    fun compile(graph: ExecutableInputGraph, analyses: Map<ScopeId, Analysis>, resolvedSources: ResolvedInputSources, context: OlapQueryContext): Compilation {
+    fun compile(graph: ExecutableInputGraph, analyses: Map<ScopeId, Analysis>, resolvedSources: ResolvedInputSources, context: OlapQueryContext,
+        outputScope: ScopeId = ScopeId.root()): Compilation {
         val frozen = timed(context, "COMPILE_SCHEMA") { frozenInputs(graph, resolvedSources) }
         val builder = frozen.nativeInputs.builder
         val support = connectors.require(frozen.source.connectorRef).compilation
@@ -38,7 +39,8 @@ class CalciteRelCompiler private constructor(val connectors: ConnectorRegistry, 
             throw IllegalArgumentException("completed native scalar calls cannot introduce physical tables; use SemanticExpression.NativeCall in an adopted source expression")
         }
         val relations = Relations(graph, builder, analyses, resolvedSources, native)
-        val raw = timed(context, "COMPILE_BUILD_REL") { relations.compile(graph.root, ScopeId.root()).relation }
+        val outputInput = requireNotNull(graph.scope(outputScope)) { "native output scope is outside the bound input graph" }
+        val raw = timed(context, "COMPILE_BUILD_REL") { relations.compile(outputInput, outputScope).relation }
         val parameters = relations.parameters
         val optimized = timed(context, "COMPILE_OPTIMIZE_REL") {
             phase("OPTIMIZE_REL", "EXECUTABLE_REL_OPTIMIZATION_FAILED", "Native relational optimization failed") {
@@ -61,9 +63,9 @@ class CalciteRelCompiler private constructor(val connectors: ConnectorRegistry, 
         }
         val sql = rendered.sql
         val aliases = optimized.rowType.fieldNames.associateWith { it }
-        val display = relations.outputs.getValue(ScopeId.root()).displayNames.filterKeys(aliases::containsKey)
-        context.addAuditLog("Calcite: frozen scans -> Rex/Rel -> HepPlanner -> RelToSqlConverter; inputScopes=${graph.inputs.size}, root=${graph.root.root.javaClass.simpleName}, dataSource=${frozen.source.dataSourceId}")
-        val output = ExecutableOutputContract.compiled(analyses, optimized.rowType, relations.inputTypes())
+        val display = relations.outputs.getValue(outputScope).displayNames.filterKeys(aliases::containsKey)
+        context.addAuditLog("Calcite: frozen scans -> Rex/Rel -> HepPlanner -> RelToSqlConverter; inputScopes=${graph.inputs.size}, root=${outputInput.root.javaClass.simpleName}, outputScope=${outputScope.path}, dataSource=${frozen.source.dataSourceId}")
+        val output = ExecutableOutputContract.compiled(analyses.filterKeys { it in relations.outputs }, optimized.rowType, relations.inputTypes(), outputScope)
         return Compilation(ExecutableLoweringResult(sql.sql, frozen.source.dataSourceId, frozen.source.connectorRef, support, frozen.source.dialect,
             CalciteSqlRendering.orderedParameters(sql, parameters), aliases, display, frozen.nativeInputs.sourceRequirements(), nativeChecks, output), raw, optimized,
             rendered.relation, CompilationScale.capture(raw, optimized, rendered))

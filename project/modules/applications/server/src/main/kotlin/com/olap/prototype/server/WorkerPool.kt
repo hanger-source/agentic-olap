@@ -59,9 +59,30 @@ class WorkerPool(private val processes: ManagedProcesses) {
         fun engine(command: EngineWorkerCommand): EngineWorkerResult {
             require(kind == Kind.ENGINE) { "engine command requires an engine worker lease" }
             val input = request.timed("${kind.name}_WORKER_ENCODE") { QueryWorkerProto.toProto(command) }
-            val response = exchangeModel(input, input.kindCase.name)
-            return request.timed("${kind.name}_WORKER_DECODE") { QueryWorkerProto.fromProto(ProtoBytes.unpackResponse(response,
-                com.olap.prototype.wire.query.EngineWorkerResult.getDefaultInstance())) }
+            val completed = java.util.concurrent.atomic.AtomicReference<com.olap.prototype.wire.query.SourceReadEvidence>()
+            val listener: ((com.olap.prototype.wire.query.SourceReadEvidence) -> Unit)? = if (command is EngineWorkerCommand.Execute) { evidence ->
+                require(QuerySourceProto.fromProto(evidence.binding) in command.bindings) { "source completion differs from authorized bindings" }
+                check(completed.compareAndSet(null, evidence)) { "source completion was reported twice" }
+            } else null
+            try {
+                val response = exchangeModel(input, input.kindCase.name, listener)
+                return request.timed("${kind.name}_WORKER_DECODE") { QueryWorkerProto.fromProto(ProtoBytes.unpackResponse(response,
+                    com.olap.prototype.wire.query.EngineWorkerResult.getDefaultInstance())) }
+            } catch (failure: Exception) {
+                val evidence = completed.get() ?: throw failure
+                val facts = (failure as? WorkerFailure)?.facts?.toBuilder()
+                    ?: com.olap.prototype.wire.query.WorkerFailureFacts.newBuilder()
+                facts.setSourceReadEvidence(evidence).setSourceExecutionStarted(true)
+                val error = when (failure) {
+                    is WorkerFailure -> failure.error
+                    is java.util.concurrent.TimeoutException -> OlapJsonUtils.mapper().valueToTree<JsonNode>(mapOf(
+                        "stage" to "AFTER_SOURCE", "code" to "WORKER_DEADLINE_EXCEEDED", "message" to "worker deadline exceeded after the source returned", "details" to emptyMap<String, Any>()))
+                    is InterruptedException, is java.util.concurrent.CancellationException -> OlapJsonUtils.mapper().valueToTree<JsonNode>(mapOf(
+                        "stage" to "AFTER_SOURCE", "code" to "CANCELLED", "message" to "client stopped waiting after the source returned", "details" to emptyMap<String, Any>()))
+                    else -> OlapJsonUtils.mapper().valueToTree<JsonNode>(ServerFailures.project(failure, "AFTER_SOURCE", "WORKER_FAILED_AFTER_SOURCE"))
+                }
+                throw WorkerFailure(kind, error, facts.build(), failure)
+            }
         }
         fun query(command: QueryWorkerCommand): QueryWorkerResult {
             require(kind == Kind.QUERY) { "query command requires a query worker lease" }
@@ -91,12 +112,13 @@ class WorkerPool(private val processes: ManagedProcesses) {
             return request.timed("${kind.name}_WORKER_DECODE") { CandidateWorkerProto.fromProto(ProtoBytes.unpackResponse(response,
                 com.olap.prototype.wire.query.CandidateWorkerResult.getDefaultInstance())) }
         }
-        private fun exchangeModel(command: com.google.protobuf.Message, action: String): com.google.protobuf.Any {
+        private fun exchangeModel(command: com.google.protobuf.Message, action: String,
+            sourceCompleted: ((com.olap.prototype.wire.query.SourceReadEvidence) -> Unit)? = null): com.google.protobuf.Any {
             check(!released) { "worker lease is closed" }
             val packed = request.timed("${kind.name}_WORKER_PACK") { ProtoBytes.pack(command) }
             val reply = request.timed("${kind.name}_WORKER_$action") {
                 process.exchange(com.olap.prototype.protocol.Request.newBuilder().setRequestId(request.requestId)
-                    .setRemainingMillis(request.remainingMillis()).setOperation("worker-command").setWorkerModel(packed).build())
+                    .setRemainingMillis(request.remainingMillis()).setOperation("worker-command").setWorkerModel(packed).build(), sourceCompleted)
             }
             reply.timingNanosMap.forEach { (stage, nanos) -> request.timingNanos.merge("${kind.name}_WORKER_${action}_$stage", nanos, Long::plus) }
             log.debug("worker exchange: requestId={} kind={} action={} commandBytes={} resultBytes={} workerNanos={}",
@@ -113,7 +135,7 @@ class WorkerPool(private val processes: ManagedProcesses) {
         }
     }
 
-    class WorkerFailure(val kind: Kind, val error: JsonNode, facts: com.olap.prototype.wire.query.WorkerFailureFacts?) : RuntimeException("worker operation failed") {
+    class WorkerFailure(val kind: Kind, val error: JsonNode, val facts: com.olap.prototype.wire.query.WorkerFailureFacts?, cause: Throwable? = null) : RuntimeException("worker operation failed", cause) {
         val sourceReadEvidence = facts?.takeIf { it.hasSourceReadEvidence() }?.let { QuerySourceProto.fromProto(it.sourceReadEvidence) }
         val sourceFailure = facts?.takeIf { it.hasSourceFailure() }?.let { QuerySourceProto.fromProto(it.sourceFailure) }
         val sourceExecutionStarted = facts?.takeIf { it.hasSourceExecutionStarted() }?.sourceExecutionStarted

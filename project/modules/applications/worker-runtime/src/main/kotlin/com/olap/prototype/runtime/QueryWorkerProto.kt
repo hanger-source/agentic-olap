@@ -21,16 +21,16 @@ object QueryWorkerProto {
         is EngineWorkerCommand.Lookup -> lookup = EngineCatalogReference.newBuilder().setCatalogId(v.catalogId).setContentHash(v.contentHash).build()
         is EngineWorkerCommand.Load -> load = GovernanceProto.toProto(v.publication)
         is EngineWorkerCommand.Unload -> unload = EngineCatalogReference.newBuilder().setCatalogId(v.catalogId).setContentHash(v.contentHash).build()
-        is EngineWorkerCommand.Inspect -> inspect = EngineInspect.newBuilder().setMode(v.mode.name).setCatalogId(v.catalogId).setRequestId(v.requestId).setIntent(QueryProto.toProto(v.intent)).build()
+        is EngineWorkerCommand.Inspect -> inspect = EngineInspect.newBuilder().setMode(v.mode.name).setCatalogId(v.catalogId).setRequestId(v.requestId).setIntent(QueryProto.toProto(v.intent)).setExecutionMode(QueryProto.toProto(v.executionMode)).build()
         is EngineWorkerCommand.Execute -> execute = EngineExecute.newBuilder().setCatalogId(v.catalogId).setRequestId(v.requestId).setIntent(QueryProto.toProto(v.intent))
-            .addAllBindings(v.bindings.map(QuerySourceProto::toProto)).apply { v.readBasis?.let { setReadBasis(QuerySourceProto.toProto(it)) } }.build()
+            .addAllBindings(v.bindings.map(QuerySourceProto::toProto)).setExecutionMode(QueryProto.toProto(v.executionMode)).apply { v.readBasis?.let { setReadBasis(QuerySourceProto.toProto(it)) } }.build()
     } }.build()
     fun fromProto(v: WEngineCommand): EngineWorkerCommand = when (v.kindCase) {
         WEngineCommand.KindCase.LOOKUP -> EngineWorkerCommand.Lookup(v.lookup.catalogId, v.lookup.contentHash)
         WEngineCommand.KindCase.LOAD -> EngineWorkerCommand.Load(GovernanceProto.fromProto(v.load))
         WEngineCommand.KindCase.UNLOAD -> EngineWorkerCommand.Unload(v.unload.catalogId, v.unload.contentHash)
-        WEngineCommand.KindCase.INSPECT -> v.inspect.let { require(it.hasIntent()); EngineWorkerCommand.Inspect(InspectionMode.valueOf(it.mode), it.catalogId, it.requestId, QueryProto.fromProto(it.intent)) }
-        WEngineCommand.KindCase.EXECUTE -> v.execute.let { require(it.hasIntent()); EngineWorkerCommand.Execute(it.catalogId, it.requestId, QueryProto.fromProto(it.intent), it.bindingsList.map(QuerySourceProto::fromProto), if (it.hasReadBasis()) QuerySourceProto.fromProto(it.readBasis) else null) }
+        WEngineCommand.KindCase.INSPECT -> v.inspect.let { require(it.hasIntent()); EngineWorkerCommand.Inspect(InspectionMode.valueOf(it.mode), it.catalogId, it.requestId, QueryProto.fromProto(it.intent), QueryProto.fromProto(it.executionMode)) }
+        WEngineCommand.KindCase.EXECUTE -> v.execute.let { require(it.hasIntent()); EngineWorkerCommand.Execute(it.catalogId, it.requestId, QueryProto.fromProto(it.intent), it.bindingsList.map(QuerySourceProto::fromProto), if (it.hasReadBasis()) QuerySourceProto.fromProto(it.readBasis) else null, QueryProto.fromProto(it.executionMode)) }
         else -> error("engine worker command requires one explicit variant")
     }
     fun toProto(v: EngineInputResolution): WResolution = WResolution.newBuilder().setPublication(QueryProto.toProto(v.publication)).setRequestId(v.requestId).setCatalogId(v.catalogId)

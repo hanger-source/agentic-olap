@@ -201,7 +201,7 @@ internal class GovernanceOrderFixture(val database: PlatformDatabase, val direct
     fun execute(publication: PublishedExecutableCatalog, computation: QueryComputation.Scope): ExecutableExecutionResult {
         val provider = SourceProvider(source, connectors)
         val engine = OlapEngine(OlapSemanticCompiler(CalciteRelCompiler(connectors)), SourceExecutableSqlExecutor({ reference -> provider.takeIf { it.bindingRef == reference } },
-            RuntimeDeploymentLimits.result, RuntimeDeploymentLimits.nativeMemoryBytes, null))
+            RuntimeDeploymentLimits.result, RuntimeDeploymentLimits.nativeMemoryBytes, null), RuntimeDeploymentLimits.result)
         val observer = object : ExecutableExecutionObserver {
             override fun bindingCompleted(input: ExecutableInputScope) { }
             override fun stageAnalysisCompleted(analyses: List<QueryStageAnalysis.Analysis>) { }

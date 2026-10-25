@@ -85,11 +85,11 @@ class ManagedProcesses(val config: JsonNode, distribution: Path) : AutoCloseable
     inner class Lease internal constructor(private val slot: Slot, private val requestId: String,
         private val deadline: Long, val observation: QueryWorkerAcquisition) : AutoCloseable {
         private var released = false
-        @Synchronized fun exchange(request: Request): Response {
+        @Synchronized fun exchange(request: Request, sourceCompleted: ((com.olap.prototype.wire.query.SourceReadEvidence) -> Unit)? = null): Response {
             check(!released && !closed.get()) { "worker lease is closed" }
             require(request.requestId.isNotBlank() && request.remainingMillis > 0 && request.hasWorkerModel()) { "worker command is required" }
             val bounded = request.toBuilder().setRemainingMillis(minOf(request.remainingMillis, remaining(deadline))).build()
-            return requireNotNull(slot.process).exchange(bounded)
+            return requireNotNull(slot.process).exchange(bounded, sourceCompleted)
         }
         @Synchronized override fun close() {
             if (released) return
@@ -121,7 +121,7 @@ class ManagedProcesses(val config: JsonNode, distribution: Path) : AutoCloseable
         }
     }
     companion object {
-        const val PROTOCOL = "agentic-olap-runtime/v4"
+        const val PROTOCOL = "agentic-olap-runtime/v5"
         internal fun positive(node: JsonNode, name: String): Int = node.required(name).let {
             require(it.isIntegralNumber && it.canConvertToInt() && it.intValue() > 0) { "positive exact $name is required" }; it.intValue()
         }

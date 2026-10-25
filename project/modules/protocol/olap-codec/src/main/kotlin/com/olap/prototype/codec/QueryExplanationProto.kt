@@ -59,8 +59,9 @@ object QueryExplanationProto {
     fun fromProto(v: PopulationContract) = View.PopulationContract(v.formatVersion, v.required, v.modesList.map { View.PopulationMode(it.mode, it.fieldsList.toList(), it.groups, if (it.hasInputs()) it.inputs else null) },
         v.scope, v.grain, v.unmatchedMetrics, v.calculationMetric, v.emptyPopulation, v.coverage)
     fun toProto(v: View.Summary): ExplanationSummary = ExplanationSummary.newBuilder().setScopeCount(v.scopeCount).setSourceInputCount(v.sourceInputCount)
-        .setExecutionBoundary(v.executionBoundary).setPopulationContract(toProto(v.populationContract)).setActualSourceStatistics(v.actualSourceStatistics).setRowNullAttribution(v.rowNullAttribution).build()
-    fun fromProto(v: ExplanationSummary): View.Summary { require(v.hasPopulationContract()); return View.Summary(v.scopeCount, v.sourceInputCount, v.executionBoundary, fromProto(v.populationContract), v.actualSourceStatistics, v.rowNullAttribution) }
+        .setExecutionBoundary(v.executionBoundary).setPopulationContract(toProto(v.populationContract)).setActualSourceStatistics(v.actualSourceStatistics).setRowNullAttribution(v.rowNullAttribution)
+        .setSourceOutputScope(SemanticProto.toProto(v.sourceOutputScope)).build()
+    fun fromProto(v: ExplanationSummary): View.Summary { require(v.hasPopulationContract() && v.hasSourceOutputScope()); return View.Summary(v.scopeCount, v.sourceInputCount, v.executionBoundary, fromProto(v.populationContract), v.actualSourceStatistics, v.rowNullAttribution, SemanticProto.fromProto(v.sourceOutputScope)) }
     fun toProto(v: QueryStageAnalysis.Key): ExplanationKey = ExplanationKey.newBuilder().apply { when (v) {
         is QueryStageAnalysis.UniqueKey -> { provenUnique = true; addAllColumns(v.columns.sortedWith(compareBy({ it.scope.path.joinToString("\u0000") }, { it.position })).map(SemanticProto::toProto)) }
         QueryStageAnalysis.UnknownKey.INSTANCE -> provenUnique = false
@@ -112,8 +113,16 @@ object QueryExplanationProto {
         .putAllRecordMeanings(v.recordMeanings.mapValues { SemanticProto.toProto(it.value) }).build()
     fun fromProto(v: ExplanationQualification): View.Qualification { require(v.hasObjectsScope() && v.hasTarget()); return View.Qualification(SemanticProto.fromProto(v.objectsScope), v.objectKeysList.toList(), SemanticProto.fromProto(v.target), v.effect, v.recordSlotsList.toList(), v.recordMeaningsMap.mapValues { SemanticProto.fromProto(it.value) }) }
     fun toProto(v: View.Stage): ExplanationStage = ExplanationStage.newBuilder().setIndex(v.index).setOperation(v.operation).setContract(SemanticProto.toProto(v.contract))
-        .addAllInputs(v.inputs.map(SemanticProto::toProto)).addAllImports(v.imports.map(SemanticProto::toProto)).addAllOutputs(v.outputs.map(SemanticProto::toProto)).setGrain(toProto(v.grain)).build()
-    fun fromProto(v: ExplanationStage): View.Stage { require(v.hasContract() && v.hasGrain()); return View.Stage(v.index, v.operation, SemanticProto.fromProto(v.contract), v.inputsList.map(SemanticProto::fromProto), v.importsList.map(SemanticProto::fromProto), v.outputsList.map(SemanticProto::fromProto), fromProto(v.grain)) }
+        .addAllInputs(v.inputs.map(SemanticProto::toProto)).addAllImports(v.imports.map(SemanticProto::toProto)).addAllOutputs(v.outputs.map(SemanticProto::toProto)).setGrain(toProto(v.grain))
+        .setExecutionLocation(when (v.executionLocation) {
+            View.ExecutionLocation.SOURCE -> StageExecutionLocation.STAGE_EXECUTION_SOURCE
+            View.ExecutionLocation.CORE -> StageExecutionLocation.STAGE_EXECUTION_CORE
+        }).build()
+    fun fromProto(v: ExplanationStage): View.Stage { require(v.hasContract() && v.hasGrain()); return View.Stage(v.index, v.operation, SemanticProto.fromProto(v.contract), v.inputsList.map(SemanticProto::fromProto), v.importsList.map(SemanticProto::fromProto), v.outputsList.map(SemanticProto::fromProto), fromProto(v.grain), when (v.executionLocation) {
+        StageExecutionLocation.STAGE_EXECUTION_SOURCE -> View.ExecutionLocation.SOURCE
+        StageExecutionLocation.STAGE_EXECUTION_CORE -> View.ExecutionLocation.CORE
+        StageExecutionLocation.UNRECOGNIZED -> error("unknown stage execution location")
+    }) }
     fun toProto(v: View.RelationMatch): RelationInputMatch = RelationInputMatch.newBuilder().setStatus(v.status).setInputScope(SemanticProto.toProto(v.inputScope))
         .addAllActualOutputs(v.actualOutputs.map(SemanticProto::toProto)).setActualGrain(toProto(v.actualGrain)).addAllRequirements(v.requirements.map(::toProto))
         .putAllProjection(v.projection).setPopulation(v.population).setEffect(v.effect).build()
@@ -121,10 +130,17 @@ object QueryExplanationProto {
     fun toProto(v: View.Scope): ExplanationScope = ExplanationScope.newBuilder().setScope(SemanticProto.toProto(v.scope)).setRoot(toProto(v.root))
         .addAllQualifications(v.qualifications.map(::toProto)).addAllChildren(v.children.map { ExplanationChild.newBuilder().setKind(it.kind).setName(it.name).setScope(SemanticProto.toProto(it.scope)).build() })
         .setFinalGrain(toProto(v.finalGrain)).addAllOutputs(v.outputs.map(SemanticProto::toProto)).addAllSelectedObservations(v.selectedObservations.map(SemanticProto::toProto))
-        .addAllStages(v.stages.map(::toProto)).apply { v.inputMode?.let(::setInputMode); v.relationInputMatch?.let { setRelationInputMatch(toProto(it)) } }.build()
+        .addAllStages(v.stages.map(::toProto)).setRootExecutionLocation(when (v.rootExecutionLocation) {
+            View.ExecutionLocation.SOURCE -> StageExecutionLocation.STAGE_EXECUTION_SOURCE
+            View.ExecutionLocation.CORE -> StageExecutionLocation.STAGE_EXECUTION_CORE
+        }).apply { v.inputMode?.let(::setInputMode); v.relationInputMatch?.let { setRelationInputMatch(toProto(it)) } }.build()
     fun fromProto(v: ExplanationScope): View.Scope { require(v.hasScope() && v.hasRoot() && v.hasFinalGrain()); return View.Scope(SemanticProto.fromProto(v.scope), if (v.hasInputMode()) v.inputMode else null,
         fromProto(v.root), v.qualificationsList.map(::fromProto), v.childrenList.map { require(it.hasScope()); View.Child(it.kind, it.name, SemanticProto.fromProto(it.scope)) }, fromProto(v.finalGrain),
-        if (v.hasRelationInputMatch()) fromProto(v.relationInputMatch) else null, v.outputsList.map(SemanticProto::fromProto), v.selectedObservationsList.map(SemanticProto::fromProto), v.stagesList.map(::fromProto)) }
+        if (v.hasRelationInputMatch()) fromProto(v.relationInputMatch) else null, v.outputsList.map(SemanticProto::fromProto), v.selectedObservationsList.map(SemanticProto::fromProto), v.stagesList.map(::fromProto), when (v.rootExecutionLocation) {
+            StageExecutionLocation.STAGE_EXECUTION_SOURCE -> View.ExecutionLocation.SOURCE
+            StageExecutionLocation.STAGE_EXECUTION_CORE -> View.ExecutionLocation.CORE
+            StageExecutionLocation.UNRECOGNIZED -> error("unknown root execution location")
+        }) }
     fun toProto(v: View.SourceIdentity): ExplanationSourceIdentity = ExplanationSourceIdentity.newBuilder().apply { when (v) {
         is View.SourceIdentity.Fact -> fact = ExplanationFactIdentity.newBuilder().setCallId(v.callId).setOwner(SemanticProto.toProto(v.owner)).setMetric(SemanticProto.toProto(v.metric))
             .putAllGrouping(v.grouping.mapValues { SemanticProto.toProto(it.value) }).setFilter(SemanticProto.toProto(v.filter)).build()

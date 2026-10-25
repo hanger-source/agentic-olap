@@ -29,6 +29,7 @@ internal class ManagedJvm(private val process: DarwinProcess, private val transf
     private val input = BufferedInputStream(process.output)
     private val output = BufferedOutputStream(process.input)
     private val pending = ConcurrentHashMap<String, CompletableFuture<Response>>()
+    private val sourceCompletions = ConcurrentHashMap<String, (com.olap.prototype.wire.query.SourceReadEvidence) -> Unit>()
     private val scripts = ConcurrentHashMap<String, CompletableFuture<ScriptResponse>>()
     private val stopping = AtomicBoolean()
     private val failed = CompletableFuture<Throwable>()
@@ -54,6 +55,13 @@ internal class ManagedJvm(private val process: DarwinProcess, private val transf
                     Frame.BodyCase.SCRIPT_OUTPUT -> requireNotNull(events) { "worker cannot emit script output" }.output(frame.scriptOutput)
                     Frame.BodyCase.SCRIPT_EMISSION -> requireNotNull(events) { "worker cannot emit script values" }.emission(frame.scriptEmission)
                     Frame.BodyCase.SCRIPT_WORKER_FAULT -> error("script worker fault: requestId=${frame.scriptWorkerFault.requestId} code=${frame.scriptWorkerFault.code}")
+                    Frame.BodyCase.SOURCE_READ_COMPLETED -> {
+                        val event = frame.sourceReadCompleted
+                        require(event.hasEvidence()) { "source completion requires actual read evidence" }
+                        requireNotNull(sourceCompletions.remove(event.requestId)) {
+                            "source completion has no matching execution: ${event.requestId}"
+                        }.invoke(event.evidence)
+                    }
                     else -> error("unexpected JVM frame: ${frame.bodyCase}")
                 }
             }
@@ -103,15 +111,16 @@ internal class ManagedJvm(private val process: DarwinProcess, private val transf
         }
         finally { expiry.interrupt() }
     }
-    fun exchange(request: Request): Response {
+    fun exchange(request: Request, sourceCompleted: ((com.olap.prototype.wire.query.SourceReadEvidence) -> Unit)? = null): Response {
         val expiry = expiry(request.remainingMillis)
         val response = CompletableFuture<Response>()
         check(pending.putIfAbsent(request.requestId, response) == null) { "duplicate worker request identity" }
+        sourceCompleted?.let { check(sourceCompletions.putIfAbsent(request.requestId, it) == null) { "duplicate source completion listener" } }
         try {
             send(Frame.newBuilder().setRequest(request).build())
             return response.get(request.remainingMillis, TimeUnit.MILLISECONDS)
         } catch (failure: Throwable) { closeAfterFailure(failure); throw failure }
-        finally { expiry.interrupt(); pending.remove(request.requestId, response) }
+        finally { expiry.interrupt(); pending.remove(request.requestId, response); sourceCompletions.remove(request.requestId) }
     }
     fun script(request: ScriptRequest): ScriptResponse {
         // Also bounds a producer blocked in native pipe write. The caller first has a cooperative grace.

@@ -41,6 +41,7 @@ import com.olap.prototype.warehouse.contract.SourceExecutionState
 import com.olap.prototype.warehouse.contract.SourceFailureCategory
 import com.olap.prototype.warehouse.contract.SourceRequestAcceptance
 import com.olap.prototype.warehouse.contract.SourceResponseState
+import com.olap.prototype.warehouse.contract.SourceReadEvidence
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
@@ -312,7 +313,7 @@ class MemberRelationExecutionTest {
     private fun regroup(keys: List<String>, aggregates: List<ResultAggregate>) = Regroup(ResultGrouping(keys, aggregates, null))
     private fun engine(warehouse: NativeWarehouse): OlapEngine {
         val source = com.olap.prototype.connector.SourceProvider(warehouse.spec.source(), TestConnectors.registry)
-        return OlapEngine(OlapSemanticCompiler(CalciteRelCompiler(TestConnectors.registry)), SourceExecutableSqlExecutor({ if (it == source.bindingRef) source else null }, RuntimeDeploymentLimits.result, RuntimeDeploymentLimits.nativeMemoryBytes, null))
+        return OlapEngine(OlapSemanticCompiler(CalciteRelCompiler(TestConnectors.registry)), SourceExecutableSqlExecutor({ if (it == source.bindingRef) source else null }, RuntimeDeploymentLimits.result, RuntimeDeploymentLimits.nativeMemoryBytes, null), RuntimeDeploymentLimits.result)
     }
     private fun execute(engine: OlapEngine, definitions: Definitions, computation: QueryComputation.Scope) = execute(engine, definitions.catalog(), computation)
     private fun execute(engine: OlapEngine, catalog: ExecutableCatalog, computation: QueryComputation.Scope): ExecutableBusinessResult = engine.execute(catalog,
@@ -323,6 +324,195 @@ class MemberRelationExecutionTest {
     } }.sortedWith(compareBy(nullsFirst()) { it.first() })
     private fun measures(calls: List<QueryComputation.Invocation>, inputs: Map<String, QueryComputation.Input>) = QueryComputation.Scope(QueryComputation.Measures(calls, emptyList(), null, emptyMap(),
         DimensionCondition.Unrestricted(), DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(calls.map { it.callId }), null), inputs, emptyList())
+
+    private fun coreDecimal(precision: Int, scale: Int, rounding: MetricValueContract.Rounding) = MetricValueContract(
+        MetricValueContract.Fixed(MetricValueContract.ONE), MetricValueContract.Exact(), MetricValueContract.Decimal(precision, scale, rounding), emptyMap(), MetricValueContract.Overflow.FAIL)
+    private fun coreNumbers(directory: Path) = NativeWarehouse(directory, "duckdb", listOf(
+        "CREATE TABLE orders(id INTEGER PRIMARY KEY, customer INTEGER, period INTEGER, kind INTEGER, amount DECIMAL(38,0))",
+        """INSERT INTO orders VALUES
+            (1,1,1,0,100000000000000000000),(2,1,1,0,0),(3,1,1,0,0),
+            (4,2,1,0,1),(5,2,1,0,0),(6,2,1,0,0),
+            (7,3,1,0,NULL),(8,3,1,0,NULL),(9,3,1,0,NULL),
+            (10,4,1,0,-1),(11,4,1,0,NULL),(12,4,1,0,NULL),(13,4,1,0,NULL),
+            (14,4,1,0,NULL),(15,4,1,0,NULL),(16,4,1,0,NULL),(17,4,1,0,NULL)
+        """.trimIndent()))
+    private fun coreDefinitions(warehouse: NativeWarehouse): Definitions {
+        val definitions = observationCatalog(warehouse)
+        val original = definitions.members.getValue("orders@1") as MemberSource.Projection
+        val declared = original.definition.result
+        val outputs = declared.outputs + mapOf(
+            "customer" to MemberSourceDefinition.DimensionOutput("客户", "customer", ScalarValueType.NUMBER, "customer", 1, "customer_orders", 1, null),
+            "amount" to property("完成分子", "amount", ScalarValueType.NUMBER, "orders.amount", contract = coreDecimal(38, 0, MetricValueContract.Rounding.NONE)))
+        definitions.members["orders@1"] = MemberSource.Projection("orders", 1, MemberSourceDefinition.Projection(original.definition.event,
+            MemberResult(declared.entity, declared.role, MemberShape.RAW_BAG, emptyList(), outputs, declared.filterOperators, null, emptyMap(), null)), original.outputExpressions)
+        return definitions
+    }
+    private fun coreBasis(condition: MemberCondition) = QueryComputation.Scope(QueryComputation.Members("records", MemberRef("orders", 1), emptyMap(), listOf(
+        QueryComputation.MappedDimension("customer", "customer", ScopedInputContract.DimensionRef("customers", "1", "customer")),
+        QueryComputation.Slot("id", "id"), QueryComputation.Slot("amount", "amount")), null, emptyMap(), condition, emptyMap(), emptyMap()), emptyMap(), listOf(
+        regroup(listOf("customer"), listOf(reduction("amount", ResultAggregation.Sum(coreDecimal(38, 0, MetricValueContract.Rounding.NONE), ResultAggregation.NullPolicy.IGNORE), "numerator"),
+            reduction("id", ResultAggregation.Count(false, ResultAggregation.NullPolicy.IGNORE), "denominator"))), Project(listOf("customer", "numerator", "denominator"))))
+    private fun coreCalculation(stages: List<PostOperationContract.ValidatedOperation>) = Calculation(listOf(customerObservation()), emptyList(), emptyList(), listOf(
+        Calculation.RelationSlot("completed", listOf(SetOutputContract("customer", SetOutputContract.DimensionSlot("customer")),
+            SetOutputContract("numerator", SetOutputContract.Quantity(coreDecimal(38, 0, MetricValueContract.Rounding.NONE))),
+            SetOutputContract("denominator", SetOutputContract.Quantity(recordCount()))), listOf("customer"))), emptyMap(),
+        Calculation.Scope(Calculation.Relation("completed"), emptyMap(), stages))
+    private fun coreQuery(definitions: Definitions, calculation: Calculation, basis: QueryComputation.Scope,
+        outerStages: List<PostOperationContract.ValidatedOperation>) = QueryComputation.Scope(QueryComputation.Compute(calculation,
+        CalculationBindings(observationBindings(definitions, emptyMap(), emptyMap()).dimensions, emptyMap(), emptyMap(), emptyMap(),
+            mapOf("completed" to CalculationBindings.RelationParameter())), emptyMap(), emptyMap(),
+        mapOf("completed" to CalculationBindings.LocalRelation("basis", listOf("customer", "numerator", "denominator").associateWith { it }))),
+        mapOf("basis" to QueryComputation.Input("ROOT", basis)), outerStages)
+
+    @Test fun finalizesAReusableCompletedRelationWithExactRationalsAndExplicitQuantization(@TempDir directory: Path) {
+        coreNumbers(directory).use { warehouse ->
+            val definitions = coreDefinitions(warehouse)
+            val result = coreDecimal(38, 18, MetricValueContract.Rounding.HALF_UP)
+            fun number(value: String) = ResultLiteral(BigDecimal(value))
+            fun op(operator: ResultOperator, vararg values: ResultExpression) = ResultOperation(operator, values.toList())
+            val quotient = op(ResultOperator.DIVIDE, symbol("numerator"), symbol("denominator"))
+            val third = op(ResultOperator.DIVIDE, number("1"), number("3"))
+            val computation = coreCalculation(listOf(
+                Derive(ResultNumeric(quotient, result, null), "mean", "显式十八位商"),
+                Derive(ResultNumeric(quotient, coreDecimal(38, 2, MetricValueContract.Rounding.HALF_UP), null), "mean_two", "显式两位商"),
+                Derive(ResultNumeric(op(ResultOperator.MULTIPLY, third, number("3")), result, null), "round_trip", "量化前保留完整有理数"),
+                Derive(ResultNumeric(op(ResultOperator.MULTIPLY, ResultNumeric(third, coreDecimal(38, 2, MetricValueContract.Rounding.HALF_UP), null), number("3")), result, null),
+                    "rounded_trip", "显式内层两位后再乘"),
+                Derive(ResultNumeric(op(ResultOperator.SAFE_DIVIDE, number("1"), number("0")), result, null), "safe_zero", "零分母保NULL"),
+                Derive(ResultNumeric(ResultCaseWhen(listOf(ResultCaseBranch(op(ResultOperator.GT, symbol("denominator"), ResultQuantityLiteral(BigDecimal.ZERO, recordCount())), ResultQuantityLiteral(BigDecimal.ONE, result))),
+                    ResultNumeric(op(ResultOperator.DIVIDE, number("1"), number("0")), result, null)), result, null), "lazy_case", "未命中除零分支不求值"),
+                Derive(number("0.001"), "tiny", "保留直接小小数的真实容量")))
+            val reference = MetricRef("completed_ratio", "1")
+            val shared = coreCalculation(listOf(Derive(ResultNumeric(quotient, result, null), "saved_mean", "保存定义的十八位商"),
+                Project(listOf("customer", "saved_mean"))))
+            definitions.metrics[reference.key()] = ExecutableMetric(reference, MetricCalculation(shared, "saved_mean", listOf("customer"), result))
+            val innerCall = Calculation.Call("ratio", Calculation.Fixed(reference), "forwarded_mean", mapOf("customer" to "customer"),
+                emptyMap(), emptyMap(), mapOf("completed" to "completed"), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()))
+            val forwarding = Calculation(shared.dimensionSlots, emptyList(), emptyList(), shared.relationSlots, emptyMap(), Calculation.Scope(
+                Calculation.Measures(listOf(innerCall), listOf("customer"), emptyList(), null, null, emptyMap(), Calculation.Population(listOf("ratio")), null),
+                emptyMap(), listOf(Project(listOf("customer", "forwarded_mean")))))
+            val forwardedReference = MetricRef("forwarded_completed_ratio", "1")
+            definitions.metrics[forwardedReference.key()] = ExecutableMetric(forwardedReference, MetricCalculation(forwarding, "forwarded_mean", listOf("customer"), result))
+            val call = Calculation.Call("forwarded", Calculation.Fixed(forwardedReference), "mean", mapOf("customer" to "customer"),
+                emptyMap(), emptyMap(), mapOf("completed" to "completed"), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()))
+            val caller = Calculation(shared.dimensionSlots, emptyList(), emptyList(), shared.relationSlots, emptyMap(), Calculation.Scope(
+                Calculation.Measures(listOf(call), listOf("customer"), emptyList(), null, null, emptyMap(), Calculation.Population(listOf("forwarded")), null),
+                emptyMap(), emptyList()))
+            val columns = listOf("customer", "numerator", "denominator", "mean", "mean_two", "round_trip", "rounded_trip", "safe_zero", "lazy_case", "tiny", "mean_plus_one")
+            val query = coreQuery(definitions, computation, coreBasis(MemberCondition.Unrestricted()), listOf(
+                Derive(ResultNumeric(op(ResultOperator.ADD, symbol("mean"), number("1")), result, null), "mean_plus_one", "调用方继续组合"), Project(columns)))
+            warehouse.finishSetup()
+            val completed = mutableListOf<SourceReadEvidence>()
+            val observed = object : ExecutableExecutionObserver by observer { override fun sourceCompleted(evidence: SourceReadEvidence) { completed += evidence } }
+            val catalog = definitions.catalog()
+            val executed = engine(warehouse).execute(catalog, ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION, "core-rational",
+                catalog.manifest.catalogId, query, QueryExecutionMode.CORE_FINALIZATION), observed, RuntimeDeploymentLimits.CONTROL)
+            val expected = listOf(
+                listOf("1", "100000000000000000000", "3", "33333333333333333333.333333333333333333", "33333333333333333333.33", "1", "0.99", null, "1", "0.001", "33333333333333333334.333333333333333333"),
+                listOf("2", "1", "3", "0.333333333333333333", "0.33", "1", "0.99", null, "1", "0.001", "1.333333333333333333"),
+                listOf("3", null, "3", null, null, "1", "0.99", null, "1", "0.001", null),
+                listOf("4", "-1", "8", "-0.125", "-0.13", "1", "0.99", null, "1", "0.001", "0.875")
+            ).map { row -> row.map { it?.let(::decimal) } }
+            assertEquals(expected, numericRows(executed.businessResult))
+            assertEquals(listOf(executed.sourceReadEvidence), completed)
+            assertEquals(SourceExecutionState.SUCCEEDED, executed.sourceReadEvidence.request.execution)
+            // 来源只交付分子、分母与键，最终合同不能被来源列替代。
+            assertEquals(listOf("customer", "numerator", "denominator"), requireNotNull(executed.compiledQuery.executableLoweringResult).outputContract.columns.map { it.symbol.name })
+            assertEquals(columns, executed.businessResult.columns.map { it.symbol.name })
+            val repeated = coreQuery(definitions, computation, coreBasis(memberEquals("customer", 2)), query.stages)
+            val second = engine(warehouse).execute(catalog, ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION, "core-reused",
+                catalog.manifest.catalogId, repeated, QueryExecutionMode.CORE_FINALIZATION), observed, RuntimeDeploymentLimits.CONTROL)
+            assertEquals(listOf(expected[1]), numericRows(second.businessResult))
+            val sharedColumns = listOf("customer", "mean", "mean_plus_one")
+            val continued = listOf(Derive(ResultNumeric(op(ResultOperator.ADD, symbol("mean"), number("1")), result, null),
+                "mean_plus_one", "精确引用完成后继续组合"), Project(sharedColumns))
+            val referenced = coreQuery(definitions, caller, coreBasis(MemberCondition.Unrestricted()), continued)
+            val sharedResult = engine(warehouse).execute(catalog, ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION, "core-shared-call",
+                catalog.manifest.catalogId, referenced, QueryExecutionMode.CORE_FINALIZATION), observed, RuntimeDeploymentLimits.CONTROL)
+            assertEquals(expected.map { listOf(it[0], it[3], it[10]) }, numericRows(sharedResult.businessResult))
+            assertEquals(sharedColumns, sharedResult.businessResult.columns.map { it.symbol.name })
+            assertEquals(listOf("customer", "numerator", "denominator"), requireNotNull(sharedResult.compiledQuery.executableLoweringResult).outputContract.columns.map { it.symbol.name })
+            val differentPopulation = coreQuery(definitions, caller, coreBasis(memberEquals("customer", 2)), continued)
+            val sharedSecond = engine(warehouse).execute(catalog, ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION, "core-shared-reused",
+                catalog.manifest.catalogId, differentPopulation, QueryExecutionMode.CORE_FINALIZATION), observed, RuntimeDeploymentLimits.CONTROL)
+            assertEquals(listOf(listOf(expected[1][0], expected[1][3], expected[1][10])), numericRows(sharedSecond.businessResult))
+            assertEquals(4, completed.size)
+        }
+    }
+
+    @Test fun retainsTheSuccessfulSourceWhenCoreQuantizationFailsOrExecutionIsCancelled(@TempDir directory: Path) {
+        coreNumbers(directory).use { warehouse ->
+            val definitions = coreDefinitions(warehouse)
+            val source = com.olap.prototype.connector.SourceProvider(warehouse.spec.source(), TestConnectors.registry)
+            val delegate = SourceExecutableSqlExecutor({ if (it == source.bindingRef) source else null }, RuntimeDeploymentLimits.result, RuntimeDeploymentLimits.nativeMemoryBytes, null)
+            var submissions = 0
+            val engine = OlapEngine(OlapSemanticCompiler(CalciteRelCompiler(TestConnectors.registry)), ExecutableSqlExecutor { lowering, context, control ->
+                submissions++
+                delegate.execute(lowering, context, control)
+            }, RuntimeDeploymentLimits.result)
+            fun query(contract: MetricValueContract, multiply: Boolean): QueryComputation.Scope {
+                val quotient = ResultOperation(ResultOperator.DIVIDE, listOf(symbol("numerator"), symbol("denominator")))
+                val expression = if (multiply) ResultOperation(ResultOperator.MULTIPLY, listOf(quotient, ResultLiteral(BigDecimal("100")))) else quotient
+                return coreQuery(definitions, coreCalculation(listOf(Derive(ResultNumeric(expression, contract, null), "mean", "正式量化"))),
+                    coreBasis(MemberCondition.Unrestricted()), emptyList())
+            }
+            warehouse.finishSetup()
+            val catalog = definitions.catalog()
+            val read = mutableListOf<SourceReadEvidence>()
+            var cancelAfterSource = false
+            val observed = object : ExecutableExecutionObserver by observer {
+                override fun sourceCompleted(evidence: SourceReadEvidence) {
+                    read += evidence
+                    if (cancelAfterSource) Thread.currentThread().interrupt()
+                }
+            }
+            fun fail(query: QueryComputation.Scope, expectedCode: String) {
+                val before = submissions
+                val callbacks = read.size
+                val failure = try { assertThrows(EngineExecutionException::class.java) {
+                    engine.execute(catalog, ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION, "core-failure-$before", catalog.manifest.catalogId,
+                        query, QueryExecutionMode.CORE_FINALIZATION), observed, RuntimeDeploymentLimits.CONTROL)
+                } } finally { Thread.interrupted() }
+                assertEquals(expectedCode, failure.code)
+                assertEquals(before + 1, submissions, "本地失败或取消不得重跑来源")
+                assertEquals(callbacks + 1, read.size, "来源成功事实先于本地结局交付")
+                assertEquals(read.last(), failure.sourceReadEvidence)
+                assertEquals(SourceExecutionState.SUCCEEDED, failure.sourceReadEvidence?.request?.execution)
+                assertEquals(true, failure.sourceExecutionStarted)
+            }
+            fail(query(coreDecimal(38, 18, MetricValueContract.Rounding.NONE), false), "CORE_FINALIZATION_ROUNDING_REQUIRED")
+            fail(query(coreDecimal(38, 18, MetricValueContract.Rounding.HALF_UP), true), "CORE_FINALIZATION_NUMERIC_CAPACITY_EXCEEDED")
+            cancelAfterSource = true
+            // 同一个本会发生NONE量化失败的计算，被来源完成回调处的实际中断先取消。
+            fail(query(coreDecimal(38, 18, MetricValueContract.Rounding.NONE), false), "CANCELLED")
+        }
+    }
+
+    @Test fun rejectsAnUnsupportedCoreRelationStageBeforeSubmittingItsValidNativeInputs(@TempDir directory: Path) {
+        coreNumbers(directory).use { warehouse ->
+            val definitions = coreDefinitions(warehouse)
+            val source = com.olap.prototype.connector.SourceProvider(warehouse.spec.source(), TestConnectors.registry)
+            val delegate = SourceExecutableSqlExecutor({ if (it == source.bindingRef) source else null }, RuntimeDeploymentLimits.result, RuntimeDeploymentLimits.nativeMemoryBytes, null)
+            var submissions = 0
+            val engine = OlapEngine(OlapSemanticCompiler(CalciteRelCompiler(TestConnectors.registry)), ExecutableSqlExecutor { lowering, context, control ->
+                submissions++
+                delegate.execute(lowering, context, control)
+            }, RuntimeDeploymentLimits.result)
+            val calculation = coreCalculation(listOf(regroup(emptyList(), listOf(reduction("numerator",
+                ResultAggregation.Sum(coreDecimal(38, 0, MetricValueContract.Rounding.NONE), ResultAggregation.NullPolicy.IGNORE), "all_numerators")))))
+            warehouse.finishSetup()
+            val catalog = definitions.catalog()
+            val failure = assertThrows(EngineExecutionException::class.java) {
+                engine.execute(catalog, ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION, "core-unsupported", catalog.manifest.catalogId,
+                    coreQuery(definitions, calculation, coreBasis(MemberCondition.Unrestricted()), emptyList()), QueryExecutionMode.CORE_FINALIZATION), observer, RuntimeDeploymentLimits.CONTROL)
+            }
+            assertEquals("CORE_FINALIZATION_UNSUPPORTED", failure.code)
+            assertEquals(listOf("input", "computation", "postOps", 0), failure.evidenceContext["fieldPath"])
+            assertEquals(0, submissions)
+            assertEquals(false, failure.sourceExecutionStarted)
+            assertNull(failure.sourceReadEvidence)
+        }
+    }
 
     @Test fun countsActorDayObjectsWithoutLosingZeroGroupsOrCreatingMissingObservations(@TempDir directory: Path) {
         NativeWarehouse(directory, "duckdb", listOf(

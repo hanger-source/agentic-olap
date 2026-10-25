@@ -4,6 +4,7 @@ import com.olap.prototype.connector.ConnectorRef
 import com.olap.prototype.engine.executable.ExecutableBusinessResult
 import com.olap.prototype.query.contract.*
 import com.olap.prototype.query.QueryExplanationView
+import com.olap.prototype.query.QueryExecutionMode
 import com.olap.prototype.warehouse.contract.*
 
 /** 只描述跨进程实际工作，不复制语义AST或来源选择规则。 */
@@ -11,9 +12,11 @@ sealed interface EngineWorkerCommand {
     data class Lookup(val catalogId: String, val contentHash: String) : EngineWorkerCommand
     data class Load(val publication: PublishedExecutableCatalog) : EngineWorkerCommand
     data class Unload(val catalogId: String, val contentHash: String) : EngineWorkerCommand
-    data class Inspect(val mode: InspectionMode, val catalogId: String, val requestId: String, val intent: QueryIntent) : EngineWorkerCommand
+    data class Inspect(val mode: InspectionMode, val catalogId: String, val requestId: String, val intent: QueryIntent,
+        val executionMode: QueryExecutionMode = QueryExecutionMode.SOURCE) : EngineWorkerCommand
     data class Execute(val catalogId: String, val requestId: String, val intent: QueryIntent,
-        val bindings: List<SourceBindingRef>, val readBasis: SourceReadBasis.Versioned?) : EngineWorkerCommand
+        val bindings: List<SourceBindingRef>, val readBasis: SourceReadBasis.Versioned?,
+        val executionMode: QueryExecutionMode = QueryExecutionMode.SOURCE) : EngineWorkerCommand
 }
 enum class InspectionMode { RESOLVE, VALIDATE, EXPLAIN }
 sealed interface EngineWorkerResult {

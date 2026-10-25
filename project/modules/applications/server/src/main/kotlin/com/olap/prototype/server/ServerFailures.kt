@@ -46,6 +46,8 @@ internal object ServerFailures {
             return Projection(actualStage, code, "exact source binding is not deployed", select(failure.evidenceContext, "dataSourceId", "sourceIdentityHash"))
         if (failure is EngineExecutionException && code == "RELATION_INPUT_CONTRACT_MISMATCH")
             return Projection(actualStage, code, failure.message, select(failure.evidenceContext, "scope", "inputScope", "requirements", "actualKey", "actualOutputs"))
+        if (failure is EngineExecutionException && code.startsWith("CORE_FINALIZATION_"))
+            return Projection(actualStage, code, failure.message, select(failure.evidenceContext, "fieldPath", "expectedKind", "actualKind"))
         val visited = Collections.newSetFromMap(IdentityHashMap<Throwable, Boolean>())
         var cause: Throwable? = failure
         while (cause != null && visited.add(cause)) {
@@ -163,6 +165,14 @@ internal object ServerFailures {
             code == "CONTRACT_VIOLATION" -> Projection(actualStage, code, error.required("message").textValue(), emptyMap())
             code == "RELATION_INPUT_CONTRACT_MISMATCH" -> Projection(actualStage, code, error.required("message").textValue(),
                 select(facts, "scope", "inputScope", "requirements", "actualKey", "actualOutputs"))
+            code.startsWith("CORE_FINALIZATION_") -> {
+                val path = facts.get("fieldPath")
+                val details = select(facts, "expectedKind", "actualKind") + if (path == null) emptyMap() else {
+                    require(path.isArray && path.all { it.isTextual || it.isIntegralNumber }) { "core failure requires a concrete field path" }
+                    mapOf("fieldPath" to path.map { it.asText() })
+                }
+                Projection(actualStage, code, error.required("message").textValue(), details)
+            }
             code == "NATIVE_AGGREGATE_MAPPING_UNAVAILABLE" -> Projection(actualStage, code,
                 "native aggregate mapping is unavailable for the declared input type", select(facts, "aggregate", "inputType"))
             code == "NATIVE_ARITHMETIC_MAPPING_UNAVAILABLE" -> Projection(actualStage, code,

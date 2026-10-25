@@ -9,8 +9,8 @@ import "governance.proto";
 
 message EngineWorkerCommand { oneof kind { agentic.olap.governance.v1.PublishedExecutableCatalog load = 1; EngineCatalogReference unload = 2; EngineInspect inspect = 3; EngineExecute execute = 4; EngineCatalogReference lookup = 5; } }
 message EngineCatalogReference { string catalog_id = 1; string content_hash = 2; }
-message EngineInspect { string mode = 1; string catalog_id = 2; string request_id = 3; QueryIntent intent = 4; }
-message EngineExecute { string catalog_id = 1; string request_id = 2; QueryIntent intent = 3; repeated SourceBinding bindings = 4; SourceVersion read_basis = 5; }
+message EngineInspect { string mode = 1; string catalog_id = 2; string request_id = 3; QueryIntent intent = 4; QueryExecutionMode execution_mode = 5; }
+message EngineExecute { string catalog_id = 1; string request_id = 2; QueryIntent intent = 3; repeated SourceBinding bindings = 4; SourceVersion read_basis = 5; QueryExecutionMode execution_mode = 6; }
 message EngineWorkerResult { oneof kind { EngineCatalogReceipt loaded = 1; EngineCatalogReceipt unloaded = 2; EngineInputResolution resolved = 3; EngineExecutionPayload executed = 4; bool present = 5; } }
 message EngineCatalogReceipt { string catalog_id = 1; string content_hash = 2; }
 message EngineInputResolution { QueryCapabilityCoordinate publication = 1; string request_id = 2; string catalog_id = 3; string catalog_hash = 4; string intent_hash = 5; SourceBinding binding = 6; agentic.olap.semantic.v1.ConnectorRef connector_ref = 7; map<string,int64> timing_nanos = 8; QueryExplanationView explanation = 9; }

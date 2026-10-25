@@ -4,7 +4,7 @@ import "google/protobuf/any.proto";
 import "query.proto";
 import "governance.proto";
 
-package agentic.olap.runtime.v4;
+package agentic.olap.runtime.v5;
 
 option java_package = "com.olap.prototype.protocol";
 option java_multiple_files = true;
@@ -26,7 +26,13 @@ message Frame {
     ScriptOutput script_output = 14;
     ProtocolFile file = 15;
     ScriptEmission script_emission = 16;
+    SourceReadCompleted source_read_completed = 17;
   }
+}
+
+message SourceReadCompleted {
+  string request_id = 1;
+  agentic.olap.query.v1.SourceReadEvidence evidence = 2;
 }
 
 enum WorkerKind {
@@ -39,7 +45,7 @@ enum WorkerKind {
 }
 
 message Bootstrap {
-  string protocol = 1; // agentic-olap-runtime/v4，版本必须精确一致。
+  string protocol = 1; // agentic-olap-runtime/v5，版本必须精确一致。
   bytes limits_json = 3;
   repeated string connector_manifests = 4;
   WorkerKind worker_kind = 5;

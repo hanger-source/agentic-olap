@@ -10,11 +10,13 @@ import com.olap.prototype.engine.executable.*
 import com.olap.prototype.runtime.RuntimeResourceLimitException
 import com.olap.prototype.warehouse.SourceGuaranteeException
 import com.olap.prototype.warehouse.WarehouseExecutionControl
+import com.olap.prototype.warehouse.ResultMaterializationLimits
 import com.olap.prototype.warehouse.contract.SourceReadEvidence
 import com.olap.prototype.contract.JdbcSourceRequirement
 import java.util.concurrent.CancellationException
 
-class OlapEngine(private val semanticCompiler: OlapSemanticCompiler, private val sqlExecutor: ExecutableSqlExecutor) : ExecutableEngineExecutionPort {
+class OlapEngine(private val semanticCompiler: OlapSemanticCompiler, private val sqlExecutor: ExecutableSqlExecutor,
+    private val resultLimits: ResultMaterializationLimits) : ExecutableEngineExecutionPort {
     private val log = org.slf4j.LoggerFactory.getLogger(OlapEngine::class.java)
 
     override fun execute(catalog: ExecutableCatalog, request: ExecutableQueryRequest, observer: ExecutableExecutionObserver, executionControl: WarehouseExecutionControl): ExecutableExecutionResult {
@@ -24,6 +26,7 @@ class OlapEngine(private val semanticCompiler: OlapSemanticCompiler, private val
         var lowering: ExecutableLoweringResult? = null
         var sourceReadEvidence: SourceReadEvidence? = null
         var sourceExecutionStarted = false
+        var activeStage = "COMPILE_TOTAL"
         try {
             val semanticStarted = System.nanoTime()
             executionControl.checkCancellation()
@@ -36,31 +39,42 @@ class OlapEngine(private val semanticCompiler: OlapSemanticCompiler, private val
             observer.loweringCompleted(sql)
             executionControl.checkCancellation()
             sourceExecutionStarted = true
+            activeStage = "EXECUTE_SQL"
             val sourceResult = sqlExecutor.execute(sql, context, executionControl)
             val actualReadEvidence = SourceReadEvidence(JdbcSourceRequirement.requireSingleBinding(sql.sourceRequirements), sourceResult.readBasis, sourceResult.request)
             sourceReadEvidence = actualReadEvidence
+            activeStage = "REPORT_SOURCE_COMPLETION"
+            observer.sourceCompleted(actualReadEvidence)
             val frame = sourceResult.frame
             executionControl.checkCancellation()
+            activeStage = if (query.coreFinalizationPlan == null) "MATERIALIZE_RESULT" else "CORE_FINALIZATION"
             val projectionStarted = System.nanoTime()
             val business = try {
-                ExecutableBusinessResults.produce(frame, sql.outputContract, sql.compilationSupport).also { executionControl.checkCancellation() }
+                val finalization = query.coreFinalizationPlan
+                (if (finalization == null) ExecutableBusinessResults.produce(frame, sql.outputContract, sql.compilationSupport)
+                    else finalization.execute(frame, sql.compilationSupport, executionControl, resultLimits)).also { executionControl.checkCancellation() }
             } catch (failure: CancellationException) { throw failure }
             catch (failure: RuntimeResourceLimitException) { throw failure }
-            catch (failure: RuntimeException) { throw EngineExecutionException("MATERIALIZE_RESULT", "EXECUTABLE_OUTPUT_CONTRACT_FAILED",
-                "Result differs from compiled output contract: ${failure.message}", failure, executionEvidence(compiled, lowering, context), compiled,
+            catch (failure: EngineExecutionException) { throw failure }
+            catch (failure: RuntimeException) { throw EngineExecutionException(activeStage,
+                if (query.coreFinalizationPlan == null) "EXECUTABLE_OUTPUT_CONTRACT_FAILED" else "CORE_FINALIZATION_FAILED",
+                if (query.coreFinalizationPlan == null) "Result differs from compiled output contract" else "Core finalization failed its declared result contract",
+                failure, executionEvidence(compiled, lowering, context), compiled,
                 sourceReadEvidence = sourceReadEvidence, sourceExecutionStarted = sourceExecutionStarted, stageNanos = context.stageTimes) }
-            finally { context.recordStageTime("BUSINESS_PROJECTION", projectionStarted) }
+            finally { context.recordStageTime(if (query.coreFinalizationPlan == null) "BUSINESS_PROJECTION" else "CORE_FINALIZATION", projectionStarted) }
             context.recordStageTime("ENGINE_TOTAL", started)
             return ExecutableExecutionResult(OlapResult(query.requestId, sql.sql, sql.aliasMapping, frame, context.auditReport, context.stageTimes), query, business, actualReadEvidence)
         } catch (failure: CancellationException) {
             if (sourceReadEvidence == null) throw failure
-            throw EngineExecutionException("MATERIALIZE_RESULT", "EXECUTION_INTERRUPTED", "execution interrupted after the source returned a result", failure,
+            context.recordStageTime("ENGINE_TOTAL", started)
+            throw EngineExecutionException(activeStage, "CANCELLED", "execution cancelled after the source returned a result", failure,
                 executionEvidence(compiled, lowering, context), compiled, sourceReadEvidence = sourceReadEvidence,
                 sourceExecutionStarted = sourceExecutionStarted, stageNanos = context.stageTimes)
         }
         catch (failure: EngineExecutionException) {
             context.recordStageTime("ENGINE_TOTAL", started)
-            throw EngineExecutionException(failure.stage, failure.code, failure.message, failure.cause, failure.evidenceContext + mapOf("stageNanos" to context.stageTimes, "sourceExecutionStarted" to sourceExecutionStarted), failure.compiledQuery,
+            throw EngineExecutionException(failure.stage, failure.code, failure.message, failure.cause,
+                executionEvidence(compiled, lowering, context) + failure.evidenceContext + mapOf("stageNanos" to context.stageTimes, "sourceExecutionStarted" to sourceExecutionStarted), failure.compiledQuery ?: compiled,
                 failure.sourceFailure, sourceReadEvidence ?: failure.sourceReadEvidence, sourceExecutionStarted, context.stageTimes)
         } catch (failure: Exception) {
             context.recordStageTime("ENGINE_TOTAL", started)
@@ -68,7 +82,7 @@ class OlapEngine(private val semanticCompiler: OlapSemanticCompiler, private val
             evidence["sourceExecutionStarted"] = sourceExecutionStarted
             val (stage, code, message) = when (failure) {
                 is SourceExecutionException -> Triple(failure.failure.stage, failure.failure.code, failure.failure.safeMessage)
-                is RuntimeResourceLimitException -> Triple("EXECUTION_RESOURCE", failure.code, "Execution resource budget exceeded")
+                is RuntimeResourceLimitException -> Triple(if (activeStage == "CORE_FINALIZATION") activeStage else "EXECUTION_RESOURCE", failure.code, "Execution resource budget exceeded")
                 is SourceBindingUnavailableException -> {
                     evidence["dataSourceId"] = failure.binding.dataSourceId; evidence["sourceIdentityHash"] = failure.binding.sourceIdentityHash
                     Triple("SOURCE_ACCESS", "SOURCE_BINDING_NOT_DEPLOYED", failure.message)
@@ -82,7 +96,11 @@ class OlapEngine(private val semanticCompiler: OlapSemanticCompiler, private val
                     evidence["sourceSqlState"] = failure.sqlState; evidence["sourceFailureType"] = failure.failureType
                     Triple("VERIFY_SOURCE", failure.code, "compiled source guarantee failed")
                 }
-                else -> { log.error("OlapEngine [Fatal]: executable 执行链崩溃", failure); Triple("EXECUTE_SQL", "EXECUTABLE_SQL_EXECUTION_FAILED", "Engine executable execution failed: ${failure.message}") }
+                else -> {
+                    log.error("OlapEngine [Fatal]: executable 执行链崩溃", failure)
+                    if (activeStage == "REPORT_SOURCE_COMPLETION") Triple(activeStage, "SOURCE_COMPLETION_REPORT_FAILED", "source completed but its completion evidence could not be reported")
+                    else Triple(activeStage, "EXECUTABLE_SQL_EXECUTION_FAILED", "Engine executable execution failed")
+                }
             }
             throw EngineExecutionException(stage, code, message, failure, evidence, compiled, (failure as? SourceExecutionException)?.failure,
                 sourceReadEvidence ?: (failure as? SourceExecutionException)?.readEvidence, sourceExecutionStarted, context.stageTimes)

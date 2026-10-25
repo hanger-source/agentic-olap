@@ -1,6 +1,7 @@
 package com.olap.prototype.query.contract
 
 import com.olap.prototype.query.QueryComputation
+import com.olap.prototype.query.QueryExecutionMode
 import com.olap.prototype.engine.executable.ExecutableBusinessResult
 import com.olap.prototype.warehouse.contract.SourceReadBasis
 import com.olap.prototype.warehouse.contract.SourceReadEvidence
@@ -22,11 +23,13 @@ sealed interface QuerySelection {
     data class Saved(val reference: QueryReference) : QuerySelection
 }
 
-data class QueryExecutionRequest(val query: QuerySelection, val saveResult: Boolean, val question: String?, val readBasis: SourceReadBasis.Versioned?)
-data class QueryValidationRequest(val query: QuerySelection)
+data class QueryExecutionRequest(val query: QuerySelection, val saveResult: Boolean, val question: String?, val readBasis: SourceReadBasis.Versioned?,
+    val executionMode: QueryExecutionMode = QueryExecutionMode.SOURCE)
+data class QueryValidationRequest(val query: QuerySelection, val executionMode: QueryExecutionMode = QueryExecutionMode.SOURCE)
 data class QueryValidationResult(val valid: Boolean, val capabilityHash: String)
 enum class QueryExplanationSection { SUMMARY, SCOPES, SOURCES, PLAN, COMPILATION_SCALE, EXECUTION_REQUIREMENTS }
-data class QueryExplanationRequest(val query: QuerySelection, val section: QueryExplanationSection, val offset: Int, val limit: Int) {
+data class QueryExplanationRequest(val query: QuerySelection, val section: QueryExplanationSection, val offset: Int, val limit: Int,
+    val executionMode: QueryExecutionMode = QueryExecutionMode.SOURCE) {
     init { require(offset >= 0 && limit in 1..200) }
 }
 data class QueryResultReference(val runId: String, val sha256: String) {
@@ -39,7 +42,7 @@ data class QueryExecutionReceipt(val runId: String, val status: QueryExecutionSt
     val result: ExecutableBusinessResult?,
     val saved: Boolean, val rows: Long, val clientOutcome: QueryClientOutcome, val sourceState: SourceExecutionState,
     val sourceRequest: SourceRequestEvidence?, val sourceReadEvidence: SourceReadEvidence?, val timingNanos: Map<String, Long>,
-    val error: QueryExecutionFailure?)
+    val error: QueryExecutionFailure?, val executionMode: QueryExecutionMode = QueryExecutionMode.SOURCE)
 
 /** 正式保存完整模型，源码仅为诊断关联，不参与查询身份。 */
 data class QuerySource(val name: String, val source: String, val dslApiVersion: String, val sha256: String) {

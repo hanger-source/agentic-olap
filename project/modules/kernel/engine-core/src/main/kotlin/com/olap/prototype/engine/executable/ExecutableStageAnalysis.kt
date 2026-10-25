@@ -16,10 +16,22 @@ import java.util.IdentityHashMap
 /** 以绑定图的精确实例身份分析阶段；活动祖先和完成缓存仅属本次分析。 */
 object ExecutableStageAnalysis {
     fun analyze(graph: ExecutableInputGraph, connectors: ConnectorRegistry): Map<ScopeId, Analysis> = Session(graph, connectors).analyze()
-    private class Session(private val graph: ExecutableInputGraph, private val connectors: ConnectorRegistry) {
-        private val result = linkedMapOf<ScopeId, Analysis>()
+
+    /** 保留同一绑定图和已经完成的子计算，只重分析物理切点上的来源前缀。 */
+    fun sourcePrefix(graph: ExecutableInputGraph, fullAnalyses: Map<ScopeId, Analysis>, sourceScope: ScopeId,
+        connectors: ConnectorRegistry): Map<ScopeId, Analysis> {
+        check(sourceScope in fullAnalyses && graph.scope(sourceScope) != null) { "core source cut must identify an actual analyzed scope" }
+        return Session(graph, connectors, fullAnalyses - sourceScope, setOf(sourceScope)).analyze(sourceScope)
+    }
+
+    private class Session(private val graph: ExecutableInputGraph, private val connectors: ConnectorRegistry,
+        completed: Map<ScopeId, Analysis> = emptyMap(), private val coreScopes: Set<ScopeId> = emptySet()) {
+        private val result = LinkedHashMap(completed)
         private val ancestors = Collections.newSetFromMap(IdentityHashMap<ExecutableInputScope, Boolean>())
-        fun analyze(): Map<ScopeId, Analysis> { analyze(graph.root, ScopeId.root()); return result.toMap() }
+        fun analyze(scope: ScopeId = ScopeId.root()): Map<ScopeId, Analysis> {
+            analyze(requireNotNull(graph.scope(scope)), scope)
+            return result.toMap()
+        }
         private fun analyze(input: ExecutableInputScope, scope: ScopeId): Analysis {
             check(graph.scope(scope) === input) { "analysis scope differs from the bound input graph" }
             result[scope]?.let { return it }
@@ -35,14 +47,15 @@ object ExecutableStageAnalysis {
                 ExecutableInputGraph.EdgeKind.MEMBER_BODY -> analyze(edge.input, edge.scope)
             } }
             val facts = ExecutableInputSymbols(graph, result, input, scope, children).facts()
-            val nativeFunctions = facts.operations.flatMap(PostOperationTraversal::expressions).flatMap(ResultExpressionTree::nodes)
+            val operations = if (scope in coreScopes) emptyList() else facts.operations
+            val nativeFunctions = operations.flatMap(PostOperationTraversal::expressions).flatMap(ResultExpressionTree::nodes)
                 .filterIsInstance<ResultExpression.ResultNativeCall>().associateWith { call ->
                     connectors.require(call.connectorRef).compilation.requireNativeScalarFunction(call.function).also {
                         it.requireScalarCall(call.function, call.arguments.size)
                     }
                 }
-            val analysis = QueryStageAnalysis.analyze(scope, facts.columns, facts.key, children, facts.operations, facts.population,
-                "input[${scope.path}].postOps", facts.observations, nativeFunctions, facts.observationReduction)
+            val analysis = QueryStageAnalysis.analyze(scope, facts.columns, facts.key, children, operations, facts.population,
+                "input[${scope.path}].postOps", facts.observations, nativeFunctions, facts.observationReduction.takeUnless { scope in coreScopes })
             result[scope] = analysis
             ancestors.remove(input)
             return analysis

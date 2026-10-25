@@ -10,6 +10,8 @@ import com.olap.prototype.wire.query.QueryReference as WReference
 import com.olap.prototype.wire.query.QuerySelection as WSelection
 import com.olap.prototype.wire.query.QueryResultReference as WResultReference
 import com.olap.prototype.wire.query.QueryExecutionRequest as WExecutionRequest
+import com.olap.prototype.wire.query.QueryExecutionMode as WExecutionMode
+import com.olap.prototype.query.QueryExecutionMode
 import com.olap.prototype.wire.query.QueryExecutionReceipt as WReceipt
 import com.olap.prototype.wire.query.QueryExecutionFailure as WFailure
 import com.olap.prototype.wire.query.QueryValidationRequest as WValidationRequest
@@ -49,27 +51,36 @@ object QueryProto {
     }
     fun toProto(v: QueryResultReference): WResultReference = WResultReference.newBuilder().setRunId(v.runId).setSha256(v.sha256).build()
     fun fromProto(v: WResultReference) = QueryResultReference(v.runId, v.sha256)
-    fun toProto(v: QueryExecutionRequest): WExecutionRequest = WExecutionRequest.newBuilder().setQuery(toProto(v.query)).setSaveResult(v.saveResult)
+    fun toProto(v: QueryExecutionMode): WExecutionMode = when (v) {
+        QueryExecutionMode.SOURCE -> WExecutionMode.QUERY_EXECUTION_SOURCE
+        QueryExecutionMode.CORE_FINALIZATION -> WExecutionMode.QUERY_EXECUTION_CORE_FINALIZATION
+    }
+    fun fromProto(v: WExecutionMode): QueryExecutionMode = when (v) {
+        WExecutionMode.QUERY_EXECUTION_SOURCE -> QueryExecutionMode.SOURCE
+        WExecutionMode.QUERY_EXECUTION_CORE_FINALIZATION -> QueryExecutionMode.CORE_FINALIZATION
+        WExecutionMode.UNRECOGNIZED -> error("unknown query execution mode")
+    }
+    fun toProto(v: QueryExecutionRequest): WExecutionRequest = WExecutionRequest.newBuilder().setQuery(toProto(v.query)).setSaveResult(v.saveResult).setExecutionMode(toProto(v.executionMode))
         .apply { v.question?.let(::setQuestion); v.readBasis?.let { setReadBasis(QuerySourceProto.toProto(it)) } }.build()
     fun fromProto(v: WExecutionRequest): QueryExecutionRequest {
         require(v.hasQuery()) { "query selection is required" }
         return QueryExecutionRequest(fromProto(v.query), v.saveResult, if (v.hasQuestion()) v.question else null,
-            if (v.hasReadBasis()) QuerySourceProto.fromProto(v.readBasis) else null)
+            if (v.hasReadBasis()) QuerySourceProto.fromProto(v.readBasis) else null, fromProto(v.executionMode))
     }
-    fun toProto(v: QueryValidationRequest): WValidationRequest = WValidationRequest.newBuilder().setQuery(toProto(v.query)).build()
-    fun fromProto(v: WValidationRequest): QueryValidationRequest { require(v.hasQuery()); return QueryValidationRequest(fromProto(v.query)) }
+    fun toProto(v: QueryValidationRequest): WValidationRequest = WValidationRequest.newBuilder().setQuery(toProto(v.query)).setExecutionMode(toProto(v.executionMode)).build()
+    fun fromProto(v: WValidationRequest): QueryValidationRequest { require(v.hasQuery()); return QueryValidationRequest(fromProto(v.query), fromProto(v.executionMode)) }
     fun toProto(v: QueryValidationResult): WValidationResult = WValidationResult.newBuilder().setValid(v.valid).setCapabilityHash(v.capabilityHash).build()
     fun fromProto(v: WValidationResult) = QueryValidationResult(v.valid, v.capabilityHash)
     fun toProto(v: QueryExplanationRequest): WExplanationRequest = WExplanationRequest.newBuilder().setQuery(toProto(v.query)).setSection(v.section.name)
-        .setOffset(v.offset).setLimit(v.limit).build()
-    fun fromProto(v: WExplanationRequest): QueryExplanationRequest { require(v.hasQuery()); return QueryExplanationRequest(fromProto(v.query), QueryExplanationSection.valueOf(v.section), v.offset, v.limit) }
+        .setOffset(v.offset).setLimit(v.limit).setExecutionMode(toProto(v.executionMode)).build()
+    fun fromProto(v: WExplanationRequest): QueryExplanationRequest { require(v.hasQuery()); return QueryExplanationRequest(fromProto(v.query), QueryExplanationSection.valueOf(v.section), v.offset, v.limit, fromProto(v.executionMode)) }
     fun toProto(v: QueryExplanationResult): WExplanationResult = WExplanationResult.newBuilder().setSection(v.section.name).setContent(QueryExplanationProto.toProto(v.content)).build()
     fun fromProto(v: WExplanationResult): QueryExplanationResult { require(v.hasContent()); return QueryExplanationResult(QueryExplanationSection.valueOf(v.section), QueryExplanationProto.fromProto(v.content)) }
     fun toProto(v: QueryExecutionFailure): WFailure = WFailure.newBuilder().setStage(v.stage).setCode(v.code).setMessage(v.message)
         .addAllFieldPath(v.fieldPath).apply { v.diagnosticId?.let(::setDiagnosticId) }.build()
     fun fromProto(v: WFailure) = QueryExecutionFailure(v.stage, v.code, v.message, if (v.hasDiagnosticId()) v.diagnosticId else null, v.fieldPathList.toList())
     fun toProto(v: QueryExecutionReceipt): WReceipt = WReceipt.newBuilder().setRunId(v.runId).setStatus(v.status.name).setSaved(v.saved).setRows(v.rows)
-        .setClientOutcome(v.clientOutcome.name).setSourceState(v.sourceState.name).putAllTimingNanos(v.timingNanos).apply {
+        .setClientOutcome(v.clientOutcome.name).setSourceState(v.sourceState.name).setExecutionMode(toProto(v.executionMode)).putAllTimingNanos(v.timingNanos).apply {
             v.resultReference?.let { setResultReference(toProto(it)) }; v.result?.let { setResult(QueryResultProto.toProto(it)) }
             v.sourceRequest?.let { setSourceRequest(QuerySourceProto.toProto(it)) }; v.sourceReadEvidence?.let { setSourceReadEvidence(QuerySourceProto.toProto(it)) }
             v.error?.let { setError(toProto(it)) }
@@ -78,7 +89,7 @@ object QueryProto {
         if (v.hasResultReference()) fromProto(v.resultReference) else null, if (v.hasResult()) QueryResultProto.fromProto(v.result) else null,
         v.saved, v.rows, QueryClientOutcome.valueOf(v.clientOutcome), com.olap.prototype.warehouse.contract.SourceExecutionState.valueOf(v.sourceState),
         if (v.hasSourceRequest()) QuerySourceProto.fromProto(v.sourceRequest) else null,
-        if (v.hasSourceReadEvidence()) QuerySourceProto.fromProto(v.sourceReadEvidence) else null, v.timingNanosMap.toMap(), if (v.hasError()) fromProto(v.error) else null)
+        if (v.hasSourceReadEvidence()) QuerySourceProto.fromProto(v.sourceReadEvidence) else null, v.timingNanosMap.toMap(), if (v.hasError()) fromProto(v.error) else null, fromProto(v.executionMode))
     fun toProto(v: QuerySource): WSource = WSource.newBuilder().setName(v.name).setSource(v.source).setDslApiVersion(v.dslApiVersion).setSha256(v.sha256).build()
     fun fromProto(v: WSource) = QuerySource(v.name, v.source, v.dslApiVersion, v.sha256)
     fun toProto(v: QueryDefinitionCommand): WDefinitionCommand = WDefinitionCommand.newBuilder().setCapabilityHash(v.capabilityHash).setName(v.name)

@@ -14,6 +14,8 @@ import com.olap.prototype.contract.JdbcSourceRequirement.ConstraintKind
 internal object QueryExplanation {
     fun describe(query: CompiledQuery): View {
         val analyses = query.stageAnalyses.associateBy { it.scope }
+        val coreScopes = query.coreFinalizationPlan?.scopes.orEmpty()
+        val sourceOutputScope = coreScopes.firstOrNull() ?: QueryStageAnalysis.ScopeId.root()
         val scopes = query.scopes.map { scope ->
             val analysis = analyses.getValue(scope.scope)
             val root = root(scope.root)
@@ -28,7 +30,9 @@ internal object QueryExplanation {
                 } else null,
                 analysis.outputs, analysis.selectedObservations,
                 analysis.stages.map { View.Stage(it.index, it.operation.operationType, it.operation, it.inputs.map { symbol -> symbol.id },
-                    it.imports.map { symbol -> symbol.id }, it.outputs, it.key) })
+                    it.imports.map { symbol -> symbol.id }, it.outputs, it.key,
+                    if (scope.scope in coreScopes) View.ExecutionLocation.CORE else View.ExecutionLocation.SOURCE) },
+                if (scope.scope in coreScopes && scope.scope != sourceOutputScope) View.ExecutionLocation.CORE else View.ExecutionLocation.SOURCE)
         }
         val scale = query.compilationScale?.let { v ->
             fun size(s: com.olap.prototype.engine.compiler.CompilationScale.RelationSize) = View.RelationSize(s.nodes, s.edges, s.scalarCalls, s.numericChecks, s.repeatedNumericChecks)
@@ -43,8 +47,9 @@ internal object QueryExplanation {
                     .sortedWith(compareBy({ it.dataSourceId }, { it.physicalTableId }, { it.physicalTableVersion }))
                     .map(::sourceConstraints))
         }
-        return View(query.requestId, View.Summary(scopes.size, query.resolvedSources.size, "ONE_EXACT_SOURCE_BINDING", RowPopulationContract.contract(),
-            "NOT_OBSERVED", "NOT_OBSERVED"), scopes, query.resolvedSources.map(::source), query.sqlPlan, scale, requirements)
+        val boundary = if (query.coreFinalizationPlan == null) "ONE_EXACT_SOURCE_BINDING" else "ONE_EXACT_SOURCE_BINDING_THEN_CORE_SCALAR_FINALIZATION"
+        return View(query.requestId, View.Summary(scopes.size, query.resolvedSources.size, boundary, RowPopulationContract.contract(),
+            "NOT_OBSERVED", "NOT_OBSERVED", sourceOutputScope), scopes, query.resolvedSources.map(::source), query.sqlPlan, scale, requirements)
     }
     private fun sourceConstraints(source: JdbcSourceRequirement): View.SourceConstraints {
         val constraints = source.constraintUses.sortedWith(compareBy({ it.kind.name }, { it.name ?: "" })).map { use ->

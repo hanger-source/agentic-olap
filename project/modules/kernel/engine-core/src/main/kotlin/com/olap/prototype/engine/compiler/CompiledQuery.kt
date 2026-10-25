@@ -2,14 +2,17 @@ package com.olap.prototype.engine.compiler
 
 import com.fasterxml.jackson.annotation.JsonSubTypes
 import com.fasterxml.jackson.annotation.JsonTypeInfo
+import com.fasterxml.jackson.annotation.JsonIgnore
 import com.olap.prototype.calculation.*
 import com.olap.prototype.engine.catalog.ExecutableRelationPosition.Id
 import com.olap.prototype.engine.executable.ExecutableLoweringResult
+import com.olap.prototype.engine.executable.CoreFinalizationPlan
 import com.olap.prototype.event.EventIdentity
 import com.olap.prototype.member.MemberCondition
 import com.olap.prototype.query.DimensionCondition
 import com.olap.prototype.query.QueryStageAnalysis
 import com.olap.prototype.query.QueryExplanationView
+import com.olap.prototype.query.QueryExecutionMode
 import com.olap.prototype.query.ScopedInputContract
 import com.olap.prototype.query.TemporalClockBindings
 import com.olap.prototype.time.TemporalWindow
@@ -23,8 +26,10 @@ data class CompiledQuery(val requestId: String, val catalogId: String,
     val scopes: List<CompiledScopeExplanation> = emptyList(),
     val sqlRelationalPlan: String? = null, val sqlRelationalPlanJson: String? = null,
     val compilationScale: CompilationScale? = null,
-    val sqlPlan: List<QueryExplanationView.PlanNode> = emptyList()) {
-    val formatVersion: String get() = "olap-compiled-query/v10"
+    val sqlPlan: List<QueryExplanationView.PlanNode> = emptyList(),
+    val executionMode: QueryExecutionMode = QueryExecutionMode.SOURCE,
+    @get:JsonIgnore val coreFinalizationPlan: CoreFinalizationPlan? = null) {
+    val formatVersion: String get() = "olap-compiled-query/v11"
     data class InvocationEvidence(val scope: QueryStageAnalysis.ScopeId, val callId: String, val owner: CalculationOwner,
         val metric: MetricRef, val outputAlias: String, val arguments: Map<String, Calculation.Value>, val bindings: CalculationBindings) {
         init { ScopedInputContract.requireId(callId) }

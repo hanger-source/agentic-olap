@@ -3,6 +3,7 @@ package com.olap.prototype.engine.executable
 import com.olap.prototype.api.ResultFrame
 import com.olap.prototype.api.SqlResultValues
 import com.olap.prototype.connector.CompilationSupport
+import com.olap.prototype.warehouse.WarehouseExecutionControl
 import com.olap.prototype.engine.executable.ExecutableBusinessResult.*
 import com.olap.prototype.engine.executable.ExecutableBusinessResult.ValueKind.*
 import org.apache.calcite.rel.type.RelDataType
@@ -21,7 +22,6 @@ object ExecutableBusinessResults {
             ExecutableResultTypes.requireJdbc(field.nativeType, requireNotNull(jdbc.jdbcType) { "source SQL type contract is required" }, support)
             ExecutableOutputContract.column("c$index", field, jdbc.displayName)
         }
-        val scopes = contract.scopeInputs.filter { it.scope.path.isNotEmpty() }.associate { requireNotNull(it.scope.externalPath()) to inputColumns(it.fields) }
         val rows = frame.rows.map { row ->
             val cells = linkedMapOf<String, Any?>()
             row.cells.forEach { cell ->
@@ -33,9 +33,18 @@ object ExecutableBusinessResults {
                 val nativeType = contract.columns[index].nativeType
                 ExecutableResultTypes.requireValue(nativeType, cells[alias])
                 value(cells[alias], nativeType)
-            }.also { ExecutableQuantityValues.require(columns, it) }
+            }
         }
-        val root = contract.scopeInputs.first { it.scope.path.isEmpty() }
+        return assemble(contract, columns, rows) {}
+    }
+    internal fun materialized(contract: ExecutableOutputContract, rows: List<List<Value>>, displayNames: Map<String, String>,
+        control: WarehouseExecutionControl): ExecutableBusinessResult =
+        assemble(contract, contract.columns.mapIndexed { index, field -> ExecutableOutputContract.column("c$index", field, displayNames[field.symbol.name]) }, rows, control::checkCancellation)
+
+    private fun assemble(contract: ExecutableOutputContract, columns: List<Column>, rows: List<List<Value>>, checkCancellation: () -> Unit): ExecutableBusinessResult {
+        rows.forEach { values -> checkCancellation(); check(values.size == columns.size) { "materialized result width differs from its output contract" }; ExecutableQuantityValues.require(columns, values) }
+        val scopes = contract.scopeInputs.filter { it.scope != contract.outputScope }.associate { requireNotNull(it.scope.externalPath()) to inputColumns(it.fields) }
+        val root = contract.scopeInputs.first { it.scope == contract.outputScope }
         return ExecutableBusinessResult(inputColumns(root.fields), scopes, columns, contract.sourceSymbols, rows)
     }
     private fun inputColumns(fields: List<ExecutableOutputContract.Field>): List<Column> = fields.mapIndexed { index, field -> ExecutableOutputContract.column("i$index", field, null) }

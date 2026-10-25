@@ -22,7 +22,8 @@ data class QueryExplanationView(val requestId: String, val summary: Summary, val
         val columns: Map<String, String>, val adoptedFor: String)
     data class RelationCheck(val code: String, val scope: QueryStageAnalysis.ScopeId?, val keys: List<String>, val reason: String?)
     data class Summary(val scopeCount: Int, val sourceInputCount: Int, val executionBoundary: String,
-        val populationContract: PopulationContract, val actualSourceStatistics: String, val rowNullAttribution: String)
+        val populationContract: PopulationContract, val actualSourceStatistics: String, val rowNullAttribution: String,
+        val sourceOutputScope: QueryStageAnalysis.ScopeId)
     data class PopulationMode(val mode: String, val fields: List<String>, val groups: String, val inputs: String?)
     data class PopulationContract(val formatVersion: String, val required: Boolean, val modes: List<PopulationMode>,
         val scope: String, val grain: String, val unmatchedMetrics: String, val calculationMetric: String, val emptyPopulation: String, val coverage: String)
@@ -31,9 +32,12 @@ data class QueryExplanationView(val requestId: String, val summary: Summary, val
     data class Child(val kind: String, val name: String, val scope: QueryStageAnalysis.ScopeId)
     data class Scope(val scope: QueryStageAnalysis.ScopeId, val inputMode: String?, val root: Root, val qualifications: List<Qualification>,
         val children: List<Child>, val finalGrain: QueryStageAnalysis.Key, val relationInputMatch: RelationMatch?,
-        val outputs: List<QueryStageAnalysis.Symbol>, val selectedObservations: List<QueryStageAnalysis.SelectedObservation>, val stages: List<Stage>)
+        val outputs: List<QueryStageAnalysis.Symbol>, val selectedObservations: List<QueryStageAnalysis.SelectedObservation>, val stages: List<Stage>,
+        val rootExecutionLocation: ExecutionLocation)
+    enum class ExecutionLocation { SOURCE, CORE }
     data class Stage(val index: Int, val operation: String, val contract: PostOperationContract.ValidatedOperation,
-        val inputs: List<QueryStageAnalysis.SymbolId>, val imports: List<QueryStageAnalysis.SymbolId>, val outputs: List<QueryStageAnalysis.Symbol>, val grain: QueryStageAnalysis.Key)
+        val inputs: List<QueryStageAnalysis.SymbolId>, val imports: List<QueryStageAnalysis.SymbolId>, val outputs: List<QueryStageAnalysis.Symbol>, val grain: QueryStageAnalysis.Key,
+        val executionLocation: ExecutionLocation = ExecutionLocation.SOURCE)
     data class RelationRequirement(val outputSlots: Map<String, String>, val outputs: List<SetOutputContract>, val keys: List<String>?)
     data class RelationMatch(val status: String, val inputScope: QueryStageAnalysis.ScopeId, val actualOutputs: List<QueryStageAnalysis.Symbol>,
         val actualGrain: QueryStageAnalysis.Key, val requirements: List<RelationRequirement>, val projection: Map<String,String>, val population: String, val effect: String)

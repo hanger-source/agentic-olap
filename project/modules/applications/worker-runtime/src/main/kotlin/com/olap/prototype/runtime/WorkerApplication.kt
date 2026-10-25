@@ -49,7 +49,7 @@ internal class WorkerApplication(bootstrap: Bootstrap, private val budgets: Runt
     }
 
     @Synchronized
-    fun response(request: Request): Response {
+    fun response(request: Request, sourceCompleted: (SourceReadEvidence) -> Unit = {}): Response {
         val previousRequestId = MDC.get("requestId")
         val previousWorkerKind = MDC.get("workerKind")
         var completedReadEvidence: SourceReadEvidence? = null
@@ -75,7 +75,11 @@ internal class WorkerApplication(bootstrap: Bootstrap, private val budgets: Runt
                         is Role.Engine -> invoke({ QueryWorkerProto.fromProto(ProtoBytes.unpackResponse(request.workerModel,
                             com.olap.prototype.wire.query.EngineWorkerCommand.getDefaultInstance())) }, { command ->
                             if (command is EngineWorkerCommand.Execute) sourceExecutionStarted = null
-                            actual.handler.execute(command, control) { completedReadEvidence = it; sourceExecutionStarted = true }
+                            actual.handler.execute(command, control) {
+                                completedReadEvidence = it
+                                sourceExecutionStarted = true
+                                sourceCompleted(it)
+                            }
                         }, QueryWorkerProto::toProto)
                         is Role.Query -> invoke({ QueryWorkerProto.fromProto(ProtoBytes.unpackResponse(request.workerModel,
                             com.olap.prototype.wire.query.QueryWorkerCommand.getDefaultInstance())) },
