@@ -5,7 +5,7 @@ import com.olap.prototype.codec.ProtoBytes
 import com.olap.prototype.codec.PublicationProto
 import com.olap.prototype.integration.RuntimeDeploymentLimits
 import com.olap.prototype.integration.TestConnectors
-import com.olap.prototype.query.QueryComputation
+import com.olap.prototype.calculation.Calculation
 import com.olap.prototype.query.contract.*
 import com.olap.prototype.query.definition.*
 import com.olap.prototype.release.contract.ReleaseCatalogView
@@ -33,10 +33,10 @@ internal class PublishedQueryDefinitionFixture(directory: Path, name: String, re
             NativeValidator { intent, checked, executionMode -> QueryNativeValidation.validate(intent, checked, TestConnectors.registry, executionMode) })
     }
 
-    fun command(id: String, computation: QueryComputation.Scope): QueryDefinitionCommand = QueryDefinitionCommand(id, null,
+    fun command(id: String, computation: Calculation.Scope): QueryDefinitionCommand = QueryDefinitionCommand(id, null,
         requireNotNull(publication.queryCapability.capabilityHash), "真实完成查询", intent(computation), null)
 
-    fun intent(computation: QueryComputation.Scope): QueryIntent = QueryIntent(publication.coordinate, computation)
+    fun intent(computation: Calculation.Scope): QueryIntent = QueryIntent(publication.coordinate, computation)
 
     override fun close() = database.close()
 }

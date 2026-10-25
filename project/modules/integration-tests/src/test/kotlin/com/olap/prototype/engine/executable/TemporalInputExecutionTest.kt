@@ -340,7 +340,7 @@ class TemporalInputExecutionTest {
         val selected = listOf("customer", "time", "value")
         val body = Calculation(dimensions, sources.map { (name, ref) -> Calculation.MemberSlot(name, "account", "account", MemberShape.RAW_BAG, outputs, ref) }, emptyList(), emptyList(), emptyMap(), Calculation.Scope(Calculation.SetCombination(Calculation.SetKind.UNION, true, sources.keys.map { Calculation.SetProjection(it, selected) }, listOf(
             SetOutputContract("customer", SetOutputContract.DimensionSlot("customer")), SetOutputContract("time", SetOutputContract.DimensionSlot("time")), SetOutputContract("value", SetOutputContract.Quantity(exact)))),
-            sources.keys.associateWith { name -> Calculation.InputScope("ROOT", Calculation.Scope(Calculation.Members(name, name, selected.map { Calculation.MemberProjection(it, it) }, null, emptyMap(), MemberCondition.Unrestricted()), emptyMap(), emptyList())) }, emptyList()))
+            sources.keys.associateWith { name -> Calculation.InputScope("ROOT", Calculation.Scope(Calculation.Members(name, Calculation.MemberParameter(name), selected.map { Calculation.MemberProjection(it, it, null) }, null, emptyMap(), MemberCondition.Unrestricted(), emptyMap(), emptyMap(), emptyMap()), emptyMap(), emptyList())) }, emptyList()))
         val bindings = CalculationBindings(temporalBindings(definitions, body, null).dimensions, sources.mapValues { (_, ref) -> CalculationBindings.SourceCall(ref, emptyMap(), selected.associateWith { it }, emptyMap(), emptyMap()) }, emptyMap(), emptyMap(), emptyMap())
         val result = MemberResult("account", "account", MemberShape.RAW_BAG, emptyList(), mapOf(
             "customer" to MemberSourceDefinition.ComputedDimensionOutput("customer", "customer", ScalarValueType.NUMBER, "customer", "customer", null),
@@ -358,7 +358,7 @@ class TemporalInputExecutionTest {
         definitions.instances[summed.id] = MetricInstance(definition, temporalBindings(definitions, calculation, source), mapOf("period" to Calculation.Range(period)), "本期已知差额")
         val customer = Calculation.DimensionSlot("customer", "customer", 1, "customer")
         val wrapper = MetricRef("refund-measurement", "1")
-        val body = Calculation(listOf(customer), emptyList(), listOf(Calculation.MeasurementSlot("net", emptyMap(), listOf(customer), emptyList(), exact)), emptyList(), emptyMap(), Calculation.Scope(Calculation.Measures(listOf(Calculation.Call("net", Calculation.Measurement("net"), "value", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()))), listOf("customer"), emptyList(), null, null, emptyMap(), Calculation.Population(listOf("net")), null), emptyMap(), emptyList()))
+        val body = Calculation(listOf(customer), emptyList(), listOf(Calculation.MeasurementSlot("net", emptyMap(), listOf(customer), emptyList(), exact)), emptyList(), emptyMap(), Calculation.Scope(Calculation.Measures(listOf(Calculation.Call("net", Calculation.Measurement("net"), "value", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), emptyMap())), (listOf("customer")).map { Calculation.DimensionParameter(it) }, emptyList(), null, emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(listOf("net")), null), emptyMap(), emptyList()))
         definitions.metrics[wrapper.key()] = ExecutableMetric(wrapper, MetricCalculation(body, "value", listOf("customer"), exact))
         val instance = MetricInstanceRef("${records.id}-measurement")
         definitions.instances[instance.id] = MetricInstance(wrapper, CalculationBindings(temporalBindings(definitions, body, null).dimensions, emptyMap(), emptyMap(), mapOf("net" to summed), emptyMap()), emptyMap(), "明确绑定已形成记录的测量")
@@ -386,11 +386,11 @@ class TemporalInputExecutionTest {
             assertEquals(listOf("30", "20", "-10").map(::decimal), complete.map { decimal(it[2]) }); assertEquals(decimal("100"), decimal(complete.first()[3]))
             assertEquals(3, missing.size); assertInstanceOf(ExecutableBusinessResult.NullValue::class.java, missing.first()[2]); assertInstanceOf(ExecutableBusinessResult.NullValue::class.java, missing.first()[3])
             val measured = executeTemporal(definitions, warehouse, "refund-measurements", measureScope(listOf(
-                QueryComputation.Invocation("increments", increments, "increments", emptyMap(), emptyMap(), emptyMap(), DimensionCondition.Unrestricted()), QueryComputation.Invocation("cumulative", cumulativeMeasurement, "cumulative", emptyMap(), emptyMap(), emptyMap(), DimensionCondition.Unrestricted())), listOf(dimension("customer")))).businessResult.rows.associateBy { scalar(it.first()) }
+                Calculation.Call("increments", Calculation.Instance(increments), "increments", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), emptyMap()), Calculation.Call("cumulative", Calculation.Instance(cumulativeMeasurement), "cumulative", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), emptyMap())), listOf(dimension("customer")))).businessResult.rows.associateBy { scalar(it.first()) }
             assertEquals(setOf("1", "2"), measured.keys)
             assertEquals(decimal("40"), decimal(measured.getValue("1")[1])); assertEquals(decimal("40"), decimal(measured.getValue("1")[2]))
             assertEquals(decimal("40"), decimal(measured.getValue("2")[1])); assertEquals(decimal("10"), decimal(measured.getValue("2")[2]))
-            val migratedRows = executeTemporal(definitions, warehouse, "migration-refund-measurement", measureScope(listOf(QueryComputation.Invocation("migrated", migrated, "value", emptyMap(), emptyMap(), emptyMap(), DimensionCondition.Unrestricted())), listOf(dimension("customer")))).businessResult.rows
+            val migratedRows = executeTemporal(definitions, warehouse, "migration-refund-measurement", measureScope(listOf(Calculation.Call("migrated", Calculation.Instance(migrated), "value", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), emptyMap())), listOf(dimension("customer")))).businessResult.rows
             assertEquals(1, migratedRows.size); assertEquals("3", scalar(migratedRows.first().first())); assertEquals(decimal("25"), decimal(migratedRows.first()[1]))
         }
     }
@@ -419,9 +419,7 @@ class TemporalInputExecutionTest {
             MetricSnapshotRule.LogicUnitKey("snapshots.occurred", 1), listOf(MetricSnapshotRule.LogicUnitKey("snapshots.id", 1)), MetricSnapshotRule.NullPolicy.PRESERVE_SELECTED, null)
         definitions.metrics[metric.key()] = ExecutableMetric(metric, MetricDefinition.FactMeasure(EventRef("snapshots", 1), SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, "snapshots.amount", 1), MetricAggregation.SUM, false, null, emptyMap(), snapshot, exact))
         val names = listOf("customer", "book", "time")
-        val calculation = Calculation(names.map { Calculation.DimensionSlot(it, it, 1, it) }, emptyList(), emptyList(), emptyList(), emptyMap(), Calculation.Scope(Calculation.Measures(
-            listOf(Calculation.Call("balance", Calculation.Fixed(metric), "value", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()))), names, emptyList(), "time",
-            Calculation.Range(TemporalWindow(TemporalWindow.ValueType.LOCAL_TIMESTAMP, TemporalWindow.BOUNDARY, "2026-01-01T00:00:00", "2026-02-01T00:00:00")), emptyMap(), Calculation.Population(listOf("balance")), null), emptyMap(), emptyList()))
+        val calculation = Calculation(names.map { Calculation.DimensionSlot(it, it, 1, it) }, emptyList(), emptyList(), emptyList(), emptyMap(), Calculation.Scope(Calculation.Measures(listOf(Calculation.Call("balance", Calculation.Fixed(metric), "value", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), emptyMap())), (names).map { Calculation.DimensionParameter(it) }, emptyList(), Calculation.TimeRange(Calculation.DimensionParameter("time"), Calculation.Range(TemporalWindow(TemporalWindow.ValueType.LOCAL_TIMESTAMP, TemporalWindow.BOUNDARY, "2026-01-01T00:00:00", "2026-02-01T00:00:00"))), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(listOf("balance")), null), emptyMap(), emptyList()))
         val outputs = linkedMapOf<String, MemberSourceDefinition.Output>()
         names.forEach { outputs[it] = MemberSourceDefinition.ComputedDimensionOutput(it, it, when (it) { "time" -> ScalarValueType.LOCAL_TIMESTAMP; "customer" -> ScalarValueType.NUMBER; else -> ScalarValueType.TEXT }, it, it, null) }
         outputs["value"] = MemberSourceDefinition.ComputedPropertyOutput("时点余额", "amount", ScalarValueType.NUMBER, "value", exact)
@@ -468,9 +466,8 @@ class TemporalInputExecutionTest {
             assertEquals(decimal("4"), decimal(executeTemporal(definitions, warehouse, "first-stock-count", firstCount).businessResult.rows.first().first()))
             assertEquals(decimal("6"), decimal(executeTemporal(definitions, warehouse, "last-stock-count", lastCount).businessResult.rows.first().first()))
             val region = stockCount(last, listOf("region"))
-            assertEquals(decimal("6"), decimal(executeTemporal(definitions, warehouse, "same-point-region-count", QueryComputation.Scope(region.root, region.inputs, listOf(region.stages.first(), countSum("objects", "total")))).businessResult.rows.first().first()))
-            val cross = QueryComputation.Scope(QueryComputation.SetInputs(Calculation.SetKind.UNION, false, listOf(Calculation.SetProjection("first", listOf("objects")), Calculation.SetProjection("last", listOf("objects"))), listOf(SetOutputContract("objects", SetOutputContract.Quantity(ordinal)))),
-                mapOf("first" to QueryComputation.Input("ROOT", firstCount), "last" to QueryComputation.Input("ROOT", lastCount)), listOf(countSum("objects", "observed_total")))
+            assertEquals(decimal("6"), decimal(executeTemporal(definitions, warehouse, "same-point-region-count", Calculation.Scope(region.root, region.inputs, listOf(region.stages.first(), countSum("objects", "total")))).businessResult.rows.first().first()))
+            val cross = Calculation.Scope(Calculation.SetCombination(Calculation.SetKind.UNION, false, listOf(Calculation.SetProjection("first", listOf("objects")), Calculation.SetProjection("last", listOf("objects"))), listOf(SetOutputContract("objects", SetOutputContract.Quantity(ordinal)))), mapOf("first" to Calculation.InputScope("ROOT", firstCount), "last" to Calculation.InputScope("ROOT", lastCount)), listOf(countSum("objects", "observed_total")))
             // 4与6是两个已选时点的完成计数；其和10并非任一时点或跨时点去重对象数。
             val different = executeTemporal(definitions, warehouse, "different-stock-points", cross).businessResult.rows
             assertEquals(decimal("10"), decimal(different.single().single()))
@@ -491,23 +488,23 @@ class TemporalInputExecutionTest {
         observations: Calculation.Range, display: Calculation.Range, calendar: PostOperationContract.CalendarAxis?) = PostOperationContract.ObserveWindow(
         inputs, emptyList(), "rolling", "观察窗口结果", if (domain == PostOperationContract.ObservationDomain.ROWS) temporalOrder() else listOf(PostOperationContract.OrderKey("time", "ASC", "LAST")), aggregation,
         frame, domain, "time", observations, display, calendar)
-    private fun calendarWindow(definitions: Definitions, records: MemberSource, calendar: MemberSource, observations: Calculation.Range, display: Calculation.Range, frame: WindowFrameContract.Frame): QueryComputation.Scope {
+    private fun calendarWindow(definitions: Definitions, records: MemberSource, calendar: MemberSource, observations: Calculation.Range, display: Calculation.Range, frame: WindowFrameContract.Frame): Calculation.Scope {
         val sources = linkedMapOf("observations" to records, "calendar" to calendar)
         val slots = mutableListOf<Calculation.MemberSlot>(); val calls = linkedMapOf<String, CalculationBindings.Member>(); val computations = linkedMapOf<String, Calculation.Scope>()
         sources.forEach { (name, source) ->
             val existing = memberCalculation(source, null, emptyMap(), emptyList()).memberSlots.first()
             slots += Calculation.MemberSlot(name, existing.entity, existing.role, existing.shape, existing.outputs, existing.fixedSource)
             calls[name] = CalculationBindings.SourceCall(MemberRef(source.id, source.version), emptyMap(), source.definition.result.outputs.keys.associateWith { it }, emptyMap(), emptyMap())
-            computations[name] = Calculation.Scope(Calculation.Members(name, name, source.definition.result.outputs.keys.sorted().map { Calculation.MemberProjection(it, it) }, null, emptyMap(), MemberCondition.Unrestricted()), emptyMap(),
+            computations[name] = Calculation.Scope(Calculation.Members(name, Calculation.MemberParameter(name), source.definition.result.outputs.keys.sorted().map { Calculation.MemberProjection(it, it, null) }, null, emptyMap(), MemberCondition.Unrestricted(), emptyMap(), emptyMap(), emptyMap()), emptyMap(),
                 if (name == "observations") listOf(sumAt(listOf("time"), "amount", "daily")) else listOf(PostOperationContract.Project(listOf("time"))))
         }
         val body = Calculation(listOf(Calculation.DimensionSlot("time", "time", 1, "time")), slots, emptyList(), emptyList(), emptyMap(), Calculation.Scope(Calculation.AlignMeasurements(mapOf(
             "calendar" to Calculation.AlignedInput(computations.getValue("calendar"), mapOf("time" to "time"), emptyList()),
             "observations" to Calculation.AlignedInput(computations.getValue("observations"), mapOf("time" to "time"), listOf(Calculation.AlignedValue("daily", "value", Calculation.NoMatch.PRESERVE_NULL)))), listOf("time"), Calculation.AlignmentPopulation(Calculation.PopulationKind.BASE, listOf("calendar"))),
             emptyMap(), listOf(observationWindow(PostOperationContract.ObservationDomain.CALENDAR, listOf("value"), ResultAggregation.Sum(exact, ResultAggregation.NullPolicy.IGNORE), frame, observations, display, PostOperationContract.CalendarAxis("calendar", "time")))))
-        return QueryComputation.Scope(QueryComputation.Compute(body, CalculationBindings(temporalBindings(definitions, body, null).dimensions, calls, emptyMap(), emptyMap(), emptyMap()), emptyMap(), emptyMap(), emptyMap()), emptyMap(), emptyList())
+        return Calculation.Scope(Calculation.Compute(body, Calculation.ExplicitBindings(CalculationBindings(temporalBindings(definitions, body, null).dimensions, calls, emptyMap(), emptyMap(), emptyMap()), emptyMap(), emptyMap()), emptyMap()), emptyMap(), emptyList())
     }
-    private fun windowForRecord(definitions: Definitions, warehouse: NativeWarehouse, request: String, scope: QueryComputation.Scope, id: String) =
+    private fun windowForRecord(definitions: Definitions, warehouse: NativeWarehouse, request: String, scope: Calculation.Scope, id: String) =
         executeTemporal(definitions, warehouse, request, scope).businessResult.rows.first { scalar(it.first()) == id }.last().let(::decimal)
 
     @Test fun observesRowsElapsedAndCalendarWindowsBeforeDisplayAndCountsCompleteObjectTuples(@TempDir directory: Path) {
@@ -583,7 +580,7 @@ class TemporalInputExecutionTest {
             } else outputs[name] = Calculation.MemberProperty(output.role, MemberSourceDefinition.scalar(output).valueType, MemberSourceDefinition.rootValueContract(output))
         }
         val result = source.definition.result
-        return Calculation(dimensions, listOf(Calculation.MemberSlot("records", result.entity, result.role, result.shape, outputs, MemberRef(source.id, source.version))), emptyList(), emptyList(), parameters, Calculation.Scope(Calculation.Members("records", "records", result.outputs.keys.sorted().map { Calculation.MemberProjection(it, it) }, range, emptyMap(), MemberCondition.Unrestricted()), emptyMap(), stages))
+        return Calculation(dimensions, listOf(Calculation.MemberSlot("records", result.entity, result.role, result.shape, outputs, MemberRef(source.id, source.version))), emptyList(), emptyList(), parameters, Calculation.Scope(Calculation.Members("records", Calculation.MemberParameter("records"), result.outputs.keys.sorted().map { Calculation.MemberProjection(it, it, null) }, range, emptyMap(), MemberCondition.Unrestricted(), emptyMap(), emptyMap(), emptyMap()), emptyMap(), stages))
     }
 
     private fun temporalBindings(definitions: Definitions, calculation: Calculation, source: MemberSource?): CalculationBindings {
@@ -612,11 +609,9 @@ class TemporalInputExecutionTest {
         return MemberRef(id, 1)
     }
 
-    private fun selectedMembers(source: MemberRef, outputs: List<String>, range: TemporalWindow?, stages: List<ValidatedOperation>) = QueryComputation.Scope(
-        QueryComputation.Members("records", source, emptyMap(), outputs.map { QueryComputation.Slot(it, it) }, range, emptyMap(), MemberCondition.Unrestricted(), emptyMap(), emptyMap()), emptyMap(), stages)
-    private fun measureScope(calls: List<QueryComputation.Invocation>, grouping: List<ScopedInputContract.DimensionRef>) = QueryComputation.Scope(
-        QueryComputation.Measures(calls, grouping, null, emptyMap(), unrestricted, unrestricted, emptyList(), RowPopulationContract.calls(calls.map { it.callId }), null), emptyMap(), emptyList())
-    private fun executeTemporal(definitions: Definitions, warehouse: NativeWarehouse, requestId: String, scope: QueryComputation.Scope): ExecutableExecutionResult {
+    private fun selectedMembers(source: MemberRef, outputs: List<String>, range: TemporalWindow?, stages: List<ValidatedOperation>) = Calculation.Scope(Calculation.Members("records", Calculation.MemberSource(source), outputs.map { Calculation.MemberProjection(it, it, null) }, (range)?.let { Calculation.Range(it) }, emptyMap(), MemberCondition.Unrestricted(), emptyMap(), emptyMap(), emptyMap()), emptyMap(), stages)
+    private fun measureScope(calls: List<Calculation.Call>, grouping: List<ScopedInputContract.DimensionRef>) = Calculation.Scope(Calculation.Measures(calls, (grouping).map { Calculation.PublishedDimension(it) }, emptyList(), null, emptyMap(), Calculation.Condition(unrestricted), unrestricted, emptyList(), RowPopulationContract.calls(calls.map { it.callId }), null), emptyMap(), emptyList())
+    private fun executeTemporal(definitions: Definitions, warehouse: NativeWarehouse, requestId: String, scope: Calculation.Scope): ExecutableExecutionResult {
         val catalog = definitions.catalog(); val provider = SourceProvider(warehouse.spec.source(), TestConnectors.registry)
         val engine = OlapEngine(OlapSemanticCompiler(CalciteRelCompiler(TestConnectors.registry)), SourceExecutableSqlExecutor({ if (it == provider.bindingRef) provider else null }, RuntimeDeploymentLimits.result, RuntimeDeploymentLimits.nativeMemoryBytes, null), RuntimeDeploymentLimits.result)
         return engine.execute(catalog, ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION, requestId, catalog.manifest.catalogId, scope), object : ExecutableExecutionObserver {

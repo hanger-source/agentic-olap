@@ -145,15 +145,15 @@ class GovernanceVersionLifecycleService(private val database: PlatformDatabase, 
             }
             is MetricCalculation -> {
                 val calculation = definition.calculation
-                calculation.callSites().forEach { site -> (site.call.target as? Calculation.Fixed)?.let {
+                calculation.definitionBodies().values.forEach { body -> body.callSites().forEach { site -> (site.call.target as? Calculation.Fixed)?.let {
                     val child = metrics.metricSnapshot(it.metric.id, it.metric.version.toLong())
                     referenceable(child.status, "METRIC", child.id, child.currentVersion)
-                } }
-                calculation.memberSlots.forEach { slot -> slot.fixedSource?.let { adoptions.validateMemberSource(adoptions.memberSource(it.id, it.version)) } }
-                calculation.declaredDimensions().values.forEach {
+                } } }
+                calculation.fixedMemberSources().values.forEach { adoptions.validateMemberSource(adoptions.memberSource(it.id, it.version)) }
+                calculation.definitionBodies().values.forEach { body -> body.declaredDimensions().values.forEach {
                     val dimension = dimensions.dimensionSnapshot(it.dimensionId, it.dimensionVersion)
                     referenceable(dimension.status, "DIMENSION", dimension.id, it.dimensionVersion)
-                }
+                } }
             }
         }
     }

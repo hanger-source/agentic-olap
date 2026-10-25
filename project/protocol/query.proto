@@ -7,13 +7,13 @@ import "semantic.proto";
 import "google/protobuf/any.proto";
 
 message QueryCapabilityCoordinate { string scenario_id = 1; int64 scenario_version = 2; string release_id = 3; string release_version = 4; }
-message CandidateTarget { oneof kind { CandidateDimensionProvider dimension_provider = 1; agentic.olap.semantic.v1.QueryMembers member_output = 2; } }
+message CandidateTarget { oneof kind { CandidateDimensionProvider dimension_provider = 1; agentic.olap.semantic.v1.CalculationMembers member_output = 2; } }
 message CandidateDimensionProvider { string filter_ref_id = 1; string level_code = 2; }
 message CandidateRequest { QueryCapabilityCoordinate publication = 1; string capability_hash = 2; CandidateTarget target = 3; int32 offset = 4; int32 limit = 5; }
 message CandidateSource { SourceBinding binding = 1; agentic.olap.semantic.v1.ConnectorRef connector_ref = 2; }
 message CandidateResolution { QueryCapabilityCoordinate coordinate = 1; string catalog_hash = 2; string capability_hash = 3; string query_hash = 4; repeated CandidateSource sources = 5; string value_type = 6; }
 message CandidateValues { QueryCapabilityCoordinate coordinate = 1; string catalog_hash = 2; string capability_hash = 3; string query_hash = 4; CandidateTarget target = 5; string value_type = 6; repeated agentic.olap.semantic.v1.CalculationScalar values = 7; int32 offset = 8; optional int32 next_offset = 9; string observed_at = 10; string scope = 11; }
-message QueryIntent { string format_version = 1; QueryCapabilityCoordinate publication = 2; agentic.olap.semantic.v1.QueryScope computation = 3; }
+message QueryIntent { string format_version = 1; QueryCapabilityCoordinate publication = 2; agentic.olap.semantic.v1.CalculationScope computation = 3; }
 message QueryReference { string definition_id = 1; int64 definition_version = 2; string sha256 = 3; }
 message QuerySelection { oneof kind { QueryIntent inline = 1; QueryReference saved = 2; } }
 message QueryResultReference { string run_id = 1; string sha256 = 2; }
@@ -78,7 +78,7 @@ message QueryRunRequest { string run_id = 1; int64 offset = 2; int32 limit = 3; 
 message QueryRunListRequest { QueryCapabilityCoordinate coordinate = 1; optional string text = 2; int64 offset = 3; int32 limit = 4; }
 message QueryUsageNoteRequest { string run_id = 1; string text = 2; }
 
-// 仅用于普通脚本值和读取投影；完整语义计算必须使用上述QueryIntent及semantic.QueryScope。
+// 仅用于普通脚本值和读取投影；完整语义计算使用共同的semantic.CalculationScope。
 message ScriptValue { oneof kind { agentic.olap.semantic.v1.Empty null_value = 1; bool boolean = 2; string text = 3; string decimal = 4; ScriptValues array = 5; ScriptObject object = 6; RegisteredReply registered_reply = 7; ScriptReference reference = 8; } }
 message ScriptReference { oneof kind { QueryReference query = 1; QueryResultReference result = 2; agentic.olap.semantic.v1.MetricRef metric = 3; agentic.olap.semantic.v1.MetricInstanceRef metric_instance = 4; agentic.olap.semantic.v1.MemberRef member = 5; agentic.olap.semantic.v1.EventRef event = 6; agentic.olap.semantic.v1.DimensionRef dimension = 7; SourceBinding source = 8; agentic.olap.semantic.v1.ConnectorRef connector = 9; } }
 message ScriptValues { repeated ScriptValue values = 1; }
@@ -109,7 +109,7 @@ message ExplanationScope { agentic.olap.semantic.v1.ScopeId scope = 1; optional 
 message RelationRequirement { map<string,string> output_slots = 1; repeated agentic.olap.semantic.v1.SetOutput outputs = 2; agentic.olap.semantic.v1.StringList keys = 3; }
 message RelationInputMatch { string status = 1; agentic.olap.semantic.v1.ScopeId input_scope = 2; repeated agentic.olap.semantic.v1.Symbol actual_outputs = 3; ExplanationKey actual_grain = 4; repeated RelationRequirement requirements = 5; map<string,string> projection = 6; string population = 7; string effect = 8; }
 message ExplanationRoot { oneof kind { ExplanationMeasures measures = 1; ExplanationMembers members = 2; string input_id = 3; ExplanationRelation relation = 4; ExplanationObjectMeasure object_measure = 5; ExplanationAlignment align_measurements = 6; ExplanationObservation observation_statistics = 7; ExplanationSet set_inputs = 8; } }
-message ExplanationMeasures { agentic.olap.semantic.v1.RowPopulation row_population = 1; repeated string calls = 2; agentic.olap.semantic.v1.QueryTimeRange time_range = 3; map<string,agentic.olap.semantic.v1.TemporalClock> clocks = 4; agentic.olap.semantic.v1.DimensionCondition output_condition = 5; }
+message ExplanationMeasures { agentic.olap.semantic.v1.RowPopulation row_population = 1; repeated string calls = 2; agentic.olap.semantic.v1.CalculationTimeRange time_range = 3; map<string,agentic.olap.semantic.v1.TemporalClock> clocks = 4; agentic.olap.semantic.v1.DimensionCondition output_condition = 5; }
 message ExplanationMembers { ExplanationMemberOrigin origin = 1; map<string,string> outputs = 2; agentic.olap.semantic.v1.MemberCondition condition = 3; agentic.olap.semantic.v1.TemporalWindow range = 4; }
 message ExplanationMemberOrigin { oneof kind { ExplanationMemberRef projection = 1; ExplanationComputedMember computed = 2; agentic.olap.semantic.v1.ScopeId local = 3; } }
 message ExplanationMemberRef { string id = 1; int64 version = 2; }

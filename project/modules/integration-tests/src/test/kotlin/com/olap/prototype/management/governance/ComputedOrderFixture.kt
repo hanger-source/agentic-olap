@@ -53,8 +53,7 @@ internal class ComputedOrderFixture(val database: PlatformDatabase, directory: P
         publicRows = member("public_orders", OrderMemberDefinitions.computed("lower", false), sourceBindings(inner, mapOf("window" to Calculation.Argument("window"))), mapOf("lower" to Calculation.Scalar(ScalarValueType.NUMBER, "20")))
         val body = sumDefinition.calculation
         val origin = body.memberSlots.single()
-        val internal = MetricCalculation(Calculation(emptyList(), listOf(origin, Calculation.MemberSlot("origin", origin.entity, origin.role, origin.shape, origin.outputs, null)), emptyList(), emptyList(), emptyMap(), Calculation.Scope(body.computation.root, mapOf("formed" to Calculation.InputScope("ROOT", Calculation.Scope(Calculation.Members("internal", "origin",
-            listOf(Calculation.MemberProjection("order", "order"), Calculation.MemberProjection("amount", "amount")), null, emptyMap(), MemberCondition.Unrestricted()), emptyMap(), emptyList()))), body.computation.stages)),
+        val internal = MetricCalculation(Calculation(emptyList(), listOf(origin, Calculation.MemberSlot("origin", origin.entity, origin.role, origin.shape, origin.outputs, null)), emptyList(), emptyList(), emptyMap(), Calculation.Scope(body.computation.root, mapOf("formed" to Calculation.InputScope("ROOT", Calculation.Scope(Calculation.Members("internal", Calculation.MemberParameter("origin"), listOf(Calculation.MemberProjection("order", "order", null), Calculation.MemberProjection("amount", "amount", null)), null, emptyMap(), MemberCondition.Unrestricted(), emptyMap(), emptyMap(), emptyMap()), emptyMap(), emptyList()))), body.computation.stages)),
             "value", emptyList(), GovernanceOrderFixture.money())
         for ((code, definition) in linkedMapOf("sum" to sumDefinition, "average" to CustomerCalculationDefinitions.amount("AVG", MemberShape.RECORDS), "private_sum" to sumDefinition, "internal_sum" to internal)) {
             val metric = createMetric("formed_$code", definition)
@@ -83,13 +82,13 @@ internal class ComputedOrderFixture(val database: PlatformDatabase, directory: P
     fun member(code: String, definition: MemberSourceDefinition, bindings: CalculationBindings = CalculationBindings.empty(), arguments: Map<String, Calculation.Value> = emptyMap()) =
         f.adoptions.createMemberSource(MemberSourceCreateRequest("travel.trade", 1, code, code, definition, bindings, arguments, "golden"))
     fun createMetric(code: String, definition: MetricCalculation): MetricRecord = f.metrics.createMetricCalculation(MetricCalculationCreateRequest(code, code, "trade", definition, "真实成员聚合", meaning, "golden")).metric.also { f.activate("METRIC", it.id) }
-    fun freeze(scope: QueryComputation.Scope): QueryDefinitionView {
+    fun freeze(scope: Calculation.Scope): QueryDefinitionView {
         val publication = publication()
         return queries.save(QueryDefinitionCommand("computed_members_${++sequence}", null, requireNotNull(publication.queryCapability.capabilityHash), "实际形成订单", f.intent(publication, scope), null), "golden").let { queries.requireByIdAndVersion(it.definitionId, it.definitionVersion) }
     }
-    fun execute(scope: QueryComputation.Scope) = f.execute(publication(), freeze(scope).intent.computation)
-    fun formed(arguments: Map<String, Calculation.Value>, outputs: List<QueryComputation.Slot> = listOf(QueryComputation.Slot("order", "order"), QueryComputation.Slot("amount", "amount")),
-        condition: MemberCondition = MemberCondition.Unrestricted()) = QueryComputation.Members("formed", MemberRef(publicRows.id, 1), arguments, outputs, null, emptyMap(), condition, emptyMap(), emptyMap())
+    fun execute(scope: Calculation.Scope) = f.execute(publication(), freeze(scope).intent.computation)
+    fun formed(arguments: Map<String, Calculation.Value>, outputs: List<Calculation.MemberProjection> = listOf(Calculation.MemberProjection("order", "order", null), Calculation.MemberProjection("amount", "amount", null)),
+        condition: MemberCondition = MemberCondition.Unrestricted()) = Calculation.Members("formed", Calculation.MemberSource(MemberRef(publicRows.id, 1)), outputs, null, emptyMap(), condition, arguments, emptyMap(), emptyMap())
     fun source(source: MemberSourceRecord, window: Calculation.Range) = CalculationBindings.SourceCall(MemberRef(source.id, 1), mapOf("window" to window), OrderMemberDefinitions.slots, emptyMap(), emptyMap())
     fun sourceBindings(source: MemberSourceRecord, arguments: Map<String, Calculation.Binding> = emptyMap()) = CalculationBindings(emptyMap(), mapOf("rows" to CalculationBindings.SourceCall(MemberRef(source.id, 1), arguments, OrderMemberDefinitions.slots, emptyMap(), emptyMap())), emptyMap(), emptyMap(), emptyMap())
 }

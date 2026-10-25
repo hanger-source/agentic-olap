@@ -42,7 +42,7 @@ data class QueryExplanationView(val requestId: String, val summary: Summary, val
     data class RelationMatch(val status: String, val inputScope: QueryStageAnalysis.ScopeId, val actualOutputs: List<QueryStageAnalysis.Symbol>,
         val actualGrain: QueryStageAnalysis.Key, val requirements: List<RelationRequirement>, val projection: Map<String,String>, val population: String, val effect: String)
     sealed interface Root {
-        data class Measures(val rowPopulation: RowPopulationContract.Selection, val calls: List<String>, val timeRange: QueryComputation.TimeRange?,
+        data class Measures(val rowPopulation: RowPopulationContract.Selection, val calls: List<String>, val timeRange: Calculation.TimeRange?,
             val clocks: Map<String,TemporalClockBindings.Value>, val outputCondition: DimensionCondition) : Root
         data class Members(val origin: MemberOrigin, val outputs: Map<String,String>, val condition: MemberCondition, val range: TemporalWindow?) : Root
         data class Input(val inputId: String) : Root

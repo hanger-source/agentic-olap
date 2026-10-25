@@ -2,6 +2,8 @@
 
 `tools` 是独立 Kotlin 研发客户端模块，消费真实发行与公开 MCP，不进入产品服务的 classpath。Gradle 负责构建与分发装配；环境与命令见[贡献说明](../CONTRIBUTING.md)。
 
+业务作者程序通过公共 `Computations` 构造同一个 `Calculation.Scope`，研发客户端只提交程序并读取正式回执。对象人口用法的两个计数实例选择由独立消费会话核对；真实数量不匹配诊断来自已有日均算法的关系形参调用，单列保存在 `dailyInputContractMismatch`，不为具体计数调用伪造形式签名。
+
 在仓库根运行：
 
 ```sh

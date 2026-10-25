@@ -119,13 +119,12 @@ class PublishedFactAndBudgetTest {
             val instance = f.adoptions.metricAdoption(MetricAdoption.identity(GovernanceOrderFixture.SUBJECT, gross.code), 1).instance
             assertEquals(2, capability.metricAnalysisDimensionMatrix.count { it.instance == instance })
             val publication = f.publication("release_composite")
-            val args = mapOf("window" to Calculation.Range(period().window))
+            val args = mapOf("window" to (period().window as Calculation.Range))
             val scope = GovernanceOrderFixture.measurementScope(instance, listOf(destination()), args)
             val rows = f.execute(publication, scope).result.resultFrame.rows
             assertEquals(listOf(listOf("杭州", BigDecimal("241.00"))), rows.map { row -> row.cells.map { it.value } })
-            val calls = (0 until 96).map { QueryComputation.Invocation("measure_$it", instance, "gross_$it", args, emptyMap(), emptyMap(), DimensionCondition.Unrestricted()) }
-            val oversized = QueryComputation.Scope(QueryComputation.Measures(calls, listOf(destination()), null, emptyMap(), DimensionCondition.Unrestricted(),
-                DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(calls.map { it.callId }), null), emptyMap(), emptyList())
+            val calls = (0 until 96).map { Calculation.Call("measure_$it", Calculation.Instance(instance), "gross_$it", emptyMap(), emptyMap(), emptyMap(), emptyMap(), args, Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), emptyMap()) }
+            val oversized = Calculation.Scope(Calculation.Measures(calls, (listOf(destination())).map { Calculation.PublishedDimension(it) }, emptyList(), null, emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(calls.map { it.callId }), null), emptyMap(), emptyList())
             val failure = assertThrows(EngineExecutionException::class.java) {
                 ExecutableSemanticBinder(f.connectors).bind(publication.catalog, f.kernelRequest(publication, oversized))
             }
@@ -156,6 +155,5 @@ class PublishedFactAndBudgetTest {
     }
 
     private fun destination() = ScopedInputContract.DimensionRef("travel.trade.destination", "1", "destination")
-    private fun period() = QueryComputation.TimeRange(ScopedInputContract.DimensionRef("travel.trade.business_date", "1", "day"),
-        TemporalWindow(TemporalWindow.ValueType.DATE, TemporalWindow.BOUNDARY, "2026-07-01", "2026-08-01"))
+    private fun period() = Calculation.TimeRange(Calculation.PublishedDimension(ScopedInputContract.DimensionRef("travel.trade.business_date", "1", "day")), Calculation.Range(TemporalWindow(TemporalWindow.ValueType.DATE, TemporalWindow.BOUNDARY, "2026-07-01", "2026-08-01")))
 }

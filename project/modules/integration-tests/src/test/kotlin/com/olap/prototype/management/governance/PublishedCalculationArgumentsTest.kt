@@ -106,19 +106,16 @@ class PublishedCalculationArgumentsTest {
                     f.build("published_native_scalar")
                     val publication = f.publication("published_native_scalar")
                     fun complete(code: String) = measures(listOf(invocation("count", instance(f, code), "quantity")))
-                    fun transform(id: String, input: String) = QueryComputation.Invocation(id, instance(f, "native_completed_number"), id,
-                        emptyMap(), emptyMap(), mapOf("completed" to CalculationBindings.LocalRelation(input, mapOf("quantity" to "quantity"))), DimensionCondition.Unrestricted())
-                    val query = QueryComputation.Scope(measures(listOf(transform("records", "records"), transform("distinct_amounts", "amounts"))).root,
-                        mapOf("records" to QueryComputation.Input("ROOT", complete("native_amount_records")),
-                            "amounts" to QueryComputation.Input("ROOT", complete("native_amount_values"))), emptyList())
+                    fun transform(id: String, input: String) = Calculation.Call(id, Calculation.Instance(instance(f, "native_completed_number")), id, emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), mapOf("completed" to CalculationBindings.LocalRelation(input, mapOf("quantity" to "quantity"))))
+                    val query = Calculation.Scope(measures(listOf(transform("records", "records"), transform("distinct_amounts", "amounts"))).root, mapOf("records" to Calculation.InputScope("ROOT", complete("native_amount_records")),
+                            "amounts" to Calculation.InputScope("ROOT", complete("native_amount_values"))), emptyList())
                     val encoded = ProtoBytes.encode(QueryProto.toProto(f.intent(publication, query)))
                     val decoded = QueryProto.fromProto(ProtoBytes.decode(encoded, com.olap.prototype.wire.query.QueryIntent.getDefaultInstance()))
                     val row = f.execute(publication, decoded.computation).result.resultFrame.rows.single()
                     assertEquals(4.0, (row["records"] as Number).toDouble())
                     assertEquals(3.0, (row["distinct_amounts"] as Number).toDouble())
                     val completed = complete("native_amount_records")
-                    fun publicArithmetic(operator: ResultExpression.ResultOperator) = QueryComputation.Scope(completed.root, completed.inputs,
-                        listOf(PostOperationContract.Derive(ResultExpression.ResultNumeric(ResultExpression.ResultOperation(operator,
+                    fun publicArithmetic(operator: ResultExpression.ResultOperator) = Calculation.Scope(completed.root, completed.inputs, listOf(PostOperationContract.Derive(ResultExpression.ResultNumeric(ResultExpression.ResultOperation(operator,
                             listOf(ResultExpression.ResultSymbol("quantity"), ResultExpression.ResultSymbol("quantity"))),
                             GovernanceOrderFixture.records(), null), "selected_arithmetic", "明确批准的数量运算")))
                     number("8", f.execute(publication, publicArithmetic(ResultExpression.ResultOperator.ADD)).result.resultFrame.rows.single()["selected_arithmetic"])
@@ -131,7 +128,7 @@ class PublishedCalculationArgumentsTest {
                     assertEquals(beforeUnselected, server.queries, "同一发布未选SUBTRACT，应在调用实际HTTP来源前拒绝")
                     val restricted = f.publication("published_native_scalar", scenario = "${GovernanceOrderFixture.SUBJECT}.native_restricted")
                     val input = complete("native_amount_records")
-                    val denied = QueryComputation.Scope(input.root, input.inputs, listOf(PostOperationContract.Derive(
+                    val denied = Calculation.Scope(input.root, input.inputs, listOf(PostOperationContract.Derive(
                         ResultExpression.ResultNativeCall(ref, "native_float", listOf(ResultExpression.ResultSymbol("quantity"))), "unapproved", "未授权查询内变换")))
                     val requests = server.queries
                     val failure = assertThrows(EngineExecutionException::class.java) { f.execute(restricted, denied) }
@@ -186,13 +183,10 @@ class PublishedCalculationArgumentsTest {
                 invocation("amount", instance(f, "pay_amount"), "amount"),
                 invocation("orders", instance(f, "order_count"), "orders"))
             val measured = measures(calls)
-            val completed = QueryComputation.Scope(measured.root, measured.inputs, listOf(PostOperationContract.Derive(
+            val completed = Calculation.Scope(measured.root, measured.inputs, listOf(PostOperationContract.Derive(
                 ResultExpression.ResultTypedLiteral(ScalarValueType.TEXT, "completed"), "label", "完成结果说明")))
-            val average = QueryComputation.Invocation("average", instance(f, "completed_order_mean"), "mean", emptyMap(), emptyMap(),
-                mapOf("completed" to CalculationBindings.LocalRelation("paid", mapOf("amount" to "amount", "orders" to "orders", "label" to "label"))),
-                DimensionCondition.Unrestricted())
-            val query = QueryComputation.Scope(measures(listOf(average)).root,
-                mapOf("paid" to QueryComputation.Input("ROOT", completed)), emptyList())
+            val average = Calculation.Call("average", Calculation.Instance(instance(f, "completed_order_mean")), "mean", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), mapOf("completed" to CalculationBindings.LocalRelation("paid", mapOf("amount" to "amount", "orders" to "orders", "label" to "label"))))
+            val query = Calculation.Scope(measures(listOf(average)).root, mapOf("paid" to Calculation.InputScope("ROOT", completed)), emptyList())
             val rows = f.execute(publication, query).result.resultFrame.rows
             assertEquals(1, rows.size)
             number("55", rows.single()["mean"])
@@ -340,15 +334,15 @@ class PublishedCalculationArgumentsTest {
             val nullCount = "eligible_null_amounts"
             val eligibilityCounts = listOf("eligible_true", "eligible_false", "eligible_unknown")
             val unmatchedCount = "unmatched_bag_rows"
-            fun rows(reference: MemberRef, types: Map<String, ScalarValueType>) = QueryComputation.Scope(QueryComputation.Members("rows", reference, emptyMap(), types.keys.map {
-                if (it == "account") QueryComputation.MappedDimension(it, it, axis) else QueryComputation.Slot(it, it)
-            }, null, emptyMap(), MemberCondition.Unrestricted(), emptyMap(), emptyMap()), emptyMap(), emptyList())
+            fun rows(reference: MemberRef, types: Map<String, ScalarValueType>) = Calculation.Scope(Calculation.Members("rows", Calculation.MemberSource(reference), types.keys.map {
+                if (it == "account") Calculation.MemberProjection(it, it, Calculation.PublishedDimension(axis)) else Calculation.MemberProjection(it, it, null)
+            }, null, emptyMap(), MemberCondition.Unrestricted(), emptyMap(), emptyMap(), emptyMap()), emptyMap(), emptyList())
             val rawLedger = rows(ledgerMember, ledgerTypes)
             val rawAttributes = rows(attributeMember, attributeTypes)
             val completedAmountSymbols = amounts.keys.associateWith { "completed_$it" }
-            fun query(empty: Boolean): QueryComputation.Scope {
-                val ledger = QueryComputation.Scope(rawLedger.root, rawLedger.inputs, listOf(PostFilter(if (empty) ResultLiteral(false) else op(ResultOperator.IS_NOT_NULL, sym("account")))))
-                val completedAmounts = QueryComputation.Scope(QueryComputation.Reuse("ledger"), mapOf("ledger" to QueryComputation.Input("ROOT", ledger)), listOf(
+            fun query(empty: Boolean): Calculation.Scope {
+                val ledger = Calculation.Scope(rawLedger.root, rawLedger.inputs, listOf(PostFilter(if (empty) ResultLiteral(false) else op(ResultOperator.IS_NOT_NULL, sym("account")))))
+                val completedAmounts = Calculation.Scope(Calculation.Input("ledger"), mapOf("ledger" to Calculation.InputScope("ROOT", ledger)), listOf(
                     Regroup(ResultGrouping(listOf("account"), amounts.map { (name, contract) -> sum(name, completedAmountSymbols.getValue(name), contract) } +
                         ResultAggregate("account", ResultAggregation.Count(false, ResultAggregation.NullPolicy.IGNORE), sourceCount, "关联前来源观察行"), null))))
                 val bagStages = mutableListOf<PostOperationContract.ValidatedOperation>(
@@ -373,8 +367,8 @@ class PublishedCalculationArgumentsTest {
                     }
                 }
                 bagStages += Regroup(ResultGrouping(listOf("account"), aggregateBag, null))
-                val completedBag = QueryComputation.Scope(QueryComputation.Reuse("ledger"), mapOf("ledger" to QueryComputation.Input("ROOT", ledger),
-                    "attributes" to QueryComputation.Input("RELATION", rawAttributes)), bagStages)
+                val completedBag = Calculation.Scope(Calculation.Input("ledger"), mapOf("ledger" to Calculation.InputScope("ROOT", ledger),
+                    "attributes" to Calculation.InputScope("RELATION", rawAttributes)), bagStages)
                 val amountContracts = amounts + (sourceCount to count)
                 val bagContracts = contributions + mapOf(joinedCount to count, knownCount to count, nullCount to count, unmatchedCount to count) +
                     eligibilityCounts.associateWith { count }
@@ -386,16 +380,10 @@ class PublishedCalculationArgumentsTest {
                     Calculation.RelationSlot("amounts", outputs(amountContracts), listOf("account")), Calculation.RelationSlot("bag", outputs(bagContracts), listOf("account"))), emptyMap(),
                     Calculation.Scope(Calculation.AlignMeasurements(linkedMapOf("amounts" to aligned("amounts", amountContracts), "bag" to aligned("bag", bagContracts)), listOf("account"),
                         Calculation.AlignmentPopulation(Calculation.PopulationKind.BASE, listOf("amounts"))), emptyMap(), emptyList()))
-                val basis = QueryComputation.Scope(QueryComputation.Compute(alignment,
-                    CalculationBindings(dimensionBindings, emptyMap(), emptyMap(), emptyMap(), mapOf("amounts" to CalculationBindings.RelationParameter(), "bag" to CalculationBindings.RelationParameter())),
-                    emptyMap(), emptyMap(), mapOf("amounts" to CalculationBindings.LocalRelation("amounts", completedAmountSymbols + mapOf("account" to "account", sourceCount to sourceCount)),
-                        "bag" to CalculationBindings.LocalRelation("bag", (bagContracts.keys + "account").associateWith { it }))),
-                    mapOf("amounts" to QueryComputation.Input("ROOT", completedAmounts), "bag" to QueryComputation.Input("ROOT", completedBag)), emptyList())
-                val calls = ratios.map { spec -> QueryComputation.Invocation(spec.code, instance(f, spec.code), spec.code, emptyMap(), emptyMap(),
-                    mapOf("basis" to CalculationBindings.LocalRelation("completed", mapOf("account" to "account", "numerator" to spec.numerator, "denominator" to spec.denominator))),
-                    DimensionCondition.Unrestricted()) }
-                val measured = QueryComputation.Scope(QueryComputation.Measures(calls, listOf(axis), null, emptyMap(), DimensionCondition.Unrestricted(), DimensionCondition.Unrestricted(), emptyList(),
-                    RowPopulationContract.calls(calls.map { it.callId }), null), mapOf("completed" to QueryComputation.Input("ROOT", basis)), emptyList())
+                val basis = Calculation.Scope(Calculation.Compute(alignment, Calculation.ExplicitBindings(CalculationBindings(dimensionBindings, emptyMap(), emptyMap(), emptyMap(), mapOf("amounts" to CalculationBindings.RelationParameter(), "bag" to CalculationBindings.RelationParameter())), emptyMap(), mapOf("amounts" to CalculationBindings.LocalRelation("amounts", completedAmountSymbols + mapOf("account" to "account", sourceCount to sourceCount)),
+                        "bag" to CalculationBindings.LocalRelation("bag", (bagContracts.keys + "account").associateWith { it }))), emptyMap()), mapOf("amounts" to Calculation.InputScope("ROOT", completedAmounts), "bag" to Calculation.InputScope("ROOT", completedBag)), emptyList())
+                val calls = ratios.map { spec -> Calculation.Call(spec.code, Calculation.Instance(instance(f, spec.code)), spec.code, emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), mapOf("basis" to CalculationBindings.LocalRelation("completed", mapOf("account" to "account", "numerator" to spec.numerator, "denominator" to spec.denominator)))) }
+                val measured = Calculation.Scope(Calculation.Measures(calls, (listOf(axis)).map { Calculation.PublishedDimension(it) }, emptyList(), null, emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(calls.map { it.callId }), null), mapOf("completed" to Calculation.InputScope("ROOT", basis)), emptyList())
                 val detailNames = listOf("account", "base_a", "base_b") + contributions.keys + listOf(sourceCount, joinedCount, knownCount, nullCount) + ratios.map { "metric__${it.code}" }
                 val stages = mutableListOf<PostOperationContract.ValidatedOperation>(
                     JoinInput("metrics", "metric", "LEFT", op(ResultOperator.EQ, sym("account"), sym("metric__account"))),
@@ -409,7 +397,7 @@ class PublishedCalculationArgumentsTest {
                         sum("eligible_true", "true_rows", count), sum("eligible_false", "false_rows", count), sum("eligible_unknown", "unknown_rows", count),
                         sum("null_denominator", "null_denominator_accounts", count), sum("negative_denominator", "negative_denominator_accounts", count), sum("zero_denominator", "zero_denominator_accounts", count),
                         ResultAggregate("account_detail", ResultAggregation.Collect(false), "details", "全局报告保留完整账户结果")), null)))
-                return QueryComputation.Scope(QueryComputation.Reuse("basis"), mapOf("basis" to QueryComputation.Input("ROOT", basis), "metrics" to QueryComputation.Input("RELATION", measured)), stages)
+                return Calculation.Scope(Calculation.Input("basis"), mapOf("basis" to Calculation.InputScope("ROOT", basis), "metrics" to Calculation.InputScope("RELATION", measured)), stages)
             }
             // Query也经过正式Protobuf往返，保存算法由重开的发布提供；全局报告与明细在同一次执行内完成。
             val encoded = ProtoBytes.encode(QueryProto.toProto(f.intent(publication, query(false))))
@@ -525,11 +513,9 @@ class PublishedCalculationArgumentsTest {
 
     private fun conditionalAmount(factId: String): MetricCalculation {
         val parameters = mapOf("population" to Calculation.Parameter(Calculation.ParameterKind.CONDITION, "SOURCE_CONDITION", emptyList(), null, null))
-        val call = Calculation.Call("private_amount", Calculation.Fixed(MetricRef(factId, "1")), "value", emptyMap(), emptyMap(), emptyMap(), emptyMap(),
-            emptyMap(), Calculation.Argument("population"))
+        val call = Calculation.Call("private_amount", Calculation.Fixed(MetricRef(factId, "1")), "value", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Argument("population"), emptyMap(), emptyMap())
         val calculation = Calculation(emptyList(), emptyList(), emptyList(), emptyList(), parameters,
-            Calculation.Scope(Calculation.Measures(listOf(call), emptyList(), emptyList(), null, null, emptyMap(),
-                Calculation.Population(listOf(call.callId)), null), emptyMap(), emptyList()))
+            Calculation.Scope(Calculation.Measures(listOf(call), emptyList(), emptyList(), null, emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(listOf(call.callId)), null), emptyMap(), emptyList()))
         return MetricCalculation(calculation, "value", emptyList(), GovernanceOrderFixture.money())
     }
 
@@ -560,10 +546,9 @@ class PublishedCalculationArgumentsTest {
 
     private fun instance(f: GovernanceOrderFixture, code: String) = f.adoptions.metricAdoption(MetricAdoption.identity(GovernanceOrderFixture.SUBJECT, code), 1).instance
     private fun invocation(id: String, instance: MetricInstanceRef, alias: String, arguments: Map<String, Calculation.Value> = emptyMap()) =
-        QueryComputation.Invocation(id, instance, alias, arguments, emptyMap(), emptyMap(), DimensionCondition.Unrestricted())
-    private fun measures(calls: List<QueryComputation.Invocation>, sourceCondition: DimensionCondition = DimensionCondition.Unrestricted()) =
-        QueryComputation.Scope(QueryComputation.Measures(calls, emptyList(), null, emptyMap(), sourceCondition, DimensionCondition.Unrestricted(), emptyList(),
-            RowPopulationContract.calls(calls.map { it.callId }), null), emptyMap(), emptyList())
+        Calculation.Call(id, Calculation.Instance(instance), alias, emptyMap(), emptyMap(), emptyMap(), emptyMap(), arguments, Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), emptyMap())
+    private fun measures(calls: List<Calculation.Call>, sourceCondition: DimensionCondition = DimensionCondition.Unrestricted()) =
+        Calculation.Scope(Calculation.Measures(calls, emptyList(), emptyList(), null, emptyMap(), Calculation.Condition(sourceCondition), DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(calls.map { it.callId }), null), emptyMap(), emptyList())
     private fun number(expected: String, actual: Any?) { assertNotNull(actual); assertEquals(0, BigDecimal(expected).compareTo(BigDecimal(actual.toString()))) }
 
     companion object {

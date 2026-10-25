@@ -1,5 +1,6 @@
 package com.olap.prototype.management.governance
 
+import com.olap.prototype.calculation.Calculation
 import com.olap.prototype.calculation.CalculationBindings
 import com.olap.prototype.connector.SourceExecutionException
 import com.olap.prototype.connector.SourceProvider
@@ -49,10 +50,8 @@ class PublishedSourceBindingTest {
             fun build(version: String, sources: List<SourceAdoptionRef>) = f.builder().build(
                 SubjectAreaReleaseBuildRequest("binding_upgrade", version, "来源采用", "travel.bindings", 1, "golden", sources))
             fun publication(version: String) = f.artifacts.loadExecutableCatalog(ReleaseCatalogRequest("travel.bindings.amount", 1, "binding_upgrade", version))
-            val computation = QueryComputation.Scope(QueryComputation.Measures(listOf(
-                QueryComputation.Invocation("measure", adoption.instance, "value", emptyMap(), emptyMap(), emptyMap(), DimensionCondition.Unrestricted())),
-                emptyList(), null, emptyMap(), DimensionCondition.Unrestricted(), DimensionCondition.Unrestricted(), emptyList(),
-                RowPopulationContract.calls(listOf("measure")), null), emptyMap(), emptyList())
+            val computation = Calculation.Scope(Calculation.Measures(listOf(
+                Calculation.Call("measure", Calculation.Instance(adoption.instance), "value", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), emptyMap())), emptyList(), emptyList(), null, emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(listOf("measure")), null), emptyMap(), emptyList())
             build("1", initialAdoptions)
             val originalArtifact = f.artifacts.loadArtifact("binding_upgrade", "1")
             val originalPublishedBytes = ProtoBytes.encode(GovernanceProto.toProto(publication("1")))
@@ -105,7 +104,7 @@ class PublishedSourceBindingTest {
         }
     }
 
-    private fun compile(publication: PublishedExecutableCatalog, scope: QueryComputation.Scope): ExecutableLoweringResult {
+    private fun compile(publication: PublishedExecutableCatalog, scope: Calculation.Scope): ExecutableLoweringResult {
         val bound = ExecutableSemanticBinder(TestConnectors.registry).bind(publication.catalog, ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION, "binding", publication.catalog.manifest.catalogId, scope))
         val graph = ExecutableInputGraph.index(bound)
         return CalciteRelCompiler(TestConnectors.registry).compile(graph, ExecutableStageAnalysis.analyze(graph, TestConnectors.registry), ExecutableSourceResolver().resolve(publication.catalog, graph), OlapQueryContext("binding")).lowering

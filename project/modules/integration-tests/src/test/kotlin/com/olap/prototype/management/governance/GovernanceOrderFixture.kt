@@ -3,6 +3,7 @@ package com.olap.prototype.management.governance
 import com.olap.prototype.codec.GovernanceProto
 import com.olap.prototype.codec.ProtoBytes
 import com.olap.prototype.calculation.*
+import com.olap.prototype.dsl.Computations
 import com.olap.prototype.connector.JdbcAccess
 import com.olap.prototype.connector.ConnectorRegistry
 import com.olap.prototype.connector.SourceProvider
@@ -200,7 +201,7 @@ internal class GovernanceOrderFixture(val database: PlatformDatabase, val direct
 
     fun publication(id: String = "release_trade", version: String = "1", scenario: String = SCENARIO) = artifacts.loadExecutableCatalog(ReleaseCatalogRequest(scenario, 1, id, version))
 
-    fun execute(publication: PublishedExecutableCatalog, computation: QueryComputation.Scope): ExecutableExecutionResult {
+    fun execute(publication: PublishedExecutableCatalog, computation: Calculation.Scope): ExecutableExecutionResult {
         val provider = SourceProvider(source, connectors)
         val engine = OlapEngine(OlapSemanticCompiler(CalciteRelCompiler(connectors)), SourceExecutableSqlExecutor({ reference -> provider.takeIf { it.bindingRef == reference } },
             RuntimeDeploymentLimits.result, RuntimeDeploymentLimits.nativeMemoryBytes, null), RuntimeDeploymentLimits.result)
@@ -214,9 +215,9 @@ internal class GovernanceOrderFixture(val database: PlatformDatabase, val direct
         return engine.execute(publication.catalog, request, observer, RuntimeDeploymentLimits.CONTROL)
     }
 
-    fun intent(publication: PublishedExecutableCatalog, computation: QueryComputation.Scope): QueryIntent = QueryIntent(publication.coordinate, computation)
+    fun intent(publication: PublishedExecutableCatalog, computation: Calculation.Scope): QueryIntent = QueryIntent(publication.coordinate, computation)
 
-    fun kernelRequest(publication: PublishedExecutableCatalog, computation: QueryComputation.Scope): ExecutableQueryRequest {
+    fun kernelRequest(publication: PublishedExecutableCatalog, computation: Calculation.Scope): ExecutableQueryRequest {
         try {
             val intent = intent(publication, computation)
             PublishedQueryContract.authorize(intent, publication.queryCapability)
@@ -237,14 +238,14 @@ internal class GovernanceOrderFixture(val database: PlatformDatabase, val direct
         fun records() = MetricValueContract(MetricValueContract.Fixed(MetricValueContract.ONE), MetricValueContract.Exact(), MetricValueContract.Integer(64), emptyMap(), MetricValueContract.Overflow.FAIL)
         fun amountMeaning() = MetricBusinessMeaning("支付成功订单的支付金额", "元", "支付成功订单", listOf("不同币种不得直接合并"))
         fun combinedAmount(first: String, second: String, operator: ResultExpression.ResultOperator) = MetricCalculation(Calculation(listOf(Calculation.DimensionSlot("destination", "global.destination", 1, "destination"), Calculation.DimensionSlot("time", "common.business_date", 1, "business_time")), emptyList(), emptyList(), emptyList(), mapOf("window" to Calculation.Parameter(Calculation.ParameterKind.RANGE, "DATE", emptyList(), null, null)), Calculation.Scope(Calculation.Measures(listOf(
-            Calculation.Call("first", Calculation.Fixed(MetricRef(first, "1")), "first", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted())),
-            Calculation.Call("second", Calculation.Fixed(MetricRef(second, "1")), "second", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()))),
-            listOf("destination"), emptyList(), "time", Calculation.Argument("window"), emptyMap(), Calculation.Population(listOf("first", "second")), null), emptyMap(), listOf(
+            Calculation.Call("first", Calculation.Fixed(MetricRef(first, "1")), "first", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), emptyMap()),
+            Calculation.Call("second", Calculation.Fixed(MetricRef(second, "1")), "second", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), emptyMap())), (listOf("destination")).map { Calculation.DimensionParameter(it) }, emptyList(), Calculation.TimeRange(Calculation.DimensionParameter("time"), Calculation.Argument("window")), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(listOf("first", "second")), null), emptyMap(), listOf(
             PostOperationContract.Derive(ResultExpression.ResultNumeric(ResultExpression.ResultOperation(operator, listOf(ResultExpression.ResultSymbol("first"), ResultExpression.ResultSymbol("second"))), money(), null), "combined", "组合金额"),
             PostOperationContract.Project(listOf("destination", "combined"))))), "combined", listOf("destination"), money())
         fun measurementScope(instance: MetricInstanceRef, grouping: List<ScopedInputContract.DimensionRef> = emptyList(), arguments: Map<String, Calculation.Value> = emptyMap(),
-            timeRange: QueryComputation.TimeRange? = null) =
-            QueryComputation.Scope(QueryComputation.Measures(listOf(QueryComputation.Invocation("measure", instance, "value", arguments, emptyMap(), emptyMap(), DimensionCondition.Unrestricted())), grouping, timeRange,
-                emptyMap(), DimensionCondition.Unrestricted(), DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(listOf("measure")), null), emptyMap(), emptyList())
+            timeRange: Calculation.TimeRange? = null) =
+            Computations.measure(listOf(Calculation.Call("measure", Calculation.Instance(instance), "value", emptyMap(), emptyMap(), emptyMap(), emptyMap(), arguments,
+                Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), emptyMap())), grouping.map { Calculation.PublishedDimension(it) },
+                RowPopulationContract.calls(listOf("measure")), timeRange = timeRange)
     }
 }

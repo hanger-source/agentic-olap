@@ -9,7 +9,6 @@ import com.olap.prototype.calculation.MetricInstance as MI
 import com.olap.prototype.member.MemberSourceDefinition as MSD
 import com.olap.prototype.member.MemberSource as MS
 import com.olap.prototype.member.MemberCondition as MD
-import com.olap.prototype.query.QueryComputation as Q
 import com.olap.prototype.query.ScopedInputContract
 import com.olap.prototype.query.TemporalClockBindings
 import com.olap.prototype.query.TemporalJoinContract
@@ -25,10 +24,10 @@ import com.olap.prototype.expression.SemanticExpression as E
 
 /** 正式语义类型与具体生成消息的显式边界；不注册任意对象或猜测类型。 */
 object SemanticProto {
-    fun toProto(value: Q.Members) = SemanticQueryProto.members(value)
-    fun fromProto(value: QueryMembers) = SemanticQueryProto.members(value)
-    fun toProto(value: com.olap.prototype.query.QueryComputation.TimeRange) = SemanticQueryProto.timeRange(value)
-    fun fromProto(value: com.olap.prototype.wire.semantic.QueryTimeRange) = SemanticQueryProto.timeRange(value)
+    fun toProto(value: C.Members) = SemanticCalculationProto.members(value)
+    fun fromProto(value: CalculationMembers) = SemanticCalculationProto.members(value)
+    fun toProto(value: C.TimeRange) = SemanticCalculationProto.timeRange(value)
+    fun fromProto(value: CalculationTimeRange) = SemanticCalculationProto.timeRange(value)
     fun toProto(v: com.olap.prototype.connector.ConnectorRef): ConnectorRef = ConnectorRef.newBuilder().setId(v.id).setVersion(v.version).setSha256(v.sha256).build()
     fun fromProto(v: ConnectorRef): com.olap.prototype.connector.ConnectorRef = com.olap.prototype.connector.ConnectorRef(v.id, v.version, v.sha256)
     fun toProto(v: com.olap.prototype.calculation.MetricRef): MetricRef = MetricRef.newBuilder().setId(v.id).setVersion(v.version).build()
@@ -91,8 +90,6 @@ object SemanticProto {
     fun fromProto(v: DimensionCondition) = SemanticCalculationProto.condition(v)
     fun toProto(v: MD) = SemanticCalculationProto.memberCondition(v)
     fun fromProto(v: MemberCondition) = SemanticCalculationProto.memberCondition(v)
-    fun toProto(v: Q.Scope) = SemanticQueryProto.scope(v)
-    fun fromProto(v: QueryScope) = SemanticQueryProto.scope(v)
     fun toProto(v: PO.ValidatedOperation) = SemanticStagesProto.stage(v)
     fun fromProto(v: Stage) = SemanticStagesProto.stage(v)
     fun toProto(v: PO.ResultAggregate) = SemanticStagesProto.aggregate(v)
@@ -135,8 +132,8 @@ object SemanticProto {
     fun fromProto(v: SetProjection) = SemanticCalculationProto.projection(v)
     fun toProto(v: C.AlignmentPopulation) = SemanticCalculationProto.alignmentPopulation(v)
     fun fromProto(v: AlignmentPopulation) = SemanticCalculationProto.alignmentPopulation(v)
-    fun toProto(v: com.olap.prototype.query.RowPopulationContract.Selection) = SemanticQueryProto.population(v)
-    fun fromProto(v: RowPopulation) = SemanticQueryProto.population(v)
+    fun toProto(v: com.olap.prototype.query.RowPopulationContract.Selection) = SemanticCalculationProto.population(v)
+    fun fromProto(v: RowPopulation) = SemanticCalculationProto.population(v)
     fun arguments(v: Map<String, C.Value>): CalculationArguments = CalculationArguments.newBuilder().putAllValues(v.mapValues { SemanticCalculationProto.binding(it.value) }).build()
     fun arguments(v: CalculationArguments): Map<String, C.Value> = v.valuesMap.mapValues { SemanticCalculationProto.value(it.value) }
     fun toProto(v: C.Parameter) = SemanticCalculationProto.parameter(v)

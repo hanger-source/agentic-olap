@@ -4,7 +4,7 @@ description: 使用 Agentic OLAP 服务调查业务数据、建设和复用可�
 license: Apache-2.0
 metadata:
   author: hanger
-  version: "0.23.0"
+  version: "0.24.0"
   repository: https://github.com/hanger-source/agentic-olap
 ---
 
@@ -46,10 +46,10 @@ agentic-olap call describe-script-api --payload '{"type":"com.olap.prototype.cal
 
 `LogicUnitInput.rules.valueTypeRules` 要求标量 `logicType` 与容器 `valueShape` 恰好选一个：标量的 `valueShape=null`；容器的 `logicType=null`，形状为正式 `SetOutputContract.Container` 的 ARRAY／ROW。普通金额字段使用 `LogicType.NUMBER`，数量合同中的单位、算术和结果容量不填入字段的容器形状。
 
-`execute-script` 向持续 Kotlin 会话提交一个完整片段。DSL 为 `agentic-olap-kotlin-dsl/v7`，以服务发现结果为准。`executionId` 必填；不填 `sessionId` 创建会话，后续使用实际返回的会话 ID：
+`execute-script` 向持续 Kotlin 会话提交一个完整片段。DSL 为 `agentic-olap-kotlin-dsl/v8`，以服务发现结果为准。`executionId` 必填；不填 `sessionId` 创建会话，后续使用实际返回的会话 ID：
 
 ~~~sh
-agentic-olap call execute-script --payload '{"executionId":"sources-001","waitMillis":0,"source":"val sources = olap.sources.list(EmptyRequest)\nolap.output(sources)","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v7","parameters":{}}'
+agentic-olap call execute-script --payload '{"executionId":"sources-001","waitMillis":0,"source":"val sources = olap.sources.list(EmptyRequest)\nolap.output(sources)","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v8","parameters":{}}'
 agentic-olap call wait-script --payload '{"executionId":"sources-001","waitMillis":1000}'
 ~~~
 
@@ -89,7 +89,11 @@ agentic-olap call wait-script --payload '{"executionId":"sources-001","waitMilli
 
 物理版本 P 保存稳定数据合同，结构快照 S 只记录具体观察；兑现采用明确接受某份绑定及 S 兑现 P。初次 `createPhysicalTable` 同事务返回 `SourceAdoptions`；后续更换实现用 `olap.governance.registerSourceAdoptions`，已有采用用 `olap.semantics.sourceAdoptions` 按精确 S 读取。将正式返回的 `references` 直接交 `buildRelease`，不手抄逐表引用或自行遍历闭包。发布按实际 P 依赖核对精确采用，缺失、多选明确拒绝，余项不成为依赖。P 未变时不为实现替换重建业务定义；`NativeCall(A)` 的真实依赖不自动改成 B。旧发布不切换，当前部署缺少其绑定会明确不可执行。采用冻结不固定数据读基础。字段、批量用法及完整短例见[数据合同与来源兑现采用](../../docs/agent-usage.md#数据合同与来源兑现采用)。
 
-完整查询使用 `QueryIntent(publication, computation)`；`scope/query/input/stage` 帮助构造现有 `QueryComputation.Scope`、根、输入与有序阶段。成员槽保留对象身份和属性角色；测量槽接收可调用实例；关系槽接收显式 ROOT 完成关系并核对列、维度、数量及完整键。金额和人数不能为了传参伪装为成员属性。
+完整查询与定义内部共用 `Calculation.Scope`。通过 `describe-script-api` 读取 `com.olap.prototype.dsl.Computations` 的实际方法：`members/invoke/measure` 构造调用，`set/objectMeasure/align/statistics` 直接组合计算，`stages` 追加有序操作，`query` 将计算交给明确发布。具体输入直接进入下一计算，不先重造成员、测量或关系形参，也不重述实际数量和键。人口、角色、投影、对齐键和缺组政策仍须明确选择。
+
+构建可替换算法时，由 `Calculation` 声明真正的成员、测量及完成关系形参和接受合同，调用时绑定剩余参数与输入；实际身份、数量和完整键由同一分析链核验。`compute` 只用于真正的参数化计算应用。固定成员来源仍是精确采用引用，不自动变成全局共享定义；跨上下文复用遵循正式形参与采用边界。金额和人数不能为了传参伪装为成员属性。
+
+本地算法在保存前也能继续组合：查询提供 `Calculation.ExplicitBindings`，外层定义用 `Calculation.ParentSlots` 显式转发形参，并用 `Calculation.Argument` 转发参数。内联、嵌套和保存后的调用共用同一计算分析；无需先创建一个持久指标才能调用本地模板。
 
 来源条件通过定义声明的 CONDITION 参数显式传给指定事实，不自动继承到子树。长期人口与资格规则沉淀到定义，本次期间与选择由调用者明确。保留单位、算术、缺组、NULL、重复度与贡献关系，不补零、加 MAX、拼身份或去重来制造通过。
 

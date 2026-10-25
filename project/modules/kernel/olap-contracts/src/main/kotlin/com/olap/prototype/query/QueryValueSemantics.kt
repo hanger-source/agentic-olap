@@ -183,7 +183,8 @@ object QueryValueSemantics {
     }
     private fun allocatedValue(allocation: ResultUniformAllocation, symbols: Map<String, QueryStageAnalysis.Symbol>,
         nativeFunctions: Map<ResultNativeCall, NativeScalarFunction>, path: List<Any>): QueryValue {
-        val quantity = measure(declaredValue(ResultNumeric(allocation.value, allocation.valueContract, null), symbols, nativeFunctions, path, path + "value"))
+        val quantity = measure(uniformAllocation(expression(allocation.value, symbols, nativeFunctions, path + "value"),
+            allocation.sourceKeys.map { requireNotNull(symbols[it]) }, allocation.memberKeys.map { requireNotNull(symbols[it]) }))
         val equation = allocation.unitEquation?.let {
             allocation.valueContract.unitEquations[it] ?: throw InputContractException.violation(
                 InputContractException.Rule.RESULT_UNIT_EQUATION_MISMATCH, path + "unitEquation",
@@ -193,7 +194,8 @@ object QueryValueSemantics {
         val unit = binaryUnit(ResultOperator.DIVIDE, quantity.unit, QueryQuantity.Fixed(MetricValueContract.ONE), equation, null, path)
         val divided = QueryQuantity(quantity.declaration, unit, quantity.provenance)
         requireDeclaration(allocation.valueContract, divided, path + listOf("valueContract", "unit"))
-        return uniformAllocation(QueryValue.Measure(divided), allocation.sourceKeys.map { requireNotNull(symbols[it]) }, allocation.memberKeys.map { requireNotNull(symbols[it]) })
+        return QueryValue.Measure(QueryQuantity(allocation.valueContract, unit,
+            QueryQuantity.Declared(quantity.provenance, quantity.declaration, allocation.valueContract)))
     }
     private fun declaredValue(numeric: ResultNumeric, symbols: Map<String, QueryStageAnalysis.Symbol>,
         nativeFunctions: Map<ResultNativeCall, NativeScalarFunction>, path: List<Any>, expressionPath: List<Any> = path + "expression"): QueryValue {

@@ -90,6 +90,9 @@ fun averageContract(): MetricValueContract {
             "divide" to MetricValueContract.FixedBinary(MetricValueContract.BinaryOperator.DIVIDE, money, MetricValueContract.ONE, money)), MetricValueContract.Overflow.FAIL)
 }
 
+fun sourceAverageContract() = MetricValueContract(amountContract().unit, MetricValueContract.NativeFloating(),
+    MetricValueContract.BinaryFloat(64), emptyMap(), MetricValueContract.Overflow.FAIL)
+
 fun ratioContract() = MetricValueContract(MetricValueContract.Fixed(MetricValueContract.ONE),
     MetricValueContract.Approximate("-1000000", "1000000", "0.000000001", "0.000000001"), MetricValueContract.BinaryFloat(64),
     mapOf("ratio" to MetricValueContract.SameUnitRatio()), MetricValueContract.Overflow.FAIL)
@@ -179,7 +182,7 @@ class BusinessExample(val client: OlapClient, val parameters: ScriptArguments, v
         return client.semantics.publication(QueryCapabilityRequest(scenario.id, 1, "$domain-release", "1"))
     }
     data class Saved(val query: QueryReference, val result: QueryResultReference, val page: ResultPage)
-    fun execute(entry: PublishedQueryEntry, name: String, computation: QueryComputation.Scope): Saved {
+    fun execute(entry: PublishedQueryEntry, name: String, computation: Calculation.Scope): Saved {
         val intent = QueryIntent(PublishedQueryEntry.key(entry.capability), computation)
         val saved = client.queries.save(QueryDefinitionCommand(null, null, requireNotNull(entry.capability.capabilityHash), name, intent, null))
         val reference = saved.reference
@@ -209,11 +212,7 @@ class BusinessExample(val client: OlapClient, val parameters: ScriptArguments, v
     fun grant(scenario: ScenarioRecord, axis: Axis) {
         governance.createScenarioAnalysisDimensionRef(ScenarioAnalysisDimensionRefCreateRequest(scenario.id, 1, axis.analysis.id, 1, axis.bound.reference.levelCode, true, 1))
     }
-    fun call(adoption: SubjectAreaMetricRefRecord, alias: String = adoption.code, arguments: Map<String, Calculation.Value> = emptyMap()) =
-        QueryComputation.Invocation(alias, adoption.instance, alias, arguments, emptyMap(), emptyMap(), DimensionCondition.Unrestricted())
-    fun scope(calls: List<QueryComputation.Invocation>, grouping: List<ScopedInputContract.DimensionRef>, population: List<String> = calls.map { it.callId }) =
-        QueryComputation.Scope(QueryComputation.Measures(calls, grouping, null, emptyMap(), DimensionCondition.Unrestricted(), DimensionCondition.Unrestricted(), emptyList(),
-            RowPopulationContract.calls(population), null), emptyMap(), emptyList())
+
 }
 
 fun resume(client: OlapClient, parameters: ScriptArguments, verify: (ResultPage) -> Unit): ScriptValue {
@@ -233,19 +232,19 @@ fun resume(client: OlapClient, parameters: ScriptArguments, verify: (ResultPage)
 fun references(saved: BusinessExample.Saved): ScriptValue = ScriptValue.ObjectValue(mapOf(
     "query" to ScriptValue.QueryReferenceValue(saved.query), "result" to ScriptValue.ResultReferenceValue(saved.result)))
 
-fun scope(root: Calculation.Root, vararg stages: ValidatedOperation) = Calculation.Scope(root, emptyMap(), stages.toList())
 
-fun measure(slot: String, alias: String, grouped: Boolean, period: Boolean) = scope(Calculation.Measures(
-    listOf(Calculation.Call(slot, Calculation.Measurement(slot), alias, emptyMap(), emptyMap(), emptyMap(), emptyMap(), if (period) mapOf("window" to Calculation.Argument("window")) else emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()))),
-    if (grouped) listOf("customer") else emptyList(), emptyList(), null, null, emptyMap(), Calculation.Population(listOf(slot)), null))
+fun measure(slot: String, alias: String, grouped: Boolean, period: Boolean) = Computations.measure(
+    listOf(Computations.invoke(Calculation.Measurement(slot), slot, outputAlias = alias,
+        arguments = if (period) mapOf("window" to Calculation.Argument("window")) else emptyMap())),
+    if (grouped) listOf(Calculation.DimensionParameter("customer")) else emptyList(), RowPopulationContract.calls(listOf(slot)))
 
 fun slot(name: String, contract: MetricValueContract, grouped: Boolean, period: Boolean) = Calculation.MeasurementSlot(
     name, if (period) PERIOD else emptyMap(), if (grouped) listOf(CUSTOMER_SLOT) else emptyList(), emptyList(), contract)
 
 fun aggregateDefinition(fact: MetricRef, contract: MetricValueContract) = MetricCalculation(
-    Calculation(listOf(CUSTOMER_SLOT, TIME_SLOT), emptyList(), emptyList(), emptyList(), PERIOD, scope(Calculation.Measures(
-        listOf(Calculation.Call("fact", Calculation.Fixed(fact), "value", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()))),
-        listOf("customer"), emptyList(), "time", Calculation.Argument("window"), emptyMap(), Calculation.Population(listOf("fact")), null))),
+    Calculation(listOf(CUSTOMER_SLOT, TIME_SLOT), emptyList(), emptyList(), emptyList(), PERIOD,
+        Computations.measure(listOf(Computations.invoke(Calculation.Fixed(fact), "fact", outputAlias = "value")), listOf(Calculation.DimensionParameter("customer")),
+            RowPopulationContract.calls(listOf("fact")), timeRange = Calculation.TimeRange(Calculation.DimensionParameter("time"), Calculation.Argument("window")))),
     "value", listOf("customer"), contract)
 
 fun aligned(input: Calculation.Scope, symbol: String, alias: String, grouped: Boolean) = Calculation.AlignedInput(
@@ -266,14 +265,12 @@ fun reduction(input: String, aggregation: ResultAggregation, alias: String) =
 fun eligibleSlot(name: String) = Calculation.MemberSlot(name, "客户", "customer", MemberShape.UNIQUE_MEMBERS,
     mapOf("customer" to Calculation.MemberDimension("customer", null)), null)
 
-fun people(slot: String) = scope(Calculation.Members(slot, slot, listOf(Calculation.MemberProjection("customer", "customer")),
-    null, emptyMap(), MemberCondition.Unrestricted()))
+fun people(slot: String) = Computations.members(slot, Calculation.MemberParameter(slot), listOf(Calculation.MemberProjection("customer", "customer", null)))
 
 fun floating(value: ResultExpression): ResultExpression = ResultCast(value, SemanticExpression.ValueType.DOUBLE, null, null, MetricValueContract.Rounding.NONE)
 
-fun netAt(window: Calculation.Range) = scope(Calculation.Measures(
-    listOf(Calculation.Call("net", Calculation.Measurement("net"), "measured", emptyMap(), emptyMap(), emptyMap(), emptyMap(), mapOf("window" to window), Calculation.Condition(DimensionCondition.Unrestricted()))),
-    listOf("customer"), emptyList(), null, null, emptyMap(), Calculation.Population(listOf("net")), null))
+fun netAt(window: Calculation.Range) = Computations.measure(listOf(Computations.invoke(Calculation.Measurement("net"), "net", outputAlias = "measured", arguments = mapOf("window" to window))),
+    listOf(Calculation.DimensionParameter("customer")), RowPopulationContract.calls(listOf("net")))
 
 fun netDefinition(fees: Boolean): MetricCalculation {
     val inputs = linkedMapOf(
@@ -287,12 +284,12 @@ fun netDefinition(fees: Boolean): MetricCalculation {
         slots += slot("fee", amountContract(), true, true)
         expression = operation(ResultOperator.SUBTRACT, expression, symbol("fee"))
     }
-    return MetricCalculation(Calculation(listOf(CUSTOMER_SLOT), emptyList(), slots, emptyList(), PERIOD, scope(align(inputs, true, "gross"), numeric("value", expression, amountContract(), null), Project(listOf("customer", "value")))),
+    return MetricCalculation(Calculation(listOf(CUSTOMER_SLOT), emptyList(), slots, emptyList(), PERIOD, Computations.stages(Computations.scope(align(inputs, true, "gross")), listOf(numeric("value", expression, amountContract(), null), Project(listOf("customer", "value"))))),
         "value", listOf("customer"), amountContract())
 }
 
 fun totalDefinition(measurement: String, contract: MetricValueContract) = MetricCalculation(
-    Calculation(listOf(CUSTOMER_SLOT), emptyList(), listOf(slot(measurement, contract, true, true)), emptyList(), PERIOD, scope(Calculation.ObservationStatistics(measure(measurement, "measured", true, true), Calculation.ObjectsBy(listOf("customer")),
+    Calculation(listOf(CUSTOMER_SLOT), emptyList(), listOf(slot(measurement, contract, true, true)), emptyList(), PERIOD, Computations.scope(Calculation.ObservationStatistics(measure(measurement, "measured", true, true), Calculation.ObjectsBy(listOf("customer")),
         emptyList(), listOf(Calculation.Reduction(reduction("measured", ResultAggregation.Sum(contract, ResultAggregation.NullPolicy.IGNORE), "value")))))), "value", emptyList(), contract)
 
 fun qualification(): Calculation {
@@ -303,14 +300,14 @@ fun qualification(): Calculation {
     val condition = operation(ResultOperator.AND,
         operation(ResultOperator.GTE, symbol("orders"), ResultQuantityLiteral(BigDecimal("2"), countContract())),
         operation(ResultOperator.GTE, symbol("net"), ResultQuantityLiteral(BigDecimal("100"), amountContract())))
-    return Calculation(listOf(CUSTOMER_SLOT), emptyList(), listOf(slot("net", amountContract(), true, true), slot("orders", countContract(), true, true)), emptyList(), PERIOD, scope(align(inputs, true, "net"), PostFilter(condition), Project(listOf("customer"))))
+    return Calculation(listOf(CUSTOMER_SLOT), emptyList(), listOf(slot("net", amountContract(), true, true), slot("orders", countContract(), true, true)), emptyList(), PERIOD, Computations.stages(Computations.scope(align(inputs, true, "net")), listOf(PostFilter(condition), Project(listOf("customer")))))
 }
 
 fun qualifiedTotal(measured: Calculation.Scope): Calculation.Scope {
     val qualified = Calculation.Scope(Calculation.Input("net_rows"), linkedMapOf(
         "net_rows" to Calculation.InputScope("ROOT", measured), "eligible" to Calculation.InputScope("RELATION", people("eligible"))),
         listOf(JoinInput("eligible", "chosen", "SEMI", operation(ResultOperator.EQ, symbol("customer"), symbol(ScopedInputContract.metricSymbol("chosen", "customer"))))))
-    return scope(Calculation.ObservationStatistics(qualified, Calculation.ObjectsBy(listOf("customer")), emptyList(),
+    return Computations.scope(Calculation.ObservationStatistics(qualified, Calculation.ObjectsBy(listOf("customer")), emptyList(),
         listOf(Calculation.Reduction(reduction("measured", ResultAggregation.Sum(amountContract(), ResultAggregation.NullPolicy.IGNORE), "value")))))
 }
 
@@ -332,18 +329,18 @@ fun statisticsDefinition(outputName: String): Calculation {
         "gross" to aligned(measure("gross", "value", true, true), "value", "gross", true),
         "orders" to aligned(measure("orders", "value", true, true), "value", "orders", true),
     )
-    val observations = scope(align(inputs, true, "gross"), numeric("price", operation(ResultOperator.DIVIDE,
-        floating(symbol("gross")), floating(symbol("orders"))), averageContract(), "divide"))
+    val observations = Computations.stages(Computations.scope(align(inputs, true, "gross")), listOf(numeric("price", operation(ResultOperator.DIVIDE,
+        floating(symbol("gross")), floating(symbol("orders"))), averageContract(), "divide")))
     val stats = Calculation.ObservationStatistics(observations, Calculation.ObjectsBy(listOf("customer")), emptyList(), listOf(
         Calculation.Reduction(reduction("gross", ResultAggregation.Sum(amountContract(), ResultAggregation.NullPolicy.IGNORE), "gross_total")),
         Calculation.Reduction(reduction("orders", ResultAggregation.Sum(countContract(), ResultAggregation.NullPolicy.IGNORE), "order_total")),
-        Calculation.Reduction(reduction("gross", ResultAggregation.Average(averageContract(), ResultAggregation.NullPolicy.IGNORE, MeanTarget.SOURCE_NATIVE), "customer_mean")),
-        Calculation.Reduction(reduction("price", ResultAggregation.Average(averageContract(), ResultAggregation.NullPolicy.IGNORE, MeanTarget.SOURCE_NATIVE), "unweighted")),
+        Calculation.Reduction(reduction("gross", ResultAggregation.Average(sourceAverageContract(), ResultAggregation.NullPolicy.IGNORE, MeanTarget.SOURCE_NATIVE), "customer_mean")),
+        Calculation.Reduction(reduction("price", ResultAggregation.Average(sourceAverageContract(), ResultAggregation.NullPolicy.IGNORE, MeanTarget.SOURCE_NATIVE), "unweighted")),
         Calculation.WeightedMean("price", "orders", "weighted", "按真实订单数加权客户均价", averageContract(), countContract(),
             averageContract(), "multiply", "divide", "IGNORE_PAIR"),
     ))
-    return Calculation(listOf(CUSTOMER_SLOT), emptyList(), listOf(slot("gross", amountContract(), true, true), slot("orders", countContract(), true, true)), emptyList(), PERIOD, scope(stats, numeric("order_mean", operation(ResultOperator.DIVIDE, floating(symbol("gross_total")), floating(symbol("order_total"))),
-        averageContract(), "divide"), Project(listOf(outputName))))
+    return Calculation(listOf(CUSTOMER_SLOT), emptyList(), listOf(slot("gross", amountContract(), true, true), slot("orders", countContract(), true, true)), emptyList(), PERIOD, Computations.stages(Computations.scope(stats), listOf(numeric("order_mean", operation(ResultOperator.DIVIDE, floating(symbol("gross_total")), floating(symbol("order_total"))),
+        averageContract(), "divide"), Project(listOf(outputName)))))
 }
 
 fun verifyOrders(page: ResultPage) = expect(page, mapOf("total" to mapOf("value" to "175")))
@@ -444,7 +441,8 @@ fun buildOrders(): BusinessExample.Saved {
         "eligible" to CalculationBindings.LocalRef("fixed_people", mapOf("customer" to "customer"))), emptyMap(), mapOf("net" to net.instance), emptyMap())
     metrics["fixed_growth"] = example.adopt(subject, "fixed_growth", example.calculation("cohort_growth", growth), growthBindings)
     listOf("order_mean", "customer_mean", "unweighted", "weighted").forEach { code -> metrics[code] = example.adopt(subject, code,
-        example.calculation(code, MetricCalculation(statisticsDefinition(code), code, emptyList(), averageContract())), CalculationBindings(mapOf("customer" to customer.bound),
+        example.calculation(code, MetricCalculation(statisticsDefinition(code), code, emptyList(),
+            if (code in setOf("customer_mean", "unweighted")) sourceAverageContract() else averageContract())), CalculationBindings(mapOf("customer" to customer.bound),
             emptyMap(), emptyMap(), mapOf("gross" to children.getValue("gross").instance, "orders" to children.getValue("orders").instance), emptyMap())) }
     val scenario = governance.createScenario(ScenarioCreateRequest(subject.id, 1, "business", "订单经营", example.actor, "独立事实、业务资格和共同计算", example.actor)).scenario
     listOf(customer, originalTime, occurrenceTime).forEach { example.grant(scenario, it) }
@@ -453,9 +451,7 @@ fun buildOrders(): BusinessExample.Saved {
     val entry = example.publish(subject, scenario, metrics.values.toList(), listOf("JOIN_INPUT", "DERIVE", "PROJECT", "REGROUP"))
     val current = period("2026-01-01", "2026-02-01")
     val prior = period("2025-12-01", "2026-01-01")
-    val candidateTarget = CandidateTarget.MemberOutput(QueryComputation.Members("qualified_values", MemberRef(qualified.id, 1),
-        mapOf("window" to current), listOf(QueryComputation.Slot("customer", "customer")), null, emptyMap(),
-        MemberCondition.Unrestricted(), emptyMap(), emptyMap()))
+    val candidateTarget = CandidateTarget.MemberOutput(Calculation.Members("qualified_values", Calculation.MemberSource(MemberRef(qualified.id, 1)), listOf(Calculation.MemberProjection("customer", "customer", null)), null, emptyMap(), MemberCondition.Unrestricted(), mapOf("window" to current), emptyMap(), emptyMap()))
     val candidateCoordinate = PublishedQueryEntry.key(entry.capability)
     val candidateHash = requireNotNull(entry.capability.capabilityHash)
     val candidates = olap.queries.candidates(CandidateRequest(candidateCoordinate, candidateHash, candidateTarget, 0, 1000))
@@ -468,15 +464,15 @@ fun buildOrders(): BusinessExample.Saved {
         Triple("fixed_cohort", prior, "80"), Triple("separate_cohort", prior, "150"), Triple("original_total", prior, "230"),
         Triple("order_mean", current, "80"), Triple("customer_mean", current, "120"), Triple("unweighted", current, "82.5"), Triple("weighted", current, "80"))
     checks.forEachIndexed { index, (code, window, expected) ->
-        val saved = example.execute(entry, "orders_${code}_$index", example.scope(listOf(example.call(metrics.getValue(code), "value", mapOf("window" to window))), emptyList()))
+        val saved = example.execute(entry, "orders_${code}_$index", Computations.measure(listOf(Computations.invoke(metrics.getValue(code).instance, "value", arguments = mapOf("window" to window))), emptyList(), RowPopulationContract.calls(listOf("value"))))
         expect(saved.page, mapOf("total" to mapOf("value" to expected)))
     }
-    val savedGrowth = example.execute(entry, "fixed_growth", example.scope(listOf(example.call(metrics.getValue("fixed_growth"), "value")), emptyList()))
+    val savedGrowth = example.execute(entry, "fixed_growth", Computations.measure(listOf(Computations.invoke(metrics.getValue("fixed_growth").instance, "value")), emptyList(), RowPopulationContract.calls(listOf("value"))))
     expect(savedGrowth.page, mapOf("total" to mapOf("value" to "0.4375")))
-    val inline = QueryComputation.Scope(QueryComputation.Compute(growth.calculation, growthBindings, emptyMap(), emptyMap(), emptyMap()), emptyMap(), emptyList())
+    val inline = Computations.compute(growth.calculation, growthBindings)
     val inlineSaved = example.execute(entry, "inline_fixed_growth", inline)
     expect(inlineSaved.page, mapOf("total" to mapOf("value" to "0.4375")))
-    return example.execute(entry, "original_net", example.scope(listOf(example.call(metrics.getValue("original_total"), "value", mapOf("window" to current))), emptyList())).also { verifyOrders(it.page) }
+    return example.execute(entry, "original_net", Computations.measure(listOf(Computations.invoke(metrics.getValue("original_total").instance, "value", arguments = mapOf("window" to current))), emptyList(), RowPopulationContract.calls(listOf("value")))).also { verifyOrders(it.page) }
 }
 
 olap.output(when (parameters.text("phase")) {

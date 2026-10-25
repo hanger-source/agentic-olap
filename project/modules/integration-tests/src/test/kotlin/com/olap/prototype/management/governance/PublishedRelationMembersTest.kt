@@ -67,17 +67,13 @@ class PublishedRelationMembersTest {
             val report = floating(reportUnit, emptyMap())
             val ratio = floating(ratioUnit, mapOf("per_participant" to MetricValueContract.FixedBinary(
                 MetricValueContract.BinaryOperator.DIVIDE, reportUnit, MetricValueContract.ONE, ratioUnit)))
-            val root = QueryComputation.Members("records", MemberRef(member.id, 1), emptyMap(),
-                listOf("group", "participant", "amount").map { QueryComputation.Slot(it, it) },
-                TemporalWindow(TemporalWindow.ValueType.DATE, TemporalWindow.BOUNDARY, "2026-07-01", "2026-07-03"), emptyMap(),
-                MemberCondition.Predicate("group", MemberCondition.Operator.IN, listOf("A", "B", "D").map { Calculation.Scalar(ScalarValueType.TEXT, it) }),
-                emptyMap(), emptyMap())
+            val root = Calculation.Members("records", Calculation.MemberSource(MemberRef(member.id, 1)), listOf("group", "participant", "amount").map { Calculation.MemberProjection(it, it, null) }, (TemporalWindow(TemporalWindow.ValueType.DATE, TemporalWindow.BOUNDARY, "2026-07-01", "2026-07-03"))?.let { Calculation.Range(it) }, emptyMap(), MemberCondition.Predicate("group", MemberCondition.Operator.IN, listOf("A", "B", "D").map { Calculation.Scalar(ScalarValueType.TEXT, it) }), emptyMap(), emptyMap(), emptyMap())
             fun divide(left: ResultExpression, right: ResultExpression) = ResultExpression.ResultOperation(ResultExpression.ResultOperator.DIVIDE, listOf(left, right))
             fun scope(factor: String = "100", from: MetricValueContract.UnitIdentity = nativeUnit,
-                declaredOutput: MetricValueContract.UnitIdentity = reportUnit): QueryComputation.Scope {
+                declaredOutput: MetricValueContract.UnitIdentity = reportUnit): Calculation.Scope {
                 val scaled = floating(declaredOutput, mapOf("scale" to MetricValueContract.Scale(
                     MetricValueContract.BinaryOperator.DIVIDE, from, reportUnit, "100")))
-                return QueryComputation.Scope(root, emptyMap(), listOf(
+                return Calculation.Scope(root, emptyMap(), listOf(
                     PostOperationContract.Derive(ResultExpression.ResultNumeric(divide(ResultExpression.ResultSymbol("amount"),
                         ResultExpression.ResultLiteral(BigDecimal(factor))), scaled, "scale"), "row_report", "逐行原尺度除100"),
                     PostOperationContract.Regroup(PostOperationContract.ResultGrouping(listOf("group"), listOf(
@@ -108,7 +104,7 @@ class PublishedRelationMembersTest {
                     else listOf("input", "postOps", 0, "expression", "expression"), contract.details["fieldPath"])
             }
             val approved = scope()
-            val forbidden = QueryComputation.Scope(approved.root, approved.inputs, approved.stages + PostOperationContract.Derive(
+            val forbidden = Calculation.Scope(approved.root, approved.inputs, approved.stages + PostOperationContract.Derive(
                 ResultExpression.ResultNumeric(ResultExpression.ResultRound(ResultExpression.ResultSymbol("ratio"), 1, MetricValueContract.Rounding.HALF_UP), ratio, null),
                 "rounded", "场景未批准ROUND"))
             val denied = assertThrows(EngineExecutionException::class.java) { f.execute(publication, forbidden) }
@@ -183,8 +179,7 @@ class PublishedRelationMembersTest {
             for ((threshold, expected) in linkedMapOf("0" to "220", "15" to "200", "40" to "170", "90" to "100")) {
                 val condition = DimensionCondition.Exists("eligible_order", filter.relation.id,
                     MemberCondition.Predicate("amount", MemberCondition.Operator.GT, listOf(Calculation.Scalar(ScalarValueType.NUMBER, threshold))), null, emptyMap())
-                val scope = QueryComputation.Scope(QueryComputation.Measures(listOf(QueryComputation.Invocation("amount", f.adoptions.metricAdoption(MetricAdoption.identity(GovernanceOrderFixture.SUBJECT, metric.code), 1).instance, "total", emptyMap(), emptyMap(), emptyMap(), DimensionCondition.Unrestricted())),
-                    emptyList(), null, emptyMap(), condition, DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(listOf("amount")), null), emptyMap(), emptyList())
+                val scope = Calculation.Scope(Calculation.Measures(listOf(Calculation.Call("amount", Calculation.Instance(f.adoptions.metricAdoption(MetricAdoption.identity(GovernanceOrderFixture.SUBJECT, metric.code), 1).instance), "total", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), emptyMap())), emptyList(), emptyList(), null, emptyMap(), Calculation.Condition(condition), DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(listOf("amount")), null), emptyMap(), emptyList())
                 val saved = definitions.save(QueryDefinitionCommand("related_$threshold", null, requireNotNull(publication.queryCapability.capabilityHash), "关联订单阈值", f.intent(publication, scope), null), "golden")
                 val reloaded = definitions.requireByIdAndVersion(saved.definitionId, saved.definitionVersion).intent.computation
                 val rows = f.execute(publication, reloaded).result.resultFrame.rows

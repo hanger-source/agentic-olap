@@ -1,6 +1,6 @@
 package com.olap.prototype.query.contract
 
-import com.olap.prototype.query.QueryComputation
+import com.olap.prototype.calculation.Calculation
 import com.olap.prototype.query.QueryExecutionMode
 import com.olap.prototype.engine.executable.ExecutableBusinessResult
 import com.olap.prototype.warehouse.contract.SourceReadBasis
@@ -9,9 +9,9 @@ import com.olap.prototype.warehouse.contract.SourceRequestEvidence
 import com.olap.prototype.warehouse.contract.SourceExecutionState
 
 /** 发布身份与本次完整计算；不携带可执行闭包或来源凭据。 */
-data class QueryIntent(val publication: QueryCapabilityRequest, val computation: QueryComputation.Scope) {
+data class QueryIntent(val publication: QueryCapabilityRequest, val computation: Calculation.Scope) {
     val formatVersion: String get() = FORMAT_VERSION
-    companion object { const val FORMAT_VERSION = "olap-query-intent/v8" }
+    companion object { const val FORMAT_VERSION = "olap-query-intent/v9" }
 }
 
 data class QueryReference(val definitionId: String, val definitionVersion: Long, val sha256: String) {

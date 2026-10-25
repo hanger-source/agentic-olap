@@ -1,4 +1,5 @@
 import com.olap.prototype.dsl.*
+import com.olap.prototype.calculation.Calculation
 import com.olap.prototype.connector.ConnectorRef
 import com.olap.prototype.expression.NativeScalarFunction
 import com.olap.prototype.member.MemberCondition
@@ -22,17 +23,12 @@ fun resultSymbol(name: String): ResultExpression = ResultSymbol(name)
 fun resultText(value: String): ResultExpression = ResultTypedLiteral(ScalarValueType.TEXT, value)
 fun resultOp(operator: ResultOperator, vararg arguments: ResultExpression): ResultExpression = ResultOperation(operator, arguments.toList())
 
-val facts = QueryComputation.Members("facts", MemberRef(parameters.text("factMemberId"), parameters.decimal("factMemberVersion").longValueExact()),
-    emptyMap(), listOf(QueryComputation.Slot("record_day", parameters.text("factDaySlot")),
-        QueryComputation.Slot("record_id", parameters.text("factIdSlot")),
-        QueryComputation.Slot("eligibility_text", parameters.text("eligibilitySlot"))),
-    null, emptyMap(), MemberCondition.Unrestricted(), emptyMap(), emptyMap())
-val details = QueryComputation.Scope(QueryComputation.Members("details",
-    MemberRef(parameters.text("detailMemberId"), parameters.decimal("detailMemberVersion").longValueExact()),
-    emptyMap(), listOf(QueryComputation.Slot("record_day", parameters.text("detailDaySlot")),
-        QueryComputation.Slot("record_id", parameters.text("detailIdSlot")),
-        QueryComputation.Slot("raw_text", parameters.text("rawTextSlot"))),
-    null, emptyMap(), MemberCondition.Unrestricted(), emptyMap(), emptyMap()), emptyMap(), emptyList())
+val facts = Computations.members("facts", MemberRef(parameters.text("factMemberId"), parameters.decimal("factMemberVersion").longValueExact()), emptyMap(), listOf(Calculation.MemberProjection("record_day", parameters.text("factDaySlot"), null),
+        Calculation.MemberProjection("record_id", parameters.text("factIdSlot"), null),
+        Calculation.MemberProjection("eligibility_text", parameters.text("eligibilitySlot"), null)))
+val details = Computations.members("details", MemberRef(parameters.text("detailMemberId"), parameters.decimal("detailMemberVersion").longValueExact()), emptyMap(), listOf(Calculation.MemberProjection("record_day", parameters.text("detailDaySlot"), null),
+        Calculation.MemberProjection("record_id", parameters.text("detailIdSlot"), null),
+        Calculation.MemberProjection("raw_text", parameters.text("rawTextSlot"), null)))
 
 // 仅按记录身份 LEFT；右侧跨日期多版本均保留，不推断单键唯一，也不提前解析明细。
 val stages: List<PostOperationContract.ValidatedOperation> = listOf(
@@ -45,8 +41,10 @@ val stages: List<PostOperationContract.ValidatedOperation> = listOf(
     Project(listOf("record_day", "record_id", "eligibility_text", "detail__raw_text", "parsed_date")))
 val publication = QueryCapabilityRequest(parameters.text("scenarioId"), parameters.decimal("scenarioVersion").longValueExact(),
     parameters.text("releaseId"), parameters.text("releaseVersion"))
-val selection = QuerySelection.Inline(QueryIntent(publication, QueryComputation.Scope(facts,
-    mapOf("details" to QueryComputation.Input("RELATION", details)), stages)))
+val selection = QuerySelection.Inline(Computations.query(publication, Computations.scope(facts.root) {
+    input("details", details, InputMode.RELATION)
+    stages.forEach { stage(it) }
+}))
 when (parameters.text("operation")) {
     "validate" -> olap.output(olap.queries.validate(QueryValidationRequest(selection)))
     "execute" -> olap.output(olap.queries.execute(QueryExecutionRequest(selection, true, "关联后按资格条件解析日期", null)))

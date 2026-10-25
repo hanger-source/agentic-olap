@@ -3,7 +3,6 @@ package com.olap.prototype.query.contract
 import com.olap.prototype.calculation.Calculation
 import com.olap.prototype.connector.ConnectorRef
 import com.olap.prototype.contract.InputContractException
-import com.olap.prototype.query.QueryComputation
 import com.olap.prototype.query.ScalarValueType
 import com.olap.prototype.warehouse.contract.SourceBindingRef
 import java.time.Instant
@@ -35,7 +34,7 @@ data class CandidateRequest(val publication: QueryCapabilityRequest, val capabil
 }
 sealed interface CandidateTarget {
     data class DimensionProvider(val filterRefId: String, val levelCode: String) : CandidateTarget
-    data class MemberOutput(val call: QueryComputation.Members) : CandidateTarget
+    data class MemberOutput(val call: Calculation.Members) : CandidateTarget
 }
 data class CandidateSource(val binding: SourceBindingRef, val connectorRef: ConnectorRef)
 data class CandidateResolution(val coordinate: QueryCapabilityRequest, val catalogHash: String, val capabilityHash: String,

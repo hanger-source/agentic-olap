@@ -247,6 +247,12 @@ class LogicalModelGovernanceService(
         if (name == null || name in setOf(SqlTypeName.ANY, SqlTypeName.OTHER, SqlTypeName.ARRAY, SqlTypeName.STRUCTURED)) return null
         val precision = declared.precision
         if (name == SqlTypeName.DECIMAL && precision != null && precision > builder.typeFactory.typeSystem.getMaxPrecision(name)) return null
+        if (name in setOf(SqlTypeName.TIMESTAMP, SqlTypeName.TIME, SqlTypeName.TIMESTAMP_WITH_LOCAL_TIME_ZONE,
+                SqlTypeName.TIME_WITH_LOCAL_TIME_ZONE, SqlTypeName.TIMESTAMP_TZ, SqlTypeName.TIME_TZ)) {
+            // 原始 JDBC 描述不一定提供时间小数精度；精确来源类型由发布所选连接器核验。
+            val fractionalPrecision = declared.scale ?: return null
+            if (fractionalPrecision > builder.typeFactory.typeSystem.getMaxPrecision(name)) return null
+        }
         return StandardJdbcTypes.resolve(builder.typeFactory, declared)
     }
 

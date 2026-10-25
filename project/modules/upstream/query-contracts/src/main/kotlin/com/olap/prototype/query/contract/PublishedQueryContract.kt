@@ -13,7 +13,7 @@ import com.olap.prototype.time.TemporalWindow
 object PublishedQueryContract {
     const val FORMAT_VERSION = QueryIntent.FORMAT_VERSION
     fun authorize(intent: QueryIntent, capability: QueryCapabilityView) = authorize(intent.formatVersion, intent.publication, intent.computation, capability)
-    fun authorize(formatVersion: String, coordinate: QueryCapabilityRequest, computation: QueryComputation.Scope, capability: QueryCapabilityView) {
+    fun authorize(formatVersion: String, coordinate: QueryCapabilityRequest, computation: Calculation.Scope, capability: QueryCapabilityView) {
         requirePublication(formatVersion, coordinate, capability)
         Authorization(capability).authorizeScope(computation, 0)
     }
@@ -24,13 +24,13 @@ object PublishedQueryContract {
         if (formatVersion != FORMAT_VERSION) fail("query intent formatVersion must be $FORMAT_VERSION")
         if (coordinate != PublishedQueryEntry.key(capability)) fail("query coordinate differs from publication")
     }
-    private fun requireRootInput(scope: QueryComputation.Scope, id: String, path: List<Any>) {
+    private fun requireRootInput(scope: Calculation.Scope, id: String, path: List<Any>) {
         if (scope.inputs[id]?.mode != "ROOT") throw InputContractException.violation(InputContractException.Rule.ROOT_INPUT_REQUIRED,
             path + listOf("inputs", id, "mode"), "root reference requires an explicit ROOT input: $id", "ROOT", scope.inputs[id]?.mode ?: "MISSING")
     }
     private fun key(id: String, version: Any): String = "$id@$version"
     private fun fail(message: String): Nothing = throw ProducerContractException(message)
-    fun authorizeMemberValues(call: QueryComputation.Members, capability: QueryCapabilityView) { Authorization(capability).authorizeMemberValues(call) }
+    fun authorizeMemberValues(call: Calculation.Members, capability: QueryCapabilityView) { Authorization(capability).authorizeMemberValues(call) }
 
     /** 此次授权的索引、预算和惰性编译目录，绝不跨请求缓存已授权状态。 */
     private class Authorization(private val capability: QueryCapabilityView) {
@@ -59,20 +59,24 @@ object PublishedQueryContract {
             capability.metricAnalysisDimensionMatrix.forEach { matrix.getOrPut(it.instance) { mutableListOf() }.add(it) }
             capability.postProcessCapabilities.filter { it.available }.forEach { stageRules.getOrPut(it.ruleType) { mutableListOf() }.add(it) }
         }
-        fun authorizeScope(scope: QueryComputation.Scope, depth: Int, path: List<Any> = listOf("computation")) {
+        fun authorizeScope(scope: Calculation.Scope, depth: Int, path: List<Any> = listOf("computation")) {
+            authorizePublicScope(scope, null, CalculationBindings.empty(), emptyMap(), depth, path)
+        }
+
+        private fun authorizePublicScope(scope: Calculation.Scope, owner: Calculation?, bindings: CalculationBindings,
+            arguments: Map<String, Calculation.Value>, depth: Int, path: List<Any>) {
             chargeScope(depth)
             when (val root = scope.root) {
-                is QueryComputation.Measures -> authorizeMeasures(root, depth)
-                is QueryComputation.Members -> authorizeMembers(root, depth, false)
-                is QueryComputation.Compute -> authorizeCompute(root, depth)
-                is QueryComputation.Reuse -> requireRootInput(scope, root.inputId, path)
-                is QueryComputation.SetInputs -> {
-                    count[0] += root.inputs.size
-                    root.inputs.forEach { requireRootInput(scope, it.inputId, path) }
-                }
+                is Calculation.Measures -> authorizeMeasures(root, bindings, arguments, depth)
+                is Calculation.Members -> authorizeMembers(root, owner, bindings, arguments, depth, false)
+                is Calculation.Compute -> authorizeCompute(root, owner, bindings, arguments, depth, path)
+                is Calculation.Relation -> if (owner == null) fail("public relation roots require a declared calculation formal")
+                is Calculation.SetCombination -> count[0] += root.inputs.size
+                is Calculation.Input, is Calculation.ObjectMeasure, is Calculation.AlignMeasurements, is Calculation.ObservationStatistics -> kotlin.Unit
             }
-            QueryComputation.rootInputs(scope.root).forEach { requireRootInput(scope, it, path) }
-            scope.stages.forEach { stage ->
+            Calculation.rootInputs(scope.root).forEach { requireRootInput(scope, it, path) }
+            val stages = if (owner == null) scope.stages else CalculationInstantiation.stages(scope.stages, arguments, owner, bindings, ::dimensionAlias)
+            stages.forEach { stage ->
                 if (stage.operationType == PostOperationContract.JOIN_INPUT) count[0]++
                 if (stage is PostOperationContract.ObserveWindow) stage.calendar?.let { calendar ->
                     if (scope.inputs[calendar.inputId]?.mode != "RELATION") fail("public query calendar stages require an explicitly selected RELATION input")
@@ -80,7 +84,7 @@ object PublishedQueryContract {
                 authorizeStage(stage)
             }
             if (count[0] > ScopedInputContract.MAX_INPUTS) fail("query exceeds scope/instance/occurrence budget")
-            scope.inputs.forEach { (id, input) -> authorizeScope(input.computation, depth + 1, path + listOf("inputs", id, "computation")) }
+            scope.children().forEach { (id, input) -> authorizePublicScope(input.computation, owner, bindings, arguments, depth + 1, path + listOf("inputs", id, "computation")) }
         }
 
         private fun chargeScope(depth: Int) {
@@ -88,62 +92,27 @@ object PublishedQueryContract {
                 fail("query exceeds scope/instance/occurrence budget")
         }
 
-        private fun authorizeCompute(root: QueryComputation.Compute, depth: Int) {
+        private fun authorizeCompute(root: Calculation.Compute, parent: Calculation?, parentBindings: CalculationBindings,
+            parentArguments: Map<String, Calculation.Value>, depth: Int, path: List<Any>) {
             val calculation = root.calculation
-            if (calculation.callSites().any { it.call.target is Calculation.Fixed }) fail("public inline calculations must select approved measurement instances")
-            root.bindings.measurements.values.forEach { if (metric(it).adoptionStatus != "ACTIVE") fail("metric adoption is not active") }
+            val application = CalculationInstantiation.compute(root, parent, parentBindings, parentArguments)
+            val bindings = application.bindings
+            bindings.measurements.values.forEach { if (metric(it).adoptionStatus != "ACTIVE") fail("metric adoption is not active") }
             val catalog = compilationCatalog
-            catalog.requireBindings(calculation, root.bindings)
-            root.bindings.dimensions.values.forEach { authorizeDimensionBinding(it, catalog) }
-            root.bindings.groupingCandidates.values.flatten().forEach { authorizeDimensionBinding(it, catalog) }
-            val arguments = CalculationInstantiation.arguments(calculation.parameters, emptyMap(), root.arguments, root.bindings)
-            authorizeMemberBindings(root.members, CalculationInstantiation.remainingMemberParameters(calculation, root.bindings), depth)
-            authorizeRelationBindings(root.relations, CalculationInstantiation.remainingRelationParameters(calculation, root.bindings))
-            val resolved = CalculationBindings(root.bindings.dimensions, CalculationInstantiation.resolveMembers(root.bindings.members, root.bindings, arguments), root.bindings.groupingCandidates, root.bindings.measurements, root.bindings.relations)
-            val bindings = CalculationInstantiation.relationArguments(calculation,
-                CalculationInstantiation.memberArguments(calculation, resolved, root.members), root.relations)
-            resolved.members.values.filter { it !is CalculationBindings.InputParameter }.forEach { authorizeMemberBinding(it, depth) }
+            bindings.dimensions.values.forEach { authorizeDimensionBinding(it, catalog) }
+            bindings.groupingCandidates.values.flatten().forEach { authorizeDimensionBinding(it, catalog) }
+            authorizeMemberBindings(bindings.members, calculation.memberSlots.associateBy { it.name }, depth)
+            authorizeRelationBindings(bindings.relations, calculation.relationSlots.associateBy { it.name })
             catalog.requireBoundBindings(calculation, bindings)
-            authorizePublicComputeScope(calculation.computation, calculation, bindings, arguments, catalog, depth + 1)
+            authorizePublicScope(calculation.computation, calculation, bindings, application.arguments, depth + 1, path + listOf("root", "calculation", "computation"))
         }
 
-        private fun authorizePublicComputeScope(scope: Calculation.Scope, owner: Calculation, bindings: CalculationBindings,
-            arguments: Map<String, Calculation.Value>, catalog: ExecutableCatalog, depth: Int) {
-            chargeScope(depth)
-            val aliases: (ScopedInputContract.DimensionRef) -> String = { reference -> requireNotNull(catalog.analysisDimensions[key(reference.id, reference.version)]) { "inline grouping dimension is not frozen" }.outputAlias }
-            when (val root = scope.root) {
-                is Calculation.Measures -> {
-                    val calls = root.calls.map { call ->
-                        val measurement = call.target as? Calculation.Measurement ?: fail("public inline calculations cannot invoke fixed definitions")
-                        val instanceRef = requireNotNull(bindings.measurements[measurement.slot])
-                        val definition = catalog.requireMetric(catalog.requireMetricInstance(instanceRef).definition).definition
-                        QueryComputation.Invocation(call.callId, instanceRef, call.outputAlias,
-                            call.arguments.mapValues { CalculationInstantiation.resolve(it.value, bindings, arguments) },
-                            CalculationInstantiation.memberBindings(call, bindings.members), CalculationInstantiation.relationBindings(call, bindings.relations, definition),
-                            sourceCondition(call.sourceCondition, bindings, arguments))
-                    }
-                    val grouping = CalculationInstantiation.grouping(root, bindings, arguments, aliases)
-                    val range = root.range?.let { value -> QueryComputation.TimeRange(requireNotNull(bindings.dimensions[root.timeSlot]).reference,
-                        (CalculationInstantiation.resolve(value, bindings, arguments) as Calculation.Range).window) }
-                    val clocks = root.clocks.mapValues { (CalculationInstantiation.resolve(it.value, bindings, arguments) as Calculation.Clock).clock }
-                    authorizeMeasures(QueryComputation.Measures(calls, grouping.values.map { it.reference }, range, clocks, DimensionCondition.Unrestricted(),
-                        DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(root.population.callIds), null), depth)
-                }
-                is Calculation.Members -> {
-                    val call = bindings.members[root.slot] as? CalculationBindings.SourceCall
-                    if (call != null) {
-                        val source = catalog.requireMemberSource(call.source)
-                        val bound = MemberInvocationBinding.bind(owner, root, bindings, arguments, source, catalog::memberDimensionMapping)
-                        val supplied = call.arguments.mapValues { it.value as Calculation.Value }
-                        val clocks = root.clocks.mapValues { (CalculationInstantiation.resolve(it.value, bindings, arguments) as Calculation.Clock).clock }
-                        authorizeMembers(QueryComputation.Members(root.callId, call.source, supplied, bound.outputs.map { QueryComputation.Slot(it.key, it.value) }, bound.range, clocks, bound.condition, call.members, call.relations), depth, false)
-                    }
-                }
-                is Calculation.Input, is Calculation.Relation, is Calculation.ObjectMeasure, is Calculation.AlignMeasurements,
-                is Calculation.SetCombination, is Calculation.ObservationStatistics -> kotlin.Unit
-            }
-            CalculationInstantiation.stages(scope.stages, arguments, owner, bindings, aliases).forEach(::authorizeStage)
-            scope.children().values.forEach { authorizePublicComputeScope(it.computation, owner, bindings, arguments, catalog, depth + 1) }
+        private fun dimensionAlias(reference: ScopedInputContract.DimensionRef): String =
+            requireNotNull(compilationCatalog.analysisDimensions[key(reference.id, reference.version)]) { "grouping dimension is not frozen" }.outputAlias
+
+        private fun dimensionReference(reference: Calculation.DimensionReference, bindings: CalculationBindings): ScopedInputContract.DimensionRef = when (reference) {
+            is Calculation.PublishedDimension -> reference.reference
+            is Calculation.DimensionParameter -> requireNotNull(bindings.dimensions[reference.slot]) { "public dimension parameters require a calculation binding" }.reference
         }
 
         /** 冻结依赖只沿真实调用寻找条件消费者，不重新套用公开阶段或指标候选政策。 */
@@ -156,7 +125,7 @@ object PublishedQueryContract {
                     val definition = catalog.requireMetric(child.metric).definition
                     val condition = sourceCondition(call.sourceCondition, bindings, arguments)
                     when (definition) {
-                        is MetricDefinition.FactMeasure -> authorizeFactConditions(listOf(condition), key(definition.event.eventId, definition.event.eventVersion))
+                        is MetricDefinition.FactMeasure -> authorizeFactConditions(listOf(sourceCondition(root.sourceCondition, bindings, arguments), condition), key(definition.event.eventId, definition.event.eventVersion))
                         is MetricCalculation -> {
                             requireAlgorithmCondition(condition)
                             authorizeFrozenCalculationConditions(definition.calculation, child.bindings, child.fixedArguments, child.arguments, emptyMap(), emptyMap(), depth + 1)
@@ -164,9 +133,20 @@ object PublishedQueryContract {
                     }
                 }
                 is Calculation.Members -> {
-                    val call = bindings.members[root.slot] as? CalculationBindings.SourceCall
-                    if (call != null) authorizeFrozenMemberConditions(catalog.requireMemberSource(call.source),
-                        call.arguments.mapValues { it.value as Calculation.Value }, call.members, call.relations, depth + 1)
+                    when (val target = root.target) {
+                        is Calculation.MemberParameter -> {
+                            val call = bindings.members[target.slot] as? CalculationBindings.SourceCall
+                            if (call != null) authorizeFrozenMemberConditions(catalog.requireMemberSource(call.source),
+                                call.arguments.mapValues { it.value as Calculation.Value }, call.members, call.relations, depth + 1)
+                        }
+                        is Calculation.MemberSource -> authorizeFrozenMemberConditions(catalog.requireMemberSource(target.source),
+                            root.arguments.mapValues { CalculationInstantiation.resolve(it.value, bindings, arguments) },
+                            CalculationInstantiation.resolveMembers(root.members, bindings, arguments), root.relations, depth + 1)
+                    }
+                }
+                is Calculation.Compute -> {
+                    val application = CalculationInstantiation.compute(root, owner, bindings, arguments)
+                    authorizeFrozenScopeConditions(root.calculation.computation, root.calculation, application.bindings, application.arguments, catalog, depth + 1)
                 }
                 is Calculation.Input, is Calculation.Relation, is Calculation.ObjectMeasure, is Calculation.AlignMeasurements,
                 is Calculation.SetCombination, is Calculation.ObservationStatistics -> kotlin.Unit
@@ -214,53 +194,68 @@ object PublishedQueryContract {
             }
         }
 
-        private fun authorizeMeasures(root: QueryComputation.Measures, depth: Int) {
+        private fun authorizeMeasures(root: Calculation.Measures, bindings: CalculationBindings, arguments: Map<String, Calculation.Value>, depth: Int) {
             val events = linkedSetOf<String>()
             val facts = mutableListOf<MetricCandidate>()
-            val factCalls = mutableListOf<Pair<MetricCandidate, QueryComputation.Invocation>>()
+            val factConditions = mutableListOf<Pair<MetricCandidate, DimensionCondition>>()
+            val grouping = CalculationInstantiation.groupingReferences(root, bindings, arguments, ::dimensionAlias).values.toList()
+            val rootCondition = sourceCondition(root.sourceCondition, bindings, arguments)
+            val sourceClocks = root.clocks.mapValues { (CalculationInstantiation.resolve(it.value, bindings, arguments) as Calculation.Clock).clock }
+            val timeDimension = root.timeRange?.let {
+                require(CalculationInstantiation.resolve(it.window, bindings, arguments) is Calculation.Range) { "source time range requires a RANGE binding" }
+                dimensionReference(it.dimension, bindings)
+            }
             root.calls.forEach { call ->
                 count[0]++
-                val candidate = metric(call.instance)
+                val instanceRef = when (val target = call.target) {
+                    is Calculation.Instance -> target.instance
+                    is Calculation.Measurement -> requireNotNull(bindings.measurements[target.slot]) { "public measurement parameters require a calculation binding" }
+                    is Calculation.Fixed -> fail("public calculations must select approved measurement instances")
+                }
+                val candidate = metric(instanceRef)
                 if (candidate.adoptionStatus != "ACTIVE") fail("metric adoption is not active")
-                authorizeMemberBindings(call.members, candidate.memberParameters, depth)
-                authorizeRelationBindings(call.relations, candidate.relationParameters)
-                authorizeArguments(call.arguments, candidate.parameters, candidate.fixedArguments, candidate.groupingCandidates)
+                val instance = compilationCatalog.requireMetricInstance(instanceRef)
+                val definition = compilationCatalog.requireMetric(instance.definition).definition
+                val supplied = call.arguments.mapValues { CalculationInstantiation.resolve(it.value, bindings, arguments) }
+                val members = CalculationInstantiation.resolveMembers(CalculationInstantiation.memberBindings(call, bindings.members), bindings, arguments)
+                val relations = CalculationInstantiation.relationBindings(call, bindings.relations, definition)
+                val condition = sourceCondition(call.sourceCondition, bindings, arguments)
+                authorizeMemberBindings(members, candidate.memberParameters, depth)
+                authorizeRelationBindings(relations, candidate.relationParameters)
+                authorizeArguments(supplied, candidate.parameters, candidate.fixedArguments, candidate.groupingCandidates)
                 if (candidate.definitionKind == "FACT_MEASURE") {
                     facts.add(candidate)
-                    factCalls.add(candidate to call)
+                    factConditions.add(candidate to condition)
                     candidate.sources.forEach { events.add(key(it.event.eventId, it.event.eventVersion)) }
                 } else {
-                    requireAlgorithmCondition(call.sourceCondition)
-                    val instance = compilationCatalog.requireMetricInstance(call.instance)
-                    val definition = compilationCatalog.requireMetric(instance.definition).definition as MetricCalculation
-                    authorizeFrozenCalculationConditions(definition.calculation, instance.bindings, instance.fixedArguments, call.arguments, call.members, call.relations, depth + 1)
+                    requireAlgorithmCondition(condition)
+                    authorizeFrozenCalculationConditions((definition as MetricCalculation).calculation, instance.bindings, instance.fixedArguments, supplied, members, relations, depth + 1)
                 }
             }
-            root.grouping.forEach { dimension(it) }
-            if (facts.isEmpty() && (root.sourceTimeRange != null || root.sourceClocks.isNotEmpty() || root.sourceCondition !is DimensionCondition.Unrestricted || root.sourceEventConditions.isNotEmpty()))
+            grouping.forEach { dimension(it) }
+            if (facts.isEmpty() && (timeDimension != null || sourceClocks.isNotEmpty() || rootCondition !is DimensionCondition.Unrestricted || root.sourceEventConditions.isNotEmpty()))
                 fail("source conditions require direct fact invocations; algorithm inputs use declared metric arguments")
-            facts.forEach { fact -> root.grouping.forEach { reference ->
+            facts.forEach { fact -> grouping.forEach { reference ->
                 val expected = fact.sources.map { key(it.event.eventId, it.event.eventVersion) }.toSet()
                 val matches = matrix[fact.instance].orEmpty().filter { it.analysisDimensionId == reference.id && it.analysisDimensionVersion.toString() == reference.version && it.levelCode == reference.levelCode }
                 if (matches.any { !it.available } || matches.map { key(it.eventId, it.eventVersion) }.toSet() != expected) fail("fact grouping is not available for its complete exact event input: ${fact.instance}")
             } }
-            root.grouping.forEach { alignment(it, events) }
-            dimensionCondition(root.sourceCondition, events)
+            grouping.forEach { alignment(it, events) }
+            dimensionCondition(rootCondition, events)
             val scoped = linkedSetOf<String>()
             root.sourceEventConditions.forEach { condition ->
                 val event = key(condition.eventId, condition.eventVersion)
                 if (event !in events || !scoped.add(event)) fail("event condition must select one direct fact event once")
                 dimensionCondition(condition.condition, setOf(event))
             }
-            factCalls.forEach { (fact, call) -> fact.sources.forEach { source ->
+            factConditions.forEach { (fact, condition) -> fact.sources.forEach { source ->
                 val event = key(source.event.eventId, source.event.eventVersion)
-                authorizeFactConditions(listOf(root.sourceCondition, call.sourceCondition) +
+                authorizeFactConditions(listOf(rootCondition, condition) +
                     root.sourceEventConditions.filter { key(it.eventId, it.eventVersion) == event }.map { it.condition }, event)
             } }
-            root.sourceClocks.forEach { (reference, value) -> requireClock(reference, value) }
-            outputCondition(root.outputCondition, root.grouping)
-            root.sourceTimeRange?.let { range ->
-                val ref = range.dimension
+            sourceClocks.forEach { (reference, value) -> requireClock(reference, value) }
+            outputCondition(root.outputCondition, grouping)
+            timeDimension?.let { ref ->
                 val candidate = timeDimensions[key(ref.id, ref.version)] ?: fail("source time dimension is not published")
                 if (ref.levelCode !in candidate.availableLevelCodes) fail("source time level is not published")
                 val anchors = candidate.eventAnchors.filter { it.levelCode == ref.levelCode }.map { key(it.eventId, it.eventVersion) }.toSet()
@@ -327,29 +322,61 @@ object PublishedQueryContract {
             }
         }
 
-        private fun authorizeMembers(root: QueryComputation.Members, depth: Int, candidateValues: Boolean) {
-            val candidate = member(root.source.id, root.source.version)
-            authorizeArguments(root.arguments, candidate.parameters, candidate.fixedArguments, candidate.groupingCandidates)
-            authorizeMemberBindings(root.members, candidate.memberParameters, depth)
-            authorizeRelationBindings(root.relations, candidate.relationParameters)
-            root.outputs.forEach { projection ->
-                if (projection.slot !in (if (candidateValues) candidate.permission.values else candidate.permission.outputs)) fail("member output slot is outside this approved operation")
-                val output = candidate.outputs[projection.slot] ?: fail("member output slot is not approved")
-                if (projection is QueryComputation.MappedDimension && (output !is MemberCandidate.Dimension || projection.dimension !in output.mappings)) fail("member dimension mapping is not approved for this output slot")
+        private fun authorizeMembers(root: Calculation.Members, owner: Calculation?, bindings: CalculationBindings,
+            arguments: Map<String, Calculation.Value>, depth: Int, candidateValues: Boolean) {
+            val clocks = root.clocks.mapValues { (CalculationInstantiation.resolve(it.value, bindings, arguments) as Calculation.Clock).clock }
+            when (val target = root.target) {
+                is Calculation.MemberSource -> {
+                    val candidate = member(target.source.id, target.source.version)
+                    val source = compilationCatalog.requireMemberSource(target.source)
+                    val bound = MemberInvocationBinding.sourceSelection(root, source, owner, bindings, arguments,
+                        { slot -> (candidate.outputs[slot] as? MemberCandidate.Dimension)?.mappings.orEmpty() }, compilationCatalog::memberDimensionMapping)
+                    authorizeMemberCall(target.source, root.arguments.mapValues { CalculationInstantiation.resolve(it.value, bindings, arguments) },
+                        bound.outputs.map { (alias, slot) -> slot to (bound.meanings[alias] as? QueryStageAnalysis.MappedMemberDimension)?.dimension },
+                        bound.range, clocks, bound.condition, CalculationInstantiation.resolveMembers(root.members, bindings, arguments), root.relations, depth, candidateValues)
+                }
+                is Calculation.MemberParameter -> {
+                    val calculation = owner ?: fail("public member parameters require a calculation declaration")
+                    when (val call = requireNotNull(bindings.members[target.slot]) { "member parameter is not bound" }) {
+                        is CalculationBindings.SourceCall -> {
+                            val source = compilationCatalog.requireMemberSource(call.source)
+                            val bound = MemberInvocationBinding.bind(calculation, root, bindings, arguments, source, compilationCatalog::memberDimensionMapping)
+                            authorizeMemberCall(call.source, call.arguments.mapValues { CalculationInstantiation.resolve(it.value, bindings, arguments) },
+                                bound.outputs.map { (alias, slot) -> slot to (bound.meanings[alias] as? QueryStageAnalysis.MappedMemberDimension)?.dimension },
+                                bound.range, clocks, bound.condition, call.members, call.relations, depth, candidateValues)
+                        }
+                        is CalculationBindings.LocalRef -> kotlin.Unit
+                        is CalculationBindings.InputParameter -> fail("public member parameters require an exact source call or completed local input")
+                    }
+                }
             }
-            root.range?.let { if (candidate.timeRange?.valueType?.name != it.valueType.name) fail("member range is not authorized with this temporal type") }
-            root.clocks.forEach { (name, value) ->
+        }
+
+        private fun authorizeMemberCall(source: com.olap.prototype.member.MemberRef, arguments: Map<String, Calculation.Value>,
+            outputs: List<Pair<String, ScopedInputContract.DimensionRef?>>, range: TemporalWindow?, clocks: Map<String, TemporalClockBindings.Value>, condition: MemberCondition,
+            members: Map<String, CalculationBindings.Member>, relations: Map<String, CalculationBindings.Relation>, depth: Int, candidateValues: Boolean) {
+            val candidate = member(source.id, source.version)
+            authorizeArguments(arguments, candidate.parameters, candidate.fixedArguments, candidate.groupingCandidates)
+            authorizeMemberBindings(members, candidate.memberParameters, depth)
+            authorizeRelationBindings(relations, candidate.relationParameters)
+            outputs.forEach { (slot, dimension) ->
+                if (slot !in (if (candidateValues) candidate.permission.values else candidate.permission.outputs)) fail("member output slot is outside this approved operation")
+                val output = candidate.outputs[slot] ?: fail("member output slot is not approved")
+                if (dimension != null && (output !is MemberCandidate.Dimension || dimension !in output.mappings)) fail("member dimension mapping is not approved for this output slot")
+            }
+            range?.let { if (candidate.timeRange?.valueType?.name != it.valueType.name) fail("member range is not authorized with this temporal type") }
+            clocks.forEach { (name, value) ->
                 if (name !in candidate.permission.clocks) fail("member clock is not approved")
                 requireClock(requireNotNull(candidate.clockSlots[name]) { "member clock reference is missing" }, value)
             }
-            memberCondition(root.condition, candidate.permission.filters, candidate.filterTypes)
-            MemberCondition.requireQuantityUnits(root.condition, candidate.filterValueContracts)
-            authorizeFrozenMemberConditions(compilationCatalog.requireMemberSource(root.source), root.arguments, root.members, root.relations, depth + 1)
+            memberCondition(condition, candidate.permission.filters, candidate.filterTypes)
+            MemberCondition.requireQuantityUnits(condition, candidate.filterValueContracts)
+            authorizeFrozenMemberConditions(compilationCatalog.requireMemberSource(source), arguments, members, relations, depth + 1)
         }
-        fun authorizeMemberValues(call: QueryComputation.Members) {
+        fun authorizeMemberValues(call: Calculation.Members) {
             requirePublication(FORMAT_VERSION, PublishedQueryEntry.key(capability), capability)
-            if (call.outputs.size != 1 || call.outputs.first() !is QueryComputation.Slot) fail("member candidate values require one direct approved slot")
-            authorizeMembers(call, 0, true)
+            if (call.target !is Calculation.MemberSource || call.outputs.size != 1 || call.outputs.first().dimension != null) fail("member candidate values require one direct approved source slot")
+            authorizeMembers(call, null, CalculationBindings.empty(), emptyMap(), 0, true)
         }
         private fun authorizeArguments(supplied: Map<String, Calculation.Value>, parameters: Map<String, Calculation.Parameter>,
             fixed: Map<String, Calculation.Value>, groupingCandidates: Map<String, List<ScopedInputContract.DimensionRef>>) {

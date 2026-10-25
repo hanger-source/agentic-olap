@@ -2,6 +2,8 @@ package com.olap.prototype.query.usage
 
 import com.olap.prototype.calculation.MetricInstanceRef
 import com.olap.prototype.calculation.MetricRef
+import com.olap.prototype.calculation.Calculation
+import com.olap.prototype.calculation.CalculationBindings
 import com.olap.prototype.member.MemberRef
 import com.olap.prototype.query.contract.*
 import com.olap.prototype.codec.ProtoBytes
@@ -256,32 +258,48 @@ class QueryUsageRepository(private val database: PlatformDatabase, private val l
     }
 
     /** 只访问正式引用节点；参数文本和普通业务身份不会被猜成依赖。 */
-    private fun collectReferences(scope: com.olap.prototype.query.QueryComputation.Scope, entry: PublishedQueryEntry, references: MutableSet<SemanticReference>) {
+    private fun collectReferences(scope: Calculation.Scope, entry: PublishedQueryEntry, references: MutableSet<SemanticReference>) {
         fun metric(value: MetricRef) { references.add(SemanticReference("METRIC", value.id, value.version)) }
         fun instance(value: MetricInstanceRef) {
             references.add(SemanticReference("METRIC_INSTANCE", value.id, ""))
             metric(entry.metricDefinition(value).definition)
         }
         fun member(value: MemberRef) { references.add(SemanticReference("MEMBER_SOURCE", value.id, value.version.toString())) }
-        fun memberBinding(value: com.olap.prototype.calculation.CalculationBindings.Member) {
+        fun memberBinding(value: CalculationBindings.Member) {
             when (value) {
-                is com.olap.prototype.calculation.CalculationBindings.SourceCall -> { member(value.source); value.members.values.forEach(::memberBinding) }
-                is com.olap.prototype.calculation.CalculationBindings.LocalRef, is com.olap.prototype.calculation.CalculationBindings.InputParameter -> Unit
+                is CalculationBindings.SourceCall -> { member(value.source); value.members.values.forEach(::memberBinding) }
+                is CalculationBindings.LocalRef, is CalculationBindings.InputParameter -> Unit
             }
         }
         when (val root = scope.root) {
-            is com.olap.prototype.query.QueryComputation.Members -> { member(root.source); root.members.values.forEach(::memberBinding) }
-            is com.olap.prototype.query.QueryComputation.Measures -> root.calls.forEach { instance(it.instance); it.members.values.forEach(::memberBinding) }
-            is com.olap.prototype.query.QueryComputation.Compute -> {
-                root.calculation.callSites().forEach { site -> (site.call.target as? com.olap.prototype.calculation.Calculation.Fixed)?.let { metric(it.metric) } }
-                root.calculation.memberSlots.mapNotNull { it.fixedSource }.forEach(::member)
-                root.bindings.measurements.values.forEach(::instance)
-                root.bindings.members.values.forEach(::memberBinding)
+            is Calculation.Members -> {
+                (root.target as? Calculation.MemberSource)?.let { member(it.source) }
                 root.members.values.forEach(::memberBinding)
             }
-            is com.olap.prototype.query.QueryComputation.Reuse, is com.olap.prototype.query.QueryComputation.SetInputs -> Unit
+            is Calculation.Measures -> root.calls.forEach { call ->
+                when (val target = call.target) {
+                    is Calculation.Instance -> instance(target.instance)
+                    is Calculation.Fixed -> metric(target.metric)
+                    is Calculation.Measurement -> Unit
+                }
+                call.members.values.forEach(::memberBinding)
+            }
+            is Calculation.Compute -> {
+                root.calculation.memberSlots.mapNotNull { it.fixedSource }.forEach(::member)
+                when (val bindings = root.bindings) {
+                    is Calculation.ExplicitBindings -> {
+                        bindings.bindings.measurements.values.forEach(::instance)
+                        bindings.bindings.members.values.forEach(::memberBinding)
+                        bindings.members.values.forEach(::memberBinding)
+                    }
+                    is Calculation.ParentSlots -> Unit
+                }
+                collectReferences(root.calculation.computation, entry, references)
+            }
+            is Calculation.Input, is Calculation.Relation, is Calculation.ObjectMeasure, is Calculation.AlignMeasurements,
+            is Calculation.SetCombination, is Calculation.ObservationStatistics -> Unit
         }
-        scope.inputs.values.forEach { collectReferences(it.computation, entry, references) }
+        scope.children().values.forEach { collectReferences(it.computation, entry, references) }
     }
 
     companion object {

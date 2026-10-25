@@ -28,7 +28,7 @@ class MemberAdoptionRevisionTest {
             c.publish()
             val f = c.f
             val previous = c.publication()
-            val oldScope = QueryComputation.Scope(c.formed(mapOf("window" to c.july)), emptyMap(), emptyList())
+            val oldScope = Calculation.Scope(c.formed(mapOf("window" to c.july)), emptyMap(), emptyList())
             val oldQuery = c.freeze(oldScope)
             val run = commands(database, f)
             carry(database, f, "travel.trade")
@@ -43,10 +43,8 @@ class MemberAdoptionRevisionTest {
             f.activate("SUBJECT_AREA", "travel.trade", 2)
             f.builder().build(SubjectAreaReleaseBuildRequest("formed_orders", "2", "显式更新订单规则", "travel.trade", 2, "golden", f.sourceAdoptions))
             val current = f.artifacts.loadExecutableCatalog(ReleaseCatalogRequest("travel.trade.formed", 2, "formed_orders", "2"))
-            val newRoot = QueryComputation.Members("formed", MemberRef(c.publicRows.id, 2), mapOf("window" to c.july),
-                listOf(QueryComputation.Slot("order", "order"), QueryComputation.Slot("amount", "amount")), null, emptyMap(),
-                MemberCondition.Unrestricted(), emptyMap(), emptyMap())
-            val rows = f.execute(current, QueryComputation.Scope(newRoot, emptyMap(), emptyList())).result.resultFrame.rows
+            val newRoot = Calculation.Members("formed", Calculation.MemberSource(MemberRef(c.publicRows.id, 2)), listOf(Calculation.MemberProjection("order", "order", null), Calculation.MemberProjection("amount", "amount", null)), null, emptyMap(), MemberCondition.Unrestricted(), mapOf("window" to c.july), emptyMap(), emptyMap())
+            val rows = f.execute(current, Calculation.Scope(newRoot, emptyMap(), emptyList())).result.resultFrame.rows
             assertEquals(listOf("3"), rows.map { it["order"] })
             assertEquals(70, (rows.single()["amount"] as Number).toInt())
             val retained = f.execute(previous, oldQuery.intent.computation).result.resultFrame.rows
@@ -90,9 +88,8 @@ class MemberAdoptionRevisionTest {
             f.activate("SUBJECT_AREA", "travel.shared", 2)
             f.builder().build(SubjectAreaReleaseBuildRequest("shared_orders", "2", "拒绝修订后的原规则", "travel.shared", 2, "golden", f.sourceAdoptions))
             val publication = f.artifacts.loadExecutableCatalog(ReleaseCatalogRequest("travel.shared.orders", 2, "shared_orders", "2"))
-            val root = QueryComputation.Members("shared", MemberRef(old.id, 2), mapOf("window" to c.july),
-                listOf(QueryComputation.Slot("order", "order")), null, emptyMap(), MemberCondition.Unrestricted(), emptyMap(), emptyMap())
-            val rows = f.execute(publication, QueryComputation.Scope(root, emptyMap(), emptyList())).result.resultFrame.rows
+            val root = Calculation.Members("shared", Calculation.MemberSource(MemberRef(old.id, 2)), listOf(Calculation.MemberProjection("order", "order", null)), null, emptyMap(), MemberCondition.Unrestricted(), mapOf("window" to c.july), emptyMap(), emptyMap())
+            val rows = f.execute(publication, Calculation.Scope(root, emptyMap(), emptyList())).result.resultFrame.rows
             assertEquals(setOf("1", "2", "3", "5"), rows.map { it["order"] }.toSet())
         }
     }

@@ -9,6 +9,13 @@ import com.olap.prototype.query.*
 /** 共同计算声明的闭合验证；不解析目录、来源授权或实际调用绑定。 */
 internal object CalculationValidation {
     fun validate(calculation: Calculation): Set<String> {
+        val count = intArrayOf(0)
+        fun budget(scope: Scope, depth: Int) {
+            CalculationInstantiation.budget(depth, count)
+            (scope.root as? Compute)?.let { budget(it.calculation.computation, depth + 1) }
+            scope.children().values.forEach { budget(it.computation, depth + 1) }
+        }
+        budget(calculation.computation, 0)
         val names = linkedSetOf<String>()
         fun unique(name: String) {
             MetricDefinition.text(name, "name")
@@ -37,6 +44,7 @@ internal object CalculationValidation {
 
     private fun requireDefinitionValue(value: Value?) {
         require(value !is Condition || value.condition is DimensionCondition.Unrestricted) { "algorithm condition values must be supplied through declared arguments, not adopted analysis dimensions or relation filters" }
+        require(value !is Grouping || value.dimensions.isEmpty()) { "algorithm values bind grouping through semantic slots, not captured analysis dimensions" }
     }
 
     private fun requireRelationShape(shape: SetOutputContract.Shape, dimensions: Map<String, DimensionSlot>, path: List<Any>) {
@@ -125,6 +133,7 @@ internal object CalculationValidation {
             when (val root = scope.root) {
                 is Measures -> measures(root)
                 is Members -> members(root)
+                is Compute -> compute(root)
                 is Relation -> require(root.slot in relations) { "unknown relation source slot" }
                 is Input -> requireInput(scope, root.inputId)
                 is SetCombination -> root.inputs.forEach { requireInput(scope, it.inputId) }
@@ -139,13 +148,84 @@ internal object CalculationValidation {
             scope.children().values.forEach { this.scope(it.computation, depth + 1) }
         }
 
+        private fun compute(root: Compute) {
+            val mapping = root.bindings as? ParentSlots ?: throw IllegalArgumentException("a reusable template application must explicitly forward parent slots rather than capture adopted bindings")
+            val child = root.calculation
+            require(mapping.dimensionSlots.keys == child.dimensionSlots.map { it.name }.toSet() && dimensions.containsAll(mapping.dimensionSlots.values)) { "template application must map all and only child dimensions to declared parent slots" }
+            require(mapping.memberSlots.keys == child.memberSlots.map { it.name }.toSet() && members.containsAll(mapping.memberSlots.values)) { "template application must map all and only child members to declared parent slots" }
+            require(mapping.measurementSlots.keys == child.measurementSlots.map { it.name }.toSet() && measurements.containsAll(mapping.measurementSlots.values)) { "template application must map all and only child measurements to declared parent slots" }
+            require(mapping.relationSlots.keys == child.relationSlots.map { it.name }.toSet() && relations.containsAll(mapping.relationSlots.values)) { "template application must map all and only child relations to declared parent slots" }
+            child.dimensionSlots.forEach { expected ->
+                val actual = calculation.dimensionSlots.first { it.name == mapping.dimensionSlots.getValue(expected.name) }
+                require(expected.dimensionId == actual.dimensionId && expected.dimensionVersion == actual.dimensionVersion && expected.role == actual.role) { "template dimension forwarding changes its exact semantic identity or role" }
+            }
+            require(child.parameters.keys.containsAll(root.arguments.keys)) { "template application contains an unknown child parameter" }
+            child.parameters.forEach { (name, expected) ->
+                val value = root.arguments[name]
+                require(value != null || expected.defaultValue != null) { "template application is missing a required child parameter: $name" }
+                if (value != null) {
+                    (value as? Value)?.let(::requireDefinitionValue)
+                    CalculationInstantiation.requireParameterBinding(calculation, expected, value, used)
+                }
+            }
+            child.memberSlots.forEach { expected ->
+                val actual = calculation.memberSlots.first { it.name == mapping.memberSlots.getValue(expected.name) }
+                require(expected.entity == actual.entity && expected.role == actual.role && expected.shape == actual.shape && actual.outputs.keys.containsAll(expected.outputs.keys)) { "template member forwarding changes its entity, role, shape or required output signature" }
+                require(expected.fixedSource == null || expected.fixedSource == actual.fixedSource) { "template member forwarding does not guarantee its required fixed source" }
+                expected.outputs.forEach { (name, output) ->
+                    val value = actual.outputs.getValue(name)
+                    when (output) {
+                        is MemberDimension -> require(value is MemberDimension && mapping.dimensionSlots.getValue(output.dimensionSlot) == value.dimensionSlot) { "template member output changes its semantic dimension" }
+                        is MemberProperty -> require(value is MemberProperty && output.role == value.role && output.valueType == value.valueType) { "template member output changes its property role or type" }
+                        is MemberContainerProperty -> require(value is MemberContainerProperty && output.role == value.role && output.shape == value.shape) { "template member output changes its container meaning" }
+                    }
+                    quantity(Calculation.rootValueContract(output), Calculation.rootValueContract(value), mapping)
+                }
+            }
+            child.measurementSlots.forEach { expected ->
+                val actual = calculation.measurementSlots.first { it.name == mapping.measurementSlots.getValue(expected.name) }
+                require(expected.parameters == actual.parameters && expected.groupingArguments == actual.groupingArguments && expected.observationSlots.map { mapping.dimensionSlots.getValue(it.name) }.toSet() == actual.observationSlots.map { it.name }.toSet()) { "template measurement forwarding changes its parameters or exact observation grain" }
+                quantity(expected.valueContract, actual.valueContract, mapping)
+            }
+            child.relationSlots.forEach { expected ->
+                val actual = calculation.relationSlots.first { it.name == mapping.relationSlots.getValue(expected.name) }
+                require(actual.outputs.map { it.name }.containsAll(expected.outputs.map { it.name })) { "template relation forwarding omits a required output" }
+                expected.outputs.forEach { output -> shape(output.shape, actual.outputs.first { it.name == output.name }.shape, mapping) }
+                require(expected.keys == null || actual.keys != null && expected.keys.toSet() == actual.keys.toSet()) { "template relation forwarding does not guarantee its complete required key" }
+            }
+        }
+
+        private fun quantity(expected: MetricValueContract?, actual: MetricValueContract?, mapping: ParentSlots) {
+            require((expected == null) == (actual == null)) { "template forwarding changes quantity or categorical meaning" }
+            if (expected == null || actual == null) return
+            val unit = expected.unit
+            if (unit is MetricValueContract.SlotDimension) {
+                require(actual.unit is MetricValueContract.SlotDimension && mapping.dimensionSlots.getValue(unit.slot) == actual.unit.slot) { "template quantity forwarding changes its semantic unit owner" }
+            }
+            MetricValueContract.requireMeasurementValue(expected, actual)
+        }
+
+        private fun shape(expected: SetOutputContract.Shape, actual: SetOutputContract.Shape, mapping: ParentSlots) {
+            when (expected) {
+                is SetOutputContract.DimensionSlot -> require(actual is SetOutputContract.DimensionSlot && mapping.dimensionSlots.getValue(expected.slot) == actual.slot) { "template relation changes its semantic dimension" }
+                is SetOutputContract.Quantity -> { require(actual is SetOutputContract.Quantity) { "template relation quantity is bound to a categorical output" }; quantity(expected.valueContract, actual.valueContract, mapping) }
+                is SetOutputContract.Row -> { require(actual is SetOutputContract.Row && expected.fields.size == actual.fields.size) { "template relation changes its row shape" }; expected.fields.zip(actual.fields).forEach { shape(it.first, it.second, mapping) } }
+                is SetOutputContract.Array -> { require(actual is SetOutputContract.Array) { "template relation changes its collection shape" }; shape(expected.element, actual.element, mapping) }
+                else -> require(expected == actual) { "template relation changes its declared output meaning" }
+            }
+        }
+
         private fun measures(root: Measures) {
-            require(dimensions.containsAll(root.groupSlots)) { "unknown calculation grouping slot" }
-            require(root.timeSlot == null || root.timeSlot in dimensions) { "unknown calculation time dimension slot" }
+            root.grouping.forEach(::dimension)
+            root.timeRange?.dimension?.let(::dimension)
             root.groupingArguments.forEach { argument(it, ParameterKind.GROUPING) }
-            binding(root.range, ParameterKind.RANGE)
+            binding(root.timeRange?.window, ParameterKind.RANGE)
             root.clocks.values.forEach { binding(it, ParameterKind.CLOCK) }
+            binding(root.sourceCondition, ParameterKind.CONDITION)
+            (root.sourceCondition as? Condition)?.let(::requireDefinitionValue)
+            require(root.outputCondition is DimensionCondition.Unrestricted && root.sourceEventConditions.isEmpty()) { "reusable definitions express lasting conditions in their body and source conditions through declared arguments" }
             root.calls.forEach { call ->
+                require(call.target !is Instance) { "reusable definitions adopt exact measurement instances through declared measurement slots" }
                 require(dimensions.containsAll(call.dimensionSlots.values) && members.containsAll(call.memberSlots.values) && measurements.containsAll(call.measurementSlots.values) && relations.containsAll(call.relationSlots.values) &&
                     (call.target !is Measurement || call.target.slot in measurements)) { "child call maps an unknown parent slot" }
                 binding(call.sourceCondition, ParameterKind.CONDITION)
@@ -163,10 +243,26 @@ internal object CalculationValidation {
         }
 
         private fun members(root: Members) {
-            require(root.slot in members) { "unknown member source slot" }
+            when (val target = root.target) {
+                is MemberParameter -> require(target.slot in members) { "unknown member source slot" }
+                is MemberSource -> {
+                    root.outputs.mapNotNull { it.dimension }.forEach(::dimension)
+                    root.arguments.values.forEach { value -> when (value) {
+                        is Argument -> { require(value.name in parameters) { "member source argument references an undeclared parent parameter" }; used.add(value.name) }
+                        is GroupingSlots -> require(dimensions.containsAll(value.slots)) { "member source grouping references an undeclared dimension slot" }
+                        is Grouping -> require(value.dimensions.isEmpty()) { "reusable source calls bind grouping through semantic slots" }
+                        is Condition -> requireDefinitionValue(value)
+                        else -> Unit
+                    } }
+                }
+            }
             binding(root.range, ParameterKind.RANGE)
             root.clocks.values.forEach { binding(it, ParameterKind.CLOCK) }
             condition(root.condition)
+        }
+        private fun dimension(reference: DimensionReference) {
+            val slot = reference as? DimensionParameter ?: throw IllegalArgumentException("reusable definitions bind dimensions through declared semantic slots")
+            require(slot.slot in dimensions) { "unknown calculation dimension slot" }
         }
 
         private fun condition(condition: MemberCondition) {

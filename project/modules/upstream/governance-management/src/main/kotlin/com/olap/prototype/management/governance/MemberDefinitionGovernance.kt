@@ -66,12 +66,14 @@ class MemberDefinitionGovernanceService(private val database: PlatformDatabase, 
         private val active = linkedSetOf<MetricRef>()
         private val completedDepths = hashMapOf<MetricRef, Int>()
         fun visit(calculation: Calculation): Int {
-            if (calculation.memberSlots.any { it.fixedSource != null }) throw ProducerContractException("shared member definitions use member slots; subject-area member sources are bound by each adoption")
-            calculation.parameters.values.forEach { contextFree(it.defaultValue) }
-            calculation.measurementSlots.forEach { slot -> slot.parameters.values.forEach { contextFree(it.defaultValue) } }
-            calculation.declaredDimensions().values.forEach { slot ->
-                val dimension = dimensions.dimensionSnapshot(slot.dimensionId, slot.dimensionVersion)
-                if (approved) GovernanceContract.requireReferenceableVersion(dimension.status, "DIMENSION", dimension.id, slot.dimensionVersion)
+            if (calculation.fixedMemberSources().isNotEmpty()) throw ProducerContractException("shared member definitions use member slots; exact subject-area member sources are bound by each adoption")
+            calculation.definitionBodies().values.forEach { body ->
+                body.parameters.values.forEach { contextFree(it.defaultValue) }
+                body.measurementSlots.forEach { slot -> slot.parameters.values.forEach { contextFree(it.defaultValue) } }
+                body.declaredDimensions().values.forEach { slot ->
+                    val dimension = dimensions.dimensionSnapshot(slot.dimensionId, slot.dimensionVersion)
+                    if (approved) GovernanceContract.requireReferenceableVersion(dimension.status, "DIMENSION", dimension.id, slot.dimensionVersion)
+                }
             }
             var height = 0
             metrics.validateCalculation(calculation, null).values.forEach { call ->

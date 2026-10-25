@@ -1,10 +1,10 @@
 package com.olap.prototype.release.catalog
 
+import com.olap.prototype.calculation.Calculation
 import com.olap.prototype.codec.GovernanceProto
 import com.olap.prototype.contract.ProducerContractException
 import com.olap.prototype.member.*
 import com.olap.prototype.metric.MetricAggregation
-import com.olap.prototype.query.QueryComputation
 import com.olap.prototype.query.ScalarValueType
 import com.olap.prototype.query.contract.*
 import com.olap.prototype.release.catalog.FrozenPublicationFixture.Companion.CITY
@@ -134,7 +134,7 @@ class FrozenMemberPopulationTest {
         } } }
     }
 
-    private fun memberScope(id: String, names: List<String>) = QueryComputation.Scope(QueryComputation.Members("members", MemberRef(id, 1), emptyMap(), names.map { QueryComputation.Slot(it, it) }, null, emptyMap(), MemberCondition.Unrestricted(), emptyMap(), emptyMap()), emptyMap(), emptyList())
+    private fun memberScope(id: String, names: List<String>) = Calculation.Scope(Calculation.Members("members", Calculation.MemberSource(MemberRef(id, 1)), names.map { Calculation.MemberProjection(it, it, null) }, null, emptyMap(), MemberCondition.Unrestricted(), emptyMap(), emptyMap(), emptyMap()), emptyMap(), emptyList())
 
     private fun appendMember(fixture: FrozenPublicationFixture, base: ReleaseCatalogView, member: PublishedMemberSource) = ReleaseCatalogView(
         base.scenarioId, base.scenarioVersion, base.scenarioDisplayName, base.releaseId, base.releaseVersion, base.releaseDisplayName,

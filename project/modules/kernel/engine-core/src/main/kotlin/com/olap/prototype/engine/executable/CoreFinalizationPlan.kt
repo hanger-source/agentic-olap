@@ -149,10 +149,12 @@ class CoreFinalizationPlan private constructor(private val sourceContract: Execu
     companion object {
         /** 在来源前缀编译之前拒绝不能留在此执行边界的阶段及表达节点。 */
         fun requireSupportedStages(analyses: Map<ScopeId, QueryStageAnalysis.Analysis>, graph: CoreFinalizationGraph) {
-            graph.nodes.forEach { node -> (node.root as? CoreFinalizationGraph.Root.Measures)?.calls?.forEach { call ->
-                if (call.valueContract.arithmetic !is MetricValueContract.Exact || call.valueContract.result is MetricValueContract.BinaryFloat)
-                    CoreFinalizationExpressions.unsupported(listOf<Any>("input") + node.scope.path + listOf("root", "calls", call.callId, "valueContract"),
-                        "a core root calculation call requires an Exact integer or decimal output contract")
+            graph.nodes.forEach { node -> (node.root as? CoreFinalizationGraph.Root.Projection)?.inputs?.forEach { input ->
+                input.valueContracts.forEach { (alias, contract) ->
+                    if (contract.arithmetic !is MetricValueContract.Exact || contract.result is MetricValueContract.BinaryFloat)
+                        CoreFinalizationExpressions.unsupported(listOf<Any>("input") + node.scope.path + listOf("root") + input.position + listOf("outputs", alias, "valueContract"),
+                            "a core root calculation call requires an Exact integer or decimal output contract")
+                }
             } }
             graph.nodes.forEach { selected ->
                 val scope = selected.scope
@@ -194,15 +196,16 @@ class CoreFinalizationPlan private constructor(private val sourceContract: Execu
                 val stages = analysis.stages.drop(node.stageStart)
                 val columns = linkedMapOf<String, Binding>()
                 val displays = linkedMapOf<String, String>()
-                fun project(dependency: ScopeId, outputSlots: Map<String, String>, call: CoreFinalizationGraph.CallProjection? = null) {
+                fun project(dependency: ScopeId, outputSlots: Map<String, String>, projection: CoreFinalizationGraph.InputProjection? = null) {
                     val compiler = CoreFinalizationExpressions(completedTypes.getValue(dependency))
                     outputSlots.forEach { (alias, source) ->
                         val at = listOf<Any>("input") + scope.path + listOf("root") +
-                            (call?.let { listOf("calls", it.callId) } ?: emptyList()) + listOf("outputs", alias)
+                            projection?.position.orEmpty() + listOf("outputs", alias)
                         val symbol = ResultSymbol(source)
-                        val expression = compiler.compile(if (call != null && alias == call.measureAlias) ResultNumeric(symbol, call.valueContract, null) else symbol, at)
+                        val contract = projection?.valueContracts?.get(alias)
+                        val expression = compiler.compile(if (contract != null) ResultNumeric(symbol, contract, null) else symbol, at)
                         columns.putIfAbsent(alias, Binding(dependency, expression))
-                        displays[alias] = if (call != null && alias == call.measureAlias) call.displayName else completedDisplays[dependency]?.get(source) ?: alias
+                        displays[alias] = projection?.displayNames?.get(alias) ?: completedDisplays[dependency]?.get(source) ?: alias
                     }
                 }
                 val root = when (val root = node.root) {
@@ -217,8 +220,8 @@ class CoreFinalizationPlan private constructor(private val sourceContract: Execu
                         project(root.input.inputScope, projection.outputs.associate { it.name to projection.outputSlots.getValue(it.name) })
                         Root.Projection(columns)
                     }
-                    is CoreFinalizationGraph.Root.Measures -> {
-                        root.calls.forEach { project(it.inputScope, it.outputSlots, it) }
+                    is CoreFinalizationGraph.Root.Projection -> {
+                        root.inputs.forEach { project(it.inputScope, it.outputSlots, it) }
                         Root.Projection(columns)
                     }
                 }

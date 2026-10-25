@@ -1,6 +1,7 @@
 package com.olap.prototype.management.governance
 
 import com.olap.prototype.calculation.*
+import com.olap.prototype.dsl.Computations
 import com.olap.prototype.contract.ProducerContractException
 import com.olap.prototype.event.EventIdentity
 import com.olap.prototype.event.EventRef
@@ -102,7 +103,7 @@ internal class NestedCustomerFixture(val database: PlatformDatabase, directory: 
         f.adoptions.createSubjectAreaMetricRef(SubjectAreaMetricRefCreateRequest(subject, subjectVersion, code, metric.displayName, meaning, metric.id, metricVersion, bindings, arguments, "golden")).subjectAreaMetricRef
     fun dimension(subject: String, code: String, level: String, role: String) = CalculationBindings.Dimension(ScopedInputContract.DimensionRef("$subject.$code", "1", level), role,
         f.analysis.listAnalysisDimensionEventMappings("$subject.$code", 1).filter { it.levelCode == level }.map { it.id })
-    fun save(publication: PublishedExecutableCatalog, id: String, scope: QueryComputation.Scope): QueryDefinitionView {
+    fun save(publication: PublishedExecutableCatalog, id: String, scope: Calculation.Scope): QueryDefinitionView {
         val coordinate = publication.coordinate
         val saved = queries.save(QueryDefinitionCommand(id, null, requireNotNull(publication.queryCapability.capabilityHash), "独立客户平均", f.intent(publication, scope), null), "golden")
         return queries.requireByIdAndVersion(saved.definitionId, saved.definitionVersion)
@@ -115,8 +116,9 @@ internal class NestedCustomerFixture(val database: PlatformDatabase, directory: 
         val SUBJECTS = listOf("travel.trade", "travel.finance")
         const val ORDERS = "INSERT INTO orders VALUES ('1',10,'A','2026-07-01','c1'),('2',20,'A','2026-07-02','c1'),('3',70,'A','2026-07-03','c2'),('4',5,'B','2026-07-01','c3'),('5',15,'B','2026-07-02','c3'),('6',100,'B','2026-08-01','c4')"
         fun range(start: String, end: String) = Calculation.Range(TemporalWindow(TemporalWindow.ValueType.DATE, TemporalWindow.BOUNDARY, start, end))
-        fun invocation(id: String, instance: MetricInstanceRef, grouping: List<ScopedInputContract.DimensionRef>, start: String, end: String, minimum: String) = QueryComputation.Invocation(id, instance, id, mapOf("groups" to Calculation.Grouping(grouping), "window" to range(start, end), "minimum" to Calculation.Scalar(ScalarValueType.NUMBER, minimum)), emptyMap(), emptyMap(), DimensionCondition.Unrestricted())
-        fun scope(calls: List<QueryComputation.Invocation>, grouping: List<ScopedInputContract.DimensionRef>, levels: QueryComputation.Levels? = null) = QueryComputation.Scope(QueryComputation.Measures(calls, grouping,
-            null, emptyMap(), DimensionCondition.Unrestricted(), DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(calls.map { it.callId }), levels), emptyMap(), emptyList())
+        fun invocation(id: String, instance: MetricInstanceRef, grouping: List<ScopedInputContract.DimensionRef>, start: String, end: String, minimum: String) =
+            Computations.invoke(instance, id, arguments = mapOf("groups" to Calculation.Grouping(grouping), "window" to range(start, end), "minimum" to Calculation.Scalar(ScalarValueType.NUMBER, minimum)))
+        fun scope(calls: List<Calculation.Call>, grouping: List<ScopedInputContract.DimensionRef>, levels: GroupingLevels? = null) =
+            Computations.measure(calls, grouping.map { Calculation.PublishedDimension(it) }, RowPopulationContract.calls(calls.map { it.callId }), groupingLevels = levels)
     }
 }

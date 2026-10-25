@@ -64,8 +64,9 @@ object MemberInvocationBinding {
 
     fun bind(owner: Calculation, root: Calculation.Members, bindings: CalculationBindings, arguments: Map<String, Calculation.Value>, source: MemberSource, dimensionMappings: DimensionMapping): Bound {
         val definition = source.definition.result
-        val adopted = requireNotNull(bindings.members[root.slot]) { "member slot is not adopted" } as CalculationBindings.SourceCall
-        val required = owner.memberSlots.first { it.name == root.slot }
+        val target = root.target as? Calculation.MemberParameter ?: throw IllegalArgumentException("formal member binding requires a member parameter reference")
+        val adopted = requireNotNull(bindings.members[target.slot]) { "member slot is not adopted" } as CalculationBindings.SourceCall
+        val required = owner.memberSlots.first { it.name == target.slot }
         require(adopted.source == MemberRef(source.id, source.version)) { "member source differs from its exact binding identity" }
         requireMember(owner, required, bindings, source, dimensionMappings)
         val formalMeanings = linkedMapOf<String, QueryStageAnalysis.MemberMeaning>()
@@ -100,8 +101,10 @@ object MemberInvocationBinding {
         return Bound(outputs, meanings, contracts, unitDimensions, selection.usedSlots(outputs.values), condition, range, clocks, sourceArguments)
     }
 
-    /** 公开查询直接选择获准来源输出，不引入算法形参或额外采用权限。 */
-    fun publicSelection(root: QueryComputation.Members, source: MemberSource, mappings: (String) -> List<ScopedInputContract.DimensionRef>): Bound {
+    /** 精确来源引用采用实际输出事实；父计算只提供明确的参数和维度绑定。 */
+    fun sourceSelection(root: Calculation.Members, source: MemberSource, owner: Calculation?, bindings: CalculationBindings,
+        arguments: Map<String, Calculation.Value>, mappings: (String) -> List<ScopedInputContract.DimensionRef>, dimensionMappings: DimensionMapping): Bound {
+        require(root.target is Calculation.MemberSource) { "exact member selection requires a member source reference" }
         val definition = source.definition.result
         val outputs = linkedMapOf<String, String>()
         val meanings = linkedMapOf<String, QueryStageAnalysis.MemberMeaning>()
@@ -111,9 +114,9 @@ object MemberInvocationBinding {
             outputs[projection.outputAlias] = projection.slot
             contracts[projection.outputAlias] = MemberSourceDefinition.rootValueContract(output)
             meanings[projection.outputAlias] = when {
-                projection is QueryComputation.MappedDimension -> {
-                    require(projection.dimension in mappings(projection.slot)) { "member output differs from its exact semantic dimension mapping" }
-                    QueryStageAnalysis.MappedMemberDimension(projection.dimension, output.role)
+                projection.dimension != null -> {
+                    val dimension = sourceDimension(projection, source, output, owner, bindings, mappings, dimensionMappings)
+                    QueryStageAnalysis.MappedMemberDimension(dimension, output.role)
                 }
                 output is MemberSourceDefinition.DimensionOutput -> QueryStageAnalysis.MemberDimension(output.dimensionId, output.dimensionVersion.toString(), output.role)
                 output is MemberSourceDefinition.ComputedDimensionOutput && source is MemberSource.Computed -> {
@@ -130,12 +133,34 @@ object MemberInvocationBinding {
             if (unit != null) units[unit.slot] = mappings(unit.slot)
         }
         val selection = SourceSelection(source)
-        val condition = selection.condition(root.condition, { it }, ::publicScalar, { MemberSourceDefinition.rootValueContract(requireNotNull(definition.outputs[it])) }, { throw IllegalArgumentException("public member conditions cannot contain arguments") })
-        val range = root.range?.let(selection::range)
-        val clocks = selection.clocks(root.clocks, definition.clockSlots, false)
-        val sourceArguments = arguments(source, root.arguments, CalculationBindings.empty(), emptyMap())
+        val condition = selection.condition(root.condition, { it }, { CalculationInstantiation.resolve(it, bindings, arguments) },
+            { MemberSourceDefinition.rootValueContract(requireNotNull(definition.outputs[it])) }, { owner?.parameters?.get(it)?.valueContract })
+        val range = root.range?.let { selection.range((CalculationInstantiation.resolve(it, bindings, arguments) as Calculation.Range).window) }
+        val clocks = selection.clocks(root.clocks.mapValues { (_, value) -> (CalculationInstantiation.resolve(value, bindings, arguments) as Calculation.Clock).clock }, definition.clockSlots, false)
+        val sourceArguments = MemberInvocationBinding.arguments(source, root.arguments, bindings, arguments)
         return Bound(outputs, meanings, contracts, units, selection.usedSlots(outputs.values), condition, range, clocks, sourceArguments)
     }
+
+    fun requireSource(owner: Calculation, root: Calculation.Members, bindings: CalculationBindings, source: MemberSource, dimensionMappings: DimensionMapping) {
+        require((root.target as? Calculation.MemberSource)?.source == MemberRef(source.id, source.version)) { "direct member source differs from its exact dependency" }
+        root.outputs.forEach { projection ->
+            val output = requireNotNull(source.definition.result.outputs[projection.slot]) { "direct member projection references an unavailable source output" }
+            if (projection.dimension != null) sourceDimension(projection, source, output, owner, bindings, { emptyList() }, dimensionMappings)
+        }
+    }
+
+    private fun sourceDimension(projection: Calculation.MemberProjection, source: MemberSource, output: MemberSourceDefinition.Output,
+        owner: Calculation?, bindings: CalculationBindings, mappings: (String) -> List<ScopedInputContract.DimensionRef>, dimensionMappings: DimensionMapping): ScopedInputContract.DimensionRef =
+        when (val reference = requireNotNull(projection.dimension)) {
+            is Calculation.DimensionParameter -> {
+                val declared = requireNotNull(owner).dimensionSlots.first { it.name == reference.slot }
+                val adopted = bindings.dimensions.getValue(reference.slot)
+                adopted.requireMeaning(declared.dimensionId, declared.dimensionVersion.toString(), listOf(declared))
+                require(output.role == declared.role && dimensionMappings.matches(source, adopted, output)) { "member output differs from its exact parent dimension binding and role" }
+                adopted.reference
+            }
+            is Calculation.PublishedDimension -> reference.reference.also { require(it in mappings(projection.slot)) { "member output differs from its exact semantic dimension mapping" } }
+        }
 
     fun relationSelection(exists: DimensionCondition.Exists, source: MemberSource.Projection, approvedClocks: Map<String, String>): Bound {
         val definition = source.definition.result
@@ -177,14 +202,14 @@ object MemberInvocationBinding {
         }
     }
 
-    fun requireArguments(owner: Calculation, call: CalculationBindings.SourceCall, source: MemberSource, used: MutableSet<String>, sources: (MemberRef) -> MemberSource, mappings: DimensionMapping, declaration: Boolean) {
-        requireNestedMembers(owner, call, source, used, sources, mappings, declaration)
+    fun requireArguments(owner: Calculation, call: CalculationBindings.SourceCall, source: MemberSource, used: MutableSet<String>, sources: (MemberRef) -> MemberSource, mappings: DimensionMapping, declaration: Boolean, localScope: Calculation.Scope) {
+        requireNestedMembers(owner, call, source, used, sources, mappings, declaration, localScope)
         val parameters = (source as? MemberSource.Computed)?.remainingParameters() ?: emptyMap()
         require(parameters.keys.containsAll(call.arguments.keys)) { "member call references unknown or fixed source parameters" }
         parameters.forEach { (name, parameter) -> require(parameter.defaultValue != null || name in call.arguments) { "member call is missing a required source parameter: $name" } }
-        call.arguments.forEach { (name, value) -> requireParameter(owner, requireNotNull(parameters[name]), value, used) }
+        call.arguments.forEach { (name, value) -> CalculationInstantiation.requireParameterBinding(owner, requireNotNull(parameters[name]), value, used) }
     }
-    private fun requireNestedMembers(owner: Calculation, call: CalculationBindings.SourceCall, source: MemberSource, used: MutableSet<String>, sources: (MemberRef) -> MemberSource, mappings: DimensionMapping, declaration: Boolean) {
+    private fun requireNestedMembers(owner: Calculation, call: CalculationBindings.SourceCall, source: MemberSource, used: MutableSet<String>, sources: (MemberRef) -> MemberSource, mappings: DimensionMapping, declaration: Boolean, localScope: Calculation.Scope) {
         if (source !is MemberSource.Computed) { require(call.members.isEmpty() && call.relations.isEmpty()) { "event projections do not declare external member or relation inputs" }; return }
         val target = source.definition.calculation
         val actual = CalculationInstantiation.relationArguments(target, CalculationInstantiation.memberArguments(target, source.bindings, call.members), call.relations)
@@ -195,10 +220,10 @@ object MemberInvocationBinding {
                     require(formal.fixedSource == null || formal.fixedSource == member.source) { "nested member input differs from its fixed source reference" }
                     val nestedSource = sources(member.source)
                     requireMember(target, formal, actual, nestedSource, mappings)
-                    requireArguments(owner, member, nestedSource, used, sources, mappings, declaration)
+                    requireArguments(owner, member, nestedSource, used, sources, mappings, declaration, localScope)
                 }
                 is CalculationBindings.LocalRef -> {
-                    if (declaration) CalculationInstantiation.localInput(owner, member)
+                    if (declaration) require(localScope.children()[member.inputId]?.mode == "ROOT") { "nested local member input must identify an explicit ROOT in its declaring lexical scope" }
                     require(formal.fixedSource == null && formal.outputs.keys == member.outputSlots.keys) { "nested local member input must bind exactly its declared formal outputs" }
                 }
                 is CalculationBindings.InputParameter -> throw IllegalArgumentException("nested member parameter requires an actual source call or local reference")
@@ -209,28 +234,8 @@ object MemberInvocationBinding {
             require(relation is CalculationBindings.LocalRelation) { "nested relation parameter requires an actual local completed relation" }
             require(relation.outputSlots.keys == formal.outputs.map { it.name }.toSet()) { "nested local relation must bind exactly its declared formal outputs" }
             if (declaration) {
-                val input = requireNotNull(owner.computation.children()[relation.inputId]) { "nested local relation input must belong to the owner root scope" }
+                val input = requireNotNull(localScope.children()[relation.inputId]) { "nested local relation input must belong to its declaring lexical scope" }
                 require(input.mode == "ROOT") { "nested local relation input must explicitly declare ROOT mode" }
-            }
-        }
-    }
-    private fun requireParameter(owner: Calculation, expected: Calculation.Parameter, value: Calculation.Binding, used: MutableSet<String>) {
-        when (value) {
-            is Calculation.Argument -> {
-                val actual = requireNotNull(owner.parameters[value.name]) { "member call references an undeclared parent parameter" }
-                used.add(value.name)
-                require(expected.hasType(actual.kind, actual.valueType)) { "member call parameter type differs from its source declaration" }
-                require((expected.valueContract == null) == (actual.valueContract == null)) { "member call parameter must preserve quantity or categorical meaning" }
-                expected.valueContract?.let { MetricValueContract.requireMeasurementValue(it, requireNotNull(actual.valueContract)) }
-                require(expected.allowsDimensions(actual.allowedDimensions)) { "member grouping parameter exceeds its source semantic dimensions" }
-            }
-            is Calculation.GroupingSlots -> {
-                require(expected.kind == Calculation.ParameterKind.GROUPING) { "member grouping slots require a grouping source parameter" }
-                value.slots.forEach { name -> require(expected.allowsDimension(owner.dimensionSlots.first { it.name == name })) { "member grouping slot differs from its source parameter" } }
-            }
-            is Calculation.Value -> {
-                require(expected.hasType(value.parameterKind, value.valueType)) { "member source argument has an incorrect type" }
-                expected.valueContract?.requireScalar(value as Calculation.Scalar)
             }
         }
     }

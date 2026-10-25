@@ -219,11 +219,11 @@ class ReleaseFreezer(private val physicalAssets: PhysicalAssetGovernanceService,
                     definition.snapshotRule?.expressions()?.forEach(::freezeExpressionDependencies)
                     (definition.valueContract.unit as? MetricValueContract.EventDimension)?.let { freezeDimensionBinding(it.bindingId, it.bindingVersion) }
                 }
-                is MetricCalculation -> definition.calculation.declaredDimensions().values.forEach { slot ->
+                is MetricCalculation -> definition.calculation.definitionBodies().values.forEach { body -> body.declaredDimensions().values.forEach { slot ->
                     val dimension = dimensions.dimensionSnapshot(slot.dimensionId, slot.dimensionVersion)
                     referenceable(dimension.status, "DIMENSION", dimension.id, slot.dimensionVersion)
                     references.freezeObject("DIMENSION", dimension.id, slot.dimensionVersion, dimension.code, dimension.displayName, "DIMENSION")
-                }
+                } }
             }
             val execution = MetricExecutionSnapshot(metric.definition, metrics.metricBusinessMeaning(id, version))
             references.freezeObject("METRIC", metric.id, version, metric.code, metric.displayName, "METRIC", encodeSnapshot(execution, "metric.snapshot_proto"))

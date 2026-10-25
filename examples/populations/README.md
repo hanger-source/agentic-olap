@@ -118,14 +118,16 @@ caption_accepted = NOT(caption LIKE '%样本%')
 
 TRUE、FALSE、UNKNOWN 是三个独立资格分支，各自完成完整日／标识元组。只有完成资格分支缺组时，才按本次明确政策向已有 subject 人口补 0；不生成来源中不存在的 C。B 的日期组真实存在，非空计数为 0。
 
-一个保存算法只接收具有完整 subject 键的已完成关系 `completed(subject,quantity)` 和明确数值参数 `days`，输出 `quantity/days`。同一个精确采用被调用四次，分别传入每日总体及三种资格数量，`days=2`：
+本地日均模板只接收具有完整 subject 键的已完成关系 `completed(subject,quantity)` 和明确数值参数 `days`，输出 `quantity/days`。在零 Metric 发布中，作者先直接内联该模板，再把同一计算体嵌入具有总体／TRUE／FALSE／UNKNOWN 四个完成关系形参的比较模板。内层通过 `ParentSlots` 显式使用父关系槽并转发 days，外层按总体为 BASE、以完整 subject 键对齐四个结果；此时没有日均 Metric 或比较成员的持久资产。
+
+主题 carry 到下一 DRAFT 后，同一内层模板通过正式治理保存为日均算法，其精确采用被调用四次。外层比较模板则保存为共享 `MemberSourceDefinition.Computed` 并正式采用，公开 subject 和四个带数量合同的平均值输出。采用保留四个开放关系参数和 days 参数；公开成员调用明确传入同一实际完成关系的四种数量，不重写外层 body，也不把内层改成已保存 Metric 的引用。直接内联、嵌套内联、内层保存调用与外层成员调用都以 `days=2` 核对同一参照：
 
 | subject | 每日总体日均 | TRUE 日均 | FALSE 日均 | UNKNOWN 日均 |
 | --- | ---: | ---: | ---: | ---: |
 | A | 1.500000 | 1.000000 | 0.500000 | 0.000000 |
 | B | 0.000000 | 0.000000 | 0.000000 | 0.000000 |
 
-四次保存算法调用明确使用 `CORE_FINALIZATION`。输入数量为 INTEGER64／Exact，days 为 ONE／Exact／DECIMAL(20,1)，输出为 ONE／Exact／DECIMAL(25,6)，舍入 NONE、溢出 FAIL。来源完成去重和计数，核心完成精确除法；不把 DuckDB 原生浮点商宣称为 Exact。
+模板内联、四次保存算法调用及外层比较成员调用均明确使用 `CORE_FINALIZATION`。输入数量为 INTEGER64／Exact，days 为 ONE／Exact／DECIMAL(20,1)，输出为 ONE／Exact／DECIMAL(25,6)，舍入 NONE、溢出 FAIL。来源完成去重和计数，核心完成精确除法；不把 DuckDB 原生浮点商宣称为 Exact。各次结果保存后全页读取，外层还核对五个完整输出及四列正式数量合同；三种模板使用方式的精确 Query／结果引用进入 `http/report.json` 的 `dailyTemplateReuse`。
 
 保存请求通过 `QueryDefinitionCommand.executionMode` 明确选择保存前完整编译的模式，本例将同一次操作的 `mode` 分别传给保存请求与执行请求。保存请求未指定时使用 `SOURCE`；这个字段只决定保存前校验，不进入 QueryIntent、保存查询内容或哈希，也不规定以后执行的默认模式。执行保存查询时仍由 `QueryExecutionRequest.executionMode` 明确选择 `CORE_FINALIZATION` 或 `SOURCE`，没有模式切换重试或自动回退。
 
@@ -322,7 +324,7 @@ B 的 ratio_f 分母 amount_a=8 合法，分子 amount_c=NULL，因此保留 NUL
 
 初次 `createPhysicalTable` 与 initialAdoption 同事务完成，作者直接把返回的 `SourceAdoptions.references` 交给发布；再按精确结构观察 S 读取采用，核对与初次返回一致，不猜最近来源或自行拼引用。
 
-主题版本 1 冻结零 Metric 的 inline 发布，供集合、Unicode 目录三值、独立事实、Scale 及十三贡献／六个内联 guard 的完整宽查询使用。随后读取其 `contextSelection`，用显式 carry 修订同一主题到版本 2，读取延续后的成员和维度映射精确版本，新增一个日均和六个比率算法的采用，再建立场景及 saved 发布。物理合同 P、结构观察 S 和原始定义不因此重建；原 inline 发布与已保存查询仍保持原精确引用。
+主题版本 1 冻结零 Metric 的 inline 发布，供集合、Unicode 目录三值、独立事实、Scale、十三贡献／六个内联 guard，以及本地日均模板的直接使用和嵌套比较使用。随后读取其 `contextSelection`，用显式 carry 修订同一主题到版本 2，读取延续后的成员和维度映射精确版本，新增一个日均和六个比率算法的采用，以及多量输出的日均比较成员，再建立场景及 saved 发布。物理合同 P、结构观察 S 和原始定义不因此重建；原 inline 发布与已保存查询仍保持原精确引用。
 
 独立客户端还观察以下完整边界：
 
@@ -351,7 +353,7 @@ from/to 是明确的 `yyyyMMdd` TEXT 参数，直接进入各定义自己的条�
 
 共享定义通过 `createMemberDefinition`、激活与 `adoptMemberDefinition` 成为持久资产。来源成员和维度映射由精确采用绑定，正式计算闭包拥有来源筛选、资格、关联和归约；这些内容不会在每个消费问题中重写。`period_activity.amount` 保留现有 activity-value／NativeFloating／Float64；records、known 以及目录数量保持 ONE／Exact／INTEGER64／FAIL。
 
-来源记录数 `source_record_count` 与金额非 NULL 数 `known_amount_count` 是两个真实 `MetricCalculation`。各自通过正式采用闭包调用 period_activity 的实际完成出口，并传递 from/to；二者具备同一 subject 完整键、参数签名和 ONE／Exact／INTEGER64／FAIL 合同。它们的业务含义不同，因此可以在一个声明这种签名的 `MeasurementSlot` 中显式替换，不能把不同名义单位的六个比率也据此互换。
+来源记录数 `source_record_count` 与金额非 NULL 数 `known_amount_count` 是两个真实 `MetricCalculation`。各自通过正式成员参数的采用绑定调用 period_activity 的实际完成出口，并传递 from/to；二者具备同一 subject 完整键、参数签名和 ONE／Exact／INTEGER64／FAIL 合同。消费者从正式目录选择实际计数实例，Q3 显式换用金额非 NULL 数，不为具体实例再复制一份 `MeasurementSlot`。需要可替换测量的正式定义仍可声明自己的接受合同，不能把不同名义单位的六个比率也据此互换。
 
 ### 从正式目录发现并精确读取
 
@@ -359,7 +361,7 @@ from/to 是明确的 `yyyyMMdd` TEXT 参数，直接进入各定义自己的条�
 
 `consume.olap.kts` 先调用 `publication` 核对精确入口，再在同一发布中完整分页 `search`，分别找到对象、归属、完成量和计数测量候选。随后 `publishedAsset` 与 `publishedDefinition` 读取真实采用后的成员、实际测量实例和计算定义，核对完整键、参数、输出数量、授权槽位及维度绑定。目录引用使用搜索返回的 coordinate 与语义目录 hash；保存查询则使用 publication 的 capability hash。消费者使用返回的实际引用，不重建资产 ID，也不把执行目录 hash、语义目录 hash 和 capability hash 混用。
 
-脚本只构造本次参数调用、对象 SET 和 BASE／PRESERVE_NULL 对齐。成员定义内部的 CASE、JOIN 和 SUM 不复制到消费作者；REPL 变量、建设作者函数和保存结果也不成为它的输入关系。MEASUREMENT 调用保持空 dimensionSlots／measurementSlots，维度绑定仍归正式采用实例所有。
+脚本通过 `Computations.members`、`invoke`、`measure`、`set` 和 `align` 组织同一个 `Calculation.Scope` 计算体，直接把实际成员调用、计数实例和已完成 Scope 交给对象 SET 与 BASE／PRESERVE_NULL 对齐。具体输入不经过额外 `RelationSlot`、`RelationParameter` 或 `LocalRelation` 装配，也不重述其数量合同。成员定义内部的 CASE、JOIN 和 SUM 不复制到消费作者；REPL 变量、建设作者函数和保存结果也不成为它的输入关系。维度绑定仍归正式采用实例所有。
 
 消费参数如下，精确 scenario 坐标必须来自所选正式目录条目：
 
@@ -384,7 +386,7 @@ A 为前期付费标记对象，B 为本期按当前目录归属的访问对象�
 | 原发布 Q2 | D | 5/1/1 | 1 |
 | 原发布 Q3 | 空串、A、B、C | 与 Q1 相同 | 空串 0、A 0、B 1、C NULL |
 
-Q3 先通过正式 `validate-query` 核对正确的计数调用，再展示一个实际合同错误：把已读到的 activity-value／NativeFloating 金额合同误写到计数槽，仍绑定真实计数实例。正式校验以 `EXECUTABLE_QUERY_NOT_PUBLISHED / AUTHORIZE_INPUT` 拒绝，并说明 `measurement has a different fixed unit`；诊断原样保留到作者回执，这条错误请求不执行来源。实际保存与执行仍使用计数实例自己的正式合同，不改单位、洗精度或加回退来通过。
+Q3 通过正式 `validate-query`、保存、执行和完整读取，核对两个真实计数实例的选择结果。数量合同不匹配另在建设阶段通过已有日均保存算法的真实 `completed(subject,quantity)` 形参观察：算法要求 ONE／Exact 计数，错误调用却把 activity-value／NativeFloating 金额完成量映射给 quantity。正式校验在 `ANALYZE_STAGES` 以 `RESULT_UNIT_MISMATCH` 拒绝实际金额单位与声明单位不符的输入，原始诊断以 `dailyInputRejected` 进入作者回执和 `http/report.json` 的 `dailyInputContractMismatch`；错误请求不执行来源，不修改形参要求或实际金额单位。
 
 ### 显式修订资格与新旧精确发布
 

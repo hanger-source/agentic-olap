@@ -5,7 +5,6 @@ import com.olap.prototype.connector.ConnectorRegistry
 import com.olap.prototype.engine.catalog.ExecutableCatalog
 import com.olap.prototype.member.MemberRef
 import com.olap.prototype.member.MemberSource
-import com.olap.prototype.query.QueryComputation
 import com.olap.prototype.query.QueryStageAnalysis.ScopeId
 
 /** 单次请求的目录、规则owner与完成边界；无跨请求绑定缓存。 */
@@ -21,18 +20,22 @@ internal class ExecutableBindingSession(val catalog: ExecutableCatalog, connecto
         require(request.catalogId.isNotBlank() && request.catalogId == catalog.manifest.catalogId) { "query catalog identity differs from its exact computation directory" }
         catalog.validate()
         require(request.requestId.isNotBlank()) { "requestId is required" }
-        return completion.finish(bindQueryScope(request.computation, ScopeId.root(), 0, null))
+        return completion.finish(CalculationBinding(this, request.computation, ScopeId.root(), 0).bind(null))
     }
-    fun bindQueryScope(syntax: QueryComputation.Scope, scope: ScopeId, depth: Int, mode: String?): ExecutableInputScope = QueryScopeBinding(this, catalog, syntax, scope, depth, mode).bind()
 
-    fun bindInline(root: QueryComputation.Compute, caller: ScopeAssembly, callerScope: ScopeId, lexicalScope: ScopeId, depth: Int): ExecutableInputScope {
-        catalog.requireBindings(root.calculation, root.bindings)
-        val arguments = CalculationInstantiation.arguments(root.calculation.parameters, emptyMap(), root.arguments, root.bindings)
-        val actual = CalculationInstantiation.relationArguments(root.calculation, CalculationInstantiation.memberArguments(root.calculation, root.bindings, root.members), root.relations)
-        val bindings = CalculationBindings(actual.dimensions, CalculationInstantiation.resolveMembers(actual.members, actual, arguments), actual.groupingCandidates, actual.measurements, actual.relations)
-        catalog.requireBoundBindings(root.calculation, bindings)
-        val invocation = CalculationBinding(this, root, bindings, arguments, callerScope, lexicalScope, depth)
-        invocation.bindExternal(root.members, root.relations, MemberEnvironment(caller.callerInputs(), callerScope, callerScope), callerScope, depth, linkedSetOf())
+    fun bindInline(root: Calculation.Compute, parent: CalculationBinding, caller: ScopeAssembly, callerScope: ScopeId, lexicalScope: ScopeId, depth: Int): ExecutableInputScope {
+        val adoption = root.bindings
+        if (adoption is Calculation.ExplicitBindings) catalog.requireBindings(root.calculation, adoption.bindings)
+        val application = CalculationInstantiation.compute(root, parent.definition, parent.bindings, parent.arguments)
+        catalog.requireBoundBindings(root.calculation, application.bindings)
+        val members = if (adoption is Calculation.ParentSlots) adoption.memberSlots.mapValues { (_, slot) -> parent.fullMember(slot, callerScope, depth) } else emptyMap()
+        val relations = if (adoption is Calculation.ParentSlots) adoption.relationSlots.mapValues { (slot, source) ->
+            this.relations.adopt(root.calculation, application.bindings, slot, parent.fullRelation(source))
+        } else emptyMap()
+        val invocation = CalculationBinding(this, root, application.bindings, application.arguments, lexicalScope, depth,
+            parent.owner, parent.displayName, parent.templateStack(), members, relations)
+        if (adoption is Calculation.ExplicitBindings) invocation.bindExternal(adoption.members, adoption.relations,
+            MemberEnvironment(caller.callerInputs(), callerScope, callerScope), callerScope, depth, parent.templateStack())
         return invocation.bind("ROOT")
     }
 

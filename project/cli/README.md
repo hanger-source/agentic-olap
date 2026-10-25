@@ -36,7 +36,7 @@ agentic-olap info
 agentic-olap tools
 agentic-olap call list-data-sources --payload '{}'
 agentic-olap call describe-script-api --payload '{}'
-agentic-olap call execute-script --payload '{"executionId":"sources-1","waitMillis":1000,"source":"olap.output(olap.sources.list(EmptyRequest))","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v7","parameters":{}}'
+agentic-olap call execute-script --payload '{"executionId":"sources-1","waitMillis":1000,"source":"olap.output(olap.sources.list(EmptyRequest))","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v8","parameters":{}}'
 ```
 
 `execute-script` 首次可建立持续 Kotlin 会话，回执给出 `sessionId` 与 `executionId`。`waitMillis` 只控制本次等待：`RUNNING` 时用 `wait-script` 读取同一执行，不重复提交源码；后续片段明确传同一 `sessionId` 和新的 `executionId`。通过 `cancel-script` 取消执行，`read-script-session` 读取会话，`reset-script-session` 清空语言上下文，`close-script-session` 结束自己建立的会话。重置和关闭会停止当前执行，核对旧进程退出后才确认；服务重启不恢复语言对象，也不重放历史源码。

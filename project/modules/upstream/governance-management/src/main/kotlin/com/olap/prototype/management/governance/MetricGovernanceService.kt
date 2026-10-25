@@ -35,22 +35,26 @@ class MetricGovernanceService(private val database: PlatformDatabase, private va
     fun reviseMetricCalculation(request: GovernanceRevisionRequest<MetricCalculationCreateRequest>): MetricCalculationCreateResult = database.inTransaction { createCalculation(request.definition, request) }
 
     fun validateCalculation(calculation: Calculation, own: MetricRef?): Map<String, Calculation.Call> {
-        val calls = calculation.callSites().associateTo(linkedMapOf()) { "root/${it.path.joinToString("/")}" to it.call }
-        calls.forEach { (position, call) ->
+        val calls = linkedMapOf<String, Calculation.Call>()
+        calculation.definitionBodies().forEach { (path, body) -> body.callSites().forEach { site ->
+            val position = (if (path.isEmpty()) "" else "$path/") + "root/${site.path.joinToString("/")}"
+            val call = site.call
+            calls[position] = call
             when (val target = call.target) {
+                is Calculation.Instance -> throw ProducerContractException("reusable metric definitions adopt measurement instances through declared measurement slots: $position")
                 is Calculation.Measurement -> {
-                    val slot = calculation.measurementSlots.firstOrNull { it.name == target.slot } ?: throw ProducerContractException("undeclared measurement slot: ${target.slot}")
-                    validateArguments(calculation, call, slot.parameters, position)
+                    val slot = body.measurementSlots.firstOrNull { it.name == target.slot } ?: throw ProducerContractException("undeclared measurement slot: ${target.slot}")
+                    validateArguments(body, call, slot.parameters, position)
                 }
                 is Calculation.Fixed -> {
                     if (own != null && target.metric == own) throw ProducerContractException("metric calculation cannot call itself: $position")
                     val child = metricSnapshot(target.metric.id, target.metric.version.toLong()).definition
-                    if (child is MetricCalculation) validateNested(calculation, call, child.calculation, position)
+                    if (child is MetricCalculation) validateNested(body, call, child.calculation, position)
                     else if (call.dimensionSlots.isNotEmpty() || call.memberSlots.isNotEmpty() || call.measurementSlots.isNotEmpty() || call.relationSlots.isNotEmpty() || call.arguments.isNotEmpty())
                         throw ProducerContractException("fact measure has no calculation slots or parameters: $position")
                 }
             }
-        }
+        } }
         return calls
     }
     private fun validateNested(parent: Calculation, call: Calculation.Call, child: Calculation, position: String) {
@@ -155,8 +159,11 @@ class MetricGovernanceService(private val database: PlatformDatabase, private va
             if (target != null) add(dependency(metric, "call:$position", position, "CHILD_METRIC", target.id, target.version.toLong(), call.callId))
         }
         val definition = metric.definition as MetricCalculation
-        definition.calculation.memberSlots.forEach { slot -> slot.fixedSource?.let { add(dependency(metric, "member:${slot.name}", "member.${slot.name}", "MEMBER_SOURCE", it.id, it.version, slot.name)) } }
-        definition.calculation.declaredDimensions().forEach { (position, slot) -> add(dependency(metric, position, position, "DIMENSION", slot.dimensionId, slot.dimensionVersion, slot.role)) }
+        definition.calculation.fixedMemberSources().forEach { (position, source) -> add(dependency(metric, "member:$position", position, "MEMBER_SOURCE", source.id, source.version, position)) }
+        definition.calculation.definitionBodies().forEach { (path, body) -> body.declaredDimensions().forEach { (local, slot) ->
+            val position = (if (path.isEmpty()) "" else "$path/") + local
+            add(dependency(metric, position, position, "DIMENSION", slot.dimensionId, slot.dimensionVersion, slot.role))
+        } }
     }
     private fun createFact(request: MetricCreateRequest, revision: GovernanceRevisionRequest<MetricCreateRequest>?): MetricCreateResult {
         val definition = request.definition

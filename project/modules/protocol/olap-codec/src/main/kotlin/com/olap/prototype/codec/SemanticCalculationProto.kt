@@ -7,6 +7,7 @@ import com.olap.prototype.query.DimensionCondition as DD
 import com.olap.prototype.member.MemberCondition as DM
 import com.olap.prototype.query.GroupingLevels as DG
 import com.olap.prototype.query.ScalarValueType
+import com.olap.prototype.query.RowPopulationContract
 
 internal object SemanticCalculationProto {
     fun scalar(v: DC.Scalar): CalculationScalar = CalculationScalar.newBuilder().setScalarType(v.scalarType.name).setValue(v.value).build()
@@ -127,15 +128,18 @@ internal object SemanticCalculationProto {
         .addAllStages(v.stages.map(SemanticStagesProto::stage)).build()
     fun scope(v: CalculationScope): DC.Scope = DC.Scope(root(v.root), v.inputsMap.mapValues { DC.InputScope(it.value.mode, scope(it.value.computation)) }, v.stagesList.map(SemanticStagesProto::stage))
     private fun root(v: DC.Root): CalculationRoot = CalculationRoot.newBuilder().apply { when (v) {
-        is DC.Measures -> setMeasures(CalculationMeasures.newBuilder().addAllCalls(v.calls.map(::call)).addAllGroupSlots(v.groupSlots).addAllGroupingArguments(v.groupingArguments)
-            .putAllClocks(v.clocks.mapValues { binding(it.value) }).addAllPopulationCallIds(v.population.callIds).apply { v.timeSlot?.let(::setTimeSlot); v.range?.let { setRange(binding(it)) }; v.groupingLevels?.let { setGroupingLevels(levels(it)) } })
-        is DC.Members -> setMembers(CalculationMembers.newBuilder().setCallId(v.callId).setSlot(v.slot).addAllOutputs(v.outputs.map { MemberProjection.newBuilder().setOutputAlias(it.outputAlias).setSlot(it.slot).build() })
-            .putAllClocks(v.clocks.mapValues { binding(it.value) }).setCondition(memberCondition(v.condition)).apply { v.range?.let { setRange(binding(it)) } })
+        is DC.Measures -> setMeasures(CalculationMeasures.newBuilder().addAllCalls(v.calls.map(::call)).addAllGrouping(v.grouping.map(::dimensionReference))
+            .addAllGroupingArguments(v.groupingArguments).putAllClocks(v.clocks.mapValues { binding(it.value) })
+            .setSourceCondition(binding(v.sourceCondition)).setOutputCondition(condition(v.outputCondition))
+            .addAllSourceEventConditions(v.sourceEventConditions.map { EventCondition.newBuilder().setEventId(it.eventId).setEventVersion(it.eventVersion).setCondition(condition(it.condition)).build() })
+            .setPopulation(population(v.population)).apply { v.timeRange?.let { setTimeRange(timeRange(it)) }; v.groupingLevels?.let { setGroupingLevels(levels(it)) } })
+        is DC.Members -> setMembers(members(v))
+        is DC.Compute -> setCompute(CalculationCompute.newBuilder().setCalculation(calculation(v.calculation)).setBindings(computeBindings(v.bindings))
+            .putAllArguments(v.arguments.mapValues { binding(it.value) }))
         is DC.Relation -> setRelation(v.slot)
         is DC.Input -> setInput(v.inputId)
         is DC.SetCombination -> setSet(set(v.operation, v.all, v.inputs, v.outputSlots))
-        is DC.ObjectMeasure -> setObjectMeasure(ObjectMeasure.newBuilder().setMeasurement(scope(v.measurement)).setObjects(scope(v.objects)).addAllRoles(v.roles.map { role -> ObjectRole.newBuilder().addAllObjectKeys(role.objectKeys)
-            .setTarget(ObjectTarget.newBuilder().apply { when (val target = role.target) { is DC.EventRole -> setEventRole(target.role); is DC.RecordOutputs -> setRecordOutputs(RecordOutputs.newBuilder().setMemberSlot(target.memberSlot).addAllKeys(target.keys)) } }).build() }))
+        is DC.ObjectMeasure -> setObjectMeasure(ObjectMeasure.newBuilder().setMeasurement(scope(v.measurement)).setObjects(scope(v.objects)).addAllRoles(v.roles.map(::objectRole)))
         is DC.AlignMeasurements -> setAlignMeasurements(AlignMeasurements.newBuilder().putAllInputs(v.inputs.mapValues { (_, input) -> AlignedInput.newBuilder().setComputation(scope(input.computation)).putAllKeys(input.keys)
             .addAllValues(input.values.map { AlignedValue.newBuilder().setSymbol(it.symbol).setOutputAlias(it.outputAlias).setNoMatch(it.noMatch.name).build() }).build() }).addAllObservationKeys(v.observationKeys)
             .setPopulation(AlignmentPopulation.newBuilder().setKind(v.population.kind.name).addAllInputIds(v.population.inputIds)))
@@ -148,14 +152,15 @@ internal object SemanticCalculationProto {
             } }.build() }))
     } }.build()
     private fun root(v: CalculationRoot): DC.Root = when (v.kindCase) {
-        CalculationRoot.KindCase.MEASURES -> v.measures.let { DC.Measures(it.callsList.map(::call), it.groupSlotsList, it.groupingArgumentsList, it.timeSlot.takeIf { _ -> it.hasTimeSlot() }, it.range.takeIf { _ -> it.hasRange() }?.let(::binding), it.clocksMap.mapValues { entry -> binding(entry.value) }, DC.Population(it.populationCallIdsList), it.groupingLevels.takeIf { _ -> it.hasGroupingLevels() }?.let(::levels)) }
-        CalculationRoot.KindCase.MEMBERS -> v.members.let { DC.Members(it.callId, it.slot, it.outputsList.map { output -> DC.MemberProjection(output.outputAlias, output.slot) }, it.range.takeIf { _ -> it.hasRange() }?.let(::binding), it.clocksMap.mapValues { entry -> binding(entry.value) }, memberCondition(it.condition)) }
+        CalculationRoot.KindCase.MEASURES -> v.measures.let { DC.Measures(it.callsList.map(::call), it.groupingList.map(::dimensionReference), it.groupingArgumentsList,
+            it.timeRange.takeIf { _ -> it.hasTimeRange() }?.let(::timeRange), it.clocksMap.mapValues { entry -> binding(entry.value) }, binding(it.sourceCondition), condition(it.outputCondition),
+            it.sourceEventConditionsList.map { value -> DC.EventCondition(value.eventId, value.eventVersion, condition(value.condition)) }, population(it.population), it.groupingLevels.takeIf { _ -> it.hasGroupingLevels() }?.let(::levels)) }
+        CalculationRoot.KindCase.MEMBERS -> members(v.members)
+        CalculationRoot.KindCase.COMPUTE -> v.compute.let { DC.Compute(calculation(it.calculation), computeBindings(it.bindings), it.argumentsMap.mapValues { entry -> binding(entry.value) }) }
         CalculationRoot.KindCase.RELATION -> DC.Relation(v.relation)
         CalculationRoot.KindCase.INPUT -> DC.Input(v.input)
         CalculationRoot.KindCase.SET -> v.set.let { DC.SetCombination(DC.SetKind.valueOf(it.operation), it.all, it.inputsList.map(::projection), it.outputSlotsList.map(SemanticTypesProto::output)) }
-        CalculationRoot.KindCase.OBJECT_MEASURE -> v.objectMeasure.let { DC.ObjectMeasure(scope(it.measurement), scope(it.objects), it.rolesList.map { role -> DC.ObjectRole(role.objectKeysList, when (role.target.kindCase) {
-            ObjectTarget.KindCase.EVENT_ROLE -> DC.EventRole(role.target.eventRole); ObjectTarget.KindCase.RECORD_OUTPUTS -> DC.RecordOutputs(role.target.recordOutputs.memberSlot, role.target.recordOutputs.keysList); else -> error("object target kind is required")
-        }) }) }
+        CalculationRoot.KindCase.OBJECT_MEASURE -> v.objectMeasure.let { DC.ObjectMeasure(scope(it.measurement), scope(it.objects), it.rolesList.map(::objectRole)) }
         CalculationRoot.KindCase.ALIGN_MEASUREMENTS -> v.alignMeasurements.let { DC.AlignMeasurements(it.inputsMap.mapValues { (_, input) -> DC.AlignedInput(scope(input.computation), input.keysMap, input.valuesList.map { value -> DC.AlignedValue(value.symbol, value.outputAlias, DC.NoMatch.valueOf(value.noMatch)) }) }, it.observationKeysList, DC.AlignmentPopulation(DC.PopulationKind.valueOf(it.population.kind), it.population.inputIdsList)) }
         CalculationRoot.KindCase.OBSERVATION_STATISTICS -> v.observationStatistics.let { DC.ObservationStatistics(scope(it.observations), observation(it.unit), it.outerKeysList, it.statisticsList.map { statistic -> when (statistic.kindCase) {
             ObservationStatistic.KindCase.REDUCTION -> DC.Reduction(SemanticStagesProto.aggregate(statistic.reduction))
@@ -172,10 +177,12 @@ internal object SemanticCalculationProto {
     fun objectTarget(v: DC.ObjectTarget): ObjectTarget = ObjectTarget.newBuilder().apply { when (v) {
         is DC.EventRole -> setEventRole(v.role)
         is DC.RecordOutputs -> setRecordOutputs(RecordOutputs.newBuilder().setMemberSlot(v.memberSlot).addAllKeys(v.keys))
+        is DC.RecordCallOutputs -> setRecordCallOutputs(RecordCallOutputs.newBuilder().addAllInputPath(v.inputPath).setCallId(v.callId).addAllKeys(v.keys))
     } }.build()
     fun objectTarget(v: ObjectTarget): DC.ObjectTarget = when (v.kindCase) {
         ObjectTarget.KindCase.EVENT_ROLE -> DC.EventRole(v.eventRole)
         ObjectTarget.KindCase.RECORD_OUTPUTS -> DC.RecordOutputs(v.recordOutputs.memberSlot, v.recordOutputs.keysList)
+        ObjectTarget.KindCase.RECORD_CALL_OUTPUTS -> DC.RecordCallOutputs(v.recordCallOutputs.inputPathList, v.recordCallOutputs.callId, v.recordCallOutputs.keysList)
         else -> error("object target kind is required")
     }
     fun objectRole(v: DC.ObjectRole): ObjectRole = ObjectRole.newBuilder().addAllObjectKeys(v.objectKeys).setTarget(objectTarget(v.target)).build()
@@ -184,7 +191,55 @@ internal object SemanticCalculationProto {
     fun alignmentPopulation(v: AlignmentPopulation): DC.AlignmentPopulation = DC.AlignmentPopulation(DC.PopulationKind.valueOf(v.kind), v.inputIdsList)
     fun levels(v: DG): GroupingLevels = GroupingLevels.newBuilder().setOutputAlias(v.outputAlias).addAllLevels(v.levels.map { GroupingLevel.newBuilder().setId(it.id).addAllGroupBy(it.groupBy).build() }).build()
     fun levels(v: GroupingLevels): DG = DG(v.outputAlias, v.levelsList.map { DG.Level(it.id, it.groupByList) })
-    private fun call(v: DC.Call): CalculationCall = CalculationCall.newBuilder().setCallId(v.callId).setTarget(CallTarget.newBuilder().apply { when (val target = v.target) { is DC.Fixed -> setFixed(SemanticProto.toProto(target.metric)); is DC.Measurement -> setMeasurement(target.slot) } })
-        .setOutputAlias(v.outputAlias).putAllDimensionSlots(v.dimensionSlots).putAllMemberSlots(v.memberSlots).putAllMeasurementSlots(v.measurementSlots).putAllRelationSlots(v.relationSlots).putAllArguments(v.arguments.mapValues { binding(it.value) }).setSourceCondition(binding(v.sourceCondition)).build()
-    private fun call(v: CalculationCall): DC.Call = DC.Call(v.callId, when (v.target.kindCase) { CallTarget.KindCase.FIXED -> DC.Fixed(SemanticProto.fromProto(v.target.fixed)); CallTarget.KindCase.MEASUREMENT -> DC.Measurement(v.target.measurement); else -> error("call target kind is required") }, v.outputAlias, v.dimensionSlotsMap, v.memberSlotsMap, v.measurementSlotsMap, v.relationSlotsMap, v.argumentsMap.mapValues { binding(it.value) }, binding(v.sourceCondition))
+    private fun call(v: DC.Call): CalculationCall = CalculationCall.newBuilder().setCallId(v.callId).setTarget(CallTarget.newBuilder().apply { when (val target = v.target) {
+        is DC.Fixed -> setFixed(SemanticProto.toProto(target.metric)); is DC.Measurement -> setMeasurement(target.slot); is DC.Instance -> setInstance(SemanticProto.toProto(target.instance))
+    } }).setOutputAlias(v.outputAlias).putAllDimensionSlots(v.dimensionSlots).putAllMemberSlots(v.memberSlots).putAllMeasurementSlots(v.measurementSlots).putAllRelationSlots(v.relationSlots)
+        .putAllArguments(v.arguments.mapValues { binding(it.value) }).setSourceCondition(binding(v.sourceCondition))
+        .putAllMembers(v.members.mapValues { member(it.value) }).putAllRelations(v.relations.mapValues { relation(it.value) }).build()
+    private fun call(v: CalculationCall): DC.Call = DC.Call(v.callId, when (v.target.kindCase) {
+        CallTarget.KindCase.FIXED -> DC.Fixed(SemanticProto.fromProto(v.target.fixed)); CallTarget.KindCase.MEASUREMENT -> DC.Measurement(v.target.measurement)
+        CallTarget.KindCase.INSTANCE -> DC.Instance(SemanticProto.fromProto(v.target.instance)); else -> error("call target kind is required")
+    }, v.outputAlias, v.dimensionSlotsMap, v.memberSlotsMap, v.measurementSlotsMap, v.relationSlotsMap, v.argumentsMap.mapValues { binding(it.value) }, binding(v.sourceCondition),
+        v.membersMap.mapValues { member(it.value) }, v.relationsMap.mapValues { relation(it.value) })
+
+    fun members(v: DC.Members): CalculationMembers = CalculationMembers.newBuilder().setCallId(v.callId).setTarget(MemberTarget.newBuilder().apply { when (val target = v.target) {
+        is DC.MemberParameter -> setParameter(target.slot); is DC.MemberSource -> setSource(SemanticProto.toProto(target.source))
+    } }).addAllOutputs(v.outputs.map { MemberProjection.newBuilder().setOutputAlias(it.outputAlias).setSlot(it.slot)
+        .apply { it.dimension?.let { dimension -> setDimension(dimensionReference(dimension)) } }.build() })
+        .putAllClocks(v.clocks.mapValues { binding(it.value) }).setCondition(memberCondition(v.condition))
+        .putAllArguments(v.arguments.mapValues { binding(it.value) }).putAllMembers(v.members.mapValues { member(it.value) }).putAllRelations(v.relations.mapValues { relation(it.value) })
+        .apply { v.range?.let { setRange(binding(it)) } }.build()
+    fun members(v: CalculationMembers): DC.Members = DC.Members(v.callId, when (v.target.kindCase) {
+        MemberTarget.KindCase.PARAMETER -> DC.MemberParameter(v.target.parameter); MemberTarget.KindCase.SOURCE -> DC.MemberSource(SemanticProto.fromProto(v.target.source))
+        else -> error("member target kind is required")
+    }, v.outputsList.map { DC.MemberProjection(it.outputAlias, it.slot, it.dimension.takeIf { _ -> it.hasDimension() }?.let(::dimensionReference)) },
+        v.range.takeIf { v.hasRange() }?.let(::binding), v.clocksMap.mapValues { binding(it.value) }, memberCondition(v.condition),
+        v.argumentsMap.mapValues { binding(it.value) }, v.membersMap.mapValues { member(it.value) }, v.relationsMap.mapValues { relation(it.value) })
+
+    private fun dimensionReference(v: DC.DimensionReference): DimensionReference = DimensionReference.newBuilder().apply { when (v) {
+        is DC.DimensionParameter -> setParameter(v.slot); is DC.PublishedDimension -> setPublished(SemanticTypesProto.dimension(v.reference))
+    } }.build()
+    private fun dimensionReference(v: DimensionReference): DC.DimensionReference = when (v.kindCase) {
+        DimensionReference.KindCase.PARAMETER -> DC.DimensionParameter(v.parameter)
+        DimensionReference.KindCase.PUBLISHED -> DC.PublishedDimension(SemanticTypesProto.dimension(v.published))
+        else -> error("dimension reference kind is required")
+    }
+    fun timeRange(v: DC.TimeRange): CalculationTimeRange = CalculationTimeRange.newBuilder().setDimension(dimensionReference(v.dimension)).setWindow(binding(v.window)).build()
+    fun timeRange(v: CalculationTimeRange): DC.TimeRange = DC.TimeRange(dimensionReference(v.dimension), binding(v.window))
+    fun population(v: RowPopulationContract.Selection): RowPopulation = RowPopulation.newBuilder().setMode(v.mode).addAllCallIds(v.callIds)
+        .apply { v.inputIds?.let { setInputIds(StringList.newBuilder().addAllValues(it)) } }.build()
+    fun population(v: RowPopulation): RowPopulationContract.Selection = RowPopulationContract.Selection(v.mode, v.callIdsList, v.inputIds.valuesList.takeIf { v.hasInputIds() })
+
+    private fun computeBindings(v: DC.ComputeBindings): ComputeBindings = ComputeBindings.newBuilder().apply { when (v) {
+        is DC.ExplicitBindings -> setExplicit(ExplicitComputeBindings.newBuilder().setBindings(bindings(v.bindings))
+            .putAllMembers(v.members.mapValues { member(it.value) }).putAllRelations(v.relations.mapValues { relation(it.value) }))
+        is DC.ParentSlots -> setParentSlots(ParentSlotBindings.newBuilder().putAllDimensionSlots(v.dimensionSlots)
+            .putAllMemberSlots(v.memberSlots).putAllMeasurementSlots(v.measurementSlots).putAllRelationSlots(v.relationSlots))
+    } }.build()
+    private fun computeBindings(v: ComputeBindings): DC.ComputeBindings = when (v.kindCase) {
+        ComputeBindings.KindCase.EXPLICIT -> v.explicit.let { DC.ExplicitBindings(bindings(it.bindings),
+            it.membersMap.mapValues { entry -> member(entry.value) }, it.relationsMap.mapValues { entry -> relation(entry.value) }) }
+        ComputeBindings.KindCase.PARENT_SLOTS -> v.parentSlots.let { DC.ParentSlots(it.dimensionSlotsMap, it.memberSlotsMap, it.measurementSlotsMap, it.relationSlotsMap) }
+        else -> error("compute bindings kind is required")
+    }
 }

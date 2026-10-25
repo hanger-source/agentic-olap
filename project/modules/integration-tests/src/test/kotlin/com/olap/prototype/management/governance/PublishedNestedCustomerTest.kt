@@ -4,6 +4,7 @@ import com.olap.prototype.calculation.*
 import com.olap.prototype.contract.ProducerContractException
 import com.olap.prototype.governance.contract.*
 import com.olap.prototype.integration.TestConnectors
+import com.olap.prototype.metric.MetricValueContract
 import com.olap.prototype.query.*
 import com.olap.prototype.query.contract.*
 import com.olap.prototype.query.definition.QueryDefinitionCommand
@@ -35,7 +36,13 @@ class PublishedNestedCustomerTest {
                     NestedCustomerFixture.invocation("qualified", n.primary.getValue(subject).instance, listOf(grouping), "2026-07-01", "2026-08-01", "40"),
                     NestedCustomerFixture.invocation("august", n.primary.getValue(subject).instance, listOf(grouping), "2026-08-01", "2026-09-01", "0"))
                 val saved = n.save(publication, "${subject}_average", NestedCustomerFixture.scope(calls, listOf(grouping)))
-                val actual = n.execute(publication, saved).result.resultFrame.rows.associateBy { it["destination"] }
+                val observed = n.execute(publication, saved)
+                val actual = observed.result.resultFrame.rows.associateBy { it["destination"] }
+                listOf("july", "qualified", "august").forEach { name ->
+                    val contract = requireNotNull(observed.businessResult.columns.single { it.symbol.name == name }.symbol.quantity).declaration
+                    assertTrue(contract.arithmetic is MetricValueContract.NativeFloating, name)
+                    assertEquals(MetricValueContract.BinaryFloat(64), contract.result, name)
+                }
                 assertEquals(setOf("A", "B"), actual.keys)
                 number(50.0, actual.getValue("A")["july"]); number(70.0, actual.getValue("A")["qualified"]); assertNull(actual.getValue("A")["august"])
                 number(20.0, actual.getValue("B")["july"]); assertNull(actual.getValue("B")["qualified"]); number(100.0, actual.getValue("B")["august"])
@@ -46,14 +53,14 @@ class PublishedNestedCustomerTest {
                 val overall = n.save(publication, "${subject}_overall", GovernanceOrderFixture.measurementScope(n.fixed.getValue(subject).instance, emptyList(), mapOf("groups" to Calculation.Grouping(emptyList()))))
                 number(50.0, n.execute(publication, overall).result.resultFrame.rows.single()["value"])
                 val forbidden = listOf(
-                    QueryComputation.Invocation("fixed", n.fixed.getValue(subject).instance, "value", mapOf("groups" to Calculation.Grouping(listOf(grouping)), "minimum" to Calculation.Scalar(ScalarValueType.NUMBER, "0")), emptyMap(), emptyMap(), DimensionCondition.Unrestricted()),
-                    QueryComputation.Invocation("fixed", n.fixed.getValue(subject).instance, "value", mapOf("groups" to Calculation.Grouping(listOf(grouping)), "window" to NestedCustomerFixture.range("2026-08-01", "2026-09-01")), emptyMap(), emptyMap(), DimensionCondition.Unrestricted()),
-                    QueryComputation.Invocation("fixed", n.fixed.getValue(subject).instance, "value", emptyMap(), emptyMap(), emptyMap(), DimensionCondition.Unrestricted()),
-                    QueryComputation.Invocation("fixed", n.internal.getValue(subject).instance, "value", mapOf("groups" to Calculation.Grouping(listOf(grouping)), "window" to n.july), emptyMap(), emptyMap(), DimensionCondition.Unrestricted()))
+                    Calculation.Call("fixed", Calculation.Instance(n.fixed.getValue(subject).instance), "value", emptyMap(), emptyMap(), emptyMap(), emptyMap(), mapOf("groups" to Calculation.Grouping(listOf(grouping)), "minimum" to Calculation.Scalar(ScalarValueType.NUMBER, "0")), Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), emptyMap()),
+                    Calculation.Call("fixed", Calculation.Instance(n.fixed.getValue(subject).instance), "value", emptyMap(), emptyMap(), emptyMap(), emptyMap(), mapOf("groups" to Calculation.Grouping(listOf(grouping)), "window" to NestedCustomerFixture.range("2026-08-01", "2026-09-01")), Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), emptyMap()),
+                    Calculation.Call("fixed", Calculation.Instance(n.fixed.getValue(subject).instance), "value", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), emptyMap()),
+                    Calculation.Call("fixed", Calculation.Instance(n.internal.getValue(subject).instance), "value", emptyMap(), emptyMap(), emptyMap(), emptyMap(), mapOf("groups" to Calculation.Grouping(listOf(grouping)), "window" to n.july), Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), emptyMap()))
                 forbidden.forEachIndexed { index, call -> assertThrows(ProducerContractException::class.java) { n.save(publication, "${subject}_forbidden_$index", NestedCustomerFixture.scope(listOf(call), listOf(grouping))) } }
                 number(50.0, n.execute(publication, fixedSaved).result.resultFrame.rows.single()["value"])
                 if (subject == "travel.trade") independentMembers(n, publication, grouping)
-                val layered = NestedCustomerFixture.scope(calls, listOf(grouping), QueryComputation.Levels("level", listOf(QueryComputation.DimensionLevel("by_group", listOf(grouping)), QueryComputation.DimensionLevel("overall", emptyList()))))
+                val layered = NestedCustomerFixture.scope(calls, listOf(grouping), GroupingLevels("level", listOf(GroupingLevels.Level("by_group", listOf("destination")), GroupingLevels.Level("overall", emptyList()))))
                 val revised = n.queries.update(saved.definitionId, QueryDefinitionCommand(saved.definitionId, saved.definitionVersion, requireNotNull(publication.queryCapability.capabilityHash), "经营组和全体平均", f.intent(publication, layered), null), "golden")
                 val identity = f.artifacts.loadArtifact("$subject.release", "1")
                 val bytes = f.mapper.writeValueAsString(publication)

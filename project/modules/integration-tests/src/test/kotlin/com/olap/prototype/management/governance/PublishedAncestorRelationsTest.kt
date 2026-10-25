@@ -72,8 +72,7 @@ class PublishedAncestorRelationsTest {
             val definitions = QueryDefinitionService(JdbcQueryDefinitionRepository(database, RuntimeDeploymentLimits.io), JdbcPublishedQueryEntryProvider(database),
                 NativeValidator { intent, capability, executionMode -> QueryNativeValidation.validate(intent, capability, f.connectors, executionMode) })
             for (includeSelf in listOf(false, true)) {
-                val scope = QueryComputation.Scope(QueryComputation.Members("members", MemberRef(member.id, 1), emptyMap(), listOf(QueryComputation.Slot("employee", "employee"), QueryComputation.Slot("manager", "manager")), null, emptyMap(), MemberCondition.Unrestricted(), emptyMap(), emptyMap()),
-                    emptyMap(), listOf(PostOperationContract.AncestorClosure(listOf("employee"), listOf("manager"), listOf("descendant"), listOf("ancestor"), includeSelf)))
+                val scope = Calculation.Scope(Calculation.Members("members", Calculation.MemberSource(MemberRef(member.id, 1)), listOf(Calculation.MemberProjection("employee", "employee", null), Calculation.MemberProjection("manager", "manager", null)), null, emptyMap(), MemberCondition.Unrestricted(), emptyMap(), emptyMap(), emptyMap()), emptyMap(), listOf(PostOperationContract.AncestorClosure(listOf("employee"), listOf("manager"), listOf("descendant"), listOf("ancestor"), includeSelf)))
                 val saved = definitions.save(QueryDefinitionCommand(if (includeSelf) "ancestors_with_self" else "ancestors", null, requireNotNull(publication.queryCapability.capabilityHash), "可达祖先", f.intent(publication, scope), null), "golden")
                 val persisted = definitions.requireByIdAndVersion(saved.definitionId, saved.definitionVersion).intent.computation
                 val expected = mutableSetOf(listOf("e1", "e2"), listOf("e1", "e3"), listOf("e1", "e4"), listOf("e2", "e4"), listOf("e3", "e4"), listOf("e5", "e99"))

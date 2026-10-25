@@ -136,6 +136,18 @@ internal class Scenario(private val name: String, private val distribution: Path
                 }
                 references = built.references()
                 report["build"] = built.report
+                if (name == "populations") {
+                    val rejected = references.objectAt("dailyInputRejected").objectAt("object").objectAt("values")
+                    check(rejected.objectAt("operation")["text"] == text("validate-query") &&
+                        rejected.objectAt("code")["text"] == text("RESULT_UNIT_MISMATCH") &&
+                        rejected.objectAt("stage")["text"] == text("ANALYZE_STAGES"))
+                    report["dailyInputContractMismatch"] = rejected
+                    report["dailyTemplateReuse"] = JsonObject(listOf("Inline", "Nested", "Published").associate { stage ->
+                        stage.lowercase() to objectOf(
+                            "query" to references.objectAt("daily${stage}Query").objectAt("reference").getValue("query"),
+                            "result" to references.objectAt("daily${stage}Result").objectAt("reference").getValue("result"))
+                    })
+                }
             }
             val savedParameters = parameters.with(
                 "query" to references.objectAt("query").objectAt("reference").getValue("query"),

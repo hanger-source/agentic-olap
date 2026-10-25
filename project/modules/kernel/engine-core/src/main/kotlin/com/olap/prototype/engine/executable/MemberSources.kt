@@ -4,7 +4,6 @@ import com.olap.prototype.calculation.*
 import com.olap.prototype.engine.catalog.ExecutableCatalog
 import com.olap.prototype.member.MemberCondition
 import com.olap.prototype.member.MemberSource
-import com.olap.prototype.query.QueryComputation
 import com.olap.prototype.query.QueryStageAnalysis.ScopeId
 
 /** 来源成员与形参采用的规则，不持调用完成缓存。 */
@@ -27,10 +26,12 @@ internal class MemberSources(private val session: ExecutableBindingSession, priv
         val topology = requireNotNull(catalog.topologies["${event.topologyId}@${event.topologyVersion}"]) { "member topology is missing" }
         return ExecutableMemberInput.Projection(callId, scope, source, event, topology, selection)
     }
-    fun bindPublicMember(root: QueryComputation.Members, outer: ScopeAssembly, scope: ScopeId, depth: Int, stack: MutableSet<String>): ExecutableMemberInput {
-        val source = catalog.requireMemberSource(root.source)
-        val selection = MemberInvocationBinding.publicSelection(root, source) { catalog.memberDimensionMappings(source, it) }
-        return bindSource(source, selection, root.members, root.relations, MemberEnvironment(outer.callerInputs(), scope, scope), root.callId, depth, stack)
+    fun bindSourceMember(root: Calculation.Members, parent: CalculationBinding, outer: ScopeAssembly, scope: ScopeId, depth: Int, stack: MutableSet<String>): ExecutableMemberInput {
+        val source = catalog.requireMemberSource((root.target as Calculation.MemberSource).source)
+        val selection = MemberInvocationBinding.sourceSelection(root, source, parent.definition, parent.bindings, parent.arguments,
+            { catalog.memberDimensionMappings(source, it) }, catalog::memberDimensionMapping)
+        val supplied = CalculationInstantiation.resolveMembers(root.members, parent.bindings, parent.arguments)
+        return bindSource(source, selection, supplied, root.relations, MemberEnvironment(outer.callerInputs(), scope, scope), root.callId, depth, stack)
     }
     fun bindFormal(calculation: Calculation, bindings: CalculationBindings, arguments: Map<String, Calculation.Value>, slot: String,
         caller: MemberEnvironment, scope: ScopeId, depth: Int, stack: MutableSet<String>): ExecutableMemberInput {
@@ -39,16 +40,17 @@ internal class MemberSources(private val session: ExecutableBindingSession, priv
         if (binding is CalculationBindings.LocalRef) return LocalMemberBinding.bind(formal, bindings, binding,
             caller.input(binding), caller.inputScope(binding), scope, slot)
         require(binding is CalculationBindings.SourceCall) { "member parameter must have an explicit actual input" }
-        val full = Calculation.Members(slot, slot, formal.outputs.keys.map { Calculation.MemberProjection(it, it) }, null, emptyMap(), MemberCondition.Unrestricted())
+        val full = Calculation.Members(slot, Calculation.MemberParameter(slot), formal.outputs.keys.map { Calculation.MemberProjection(it, it, null) }, null, emptyMap(), MemberCondition.Unrestricted(), emptyMap(), emptyMap(), emptyMap())
         val source = catalog.requireMemberSource(binding.source)
         val selection = MemberInvocationBinding.bind(calculation, full, bindings, arguments, source, catalog::memberDimensionMapping)
         return bindSource(source, selection, CalculationInstantiation.resolveMembers(binding.members, bindings, arguments), binding.relations, caller, slot, depth + 1, stack)
     }
     fun select(invocation: CalculationBinding, root: Calculation.Members, full: ExecutableMemberInput, scope: ScopeId): ExecutableMemberInput {
-        if (full is ExecutableMemberInput.Local) return LocalMemberBinding.select(invocation.definition, invocation.arguments, root, full, scope)
-        val call = invocation.bindings.members.getValue(root.slot) as CalculationBindings.SourceCall
+        val owner = requireNotNull(invocation.definition) { "member parameter selection requires a parameterized calculation" }
+        if (full is ExecutableMemberInput.Local) return LocalMemberBinding.select(owner, invocation.arguments, root, full, scope)
+        val call = invocation.bindings.members.getValue((root.target as Calculation.MemberParameter).slot) as CalculationBindings.SourceCall
         val source = catalog.requireMemberSource(call.source)
-        val selection = MemberInvocationBinding.bind(invocation.definition, root, invocation.bindings, invocation.arguments, source, catalog::memberDimensionMapping)
+        val selection = MemberInvocationBinding.bind(owner, root, invocation.bindings, invocation.arguments, source, catalog::memberDimensionMapping)
         return when (full) {
             is ExecutableMemberInput.Computed -> full.copy(callId = root.callId, scope = scope, selection = selection)
             is ExecutableMemberInput.Projection -> projectionMember(source as MemberSource.Projection, selection, root.callId, scope)

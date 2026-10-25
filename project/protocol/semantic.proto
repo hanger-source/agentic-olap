@@ -100,18 +100,22 @@ message RelationSlot { string name = 1; repeated SetOutput outputs = 2; StringLi
 message CalculationParameter { string kind = 1; string value_type = 2; repeated DimensionSlot allowed_dimensions = 3; CalculationBinding default_value = 4; MetricValueContract value_contract = 5; }
 message CalculationScope { CalculationRoot root = 1; map<string, CalculationInput> inputs = 2; repeated Stage stages = 3; }
 message CalculationInput { string mode = 1; CalculationScope computation = 2; }
-message CalculationRoot { oneof kind { CalculationMeasures measures = 1; CalculationMembers members = 2; string relation = 3; string input = 4; SetCombination set = 5; ObjectMeasure object_measure = 6; AlignMeasurements align_measurements = 7; ObservationStatistics observation_statistics = 8; } }
-message CalculationMeasures { repeated CalculationCall calls = 1; repeated string group_slots = 2; repeated string grouping_arguments = 3; optional string time_slot = 4; CalculationBinding range = 5; map<string, CalculationBinding> clocks = 6; repeated string population_call_ids = 7; GroupingLevels grouping_levels = 8; }
-message CalculationCall { string call_id = 1; CallTarget target = 2; string output_alias = 3; map<string, string> dimension_slots = 4; map<string, string> member_slots = 5; map<string, string> measurement_slots = 6; map<string, string> relation_slots = 7; map<string, CalculationBinding> arguments = 8; CalculationBinding source_condition = 9; }
-message CallTarget { oneof kind { MetricRef fixed = 1; string measurement = 2; } }
-message CalculationMembers { string call_id = 1; string slot = 2; repeated MemberProjection outputs = 3; CalculationBinding range = 4; map<string, CalculationBinding> clocks = 5; MemberCondition condition = 6; }
-message MemberProjection { string output_alias = 1; string slot = 2; DimensionRef dimension = 3; }
+message CalculationRoot { oneof kind { CalculationMeasures measures = 1; CalculationMembers members = 2; string relation = 3; string input = 4; SetCombination set = 5; ObjectMeasure object_measure = 6; AlignMeasurements align_measurements = 7; ObservationStatistics observation_statistics = 8; CalculationCompute compute = 9; } }
+message DimensionReference { oneof kind { string parameter = 1; DimensionRef published = 2; } }
+message CalculationTimeRange { DimensionReference dimension = 1; CalculationBinding window = 2; }
+message CalculationMeasures { repeated CalculationCall calls = 1; repeated DimensionReference grouping = 2; repeated string grouping_arguments = 3; CalculationTimeRange time_range = 4; map<string, CalculationBinding> clocks = 5; CalculationBinding source_condition = 6; DimensionCondition output_condition = 7; repeated EventCondition source_event_conditions = 8; RowPopulation population = 9; GroupingLevels grouping_levels = 10; }
+message CalculationCall { string call_id = 1; CallTarget target = 2; string output_alias = 3; map<string, string> dimension_slots = 4; map<string, string> member_slots = 5; map<string, string> measurement_slots = 6; map<string, string> relation_slots = 7; map<string, CalculationBinding> arguments = 8; CalculationBinding source_condition = 9; map<string, MemberBinding> members = 10; map<string, RelationBinding> relations = 11; }
+message CallTarget { oneof kind { MetricRef fixed = 1; string measurement = 2; MetricInstanceRef instance = 3; } }
+message MemberTarget { oneof kind { string parameter = 1; MemberRef source = 2; } }
+message CalculationMembers { string call_id = 1; MemberTarget target = 2; repeated MemberProjection outputs = 3; CalculationBinding range = 4; map<string, CalculationBinding> clocks = 5; MemberCondition condition = 6; map<string, CalculationBinding> arguments = 7; map<string, MemberBinding> members = 8; map<string, RelationBinding> relations = 9; }
+message MemberProjection { string output_alias = 1; string slot = 2; DimensionReference dimension = 3; }
 message SetProjection { string input_id = 1; repeated string symbols = 2; }
 message SetCombination { string operation = 1; bool all = 2; repeated SetProjection inputs = 3; repeated SetOutput output_slots = 4; }
 message ObjectMeasure { CalculationScope measurement = 1; CalculationScope objects = 2; repeated ObjectRole roles = 3; }
 message ObjectRole { repeated string object_keys = 1; ObjectTarget target = 2; }
-message ObjectTarget { oneof kind { string event_role = 1; RecordOutputs record_outputs = 2; } }
+message ObjectTarget { oneof kind { string event_role = 1; RecordOutputs record_outputs = 2; RecordCallOutputs record_call_outputs = 3; } }
 message RecordOutputs { string member_slot = 1; repeated string keys = 2; }
+message RecordCallOutputs { repeated string input_path = 1; string call_id = 2; repeated string keys = 3; }
 message AlignMeasurements { map<string, AlignedInput> inputs = 1; repeated string observation_keys = 2; AlignmentPopulation population = 3; }
 message AlignedInput { CalculationScope computation = 1; map<string, string> keys = 2; repeated AlignedValue values = 3; }
 message AlignedValue { string symbol = 1; string output_alias = 2; string no_match = 3; }
@@ -125,18 +129,12 @@ message GroupingLevel { string id = 1; repeated string group_by = 2; }
 message BoundGroupingLevels { string output_alias = 1; repeated BoundGroupingLevel levels = 2; }
 message BoundGroupingLevel { string id = 1; repeated string group_by = 2; int64 code = 3; }
 
-message QueryScope { QueryRoot root = 1; map<string, QueryInput> inputs = 2; repeated Stage stages = 3; }
-message QueryInput { string mode = 1; QueryScope computation = 2; }
-message QueryRoot { oneof kind { QueryMeasures measures = 1; QueryMembers members = 2; string input = 3; SetCombination set = 4; QueryCompute compute = 5; } }
-message QueryCompute { Calculation calculation = 1; CalculationBindings bindings = 2; map<string, CalculationBinding> arguments = 3; map<string, MemberBinding> members = 4; map<string, RelationBinding> relations = 5; }
-message QueryInvocation { string call_id = 1; MetricInstanceRef instance = 2; string output_alias = 3; map<string, CalculationBinding> arguments = 4; map<string, MemberBinding> members = 5; map<string, RelationBinding> relations = 6; DimensionCondition source_condition = 7; }
-message QueryMeasures { repeated QueryInvocation calls = 1; repeated DimensionRef grouping = 2; QueryTimeRange source_time_range = 3; map<string, TemporalClock> source_clocks = 4; DimensionCondition source_condition = 5; DimensionCondition output_condition = 6; repeated EventCondition source_event_conditions = 7; RowPopulation population = 8; QueryGroupingLevels grouping_levels = 9; }
-message QueryTimeRange { DimensionRef dimension = 1; TemporalWindow window = 2; }
+message CalculationCompute { Calculation calculation = 1; ComputeBindings bindings = 2; map<string, CalculationBinding> arguments = 3; }
+message ComputeBindings { oneof kind { ExplicitComputeBindings explicit = 1; ParentSlotBindings parent_slots = 2; } }
+message ExplicitComputeBindings { CalculationBindings bindings = 1; map<string, MemberBinding> members = 2; map<string, RelationBinding> relations = 3; }
+message ParentSlotBindings { map<string, string> dimension_slots = 1; map<string, string> member_slots = 2; map<string, string> measurement_slots = 3; map<string, string> relation_slots = 4; }
 message EventCondition { string event_id = 1; string event_version = 2; DimensionCondition condition = 3; }
 message RowPopulation { string mode = 1; repeated string call_ids = 2; StringList input_ids = 3; }
-message QueryGroupingLevels { string output_alias = 1; repeated QueryGroupingLevel levels = 2; }
-message QueryGroupingLevel { string id = 1; repeated DimensionRef dimensions = 2; }
-message QueryMembers { string call_id = 1; MemberRef source = 2; map<string, CalculationBinding> arguments = 3; repeated MemberProjection outputs = 4; TemporalWindow range = 5; map<string, TemporalClock> clocks = 6; MemberCondition condition = 7; map<string, MemberBinding> members = 8; map<string, RelationBinding> relations = 9; }
 
 message ResultExpression { oneof kind { ResultCall call = 1; ResultArgument argument = 2; string symbol = 3; ScalarLiteral literal = 4; TypedLiteral typed_literal = 5; QuantityLiteral quantity_literal = 6; ResultOperation operation = 7; ResultExpressions row = 8; ResultCase case_when = 9; ResultCast cast = 10; ResultRound round = 11; ResultNumeric numeric = 12; CollectionSort collection_sort = 13; CollectionText collection_text = 14; RowField row_field = 15; WeightedContribution weighted_contribution = 16; UniformAllocation uniform_allocation = 17; ResultNativeCall native_call = 18; } }
 message ResultCall { string function = 1; repeated ResultExpression arguments = 2; }

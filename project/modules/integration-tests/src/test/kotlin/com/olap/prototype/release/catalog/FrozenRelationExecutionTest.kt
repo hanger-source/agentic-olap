@@ -128,7 +128,7 @@ class FrozenRelationExecutionTest {
                 SemanticExpression.Reference(SemanticExpression.ReferenceKind.ROLE_LOGIC_UNIT, "destination.id", 1, "destination")))
             val catalog = frozen(fixture.release(amount(), true, expression, LOCAL, mapOf("destination" to DESTINATION)))
             val predicate = DimensionCondition.Predicate("compound", CITY, MemberCondition.Operator.EQ, listOf(Calculation.Scalar(ScalarValueType.NUMBER, "17.00")))
-            val input = request(listOf(call(catalog, "payment_total", "amount")), events = listOf(QueryComputation.EventCondition("payment", "1", predicate)))
+            val input = request(listOf(call(catalog, "payment_total", "amount")), events = listOf(Calculation.EventCondition("payment", "1", predicate)))
             assertEquals(listOf(listOf(BigDecimal("10.00"))), execute(fixture, catalog, input))
             val damaged = withAssets(catalog.catalog, dimensionBindings = catalog.catalog.dimensionBindings + ("city_binding@1" to
                 catalog.catalog.dimensionBindings.getValue("city_binding@1").copy(roles = emptyMap())))
@@ -139,9 +139,7 @@ class FrozenRelationExecutionTest {
     @Test
     fun executesFrozenCalculationWithoutAssigningItAFactEvent(@TempDir directory: Path) {
         FrozenPublicationFixture(directory, "duckdb", true).use { fixture ->
-            val calculation = MetricCalculation(Calculation(emptyList(), emptyList(), emptyList(), emptyList(), emptyMap(), Calculation.Scope(Calculation.Measures(
-                listOf(Calculation.Call("payment", Calculation.Fixed(MetricRef("amount", "1")), "value", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()))),
-                emptyList(), emptyList(), null, null, emptyMap(), Calculation.Population(listOf("payment")), null), emptyMap(), emptyList())), "value", emptyList(), money())
+            val calculation = MetricCalculation(Calculation(emptyList(), emptyList(), emptyList(), emptyList(), emptyMap(), Calculation.Scope(Calculation.Measures(listOf(Calculation.Call("payment", Calculation.Fixed(MetricRef("amount", "1")), "value", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), emptyMap())), emptyList(), emptyList(), null, emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(listOf("payment")), null), emptyMap(), emptyList())), "value", emptyList(), money())
             val catalog = frozen(fixture.release(amount() + ("complete_amount" to calculation), true))
             assertEquals(listOf(listOf(BigDecimal("1099.00"))), execute(fixture, catalog, request(listOf(call(catalog, "completed", "complete_amount")), timed = false)))
         }
@@ -154,9 +152,9 @@ class FrozenRelationExecutionTest {
             listOf("杭州", "不存在的目的地").forEach { city ->
                 val condition = DimensionCondition.Predicate("city_filter", CITY, MemberCondition.Operator.EQ, listOf(Calculation.Scalar(ScalarValueType.TEXT, city)))
                 val calls = listOf(call(catalog, "payment_total", "amount"))
-                val rows = execute(fixture, catalog, request(calls, events = listOf(QueryComputation.EventCondition("payment", "1", condition))))
+                val rows = execute(fixture, catalog, request(calls, events = listOf(Calculation.EventCondition("payment", "1", condition))))
                 if (city == "杭州") assertEquals(listOf(listOf(BigDecimal("30.00"))), rows) else assertNull(rows.first().first())
-                assertThrows(IllegalArgumentException::class.java) { bindFrozen(catalog, request(calls, events = listOf(QueryComputation.EventCondition("payment", "2", condition)))) }
+                assertThrows(IllegalArgumentException::class.java) { bindFrozen(catalog, request(calls, events = listOf(Calculation.EventCondition("payment", "2", condition)))) }
             }
         }
     }

@@ -16,6 +16,17 @@ internal class ExecutableObjectQualification(private val localInputs: (ScopeId) 
     }
     fun facts(input: ExecutableMetricInput): List<ExecutableObjectRestriction> = facts[input]?.toList() ?: emptyList()
     fun records(input: ExecutableInputScope): List<ExecutableObjectRestriction> = records[input]?.toList() ?: emptyList()
+    fun attachRecordCall(input: ExecutableInputScope, objects: ExecutableInputScope, objectScope: ScopeId, role: Calculation.ObjectRole) {
+        val target = role.target as Calculation.RecordCallOutputs
+        val root = input.root as? ExecutableInputRoot.Members ?: throw IllegalArgumentException("record call target must identify an actual member root at its exact input path")
+        val source = root.input
+        require(source.callId == target.callId) { "record call target differs from the actual member call at its exact input path" }
+        require(input.postOps.none { it is PostOperationContract.SelectVersions || it is PostOperationContract.ObserveWindow }) { "object qualification must select the formed record boundary after version/window observation" }
+        require(!consumesCompletedScope(objects, input, Collections.newSetFromMap(IdentityHashMap<ExecutableInputScope, Boolean>()))) { "object qualification cannot rewrite the completed records used to form its own object population" }
+        val mapped = target.keys.map { requireNotNull(source.outputs[it]) { "record call key is not an actual projected member output" } }
+        require(mapped.size == role.objectKeys.size) { "object qualification must map the complete record object tuple" }
+        records.getOrPut(input) { mutableListOf() }.add(ExecutableObjectRestriction(objectScope, role.objectKeys, target, mapped, source.meanings))
+    }
     fun attach(input: ExecutableInputScope, objects: ExecutableInputScope, objectScope: ScopeId, role: Calculation.ObjectRole,
         recordSource: ExecutableMemberInput?, visited: MutableSet<ExecutableInputScope>): Int {
         if (!visited.add(input)) return 0

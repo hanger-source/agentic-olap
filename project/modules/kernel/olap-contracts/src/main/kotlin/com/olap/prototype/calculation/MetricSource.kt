@@ -157,22 +157,54 @@ class MetricSource(callPath: List<String>, val origin: Origin, val event: EventR
         }
 
         private fun calculation(calculation: Calculation, bindings: Map<String, CalculationBindings.Member>, measurements: Map<String, MetricInstanceRef>, path: List<String>, fixedSegment: MutableSet<MetricRef>, capture: Boolean) {
+            require(path.size <= ScopedInputContract.MAX_DEPTH * 2) { "calculation source positions exceed the depth budget" }
             calculation.memberSlots.forEach { slot -> slot.fixedSource?.let { member(it, path, null, null, false) } }
             if (declarationGraph) {
+                calculation.memberCalls().forEach { root -> (root.target as? Calculation.MemberSource)?.let { target ->
+                    member(target.source, path, CalculationBindings.SourceCall(target.source, root.arguments,
+                        root.outputs.associate { it.slot to it.slot }, root.members, root.relations), root, false)
+                } }
                 bindings.values.filterIsInstance<CalculationBindings.SourceCall>().forEach { member(it.source, path, it, null, false) }
                 measurements.values.forEach { instance(it, path, false) }
                 calculation.callSites().forEach { site ->
                     val fixed = site.call.target as? Calculation.Fixed
                     if (fixed != null) metric(fixed.metric, emptyMap(), emptyMap(), path + site.path + listOf("\$metric", site.call.callId), fixedSegment, false)
                 }
+                fun templates(scope: Calculation.Scope, position: List<String>) {
+                    (scope.root as? Calculation.Compute)?.let { compute(it, bindings, measurements, position, fixedSegment, false) }
+                    scope.children().forEach { (id, child) -> templates(child.computation, position + listOf("\$input", id)) }
+                }
+                templates(calculation.computation, path)
             } else scope(calculation.computation, bindings, measurements, path, fixedSegment, capture)
+        }
+
+        private fun compute(root: Calculation.Compute, bindings: Map<String, CalculationBindings.Member>, measurements: Map<String, MetricInstanceRef>, path: List<String>, fixedSegment: MutableSet<MetricRef>, capture: Boolean) {
+            val mapping = root.bindings as? Calculation.ParentSlots
+                ?: throw IllegalArgumentException("frozen calculation templates must forward declared parent slots")
+            val childMembers = linkedMapOf<String, CalculationBindings.Member>()
+            mapping.memberSlots.forEach { (child, parent) ->
+                val selected = bindings[parent]
+                require(declarationGraph || selected != null) { "nested member slot is not bound" }
+                if (selected != null) childMembers[child] = selected
+            }
+            val childMeasurements = linkedMapOf<String, MetricInstanceRef>()
+            mapping.measurementSlots.forEach { (child, parent) ->
+                val selected = measurements[parent]
+                require(declarationGraph || selected != null) { "nested measurement slot is not bound" }
+                if (selected != null) childMeasurements[child] = selected
+            }
+            calculation(root.calculation, childMembers, childMeasurements, path + "\$calculation", fixedSegment, capture)
         }
 
         private fun scope(scope: Calculation.Scope, bindings: Map<String, CalculationBindings.Member>, measurements: Map<String, MetricInstanceRef>, path: List<String>, fixedSegment: MutableSet<MetricRef>, capture: Boolean) {
             require(path.size <= ScopedInputContract.MAX_DEPTH * 2) { "calculation source positions exceed the depth budget" }
             when (val root = scope.root) {
                 is Calculation.Members -> {
-                    val selected = requireNotNull(bindings[root.slot]) { "member slot is not bound" }
+                    val selected = when (val target = root.target) {
+                        is Calculation.MemberParameter -> requireNotNull(bindings[target.slot]) { "member slot is not bound" }
+                        is Calculation.MemberSource -> CalculationBindings.SourceCall(target.source, root.arguments,
+                            root.outputs.associate { it.slot to it.slot }, root.members, root.relations)
+                    }
                     if (selected is CalculationBindings.SourceCall) member(selected.source, path + listOf("\$member", root.callId), selected, root, capture)
                 }
                 is Calculation.Measures -> root.calls.forEach { call ->
@@ -180,6 +212,7 @@ class MetricSource(callPath: List<String>, val origin: Origin, val event: EventR
                     val supplied = CalculationInstantiation.memberBindings(call, bindings)
                     when (val target = call.target) {
                         is Calculation.Measurement -> instance(requireNotNull(measurements[target.slot]) { "measurement slot is not bound" }, position, capture, supplied)
+                        is Calculation.Instance -> throw IllegalArgumentException("frozen calculation dependencies must adopt exact instances through formal measurement slots")
                         is Calculation.Fixed -> {
                             val childMeasurements = TreeMap<String, MetricInstanceRef>()
                             call.measurementSlots.forEach { (child, parent) -> childMeasurements[child] = requireNotNull(measurements[parent]) { "nested measurement slot is not bound" } }
@@ -187,6 +220,7 @@ class MetricSource(callPath: List<String>, val origin: Origin, val event: EventR
                         }
                     }
                 }
+                is Calculation.Compute -> compute(root, bindings, measurements, path, fixedSegment, capture)
                 else -> Unit
             }
             scope.children().forEach { (id, child) -> this.scope(child.computation, bindings, measurements, path + listOf("\$input", id), fixedSegment, capture) }

@@ -92,9 +92,8 @@ class FrozenStatisticsExecutionTest {
         val projectPermission = PostProcessCapability("project", "PROJECT", "输出完成合计", StageAuthorization.current("PROJECT"), 2, null, null, null, null, null, true, false, false, false)
         listOf("h2", "duckdb").forEach { dialect -> listOf(false, true).forEach { internal -> FrozenPublicationFixture(directory, dialect, true).use { fixture ->
             val completed = Calculation.Measures(listOf(
-                Calculation.Call("first", Calculation.Fixed(MetricRef("maximum", "1")), "first", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted())),
-                Calculation.Call("second", Calculation.Fixed(MetricRef("maximum", "1")), "second", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()))),
-                emptyList(), emptyList(), null, null, emptyMap(), Calculation.Population(listOf("first", "second")), null)
+                Calculation.Call("first", Calculation.Fixed(MetricRef("maximum", "1")), "first", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), emptyMap()),
+                Calculation.Call("second", Calculation.Fixed(MetricRef("maximum", "1")), "second", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), emptyMap())), emptyList(), emptyList(), null, emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(listOf("first", "second")), null)
             val factor = MetricValueContract(MetricValueContract.Fixed(MetricValueContract.ONE), MetricValueContract.Exact(),
                 MetricValueContract.Decimal(8, 0, MetricValueContract.Rounding.NONE), emptyMap(), MetricValueContract.Overflow.FAIL)
             val scaled = Derive(ResultNumeric(ResultOperation(ResultOperator.MULTIPLY, listOf(ResultSymbol("total"), ResultArgument("factor", ScalarValueType.NUMBER))),
@@ -104,9 +103,9 @@ class FrozenStatisticsExecutionTest {
                 "scaled", emptyList(), floating)
             val release = fixture.release(if (internal) mapOf("maximum" to maximum, "complete_total" to calculation) else mapOf("maximum" to maximum), false)
             val catalog = frozen(release, if (internal) emptyList() else listOf(derivePermission, projectPermission))
-            val computation = if (internal) computation(request(listOf(QueryComputation.Invocation("completed", adoptedInstance(catalog, "complete_total"), "total", mapOf("factor" to Calculation.Scalar(ScalarValueType.NUMBER, "2")), emptyMap(), emptyMap(), DimensionCondition.Unrestricted())), timed = false)) else {
+            val computation = if (internal) computation(request(listOf(Calculation.Call("completed", Calculation.Instance(adoptedInstance(catalog, "complete_total")), "total", emptyMap(), emptyMap(), emptyMap(), emptyMap(), mapOf("factor" to Calculation.Scalar(ScalarValueType.NUMBER, "2")), Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), emptyMap())), timed = false)) else {
                 val root = computation(request(listOf(call(catalog, "first", "maximum"), call(catalog, "second", "maximum")), timed = false)).root
-                QueryComputation.Scope(root, emptyMap(), listOf(addition, projectTotal))
+                Calculation.Scope(root, emptyMap(), listOf(addition, projectTotal))
             }
             PublishedQueryDefinitionFixture(directory, "$dialect-$internal-stages", release, catalog).use { definitions ->
                 val saved = definitions.service.save(definitions.command("native_total", computation), "tester")

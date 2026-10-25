@@ -48,7 +48,13 @@ internal object QuantityProvenance {
 
     /** 只用于原贡献等价性证明；不限制显式运算，也不把类型扩容当作新的舍入。 */
     fun lossless(value: Provenance): Boolean = when (value) {
-        is Declared -> MetricValueContract.resultFits(value.inputDeclaration.result, value.declaration.result)
+        is Declared -> {
+            val result = value.declaration.result
+            // 可变关联数的除法能产生新小数；源值原scale不能证明分配输出的舍入无损。
+            if (value.input is UniformAllocation && (value.declaration.arithmetic !is MetricValueContract.Exact ||
+                result is MetricValueContract.BinaryFloat || result is MetricValueContract.Decimal && result.rounding != MetricValueContract.Rounding.NONE)) false
+            else MetricValueContract.resultFits(value.inputDeclaration.result, result)
+        }
         is Quantized -> when (val result = value.inputDeclaration.result) {
             is MetricValueContract.Decimal -> result.scale <= value.scale
             is MetricValueContract.Integer -> value.scale >= 0

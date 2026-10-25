@@ -2,7 +2,6 @@ package com.olap.prototype.dsl
 
 import com.olap.prototype.dsl.transport.CapabilityRegistry
 import com.olap.prototype.dsl.transport.CapabilityContract
-import com.olap.prototype.query.QueryComputation
 import com.olap.prototype.query.GroupingLevels
 import com.olap.prototype.query.PostOperationContract
 import com.olap.prototype.calculation.Calculation
@@ -40,7 +39,7 @@ data class ApiOverview(val formatVersion: String, val dslApiVersion: String, val
 
 /** 结构来自真实公开声明；局部语义规则只读取已知模型自身合同，不执行任意 getter 或工厂。 */
 object ApiDiscovery {
-    const val VERSION = "agentic-olap-kotlin-dsl/v7"
+    const val VERSION = "agentic-olap-kotlin-dsl/v8"
     val imports: List<String> = listOf("com.olap.prototype.dsl.*", "com.olap.prototype.governance.contract.*",
         "com.olap.prototype.governance.contract.GovernanceReadRequests.AssetVersionRequest",
         "com.olap.prototype.governance.contract.GovernanceReadRequests.DefinitionDependenciesRequest",
@@ -111,7 +110,8 @@ object ApiDiscovery {
             }
         }
         CapabilityRegistry.all().forEach { addJava(it.inputType); addJava(it.outputType) }
-        listOf(Calculation::class, QueryComputation.Scope::class, ScriptValue::class, ScriptArguments::class, Caller::class,
+        listOf(Calculation::class, Calculation.Scope::class, Computations::class, CalculationScopeBuilder::class, InputMode::class,
+            ScriptValue::class, ScriptArguments::class, Caller::class,
             OlapEnvironment::class).forEach(::addClass)
         found
     }
@@ -129,7 +129,11 @@ object ApiDiscovery {
         type.java.enclosingClass?.kotlin?.qualifiedName,
         listOfNotNull(type.primaryConstructor?.takeIf { it.visibility == KVisibility.PUBLIC }?.let { constructor -> ApiConstructor(constructor.parameters.map(::parameter)) }),
         properties(type, if (type.objectInstance != null) access(type) else null),
-        if (type.objectInstance != null) functions(type, access(type)) else emptyList(),
+        when {
+            type.objectInstance != null -> functions(type, access(type))
+            type == CalculationScopeBuilder::class -> functions(type, "this")
+            else -> emptyList()
+        },
         type.companionObject?.takeIf { it.visibility == KVisibility.PUBLIC }?.let { companion ->
             val access = access(companion)
             ApiCompanion(requireNotNull(companion.qualifiedName), access, properties(companion, access), functions(companion, access))
@@ -137,7 +141,10 @@ object ApiDiscovery {
         type.sealedSubclasses.mapNotNull { it.qualifiedName }.sorted(),
         type.java.enumConstants?.map { (it as Enum<*>).name } ?: emptyList(),
         when (type) {
+            CalculationScopeBuilder::class -> mapOf("receiverContext" to "Computations.scope(root) { ... }",
+                "construction" to "CREATED_BY_SCOPE", "result" to "Calculation.Scope")
             Calculation.Call::class -> Calculation.Call.contract()
+            Calculation.Compute::class -> Calculation.Compute.contract()
             com.olap.prototype.warehouse.contract.SourceAdoptionRegistrationRequest::class ->
                 com.olap.prototype.warehouse.contract.SourceAdoptionRegistrationRequest.contract()
             com.olap.prototype.warehouse.contract.SourceAdoptions::class ->
@@ -154,8 +161,7 @@ object ApiDiscovery {
             PostOperationContract.ResultGrouping::class -> PostOperationContract.ResultGrouping.contract()
             Calculation.SetCombination::class -> Calculation.SetCombination.contract()
             Calculation.SetProjection::class -> Calculation.SetProjection.contract()
-            QueryComputation.SetInputs::class -> QueryComputation.SetInputs.contract()
-            GroupingLevels::class, QueryComputation.Levels::class -> GroupingLevels.contract()
+            GroupingLevels::class -> GroupingLevels.contract()
             QueryRunRequest::class -> QueryRunRequest.contract()
             QueryRunListRequest::class -> QueryRunListRequest.contract()
             com.olap.prototype.query.contract.QueryExplanationRequest::class -> com.olap.prototype.query.contract.QueryExplanationRequest.contract()
@@ -274,9 +280,8 @@ object ApiDiscovery {
         ApiExample("执行并返回回执", "完整 Query 由本次代码构造，执行经正式发布授权和结果交付。", """
             val publication = QueryCapabilityRequest(parameters.text("scenarioId"), parameters.decimal("scenarioVersion").longValueExact(), parameters.text("releaseId"), parameters.text("releaseVersion"))
             val source = MemberRef(parameters.text("memberSourceId"), parameters.decimal("memberSourceVersion").longValueExact())
-            val computation = scope(QueryComputation.Members("population", source, emptyMap(),
-                listOf(QueryComputation.Slot("identity", parameters.text("identitySlot"))),
-                null, emptyMap(), MemberCondition.Unrestricted(), emptyMap(), emptyMap()))
+            val computation = Computations.members("population", source, emptyMap(),
+                listOf(Calculation.MemberProjection("identity", parameters.text("identitySlot"), null)))
             val receipt = olap.queries.execute(QueryExecutionRequest(QuerySelection.Inline(QueryIntent(publication, computation)), true, "本次分析", null))
             olap.output(receipt)
         """.trimIndent()),

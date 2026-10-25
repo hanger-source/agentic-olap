@@ -3,7 +3,6 @@ package com.olap.prototype.management.governance
 import com.olap.prototype.calculation.Calculation
 import com.olap.prototype.integration.RuntimeDeploymentLimits
 import com.olap.prototype.member.MemberCondition
-import com.olap.prototype.query.QueryComputation
 import com.olap.prototype.query.ScalarValueType
 import com.olap.prototype.query.contract.QueryCapabilityRequest
 import com.olap.prototype.query.contract.QueryExecutionReceipt
@@ -34,7 +33,7 @@ class PublishedQueryHistoryTest {
         PlatformDatabase.inMemory().use { database ->
             val c = ComputedOrderFixture(database, directory); c.publish()
             val publication = c.publication()
-            val approved = QueryComputation.Scope(c.formed(mapOf("window" to c.july), condition = MemberCondition.Predicate("amount", MemberCondition.Operator.GTE,
+            val approved = Calculation.Scope(c.formed(mapOf("window" to c.july), condition = MemberCondition.Predicate("amount", MemberCondition.Operator.GTE,
                 listOf(Calculation.Scalar(ScalarValueType.NUMBER, "50")))), emptyMap(), emptyList())
             val original = c.freeze(approved)
             val repository = JdbcQueryDefinitionRepository(database, RuntimeDeploymentLimits.io)

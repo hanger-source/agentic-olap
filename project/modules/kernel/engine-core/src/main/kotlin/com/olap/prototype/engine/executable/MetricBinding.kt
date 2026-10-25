@@ -11,38 +11,35 @@ import com.olap.prototype.query.QueryStageAnalysis.ScopeId
 /** 精确调用、测量要求、分层与事实采用的规则owner。 */
 internal class MetricBinding(private val session: ExecutableBindingSession, private val catalog: ExecutableCatalog,
     private val dimensions: ExecutableDimensionBindings, private val memberSources: MemberSources) {
-    fun published(declaration: QueryComputation.Invocation, scope: ScopeId, caller: ScopeAssembly, depth: Int): ExecutableMetricCall.Invocation {
-        val instance = catalog.requireMetricInstance(declaration.instance)
-        val metric = catalog.requireMetric(instance.definition)
-        val bindings = when (val definition = metric.definition) {
-            is MetricCalculation -> CalculationInstantiation.relationArguments(definition.calculation,
-                CalculationInstantiation.memberArguments(definition.calculation, instance.bindings, declaration.members), declaration.relations)
-            is MetricDefinition.FactMeasure -> {
-                require(declaration.members.isEmpty()) { "fact measures do not declare external member parameters" }
-                require(declaration.relations.isEmpty()) { "fact measures do not declare external relation parameters" }
-                instance.bindings
-            }
-        }
-        return InvocationBinding(CalculationInstantiation.Child(metric.reference, declaration.arguments, bindings, instance.fixedArguments, null))
-            .published(declaration, scope, instance, caller, depth)
-    }
     fun bindChild(declaration: Calculation.Call, parent: CalculationBinding, measures: Calculation.Measures,
-        selection: ExecutableMeasureSelection, scope: ScopeId, depth: Int): ExecutableMetricCall {
+        selection: ExecutableMeasureSelection, caller: ScopeAssembly, scope: ScopeId, depth: Int): ExecutableMetricCall {
+        val target = declaration.target
+        require(parent.definition != null || target is Calculation.Instance) { "a query selects an exact published metric instance; formal or fixed definition calls require a parameterized calculation" }
         val child = CalculationInstantiation.child(declaration, parent.definition, parent.bindings, parent.arguments,
             catalog::requireMetricInstance, { catalog.requireMetric(it).definition })
         val metric = catalog.requireMetric(child.metric)
         val fact = metric.definition as? MetricDefinition.FactMeasure
         val actualDimensions = if (fact != null) selection.groupingBindings.values.toList() else child.bindings.dimensions.values + child.bindings.groupingCandidates.values.flatten()
-        val inherited = declaration.memberSlots.mapValues { (_, parentSlot) -> parent.fullMember(parentSlot, scope, depth) }
-        val call = InvocationBinding(child).child(declaration, scope, parent, actualDimensions, inherited)
+        val invocation = InvocationBinding(child)
+        val call = if (target is Calculation.Instance) invocation.published(declaration, scope, catalog.requireMetricInstance(target.instance), caller, depth + 1)
+            else invocation.child(declaration, scope, parent, actualDimensions,
+                declaration.memberSlots.mapValues { (_, parentSlot) -> parent.fullMember(parentSlot, scope, depth) })
+        val timeBinding = (measures.timeRange?.dimension as? Calculation.DimensionParameter)?.let { parent.bindings.dimensions[it.slot] }
         if (fact != null) {
             selection.groupingBindings.values.forEach { catalog.requireDimensionEvent(it, fact.event) }
-            if (selection.timeRange != null) catalog.requireDimensionEvent(parent.bindings.dimensions.getValue(requireNotNull(measures.timeSlot)), fact.event)
+            if (selection.timeRange != null && timeBinding != null) catalog.requireDimensionEvent(timeBinding, fact.event)
         }
         val condition = CalculationInstantiation.resolve(declaration.sourceCondition, parent.bindings, parent.arguments) as? Calculation.Condition
             ?: throw IllegalArgumentException("call source condition must resolve to a condition value")
+        var filter = condition.condition
+        if (fact != null) {
+            val rootCondition = CalculationInstantiation.resolve(measures.sourceCondition, parent.bindings, parent.arguments) as Calculation.Condition
+            filter = DimensionCondition.and(rootCondition.condition, filter)
+            measures.sourceEventConditions.filter { it.eventId == fact.event.eventId && it.eventVersion == fact.event.eventVersion.toString() }
+                .forEach { filter = DimensionCondition.and(filter, it.condition) }
+        }
         return bindLevelCall(call, MeasureSelection(if (fact != null) selection else selection.withoutSourceWindow(),
-            condition.condition, measures.timeSlot?.let { parent.bindings.dimensions[it] }), depth + 1, parent.childStack(declaration))
+            filter, timeBinding), depth + 1, parent.childStack(declaration))
     }
 
     private inner class InvocationBinding(child: CalculationInstantiation.Child) {
@@ -54,7 +51,7 @@ internal class MetricBinding(private val session: ExecutableBindingSession, priv
             CalculationInstantiation.resolveMembers(child.bindings.members, child.bindings, arguments), child.bindings.groupingCandidates, child.bindings.measurements, child.bindings.relations)
         init { catalog.requireBoundBindings(metric.definition, bindings) }
 
-        fun published(declaration: QueryComputation.Invocation, scope: ScopeId, instance: MetricInstance, caller: ScopeAssembly, depth: Int): ExecutableMetricCall.Invocation {
+        fun published(declaration: Calculation.Call, scope: ScopeId, instance: MetricInstance, caller: ScopeAssembly, depth: Int): ExecutableMetricCall.Invocation {
             val definition = metric.definition as? MetricCalculation
             val members = if (definition == null) emptyMap() else {
                 val environment = MemberEnvironment(caller.callerInputs(), scope.metric(declaration.callId), scope)
@@ -65,7 +62,7 @@ internal class MetricBinding(private val session: ExecutableBindingSession, priv
                 val environment = MemberEnvironment(caller.callerInputs(), scope.metric(declaration.callId), scope)
                 declaration.relations.keys.associateWith { session.relations.bind(definition.calculation, bindings, it, environment) }
             }
-            return ExecutableMetricCall.Invocation(scope, declaration.callId, CalculationOwner.Metric(declaration.instance), instance.displayName,
+            return ExecutableMetricCall.Invocation(scope, declaration.callId, CalculationOwner.Metric((declaration.target as Calculation.Instance).instance), instance.displayName,
                 declaration.outputAlias, metric, arguments, bindings, null, members, relations)
         }
         fun child(declaration: Calculation.Call, scope: ScopeId, parent: CalculationBinding,

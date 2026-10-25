@@ -269,11 +269,15 @@ internal class ExecutableInputSymbols(private val graph: ExecutableInputGraph,
             roles: List<Calculation.ObjectRole>, owner: ScopeId, identities: IdentityMeanings, visited: MutableSet<ExecutableInputScope>) {
             if (!visited.add(measured)) return
             measured.objectRestrictions.forEach { restriction ->
-                val records = restriction.target as? Calculation.RecordOutputs ?: return@forEach
+                val keys = when (val target = restriction.target) {
+                    is Calculation.RecordOutputs -> target.keys
+                    is Calculation.RecordCallOutputs -> target.keys
+                    is Calculation.EventRole -> return@forEach
+                }
                 if (restriction.objectsScope != objects) return@forEach
                 val roleIndex = roles.indexOfFirst { it.target == restriction.target && it.objectKeys == restriction.objectKeys }
                 check(roleIndex >= 0) { "record restriction differs from its bound object role" }
-                records.keys.forEachIndexed { index, key ->
+                keys.forEachIndexed { index, key ->
                     val expected = requireNotNull(restriction.recordMeanings[key]) { "qualified record object key has no exact bound member meaning" }
                     val symbol = requireSymbol(actual, restriction.objectKeys[index])
                     identities.requireMemberMeaning(symbol, expected,
@@ -367,17 +371,20 @@ internal class ExecutableInputSymbols(private val graph: ExecutableInputGraph,
                 val root = graph.scope(origin.scope)?.root as? ExecutableInputRoot.Measures
                     ?: identityViolation(path, "semantic identity has no bound dimension owner", origin.dimension.toString(), origin.scope.toString())
                 val original = analyses[origin.scope]?.inputs?.firstOrNull { it.id == symbol.id }
-                if (original != null) {
-                    val binding = root.groupingBindings[original.name]
-                        ?: identityViolation(path, "semantic identity has no exact grouping binding", origin.dimension.toString(), original.name)
-                    if (binding.reference != origin.dimension) identityViolation(path, "semantic grouping binding changes its dimension",
-                        origin.dimension.toString(), binding.reference.toString())
-                    return DimensionKey(binding.reference, binding.role)
+                val binding = original?.let { root.groupingBindings[it.name] }
+                val declared = binding?.let { adopted ->
+                    if (adopted.reference != origin.dimension) identityViolation(path, "semantic grouping binding changes its dimension",
+                        origin.dimension.toString(), adopted.reference.toString())
+                    DimensionKey(adopted.reference, adopted.role)
                 }
+                if (declared != null && symbol.dependencies.isEmpty()) return declared
                 val inherited = dependencies(symbol, path, active)
                 if (inherited.any { it !is DimensionKey || it.reference != origin.dimension }) identityViolation(path,
                     "imported semantic identity changes its dimension", origin.dimension.toString(), inherited.joinToString { describe(it) })
-                return agree(inherited, path)
+                val actual = agree(inherited, path)
+                if (declared != null && actual != declared) identityViolation(path,
+                    "semantic grouping binding differs from its completed input identity or role", describe(declared), describe(actual))
+                return actual
             }
 
             private fun set(symbol: Symbol, origin: SetOrigin, path: List<Any>, active: MutableSet<SymbolId>): AlignmentKey {

@@ -9,7 +9,7 @@ import java.time.Instant
 
 /** 精确正文、原始字节哈希及查询内容身份由这一处产生和读取。 */
 object QueryDefinitionArtifact {
-    const val FORMAT_VERSION = "olap-query-definition-artifact/v12"
+    const val FORMAT_VERSION = "olap-query-definition-artifact/v13"
     data class Artifact(val formatVersion: String, val sha256: String, val definition: ByteArray)
 
     fun view(id: String, version: Long, command: QueryDefinitionCommand, context: QueryDefinitionWriteContext): QueryDefinitionView {

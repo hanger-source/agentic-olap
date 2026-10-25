@@ -80,12 +80,9 @@ class ImmutableGovernancePublicationTest {
             val originalHash = f.artifacts.catalogHash(coordinate)
             val originalBytes = GovernanceProto.toProto(publication).toByteArray()
             val city = ScopedInputContract.DimensionRef("travel.trade.destination", "1", "destination")
-            val window = QueryComputation.TimeRange(ScopedInputContract.DimensionRef("travel.trade.business_date", "1", "day"),
-                TemporalWindow(TemporalWindow.ValueType.DATE, TemporalWindow.BOUNDARY, "2026-07-01", "2026-08-01"))
+            val window = Calculation.TimeRange(Calculation.PublishedDimension(ScopedInputContract.DimensionRef("travel.trade.business_date", "1", "day")), Calculation.Range(TemporalWindow(TemporalWindow.ValueType.DATE, TemporalWindow.BOUNDARY, "2026-07-01", "2026-08-01")))
             val instance = f.adoptions.metricAdoption(MetricAdoption.identity(GovernanceOrderFixture.SUBJECT, "pay_amount"), 1).instance
-            fun scope(condition: DimensionCondition = DimensionCondition.Unrestricted(), stages: List<PostOperationContract.ValidatedOperation> = emptyList()) = QueryComputation.Scope(
-                QueryComputation.Measures(listOf(QueryComputation.Invocation("measure", instance, "pay_amount", emptyMap(), emptyMap(), emptyMap(), DimensionCondition.Unrestricted())), listOf(city), window, emptyMap(), condition,
-                    DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(listOf("measure")), null), emptyMap(), stages)
+            fun scope(condition: DimensionCondition = DimensionCondition.Unrestricted(), stages: List<PostOperationContract.ValidatedOperation> = emptyList()) = Calculation.Scope(Calculation.Measures(listOf(Calculation.Call("measure", Calculation.Instance(instance), "pay_amount", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), emptyMap())), (listOf(city)).map { Calculation.PublishedDimension(it) }, emptyList(), window, emptyMap(), Calculation.Condition(condition), DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(listOf("measure")), null), emptyMap(), stages)
             val rows = f.execute(publication, scope()).result.resultFrame.rows
             assertEquals(1, rows.size); assertEquals("杭州", rows.single()["destination"]); assertEquals(0, BigDecimal("120.50").compareTo(BigDecimal(rows.single()["pay_amount"].toString())))
             val amount = GovernanceOrderFixture.money()
@@ -118,7 +115,8 @@ class ImmutableGovernancePublicationTest {
                     privatePredicate = null,
                     roles = emptyMap(),
                     snapshotRule = null,
-                    valueContract = CustomerCalculationDefinitions.approximateMoney(),
+                    valueContract = CustomerCalculationDefinitions.nativeMeanMoney(),
+                    meanTarget = MeanTarget.SOURCE_NATIVE,
                 ),
                 description = "修订口径",
                 businessMeaning = MetricBusinessMeaning("平均支付金额", "元", "订单", emptyList()),

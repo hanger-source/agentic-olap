@@ -44,7 +44,7 @@ class PublishedTimeSemanticsTest {
             val period = period()
             val plain = GovernanceOrderFixture.measurementScope(registered)
             val timed = GovernanceOrderFixture.measurementScope(paid, timeRange = period)
-            val scope = QueryComputation.Scope(plain.root, mapOf("period" to QueryComputation.Input("KEY_ALIGNMENT", timed)), emptyList())
+            val scope = Calculation.Scope(plain.root, mapOf("period" to Calculation.InputScope("KEY_ALIGNMENT", timed)), emptyList())
             val rows = f.execute(publication, scope).result.resultFrame.rows
             assertEquals(1, rows.size)
             assertEquals(BigDecimal("1119.50"), rows.first()["value"])
@@ -154,5 +154,5 @@ class PublishedTimeSemanticsTest {
         businessMeaning = MetricBusinessMeaning("完整登记关系的金额", "元", "完整登记成员", listOf("不按发生期间裁剪")),
         createdBy = "golden"
     )
-    private fun period() = QueryComputation.TimeRange(ScopedInputContract.DimensionRef("travel.trade.business_date", "1", "day"), TemporalWindow(TemporalWindow.ValueType.DATE, TemporalWindow.BOUNDARY, "2026-07-01", "2026-08-01"))
+    private fun period() = Calculation.TimeRange(Calculation.PublishedDimension(ScopedInputContract.DimensionRef("travel.trade.business_date", "1", "day")), Calculation.Range(TemporalWindow(TemporalWindow.ValueType.DATE, TemporalWindow.BOUNDARY, "2026-07-01", "2026-08-01")))
 }

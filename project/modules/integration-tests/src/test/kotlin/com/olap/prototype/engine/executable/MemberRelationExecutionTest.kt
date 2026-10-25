@@ -113,7 +113,7 @@ class MemberRelationExecutionTest {
             val base = catalog(warehouse, "orders", mapOf("orders.id" to "id", "orders.customer" to "customer"), emptyList())
             val units = listOf("id", "customer").associate { "orders.$it@1" to ExecutableLogicUnit("orders.$it", "1", ScalarValueType.NUMBER, null, null, null, it, null, "orders", "1") }
             val request = ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION, "numeric_members", base.manifest.catalogId,
-                QueryComputation.Scope(QueryComputation.Members("members", MemberRef("records", 1), emptyMap(), listOf(QueryComputation.Slot("customer", "customer")), null, emptyMap(), MemberCondition.Unrestricted(), emptyMap(), emptyMap()), emptyMap(), emptyList()))
+                Calculation.Scope(Calculation.Members("members", Calculation.MemberSource(MemberRef("records", 1)), listOf(Calculation.MemberProjection("customer", "customer", null)), null, emptyMap(), MemberCondition.Unrestricted(), emptyMap(), emptyMap(), emptyMap()), emptyMap(), emptyList()))
             val compiler = OlapSemanticCompiler(CalciteRelCompiler(TestConnectors.registry)); warehouse.finishSetup()
             for (type in listOf(ScalarValueType.NUMBER, ScalarValueType.TEXT)) {
                 val outputs = mapOf("id" to property("记录", "record", ScalarValueType.NUMBER, "orders.id"), "customer" to property("客户", "customer", type, "orders.customer"))
@@ -294,9 +294,8 @@ class MemberRelationExecutionTest {
         CalculationBindings(mapOf("customer" to CalculationBindings.Dimension(ScopedInputContract.DimensionRef("customers", "1", "customer"), "customer",
             definitions.analyses.getValue("customers@1").eventMappings.map { it.mappingId })), members, emptyMap(), measurements, emptyMap())
     private fun observationCompute(scope: Calculation.Scope, members: List<Calculation.MemberSlot>, measurements: List<Calculation.MeasurementSlot>, bindings: CalculationBindings) =
-        QueryComputation.Scope(QueryComputation.Compute(Calculation(listOf(customerObservation()), members, measurements, emptyList(), emptyMap(), scope), bindings, emptyMap(), emptyMap(), emptyMap()), emptyMap(), emptyList())
-    private fun observationMeasure(slot: String, grouped: Boolean) = Calculation.Scope(Calculation.Measures(listOf(Calculation.Call("value", Calculation.Measurement(slot), "value", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()))),
-        if (grouped) listOf("customer") else emptyList(), emptyList(), null, null, emptyMap(), Calculation.Population(listOf("value")), null), emptyMap(), emptyList())
+        Calculation.Scope(Calculation.Compute(Calculation(listOf(customerObservation()), members, measurements, emptyList(), emptyMap(), scope), Calculation.ExplicitBindings(bindings, emptyMap(), emptyMap()), emptyMap()), emptyMap(), emptyList())
+    private fun observationMeasure(slot: String, grouped: Boolean) = Calculation.Scope(Calculation.Measures(listOf(Calculation.Call("value", Calculation.Measurement(slot), "value", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), emptyMap())), (if (grouped) listOf("customer") else emptyList()).map { Calculation.DimensionParameter(it) }, emptyList(), null, emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(listOf("value")), null), emptyMap(), emptyList())
     private fun topCustomer(slot: String) = Calculation.Scope(observationMeasure(slot, true).root, emptyMap(), listOf(PostOperationContract.TopN(
         listOf(PostOperationContract.OrderKey("value", "DESC", "LAST"), PostOperationContract.OrderKey("customer", "ASC", "LAST")), 1)))
     private fun orderFormal(name: String, fixed: MemberRef?) = Calculation.MemberSlot(name, "记录", "observations", MemberShape.RECORDS,
@@ -305,7 +304,7 @@ class MemberRelationExecutionTest {
     private fun orderOutputSlots() = listOf("id", "customer", "period", "kind", "amount").associateWith { it }
     private fun orderSource() = CalculationBindings.SourceCall(MemberRef("orders", 1), emptyMap(), orderOutputSlots(), emptyMap(), emptyMap())
     private fun orderRows(slot: String, condition: MemberCondition, operations: List<PostOperationContract.ValidatedOperation>) =
-        Calculation.Scope(Calculation.Members("records", slot, orderOutputSlots().keys.map { Calculation.MemberProjection(it, it) }, null, emptyMap(), condition), emptyMap(), operations)
+        Calculation.Scope(Calculation.Members("records", Calculation.MemberParameter(slot), orderOutputSlots().keys.map { Calculation.MemberProjection(it, it, null) }, null, emptyMap(), condition, emptyMap(), emptyMap(), emptyMap()), emptyMap(), operations)
     private fun memberEquals(slot: String, value: Int) = MemberCondition.Predicate(slot, MemberCondition.Operator.EQ, listOf(Calculation.Scalar(ScalarValueType.NUMBER, value.toString())))
     private fun semanticEquals(column: String, value: Int) = SemanticExpression.Operation(SemanticExpression.Operator.EQ, listOf(SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, "orders.$column", 1), SemanticExpression.Literal(BigDecimal.valueOf(value.toLong()))))
     private fun observationMean() = MetricValueContract(money.unit, MetricValueContract.Approximate("0", "1000000", "1E-9", "1E-9"), MetricValueContract.BinaryFloat(64), emptyMap(), money.overflow)
@@ -315,15 +314,14 @@ class MemberRelationExecutionTest {
         val source = com.olap.prototype.connector.SourceProvider(warehouse.spec.source(), TestConnectors.registry)
         return OlapEngine(OlapSemanticCompiler(CalciteRelCompiler(TestConnectors.registry)), SourceExecutableSqlExecutor({ if (it == source.bindingRef) source else null }, RuntimeDeploymentLimits.result, RuntimeDeploymentLimits.nativeMemoryBytes, null), RuntimeDeploymentLimits.result)
     }
-    private fun execute(engine: OlapEngine, definitions: Definitions, computation: QueryComputation.Scope) = execute(engine, definitions.catalog(), computation)
-    private fun execute(engine: OlapEngine, catalog: ExecutableCatalog, computation: QueryComputation.Scope): ExecutableBusinessResult = engine.execute(catalog,
+    private fun execute(engine: OlapEngine, definitions: Definitions, computation: Calculation.Scope) = execute(engine, definitions.catalog(), computation)
+    private fun execute(engine: OlapEngine, catalog: ExecutableCatalog, computation: Calculation.Scope): ExecutableBusinessResult = engine.execute(catalog,
         ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION, "member_behavior", catalog.manifest.catalogId, computation), observer, RuntimeDeploymentLimits.CONTROL).businessResult
     private fun decimal(value: String) = BigDecimal(value).stripTrailingZeros()
     private fun numericRows(result: ExecutableBusinessResult): List<List<BigDecimal?>> = result.rows.map { row -> row.map { value ->
         if (value is ExecutableBusinessResult.NullValue) null else decimal((value as ExecutableBusinessResult.ScalarValue).value)
     } }.sortedWith(compareBy(nullsFirst()) { it.first() })
-    private fun measures(calls: List<QueryComputation.Invocation>, inputs: Map<String, QueryComputation.Input>) = QueryComputation.Scope(QueryComputation.Measures(calls, emptyList(), null, emptyMap(),
-        DimensionCondition.Unrestricted(), DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(calls.map { it.callId }), null), inputs, emptyList())
+    private fun measures(calls: List<Calculation.Call>, inputs: Map<String, Calculation.InputScope>) = Calculation.Scope(Calculation.Measures(calls, emptyList(), emptyList(), null, emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(calls.map { it.callId }), null), inputs, emptyList())
 
     private fun coreDecimal(precision: Int, scale: Int, rounding: MetricValueContract.Rounding) = MetricValueContract(
         MetricValueContract.Fixed(MetricValueContract.ONE), MetricValueContract.Exact(), MetricValueContract.Decimal(precision, scale, rounding), emptyMap(), MetricValueContract.Overflow.FAIL)
@@ -347,9 +345,9 @@ class MemberRelationExecutionTest {
             MemberResult(declared.entity, declared.role, MemberShape.RAW_BAG, emptyList(), outputs, declared.filterOperators, null, emptyMap(), null)), original.outputExpressions)
         return definitions
     }
-    private fun coreBasis(condition: MemberCondition) = QueryComputation.Scope(QueryComputation.Members("records", MemberRef("orders", 1), emptyMap(), listOf(
-        QueryComputation.MappedDimension("customer", "customer", ScopedInputContract.DimensionRef("customers", "1", "customer")),
-        QueryComputation.Slot("id", "id"), QueryComputation.Slot("amount", "amount")), null, emptyMap(), condition, emptyMap(), emptyMap()), emptyMap(), listOf(
+    private fun coreBasis(condition: MemberCondition) = Calculation.Scope(Calculation.Members("records", Calculation.MemberSource(MemberRef("orders", 1)), listOf(
+        Calculation.MemberProjection("customer", "customer", Calculation.PublishedDimension(ScopedInputContract.DimensionRef("customers", "1", "customer"))),
+        Calculation.MemberProjection("id", "id", null), Calculation.MemberProjection("amount", "amount", null)), null, emptyMap(), condition, emptyMap(), emptyMap(), emptyMap()), emptyMap(), listOf(
         regroup(listOf("customer"), listOf(reduction("amount", ResultAggregation.Sum(coreDecimal(38, 0, MetricValueContract.Rounding.NONE), ResultAggregation.NullPolicy.IGNORE), "numerator"),
             reduction("id", ResultAggregation.Count(false, ResultAggregation.NullPolicy.IGNORE), "denominator"))), Project(listOf("customer", "numerator", "denominator"))))
     private fun coreCalculation(stages: List<PostOperationContract.ValidatedOperation>) = Calculation(listOf(customerObservation()), emptyList(), emptyList(), listOf(
@@ -357,12 +355,9 @@ class MemberRelationExecutionTest {
             SetOutputContract("numerator", SetOutputContract.Quantity(coreDecimal(38, 0, MetricValueContract.Rounding.NONE))),
             SetOutputContract("denominator", SetOutputContract.Quantity(recordCount()))), listOf("customer"))), emptyMap(),
         Calculation.Scope(Calculation.Relation("completed"), emptyMap(), stages))
-    private fun coreQuery(definitions: Definitions, calculation: Calculation, basis: QueryComputation.Scope,
-        outerStages: List<PostOperationContract.ValidatedOperation>) = QueryComputation.Scope(QueryComputation.Compute(calculation,
-        CalculationBindings(observationBindings(definitions, emptyMap(), emptyMap()).dimensions, emptyMap(), emptyMap(), emptyMap(),
-            mapOf("completed" to CalculationBindings.RelationParameter())), emptyMap(), emptyMap(),
-        mapOf("completed" to CalculationBindings.LocalRelation("basis", listOf("customer", "numerator", "denominator").associateWith { it }))),
-        mapOf("basis" to QueryComputation.Input("ROOT", basis)), outerStages)
+    private fun coreQuery(definitions: Definitions, calculation: Calculation, basis: Calculation.Scope,
+        outerStages: List<PostOperationContract.ValidatedOperation>) = Calculation.Scope(Calculation.Compute(calculation, Calculation.ExplicitBindings(CalculationBindings(observationBindings(definitions, emptyMap(), emptyMap()).dimensions, emptyMap(), emptyMap(), emptyMap(),
+            mapOf("completed" to CalculationBindings.RelationParameter())), emptyMap(), mapOf("completed" to CalculationBindings.LocalRelation("basis", listOf("customer", "numerator", "denominator").associateWith { it }))), emptyMap()), mapOf("basis" to Calculation.InputScope("ROOT", basis)), outerStages)
 
     @Test fun finalizesAReusableCompletedRelationWithExactRationalsAndExplicitQuantization(@TempDir directory: Path) {
         coreNumbers(directory).use { warehouse ->
@@ -386,17 +381,15 @@ class MemberRelationExecutionTest {
             val shared = coreCalculation(listOf(Derive(ResultNumeric(quotient, result, null), "saved_mean", "保存定义的十八位商"),
                 Project(listOf("customer", "saved_mean"))))
             definitions.metrics[reference.key()] = ExecutableMetric(reference, MetricCalculation(shared, "saved_mean", listOf("customer"), result))
-            val innerCall = Calculation.Call("ratio", Calculation.Fixed(reference), "forwarded_mean", mapOf("customer" to "customer"),
-                emptyMap(), emptyMap(), mapOf("completed" to "completed"), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()))
+            val innerCall = Calculation.Call("ratio", Calculation.Fixed(reference), "forwarded_mean", mapOf("customer" to "customer"), emptyMap(), emptyMap(), mapOf("completed" to "completed"), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), emptyMap())
             val forwarding = Calculation(shared.dimensionSlots, emptyList(), emptyList(), shared.relationSlots, emptyMap(), Calculation.Scope(
-                Calculation.Measures(listOf(innerCall), listOf("customer"), emptyList(), null, null, emptyMap(), Calculation.Population(listOf("ratio")), null),
+                Calculation.Measures(listOf(innerCall), (listOf("customer")).map { Calculation.DimensionParameter(it) }, emptyList(), null, emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(listOf("ratio")), null),
                 emptyMap(), listOf(Project(listOf("customer", "forwarded_mean")))))
             val forwardedReference = MetricRef("forwarded_completed_ratio", "1")
             definitions.metrics[forwardedReference.key()] = ExecutableMetric(forwardedReference, MetricCalculation(forwarding, "forwarded_mean", listOf("customer"), result))
-            val call = Calculation.Call("forwarded", Calculation.Fixed(forwardedReference), "mean", mapOf("customer" to "customer"),
-                emptyMap(), emptyMap(), mapOf("completed" to "completed"), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()))
+            val call = Calculation.Call("forwarded", Calculation.Fixed(forwardedReference), "mean", mapOf("customer" to "customer"), emptyMap(), emptyMap(), mapOf("completed" to "completed"), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), emptyMap())
             val caller = Calculation(shared.dimensionSlots, emptyList(), emptyList(), shared.relationSlots, emptyMap(), Calculation.Scope(
-                Calculation.Measures(listOf(call), listOf("customer"), emptyList(), null, null, emptyMap(), Calculation.Population(listOf("forwarded")), null),
+                Calculation.Measures(listOf(call), (listOf("customer")).map { Calculation.DimensionParameter(it) }, emptyList(), null, emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(listOf("forwarded")), null),
                 emptyMap(), emptyList()))
             val columns = listOf("customer", "numerator", "denominator", "mean", "mean_two", "round_trip", "rounded_trip", "safe_zero", "lazy_case", "tiny", "mean_plus_one",
                 "lazy_coalesce", "coalesced_mean", "nullif_count", "absolute_numerator", "nullable_alternatives")
@@ -479,29 +472,27 @@ class MemberRelationExecutionTest {
             val relationSlots = listOf("first", "second").map { Calculation.RelationSlot(it, formal.outputs, formal.keys) }
             val calls = references.mapIndexed { index, ref ->
                 val name = if (index == 0) "first" else "second"
-                Calculation.Call(name, Calculation.Fixed(ref), "${name}_mean", mapOf("customer" to "customer"), emptyMap(), emptyMap(),
-                    mapOf("completed" to name), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()))
+                Calculation.Call(name, Calculation.Fixed(ref), "${name}_mean", mapOf("customer" to "customer"), emptyMap(), emptyMap(), mapOf("completed" to name), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), emptyMap())
             }
-            val basis = QueryComputation.Scope(QueryComputation.Members("records", MemberRef("orders", 1), emptyMap(), listOf(
-                QueryComputation.MappedDimension("customer", "customer", ScopedInputContract.DimensionRef("customers", "1", "customer")),
-                QueryComputation.Slot("amount", "amount"), QueryComputation.Slot("kind", "kind")), null, emptyMap(), MemberCondition.Unrestricted(), emptyMap(), emptyMap()), emptyMap(), listOf(
+            val basis = Calculation.Scope(Calculation.Members("records", Calculation.MemberSource(MemberRef("orders", 1)), listOf(
+                Calculation.MemberProjection("customer", "customer", Calculation.PublishedDimension(ScopedInputContract.DimensionRef("customers", "1", "customer"))),
+                Calculation.MemberProjection("amount", "amount", null), Calculation.MemberProjection("kind", "kind", null)), null, emptyMap(), MemberCondition.Unrestricted(), emptyMap(), emptyMap(), emptyMap()), emptyMap(), listOf(
                 regroup(listOf("customer"), listOf(
                     reduction("amount", ResultAggregation.Sum(coreDecimal(38, 0, MetricValueContract.Rounding.NONE), ResultAggregation.NullPolicy.IGNORE), "first_sum"),
                     reduction("amount", ResultAggregation.Count(false, ResultAggregation.NullPolicy.IGNORE), "first_count"),
                     reduction("kind", ResultAggregation.Sum(coreDecimal(38, 0, MetricValueContract.Rounding.NONE), ResultAggregation.NullPolicy.IGNORE), "second_sum"),
                     reduction("kind", ResultAggregation.Count(false, ResultAggregation.NullPolicy.IGNORE), "second_count"))),
                 Project(listOf("customer", "first_sum", "first_count", "second_sum", "second_count"))))
-            fun query(population: List<String>, separateBasis: Boolean = false): QueryComputation.Scope {
+            fun query(population: List<String>, separateBasis: Boolean = false): Calculation.Scope {
                 val calculation = Calculation(shared.dimensionSlots, emptyList(), emptyList(), relationSlots, emptyMap(), Calculation.Scope(
-                    Calculation.Measures(calls, listOf("customer"), emptyList(), null, null, emptyMap(), Calculation.Population(population), null), emptyMap(), emptyList()))
+                    Calculation.Measures(calls, (listOf("customer")).map { Calculation.DimensionParameter(it) }, emptyList(), null, emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(population), null), emptyMap(), emptyList()))
                 val bindings = CalculationBindings(observationBindings(definitions, emptyMap(), emptyMap()).dimensions, emptyMap(), emptyMap(), emptyMap(),
                     listOf("first", "second").associateWith { CalculationBindings.RelationParameter() })
                 val actual = mapOf("first" to CalculationBindings.LocalRelation("basis", mapOf("customer" to "customer", "numerator" to "first_sum", "denominator" to "first_count")),
                     "second" to CalculationBindings.LocalRelation(if (separateBasis) "basis_copy" else "basis", mapOf("customer" to "customer", "numerator" to "second_sum", "denominator" to "second_count")))
-                val inputs = linkedMapOf("basis" to QueryComputation.Input("ROOT", basis))
-                if (separateBasis) inputs["basis_copy"] = QueryComputation.Input("ROOT", basis)
-                return QueryComputation.Scope(QueryComputation.Compute(calculation, bindings, emptyMap(), emptyMap(), actual), inputs,
-                    listOf(Project(listOf("customer", "first_mean", "second_mean"))))
+                val inputs = linkedMapOf("basis" to Calculation.InputScope("ROOT", basis))
+                if (separateBasis) inputs["basis_copy"] = Calculation.InputScope("ROOT", basis)
+                return Calculation.Scope(Calculation.Compute(calculation, Calculation.ExplicitBindings(bindings, emptyMap(), actual), emptyMap()), inputs, listOf(Project(listOf("customer", "first_mean", "second_mean"))))
             }
             val source = com.olap.prototype.connector.SourceProvider(warehouse.spec.source(), TestConnectors.registry)
             val delegate = SourceExecutableSqlExecutor({ if (it == source.bindingRef) source else null }, RuntimeDeploymentLimits.result, RuntimeDeploymentLimits.nativeMemoryBytes, null)
@@ -549,7 +540,7 @@ class MemberRelationExecutionTest {
                 submissions++
                 delegate.execute(lowering, context, control)
             }, RuntimeDeploymentLimits.result)
-            fun query(contract: MetricValueContract, multiply: Boolean): QueryComputation.Scope {
+            fun query(contract: MetricValueContract, multiply: Boolean): Calculation.Scope {
                 val quotient = ResultOperation(ResultOperator.DIVIDE, listOf(symbol("numerator"), symbol("denominator")))
                 val expression = if (multiply) ResultOperation(ResultOperator.MULTIPLY, listOf(quotient, ResultLiteral(BigDecimal("100")))) else quotient
                 return coreQuery(definitions, coreCalculation(listOf(Derive(ResultNumeric(expression, contract, null), "mean", "正式量化"))),
@@ -565,7 +556,7 @@ class MemberRelationExecutionTest {
                     if (cancelAfterSource) Thread.currentThread().interrupt()
                 }
             }
-            fun fail(query: QueryComputation.Scope, expectedCode: String) {
+            fun fail(query: Calculation.Scope, expectedCode: String) {
                 val before = submissions
                 val callbacks = read.size
                 val failure = try { assertThrows(EngineExecutionException::class.java) {
@@ -594,17 +585,15 @@ class MemberRelationExecutionTest {
             val mean = Derive(ResultNumeric(ResultOperation(ResultOperator.DIVIDE,
                 listOf(symbol("numerator"), symbol("denominator"))), result, null), "mean", "完成关系的精确均值")
             val original = coreBasis(MemberCondition.Unrestricted())
-            val direct = QueryComputation.Scope(original.root, original.inputs,
-                listOf(PostFilter(ResultOperation(ResultOperator.IS_NOT_NULL, listOf(symbol("amount"))))) + original.stages +
+            val direct = Calculation.Scope(original.root, original.inputs, listOf(PostFilter(ResultOperation(ResultOperator.IS_NOT_NULL, listOf(symbol("amount"))))) + original.stages +
                     listOf(mean, Project(listOf("customer", "mean"))))
             val shared = coreCalculation(listOf(PostFilter(ResultOperation(ResultOperator.IS_NOT_NULL, listOf(symbol("numerator")))),
                 mean, Project(listOf("customer", "mean"))))
             val reference = MetricRef("filtered_completed_mean", "1")
             definitions.metrics[reference.key()] = ExecutableMetric(reference, MetricCalculation(shared, "mean", listOf("customer"), result))
-            val call = Calculation.Call("filtered", Calculation.Fixed(reference), "mean", mapOf("customer" to "customer"),
-                emptyMap(), emptyMap(), mapOf("completed" to "completed"), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()))
+            val call = Calculation.Call("filtered", Calculation.Fixed(reference), "mean", mapOf("customer" to "customer"), emptyMap(), emptyMap(), mapOf("completed" to "completed"), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), emptyMap())
             val caller = Calculation(shared.dimensionSlots, emptyList(), emptyList(), shared.relationSlots, emptyMap(), Calculation.Scope(
-                Calculation.Measures(listOf(call), listOf("customer"), emptyList(), null, null, emptyMap(), Calculation.Population(listOf("filtered")), null),
+                Calculation.Measures(listOf(call), (listOf("customer")).map { Calculation.DimensionParameter(it) }, emptyList(), null, emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(listOf("filtered")), null),
                 emptyMap(), emptyList()))
             val source = com.olap.prototype.connector.SourceProvider(warehouse.spec.source(), TestConnectors.registry)
             val delegate = SourceExecutableSqlExecutor({ if (it == source.bindingRef) source else null }, RuntimeDeploymentLimits.result, RuntimeDeploymentLimits.nativeMemoryBytes, null)
@@ -615,7 +604,7 @@ class MemberRelationExecutionTest {
             }, RuntimeDeploymentLimits.result)
             warehouse.finishSetup()
             val catalog = definitions.catalog()
-            fun execute(query: QueryComputation.Scope): ExecutableBusinessResult {
+            fun execute(query: Calculation.Scope): ExecutableBusinessResult {
                 val before = submissions
                 val executed = engine.execute(catalog, ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION, "core-prefix-$before",
                     catalog.manifest.catalogId, query, QueryExecutionMode.CORE_FINALIZATION), observer, RuntimeDeploymentLimits.CONTROL)
@@ -710,11 +699,9 @@ class MemberRelationExecutionTest {
             val item = ScopedInputContract.metricSymbol("directory", "item")
             val count = recordCount()
             fun predicate(operator: ResultOperator, vararg values: ResultExpression) = ResultOperation(operator, values.toList())
-            fun directory(includeId: Boolean = false) = QueryComputation.Scope(QueryComputation.Members("directory", MemberRef("directory", 1), emptyMap(),
-                listOf(QueryComputation.MappedDimension("subject", "customer", axis), QueryComputation.Slot("item", "item")) +
-                    if (includeId) listOf(QueryComputation.Slot("id", "id")) else emptyList(),
-                null, emptyMap(), MemberCondition.Unrestricted(), emptyMap(), emptyMap()), emptyMap(), emptyList())
-            fun completed(daily: Boolean, tuples: Boolean): QueryComputation.Scope {
+            fun directory(includeId: Boolean = false) = Calculation.Scope(Calculation.Members("directory", Calculation.MemberSource(MemberRef("directory", 1)), listOf(Calculation.MemberProjection("subject", "customer", Calculation.PublishedDimension(axis)), Calculation.MemberProjection("item", "item", null)) +
+                    if (includeId) listOf(Calculation.MemberProjection("id", "id", null)) else emptyList(), null, emptyMap(), MemberCondition.Unrestricted(), emptyMap(), emptyMap(), emptyMap()), emptyMap(), emptyList())
+            fun completed(daily: Boolean, tuples: Boolean): Calculation.Scope {
                 val nonempty = ResultCaseWhen(listOf(ResultCaseBranch(predicate(ResultOperator.NE, symbol("actor"),
                     ResultTypedLiteral(ScalarValueType.TEXT, "")), symbol("actor"))), ResultLiteral(null))
                 val groups = listOf(subject) + (if (daily) listOf("activity_day") else emptyList()) +
@@ -727,17 +714,15 @@ class MemberRelationExecutionTest {
                     PostFilter(predicate(ResultOperator.IS_NOT_NULL, symbol(subject))), Derive(nonempty, "nonempty_actor", "非空标识"), regroup(groups, aggregates))
                 val finish = if (daily && tuples) listOf(regroup(listOf(subject),
                     listOf(reduction("nonempty_actor", ResultAggregation.Count(false, ResultAggregation.NullPolicy.IGNORE), "actor_days")))) else emptyList()
-                return QueryComputation.Scope(QueryComputation.Members("activity", MemberRef("activity", 1), emptyMap(),
-                    listOf("item", "activity_day", "actor").map { QueryComputation.Slot(it, it) }, null, emptyMap(), MemberCondition.All(listOf(
+                return Calculation.Scope(Calculation.Members("activity", Calculation.MemberSource(MemberRef("activity", 1)), listOf("item", "activity_day", "actor").map { Calculation.MemberProjection(it, it, null) }, null, emptyMap(), MemberCondition.All(listOf(
                         MemberCondition.Predicate("activity_day", MemberCondition.Operator.BETWEEN, listOf("20260101", "20260102").map { Calculation.Scalar(ScalarValueType.TEXT, it) }),
-                        MemberCondition.Predicate("qualifies", MemberCondition.Operator.EQ, listOf(Calculation.Scalar(ScalarValueType.BOOLEAN, "true"))))), emptyMap(), emptyMap()),
-                    mapOf("directory" to QueryComputation.Input("RELATION", directory())), stages + finish)
+                        MemberCondition.Predicate("qualifies", MemberCondition.Operator.EQ, listOf(Calculation.Scalar(ScalarValueType.BOOLEAN, "true"))))), emptyMap(), emptyMap(), emptyMap()), mapOf("directory" to Calculation.InputScope("RELATION", directory())), stages + finish)
             }
-            val population = directory().let { QueryComputation.Scope(it.root, it.inputs, listOf(
+            val population = directory().let { Calculation.Scope(it.root, it.inputs, listOf(
                 PostFilter(predicate(ResultOperator.IS_NOT_NULL, symbol("subject"))),
                 regroup(listOf("subject"), emptyList()))) }
             val values = linkedMapOf("population" to emptyList(), "period" to listOf("period_uv", "period_nonempty_uv"), "daily" to listOf("actor_days"))
-            fun query(daily: QueryComputation.Scope, base: Boolean): QueryComputation.Scope {
+            fun query(daily: Calculation.Scope, base: Boolean): Calculation.Scope {
                 val relations = values.map { (name, outputs) -> Calculation.RelationSlot(name,
                     listOf(SetOutputContract("subject", SetOutputContract.DimensionSlot("customer"))) + outputs.map { SetOutputContract(it, SetOutputContract.Quantity(count)) }, listOf("subject")) }
                 val alignment = Calculation.AlignMeasurements(values.mapValues { (name, outputs) -> Calculation.AlignedInput(
@@ -752,15 +737,15 @@ class MemberRelationExecutionTest {
                     values.keys.associateWith { CalculationBindings.RelationParameter() })
                 val actual = values.mapValues { (name, outputs) -> CalculationBindings.LocalRelation(name,
                     mapOf("subject" to if (name == "population") "subject" else subject) + outputs.associateWith { it }) }
-                return QueryComputation.Scope(QueryComputation.Compute(calculation, bindings, emptyMap(), emptyMap(), actual), linkedMapOf(
-                    "population" to QueryComputation.Input("ROOT", population), "period" to QueryComputation.Input("ROOT", completed(false, false)),
-                    "daily" to QueryComputation.Input("ROOT", daily)), emptyList())
+                return Calculation.Scope(Calculation.Compute(calculation, Calculation.ExplicitBindings(bindings, emptyMap(), actual), emptyMap()), linkedMapOf(
+                    "population" to Calculation.InputScope("ROOT", population), "period" to Calculation.InputScope("ROOT", completed(false, false)),
+                    "daily" to Calculation.InputScope("ROOT", daily)), emptyList())
             }
             val dayKeys = listOf(subject, "activity_day")
             val copySubject = ScopedInputContract.metricSymbol("copy", "subject")
             val copyId = ScopedInputContract.metricSymbol("copy", "id")
-            fun statistics(daily: QueryComputation.Scope, objectKeys: List<String> = dayKeys, copied: Boolean = false,
-                afterStatistics: List<PostOperationContract.ValidatedOperation> = emptyList()): QueryComputation.Scope {
+            fun statistics(daily: Calculation.Scope, objectKeys: List<String> = dayKeys, copied: Boolean = false,
+                afterStatistics: List<PostOperationContract.ValidatedOperation> = emptyList()): Calculation.Scope {
                 val completeKeys = dayKeys + if (copied) listOf(copySubject, copyId) else emptyList()
                 val outputs = listOf(SetOutputContract(subject, SetOutputContract.DimensionSlot("customer")),
                     SetOutputContract("activity_day", SetOutputContract.Property("activity_day", ScalarValueType.TEXT)),
@@ -774,24 +759,19 @@ class MemberRelationExecutionTest {
                                 reduction("day_uv", ResultAggregation.Sum(count, ResultAggregation.NullPolicy.IGNORE), "actor_days")))), emptyMap(), afterStatistics))
                 val bindings = CalculationBindings(observationBindings(definitions, emptyMap(), emptyMap()).dimensions, emptyMap(), emptyMap(), emptyMap(),
                     mapOf("days" to CalculationBindings.RelationParameter()))
-                return QueryComputation.Scope(QueryComputation.Compute(calculation, bindings, emptyMap(), emptyMap(),
-                    mapOf("days" to CalculationBindings.LocalRelation("days", outputs.associate { it.name to it.name }))),
-                    mapOf("days" to QueryComputation.Input("ROOT", daily)), emptyList())
+                return Calculation.Scope(Calculation.Compute(calculation, Calculation.ExplicitBindings(bindings, emptyMap(), mapOf("days" to CalculationBindings.LocalRelation("days", outputs.associate { it.name to it.name }))), emptyMap()), mapOf("days" to Calculation.InputScope("ROOT", daily)), emptyList())
             }
             warehouse.finishSetup()
             val engine = engine(warehouse)
-            val rawPopulation = directory().let { QueryComputation.Scope(it.root, it.inputs, listOf(regroup(listOf("subject"), emptyList()))) }
+            val rawPopulation = directory().let { Calculation.Scope(it.root, it.inputs, listOf(regroup(listOf("subject"), emptyList()))) }
             // 同一个真实关系直接形成键集合；重复客户只保留一次，NULL组仍存在且不伪造非NULL证明。
             assertEquals(listOf(listOf<BigDecimal?>(null)) + (1..5).map { listOf(decimal(it.toString())) },
                 numericRows(execute(engine, definitions, rawPopulation)))
-            val emptyPopulation = QueryComputation.Scope(rawPopulation.root, rawPopulation.inputs,
-                listOf(PostFilter(ResultLiteral(false))) + rawPopulation.stages)
+            val emptyPopulation = Calculation.Scope(rawPopulation.root, rawPopulation.inputs, listOf(PostFilter(ResultLiteral(false))) + rawPopulation.stages)
             assertTrue(execute(engine, definitions, emptyPopulation).rows.isEmpty(), "空输入按实际对象键去重不制造总体行")
             val globalLevel = GroupingLevels("level", listOf(GroupingLevels.Level("all", emptyList()))).bind(emptyList())
-            val levelPopulation = QueryComputation.Scope(rawPopulation.root, rawPopulation.inputs,
-                listOf(Regroup(ResultGrouping(emptyList(), emptyList(), globalLevel))))
-            val emptyLevelPopulation = QueryComputation.Scope(levelPopulation.root, levelPopulation.inputs,
-                listOf(PostFilter(ResultLiteral(false))) + levelPopulation.stages)
+            val levelPopulation = Calculation.Scope(rawPopulation.root, rawPopulation.inputs, listOf(Regroup(ResultGrouping(emptyList(), emptyList(), globalLevel))))
+            val emptyLevelPopulation = Calculation.Scope(levelPopulation.root, levelPopulation.inputs, listOf(PostFilter(ResultLiteral(false))) + levelPopulation.stages)
             // 显式全局层级拥有一个总体组；即使来源为空，仍交付该层级码，区别于有键空人口。
             assertEquals(listOf(listOf(decimal("0"))), numericRows(execute(engine, definitions, levelPopulation)))
             assertEquals(listOf(listOf(decimal("0"))), numericRows(execute(engine, definitions, emptyLevelPopulation)))
@@ -817,7 +797,7 @@ class MemberRelationExecutionTest {
             assertEquals(listOf(listOf(decimal("1"), decimal("3"), decimal("6")), listOf(decimal("2"), decimal("3"), decimal("6")),
                 listOf(decimal("3"), decimal("0"), decimal("6")), listOf(decimal("4"), decimal("0"), decimal("6"))),
                 numericRows(execute(engine, definitions, partitioned)))
-            val ordinarySum = QueryComputation.Scope(dailyCounts.root, dailyCounts.inputs, dailyCounts.stages +
+            val ordinarySum = Calculation.Scope(dailyCounts.root, dailyCounts.inputs, dailyCounts.stages +
                 regroup(listOf(subject), listOf(reduction("day_uv", ResultAggregation.Sum(count, ResultAggregation.NullPolicy.IGNORE), "actor_days"))))
             assertEquals(expected, numericRows(execute(engine, definitions, query(ordinarySum, false))))
 
@@ -832,12 +812,11 @@ class MemberRelationExecutionTest {
 
             // 显式关联保留实际bag贡献；相加复制的每日值不冒充关联前的原对象总量。
             val originalCopies = directory(true)
-            val copies = QueryComputation.Scope(originalCopies.root, originalCopies.inputs, listOf(
+            val copies = Calculation.Scope(originalCopies.root, originalCopies.inputs, listOf(
                 PostFilter(predicate(ResultOperator.IS_NOT_NULL, symbol("subject"))),
                 regroup(listOf("subject", "id"), listOf(reduction("item", ResultAggregation.Count(false, ResultAggregation.NullPolicy.IGNORE), "directory_rows"))),
                 Project(listOf("subject", "id"))))
-            val copied = QueryComputation.Scope(dailyCounts.root, dailyCounts.inputs + ("copies" to QueryComputation.Input("RELATION", copies)),
-                dailyCounts.stages + JoinInput("copies", "copy", "INNER", predicate(ResultOperator.EQ, symbol(subject), symbol(copySubject))))
+            val copied = Calculation.Scope(dailyCounts.root, dailyCounts.inputs + ("copies" to Calculation.InputScope("RELATION", copies)), dailyCounts.stages + JoinInput("copies", "copy", "INNER", predicate(ResultOperator.EQ, symbol(subject), symbol(copySubject))))
             val copiedExpected = listOf(listOf(decimal("1"), decimal("3"), decimal("2"), decimal("6"), decimal("4"))) + expected.drop(1)
             assertEquals(copiedExpected, numericRows(execute(engine, definitions,
                 query(statistics(copied, dayKeys + listOf(copySubject, copyId), true), false))))
@@ -901,12 +880,12 @@ class MemberRelationExecutionTest {
             val axis = ScopedInputContract.DimensionRef("accounts", "1", "account")
             fun op(operator: ResultOperator, vararg operands: ResultExpression) = ResultOperation(operator, operands.toList())
             fun text(value: String) = ResultTypedLiteral(ScalarValueType.TEXT, value)
-            fun rows(table: String) = QueryComputation.Scope(QueryComputation.Members(table, MemberRef(table, 1), emptyMap(), types.getValue(table).keys.map {
-                if (it == "account") QueryComputation.MappedDimension(it, it, axis) else QueryComputation.Slot(it, it)
-            }, null, emptyMap(), MemberCondition.Unrestricted(), emptyMap(), emptyMap()), emptyMap(), emptyList())
-            fun paid(period: String): QueryComputation.Scope {
+            fun rows(table: String) = Calculation.Scope(Calculation.Members(table, Calculation.MemberSource(MemberRef(table, 1)), types.getValue(table).keys.map {
+                if (it == "account") Calculation.MemberProjection(it, it, Calculation.PublishedDimension(axis)) else Calculation.MemberProjection(it, it, null)
+            }, null, emptyMap(), MemberCondition.Unrestricted(), emptyMap(), emptyMap(), emptyMap()), emptyMap(), emptyList())
+            fun paid(period: String): Calculation.Scope {
                 val raw = rows("activity")
-                return QueryComputation.Scope(raw.root, raw.inputs, listOf(PostFilter(op(ResultOperator.AND,
+                return Calculation.Scope(raw.root, raw.inputs, listOf(PostFilter(op(ResultOperator.AND,
                     op(ResultOperator.AND, op(ResultOperator.EQ, symbol("period"), text(period)), op(ResultOperator.EQ, symbol("first_flag"), text("Y"))),
                     op(ResultOperator.IS_NOT_NULL, symbol("account")))), regroup(listOf("account"), listOf(
                     reduction("account", ResultAggregation.Count(false, ResultAggregation.NullPolicy.IGNORE), "observations"))), Project(listOf("account"))))
@@ -914,7 +893,7 @@ class MemberRelationExecutionTest {
             val catalogRows = rows("directory")
             val visits = rows("visits")
             val mappedAccount = ScopedInputContract.metricSymbol("mapped", "account")
-            val visited = QueryComputation.Scope(visits.root, mapOf("directory" to QueryComputation.Input("RELATION", catalogRows)), listOf(
+            val visited = Calculation.Scope(visits.root, mapOf("directory" to Calculation.InputScope("RELATION", catalogRows)), listOf(
                 PostFilter(op(ResultOperator.AND, op(ResultOperator.EQ, symbol("period"), text("current")), symbol("eligible"))),
                 JoinInput("directory", "mapped", "LEFT", op(ResultOperator.EQ, symbol("entry"), symbol("mapped__entry"))),
                 PostFilter(op(ResultOperator.IS_NOT_NULL, symbol(mappedAccount))),
@@ -926,8 +905,7 @@ class MemberRelationExecutionTest {
                 Calculation.SetCombination(kind, false, listOf(Calculation.SetProjection("left", listOf("account")), Calculation.SetProjection("right", listOf("account"))), setOutputs),
                 mapOf("left" to Calculation.InputScope("ROOT", left), "right" to Calculation.InputScope("ROOT", right)), emptyList())
             val cohort = set(Calculation.SetKind.EXCEPT, set(Calculation.SetKind.INTERSECT, relation("previous"), relation("visited")), relation("current_first"))
-            fun raw(slot: String) = Calculation.Scope(Calculation.Members(slot, slot, types.getValue(slot).keys.map { Calculation.MemberProjection(it, it) },
-                null, emptyMap(), MemberCondition.Unrestricted()), emptyMap(), emptyList())
+            fun raw(slot: String) = Calculation.Scope(Calculation.Members(slot, Calculation.MemberParameter(slot), types.getValue(slot).keys.map { Calculation.MemberProjection(it, it, null) }, null, emptyMap(), MemberCondition.Unrestricted(), emptyMap(), emptyMap(), emptyMap()), emptyMap(), emptyList())
             fun qualified(slot: String, source: Calculation.Scope) = Calculation.Scope(Calculation.ObjectMeasure(source, cohort,
                 listOf(Calculation.ObjectRole(listOf("account"), Calculation.RecordOutputs(slot, listOf("account"))))), emptyMap(), emptyList())
             val currentActivity = Calculation.Scope(raw("activity").root, emptyMap(), listOf(PostFilter(op(ResultOperator.EQ, symbol("period"), text("current")))))
@@ -959,10 +937,10 @@ class MemberRelationExecutionTest {
                 definitions.analyses.getValue("accounts@1").eventMappings.map { it.mappingId })), listOf("activity", "directory").associateWith { table ->
                 CalculationBindings.SourceCall(MemberRef(table, 1), emptyMap(), types.getValue(table).keys.associateWith { it }, emptyMap(), emptyMap())
             }, emptyMap(), emptyMap(), relationNames.associateWith { CalculationBindings.RelationParameter() })
-            val query = QueryComputation.Scope(QueryComputation.Compute(calculation, bindings, emptyMap(), emptyMap(), relationNames.associateWith {
-                CalculationBindings.LocalRelation(it, mapOf("account" to if (it == "visited") mappedAccount else "account")) }), mapOf(
-                    "previous" to QueryComputation.Input("ROOT", paid("previous")), "visited" to QueryComputation.Input("ROOT", visited),
-                    "current_first" to QueryComputation.Input("ROOT", paid("current"))), emptyList())
+            val query = Calculation.Scope(Calculation.Compute(calculation, Calculation.ExplicitBindings(bindings, emptyMap(), relationNames.associateWith {
+                CalculationBindings.LocalRelation(it, mapOf("account" to if (it == "visited") mappedAccount else "account")) }), emptyMap()), mapOf(
+                    "previous" to Calculation.InputScope("ROOT", paid("previous")), "visited" to Calculation.InputScope("ROOT", visited),
+                    "current_first" to Calculation.InputScope("ROOT", paid("current"))), emptyList())
             warehouse.finishSetup()
             val actual = execute(engine(warehouse), definitions, query).rows.associate { row ->
                 (row[0] as ExecutableBusinessResult.ScalarValue).value to row.drop(1).map { value ->
@@ -1029,17 +1007,14 @@ class MemberRelationExecutionTest {
             val bindings = CalculationBindings(adopted.dimensions, adopted.members, emptyMap(), emptyMap(),
                 names.associateWith { CalculationBindings.RelationParameter() })
             val actualRelations = names.associateWith { CalculationBindings.LocalRelation(it, mapOf("customer" to aliases.getValue(it))) }
-            fun completed(period: Int, source: String, alias: String) = QueryComputation.Scope(
-                QueryComputation.Members("population", MemberRef(source, 1), emptyMap(), listOf(
-                    QueryComputation.MappedDimension(alias, "customer", axis), QueryComputation.Slot("id", "id")),
-                    null, emptyMap(), memberEquals("period", period), emptyMap(), emptyMap()), emptyMap(), listOf(
+            fun completed(period: Int, source: String, alias: String) = Calculation.Scope(Calculation.Members("population", Calculation.MemberSource(MemberRef(source, 1)), listOf(
+                    Calculation.MemberProjection(alias, "customer", Calculation.PublishedDimension(axis)), Calculation.MemberProjection("id", "id", null)), null, emptyMap(), memberEquals("period", period), emptyMap(), emptyMap(), emptyMap()), emptyMap(), listOf(
                     regroup(listOf(alias), listOf(reduction("id", ResultAggregation.Count(false, ResultAggregation.NullPolicy.IGNORE), "observations"))),
                     Project(listOf(alias))))
-            fun query(activitySource: String) = QueryComputation.Scope(
-                QueryComputation.Compute(calculation, bindings, emptyMap(), emptyMap(), actualRelations), linkedMapOf(
-                    "previous" to QueryComputation.Input("ROOT", completed(1, "orders", aliases.getValue("previous"))),
-                    "active" to QueryComputation.Input("ROOT", completed(2, activitySource, aliases.getValue("active"))),
-                    "current" to QueryComputation.Input("ROOT", completed(3, "orders", aliases.getValue("current")))), emptyList())
+            fun query(activitySource: String) = Calculation.Scope(Calculation.Compute(calculation, Calculation.ExplicitBindings(bindings, emptyMap(), actualRelations), emptyMap()), linkedMapOf(
+                    "previous" to Calculation.InputScope("ROOT", completed(1, "orders", aliases.getValue("previous"))),
+                    "active" to Calculation.InputScope("ROOT", completed(2, activitySource, aliases.getValue("active"))),
+                    "current" to Calculation.InputScope("ROOT", completed(3, "orders", aliases.getValue("current")))), emptyList())
             warehouse.finishSetup()
             val engine = engine(warehouse)
             // 对象3无测量组；对象2有一条NULL记录。两者的COUNT不能被混成同一个0。
@@ -1088,7 +1063,7 @@ class MemberRelationExecutionTest {
             assertEquals(listOf(listOf(decimal("120"))), actual(qualified(observationMeasure("later_total", false), laterTop), emptyList(), adopted = observationBindings(definitions, emptyMap(), measurements)))
             val nested = qualified(qualified(observationMeasure("early_total", false), earlyTop), onlyB)
             assertEquals(listOf(listOf<BigDecimal?>(null)), actual(nested))
-            val completedLocal = Calculation.Scope(Calculation.Members("records", "formed", listOf(Calculation.MemberProjection("id", "id"), Calculation.MemberProjection("amount", "amount")), null, emptyMap(), MemberCondition.Unrestricted()),
+            val completedLocal = Calculation.Scope(Calculation.Members("records", Calculation.MemberParameter("formed"), listOf(Calculation.MemberProjection("id", "id", null), Calculation.MemberProjection("amount", "amount", null)), null, emptyMap(), MemberCondition.Unrestricted(), emptyMap(), emptyMap(), emptyMap()),
                 emptyMap(), listOf(regroup(emptyList(), listOf(reduction("amount", ResultAggregation.Sum(money, ResultAggregation.NullPolicy.IGNORE), "total")))))
             val qualifiedLocal = qualified(completedLocal, duplicateA, Calculation.RecordOutputs("formed", listOf("customer")))
             val localTotals = Calculation.Scope(Calculation.AlignMeasurements(linkedMapOf(
@@ -1099,7 +1074,7 @@ class MemberRelationExecutionTest {
             val completed = Calculation.Scope(Calculation.Input("original"), mapOf("original" to Calculation.InputScope("ROOT", observationMeasure("early_total", false))), emptyList())
             assertEquals("BIND_INPUT", assertThrows(EngineExecutionException::class.java) { actual(qualified(completed, duplicateA)) }.stage)
             assertEquals(listOf(listOf(decimal("150"))), actual(observationMeasure("early_total", false), emptyList(), adopted = observationBindings(definitions, emptyMap(), measurements)))
-            assertEquals(listOf(listOf(decimal("150"))), numericRows(execute(engine, definitions, measures(listOf(QueryComputation.Invocation("reused", earlyMeasurement, "reused_total", emptyMap(), emptyMap(), emptyMap(), DimensionCondition.Unrestricted())), emptyMap()))))
+            assertEquals(listOf(listOf(decimal("150"))), numericRows(execute(engine, definitions, measures(listOf(Calculation.Call("reused", Calculation.Instance(earlyMeasurement), "reused_total", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), emptyMap())), emptyMap()))))
         }
     }
     private fun recordCount() = MetricValueContract(MetricValueContract.Fixed(MetricValueContract.ONE), MetricValueContract.Exact(), MetricValueContract.Integer(64), emptyMap(), MetricValueContract.Overflow.FAIL)
@@ -1119,13 +1094,13 @@ class MemberRelationExecutionTest {
                 "region" to property("地区", "region", ScalarValueType.NUMBER, "associations.region")), emptyMap(), null, emptyMap(), null)),
             mapOf("order" to SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, "associations.order_id", 1), "region" to SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, "associations.region", 1)))
     }
-    private fun allocationCompute(scope: Calculation.Scope): QueryComputation.Scope {
+    private fun allocationCompute(scope: Calculation.Scope): Calculation.Scope {
         val transaction = Calculation.DimensionSlot("transaction", "order", 1, "order")
         val places = Calculation.MemberSlot("places", "交易地区关系", "places", MemberShape.RECORDS,
             mapOf("order" to Calculation.MemberProperty("order", ScalarValueType.NUMBER, null), "region" to Calculation.MemberProperty("region", ScalarValueType.NUMBER, null)), MemberRef("places", 1))
         val calculation = Calculation(listOf(transaction), listOf(places, orderFormal("eligible", MemberRef("orders", 1))), listOf(Calculation.MeasurementSlot("amount", emptyMap(), listOf(transaction), emptyList(), money)), emptyList(), emptyMap(), scope)
         val bindings = CalculationBindings(mapOf("transaction" to CalculationBindings.Dimension(ScopedInputContract.DimensionRef("transactions", "1", "order"), "order", listOf("order_sales"))), mapOf("eligible" to orderSource(), "places" to CalculationBindings.SourceCall(MemberRef("places", 1), emptyMap(), mapOf("order" to "order", "region" to "region"), emptyMap(), emptyMap())), emptyMap(), mapOf("amount" to MetricInstanceRef("sales")), emptyMap())
-        return QueryComputation.Scope(QueryComputation.Compute(calculation, bindings, emptyMap(), emptyMap(), emptyMap()), emptyMap(), emptyList())
+        return Calculation.Scope(Calculation.Compute(calculation, Calculation.ExplicitBindings(bindings, emptyMap(), emptyMap()), emptyMap()), emptyMap(), emptyList())
     }
     @Test fun alignsIndependentFactPopulationsAndZerosOnlyGenuinelyAbsentMeasurements(@TempDir directory: Path) {
         for (dialect in listOf("h2", "duckdb")) NativeWarehouse(directory, dialect, listOf("CREATE TABLE orders(id INTEGER PRIMARY KEY, customer INTEGER, period INTEGER, kind INTEGER, amount DECIMAL(18,2))",
@@ -1180,8 +1155,8 @@ class MemberRelationExecutionTest {
             val order = ScopedInputContract.metricSymbol("place", "order"); val region = ScopedInputContract.metricSymbol("place", "region")
             val joined = PostOperationContract.JoinInput("places", "place", "INNER", ResultExpression.ResultOperation(ResultExpression.ResultOperator.EQ, listOf(ResultExpression.ResultSymbol("transaction"), ResultExpression.ResultSymbol(order))))
             val allocationStage = PostOperationContract.Derive(ResultExpression.ResultUniformAllocation(ResultExpression.ResultSymbol("value"), listOf("transaction"), listOf(order, region), allocation, "divide"), "allocated", "完整关联总体内均匀分配金额")
-            val source = Calculation.Scope(Calculation.Measures(listOf(Calculation.Call("value", Calculation.Measurement("amount"), "value", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()))), listOf("transaction"), emptyList(), null, null, emptyMap(), Calculation.Population(listOf("value")), null),
-                mapOf("places" to Calculation.InputScope("RELATION", Calculation.Scope(Calculation.Members("places", "places", listOf(Calculation.MemberProjection("order", "order"), Calculation.MemberProjection("region", "region")), null, emptyMap(), MemberCondition.Unrestricted()), emptyMap(), emptyList()))), listOf(joined, allocationStage))
+            val source = Calculation.Scope(Calculation.Measures(listOf(Calculation.Call("value", Calculation.Measurement("amount"), "value", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), emptyMap())), (listOf("transaction")).map { Calculation.DimensionParameter(it) }, emptyList(), null, emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(listOf("value")), null),
+                mapOf("places" to Calculation.InputScope("RELATION", Calculation.Scope(Calculation.Members("places", Calculation.MemberParameter("places"), listOf(Calculation.MemberProjection("order", "order", null), Calculation.MemberProjection("region", "region", null)), null, emptyMap(), MemberCondition.Unrestricted(), emptyMap(), emptyMap(), emptyMap()), emptyMap(), emptyList()))), listOf(joined, allocationStage))
             val qualified = Calculation.ObjectMeasure(source, orderRows("eligible", memberEquals("id", 1), listOf(PostOperationContract.Project(listOf("id")))), listOf(Calculation.ObjectRole(listOf("id"), Calculation.EventRole("order"))))
             warehouse.finishSetup(); val engine = engine(warehouse)
             fun actual(operations: List<PostOperationContract.ValidatedOperation>) = numericRows(execute(engine, definitions, allocationCompute(Calculation.Scope(qualified, emptyMap(), operations))))
@@ -1222,7 +1197,7 @@ class MemberRelationExecutionTest {
             val members = listOf(Calculation.MemberSlot(formal.name, formal.entity, formal.role, MemberShape.RAW_BAG,
                 formal.outputs + ("customer" to Calculation.MemberProperty("customer", identityType, null)), formal.fixedSource))
             val bindings = observationBindings(definitions, mapOf("rows" to orderSource()), emptyMap())
-            fun query(restrictIdentity: Boolean): QueryComputation.Scope {
+            fun query(restrictIdentity: Boolean): Calculation.Scope {
                 fun period(value: Int) = orderRows("rows", if (restrictIdentity)
                     MemberCondition.All(listOf(MemberCondition.Predicate("customer", MemberCondition.Operator.EQ,
                         listOf(Calculation.Scalar(identityType, "1"))), memberEquals("period", value)))
@@ -1290,12 +1265,10 @@ class MemberRelationExecutionTest {
                     emptyList(), attributeOutputs, emptyMap(), null, emptyMap(), null)),
                 attributeOutputs.keys.associateWith { SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, "attributes.$it", 1) })
             val axis = ScopedInputContract.DimensionRef("customers", "1", "customer")
-            fun population(restrict: Boolean) = QueryComputation.Scope(QueryComputation.Members("activity", MemberRef("orders", 1), emptyMap(),
-                listOf(QueryComputation.MappedDimension("customer", "customer", axis), QueryComputation.Slot("id", "id"), QueryComputation.Slot("amount", "amount")),
-                null, emptyMap(), if (restrict) MemberCondition.Predicate("customer", MemberCondition.Operator.EQ,
-                    listOf(Calculation.Scalar(ScalarValueType.TEXT, "actor_demo"))) else MemberCondition.Unrestricted(), emptyMap(), emptyMap()), emptyMap(), emptyList())
+            fun population(restrict: Boolean) = Calculation.Scope(Calculation.Members("activity", Calculation.MemberSource(MemberRef("orders", 1)), listOf(Calculation.MemberProjection("customer", "customer", Calculation.PublishedDimension(axis)), Calculation.MemberProjection("id", "id", null), Calculation.MemberProjection("amount", "amount", null)), null, emptyMap(), if (restrict) MemberCondition.Predicate("customer", MemberCondition.Operator.EQ,
+                    listOf(Calculation.Scalar(ScalarValueType.TEXT, "actor_demo"))) else MemberCondition.Unrestricted(), emptyMap(), emptyMap(), emptyMap()), emptyMap(), emptyList())
             fun eq(left: ResultExpression, right: ResultExpression) = ResultOperation(ResultOperator.EQ, listOf(left, right))
-            fun completed(restrict: Boolean, contribution: Boolean): QueryComputation.Scope {
+            fun completed(restrict: Boolean, contribution: Boolean): Calculation.Scope {
                 val operations = if (contribution) listOf(
                     JoinInput("attributes", "attribute", "LEFT", eq(symbol("id"), symbol("attribute__record_key"))),
                     Derive(ResultCaseWhen(listOf(ResultCaseBranch(eq(symbol("attribute__flag"), ResultTypedLiteral(ScalarValueType.TEXT, "Y")),
@@ -1305,9 +1278,9 @@ class MemberRelationExecutionTest {
                         reduction("row_contribution", ResultAggregation.Sum(floatingMoney, ResultAggregation.NullPolicy.IGNORE), "contribution_total"),
                         reduction("row_copied_amount", ResultAggregation.Sum(floatingMoney, ResultAggregation.NullPolicy.IGNORE), "copied_total"))))
                 else listOf(regroup(listOf("customer"), listOf(reduction("amount", ResultAggregation.Sum(floatingMoney, ResultAggregation.NullPolicy.IGNORE), "amount_total"))))
-                val inputs = linkedMapOf("activity_rows" to QueryComputation.Input("ROOT", population(restrict)))
-                if (contribution) inputs["attributes"] = QueryComputation.Input("RELATION", memberScope("attributes", attributeOutputs.keys.toList(), emptyList()))
-                return QueryComputation.Scope(QueryComputation.Reuse("activity_rows"), inputs, operations)
+                val inputs = linkedMapOf("activity_rows" to Calculation.InputScope("ROOT", population(restrict)))
+                if (contribution) inputs["attributes"] = Calculation.InputScope("RELATION", memberScope("attributes", attributeOutputs.keys.toList(), emptyList()))
+                return Calculation.Scope(Calculation.Input("activity_rows"), inputs, operations)
             }
             val values = linkedMapOf("amounts" to listOf("amount_total"), "contributions" to listOf("contribution_total", "copied_total"))
             val relations = values.map { (name, columns) -> Calculation.RelationSlot(name,
@@ -1321,9 +1294,7 @@ class MemberRelationExecutionTest {
                 Calculation.Scope(aligned, emptyMap(), listOf(Project(listOf("customer", "amount_total", "contribution_total", "copied_total")))))
             val bindings = CalculationBindings(observationBindings(definitions, emptyMap(), emptyMap()).dimensions, emptyMap(), emptyMap(), emptyMap(),
                 values.keys.associateWith { CalculationBindings.RelationParameter() })
-            fun query(restrict: Boolean) = QueryComputation.Scope(QueryComputation.Compute(calculation, bindings, emptyMap(), emptyMap(),
-                values.mapValues { (name, columns) -> CalculationBindings.LocalRelation(name, (listOf("customer") + columns).associateWith { it }) }),
-                values.keys.associateWith { QueryComputation.Input("ROOT", completed(restrict, it == "contributions")) }, emptyList())
+            fun query(restrict: Boolean) = Calculation.Scope(Calculation.Compute(calculation, Calculation.ExplicitBindings(bindings, emptyMap(), values.mapValues { (name, columns) -> CalculationBindings.LocalRelation(name, (listOf("customer") + columns).associateWith { it }) }), emptyMap()), values.keys.associateWith { Calculation.InputScope("ROOT", completed(restrict, it == "contributions")) }, emptyList())
             warehouse.finishSetup()
             val lowered = requireNotNull(compile(definitions.catalog(), query(true)).executableLoweringResult)
             assertFalse(lowered.relationChecks.any { it.code == "OBSERVATION_OBJECT_IDENTITY_NULL" },
@@ -1347,7 +1318,7 @@ class MemberRelationExecutionTest {
     @Test fun distinguishesWeightedObjectsRawOccurrencesAndAnIndependentReferencePopulation(@TempDir directory: Path) {
         NativeWarehouse(directory, "duckdb", listOf("CREATE TABLE orders(id INTEGER PRIMARY KEY, customer INTEGER, period INTEGER, kind INTEGER, amount DECIMAL(18,2))",
             "INSERT INTO orders VALUES (1,1,1,1,10),(2,2,1,1,100),(3,2,1,1,100),(4,2,1,1,100),(5,3,1,1,30),(6,4,1,1,NULL),(7,NULL,1,1,NULL)")).use { warehouse ->
-            val definitions = observationCatalog(warehouse); val average = observationMean(); val identity = (money.unit as MetricValueContract.Fixed).identity
+            val definitions = observationCatalog(warehouse); val average = floatingMoney; val identity = (money.unit as MetricValueContract.Fixed).identity
             val product = MetricValueContract(average.unit, average.arithmetic, average.result, mapOf("product" to MetricValueContract.FixedBinary(MetricValueContract.BinaryOperator.MULTIPLY, identity, MetricValueContract.ONE, identity)), average.overflow)
             val ratio = MetricValueContract(average.unit, average.arithmetic, average.result, mapOf("quotient" to MetricValueContract.FixedBinary(MetricValueContract.BinaryOperator.DIVIDE, identity, MetricValueContract.ONE, identity)), average.overflow)
             val selected = MemberCondition.Predicate("customer", MemberCondition.Operator.NE, listOf(Calculation.Scalar(ScalarValueType.NUMBER, "3")))
@@ -1369,9 +1340,15 @@ class MemberRelationExecutionTest {
             val body = Calculation.Scope(Calculation.AlignMeasurements(inputs, emptyList(), Calculation.AlignmentPopulation(Calculation.PopulationKind.BASE, listOf("objects"))), emptyMap(),
                 listOf(PostOperationContract.Project(listOf("weighted", "unweighted", "object_count", "reference_mean", "raw_count"))))
             val authored = observationCompute(body, members, emptyList(), bindings)
-            val restored = SemanticProto.fromProto(ProtoBytes.decode(ProtoBytes.encode(SemanticProto.toProto(authored)), com.olap.prototype.wire.semantic.QueryScope.getDefaultInstance()))
+            val restored = SemanticProto.fromProto(ProtoBytes.decode(ProtoBytes.encode(SemanticProto.toProto(authored)), com.olap.prototype.wire.semantic.CalculationScope.getDefaultInstance()))
+            val observed = execute(engine, definitions, restored)
             assertEquals(listOf(listOf(decimal("77.5"), decimal("55"), decimal("3"), decimal("68"), decimal("5"))),
-                numericRows(execute(engine, definitions, restored)))
+                numericRows(observed))
+            listOf("weighted", "unweighted", "reference_mean").forEach { name ->
+                val contract = requireNotNull(observed.columns.single { it.symbol.name == name }.symbol.quantity).declaration
+                assertTrue(contract.arithmetic is MetricValueContract.NativeFloating, name)
+                assertEquals(MetricValueContract.BinaryFloat(64), contract.result, name)
+            }
             val falseObjects = orderRows("rows", MemberCondition.Unrestricted(), listOf(
                 PostOperationContract.Derive(ResultExpression.ResultQuantityLiteral(BigDecimal.ONE, recordCount()), "weight", "每行权重"),
                 PostOperationContract.Derive(ResultExpression.ResultWeightedContribution(ResultExpression.ResultSymbol("amount"), ResultExpression.ResultSymbol("weight"), Calculation.ObjectsBy(listOf("customer")), ResultExpression.WeightedComponent.VALUE, product, "product"), "contribution", "伪客户观察")))
@@ -1390,15 +1367,14 @@ class MemberRelationExecutionTest {
     private fun identityOutputs(result: MemberResult) = result.outputs.keys.associateWith { it }
     private fun installMemberReduction(definitions: Definitions, id: String, source: MemberResult, field: String, aggregation: ResultAggregation, output: MetricValueContract): MetricInstanceRef {
         val formal = source.outputs.mapValues { (_, meaning) -> Calculation.MemberProperty(meaning.role, MemberSourceDefinition.scalar(meaning).valueType, MemberSourceDefinition.rootValueContract(meaning)) }
-        val body = Calculation(emptyList(), listOf(Calculation.MemberSlot("members", source.entity, source.role, source.shape, formal, null)), emptyList(), emptyList(), emptyMap(), Calculation.Scope(Calculation.Members("objects", "members", formal.keys.map { Calculation.MemberProjection(it, it) }, null, emptyMap(), MemberCondition.Unrestricted()), emptyMap(),
+        val body = Calculation(emptyList(), listOf(Calculation.MemberSlot("members", source.entity, source.role, source.shape, formal, null)), emptyList(), emptyList(), emptyMap(), Calculation.Scope(Calculation.Members("objects", Calculation.MemberParameter("members"), formal.keys.map { Calculation.MemberProjection(it, it, null) }, null, emptyMap(), MemberCondition.Unrestricted(), emptyMap(), emptyMap(), emptyMap()), emptyMap(),
             listOf(regroup(emptyList(), listOf(reduction(field, aggregation, "value"))))))
         val ref = MetricRef(id, "1"); definitions.metrics[ref.key()] = ExecutableMetric(ref, MetricCalculation(body, "value", emptyList(), output))
         val instance = MetricInstanceRef("${id}_instance")
         definitions.instances[instance.id] = MetricInstance(ref, CalculationBindings(emptyMap(), mapOf("members" to CalculationBindings.InputParameter()), emptyMap(), emptyMap(), emptyMap()), emptyMap(), id)
         return instance
     }
-    private fun memberScope(source: String, outputs: List<String>, operations: List<PostOperationContract.ValidatedOperation>) = QueryComputation.Scope(
-        QueryComputation.Members("members", MemberRef(source, 1), emptyMap(), outputs.map { QueryComputation.Slot(it, it) }, null, emptyMap(), MemberCondition.Unrestricted(), emptyMap(), emptyMap()), emptyMap(), operations)
+    private fun memberScope(source: String, outputs: List<String>, operations: List<PostOperationContract.ValidatedOperation>) = Calculation.Scope(Calculation.Members("members", Calculation.MemberSource(MemberRef(source, 1)), outputs.map { Calculation.MemberProjection(it, it, null) }, null, emptyMap(), MemberCondition.Unrestricted(), emptyMap(), emptyMap(), emptyMap()), emptyMap(), operations)
 
     private val floatingMoney = MetricValueContract(money.unit, MetricValueContract.NativeFloating(), MetricValueContract.BinaryFloat(64), emptyMap(), money.overflow)
     private fun transactionBags(directory: Path) = NativeWarehouse(directory, "duckdb", listOf(
@@ -1431,15 +1407,15 @@ class MemberRelationExecutionTest {
         return definitions
     }
 
-    private fun joinedTransactionBag(operations: List<PostOperationContract.ValidatedOperation>): QueryComputation.Scope {
+    private fun joinedTransactionBag(operations: List<PostOperationContract.ValidatedOperation>): Calculation.Scope {
         val transactions = memberScope("transaction_rows", listOf("order_id", "amount"), emptyList())
         val attributes = memberScope("attribute_rows", listOf("order_id", "tag", "partition_no", "label"), emptyList())
         val join = PostOperationContract.JoinInput("attributes", "attribute", "LEFT", ResultExpression.ResultOperation(ResultExpression.ResultOperator.EQ,
             listOf(ResultExpression.ResultSymbol("order_id"), ResultExpression.ResultSymbol("attribute__order_id"))))
-        return QueryComputation.Scope(transactions.root, mapOf("attributes" to QueryComputation.Input("RELATION", attributes)), listOf(join) + operations)
+        return Calculation.Scope(transactions.root, mapOf("attributes" to Calculation.InputScope("RELATION", attributes)), listOf(join) + operations)
     }
 
-    private fun compile(catalog: ExecutableCatalog, computation: QueryComputation.Scope): CompiledQuery =
+    private fun compile(catalog: ExecutableCatalog, computation: Calculation.Scope): CompiledQuery =
         OlapSemanticCompiler(CalciteRelCompiler(TestConnectors.registry)).compile(catalog,
             ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION, "transaction_bag", catalog.manifest.catalogId, computation), OlapQueryContext("transaction_bag"), observer)
 
@@ -1457,7 +1433,7 @@ class MemberRelationExecutionTest {
             fun selected(condition: ResultExpression, value: ResultExpression) = ResultExpression.ResultCaseWhen(listOf(ResultExpression.ResultCaseBranch(condition, value)), ResultExpression.ResultLiteral(null))
             fun derive(name: String, value: ResultExpression) = PostOperationContract.Derive(value, name, name)
             fun quantity(value: String) = ResultExpression.ResultQuantityLiteral(BigDecimal(value), number)
-            fun computation(depth: Int, overflowTag: String = "never"): QueryComputation.Scope {
+            fun computation(depth: Int, overflowTag: String = "never"): Calculation.Scope {
                 val stages = mutableListOf<PostOperationContract.ValidatedOperation>(
                     derive("x_amount", selected(tagged("x"), ref("amount"))), derive("y_amount", selected(tagged("y"), ref("amount"))),
                     derive("missing_amount", selected(operation(ResultExpression.ResultOperator.IS_NULL, ref("attribute__order_id")), ref("amount"))),
@@ -1528,11 +1504,11 @@ class MemberRelationExecutionTest {
             declareUnits(definitions, "observations", mapOf("customer" to ScalarValueType.NUMBER, "amount" to ScalarValueType.NUMBER))
             val rawOutputs = mapOf("customer" to property("客户", "customer", ScalarValueType.NUMBER, "observations.customer"), "amount" to property("金额", "amount", ScalarValueType.NUMBER, "observations.amount", contract = money))
             installProjection(definitions, "observations", MemberShape.RAW_BAG, emptyList(), rawOutputs)
-            val mean = observationMean(); val count = recordCount(); val identity = (money.unit as MetricValueContract.Fixed).identity
+            val mean = floatingMoney; val count = recordCount(); val identity = (money.unit as MetricValueContract.Fixed).identity
             val ratio = MetricValueContract(mean.unit, mean.arithmetic, mean.result, mapOf("division" to MetricValueContract.FixedBinary(MetricValueContract.BinaryOperator.DIVIDE, identity, MetricValueContract.ONE, identity)), mean.overflow)
             val formal = Calculation.MemberSlot("rows", "事实记录", "observations", MemberShape.RAW_BAG, mapOf("customer" to Calculation.MemberProperty("customer", ScalarValueType.NUMBER, null), "amount" to Calculation.MemberProperty("amount", ScalarValueType.NUMBER, money)), MemberRef("observations", 1))
             val body = Calculation(emptyList(), listOf(formal), emptyList(), emptyList(), emptyMap(), Calculation.Scope(
-                Calculation.Members("observed_rows", "rows", listOf(Calculation.MemberProjection("customer", "customer"), Calculation.MemberProjection("amount", "amount")), null, emptyMap(), MemberCondition.Unrestricted()), emptyMap(), listOf(
+                Calculation.Members("observed_rows", Calculation.MemberParameter("rows"), listOf(Calculation.MemberProjection("customer", "customer", null), Calculation.MemberProjection("amount", "amount", null)), null, emptyMap(), MemberCondition.Unrestricted(), emptyMap(), emptyMap(), emptyMap()), emptyMap(), listOf(
                     regroup(listOf("customer"), listOf(reduction("amount", ResultAggregation.Sum(money, ResultAggregation.NullPolicy.IGNORE), "total"), reduction("amount", ResultAggregation.Average(mean, ResultAggregation.NullPolicy.IGNORE, MeanTarget.SOURCE_NATIVE), "average"), reduction("amount", ResultAggregation.Count(false, ResultAggregation.NullPolicy.IGNORE), "observations"), reduction("amount", ResultAggregation.Count(true, ResultAggregation.NullPolicy.IGNORE), "distinct_amounts"))),
                     Derive(ResultNumeric(ResultOperation(ResultOperator.SAFE_DIVIDE, listOf(symbol("total"), symbol("observations"))), ratio, "division"), "ratio", "每次观测金额"))))
             val result = MemberResult("客户", "customers", MemberShape.UNIQUE_MEMBERS, listOf("customer"), mapOf(
@@ -1546,12 +1522,17 @@ class MemberRelationExecutionTest {
             assertEquals(listOf(listOf(decimal("1")), listOf(decimal("1")), listOf(decimal("2")), listOf(decimal("3"))), numericRows(execute(engine, definitions, memberScope("observations", listOf("customer"), emptyList()))))
             assertEquals(listOf(listOf(decimal("1"), decimal("2")), listOf(decimal("2"), decimal("1")), listOf(decimal("3"), decimal("1"))), numericRows(execute(engine, definitions,
                 memberScope("observations", listOf("customer"), listOf(regroup(listOf("customer"), listOf(reduction("customer", ResultAggregation.Count(false, ResultAggregation.NullPolicy.IGNORE), "occurrences"))))))))
+            val observed = execute(engine, definitions, memberScope("customers", listOf("customer", "total", "average", "observations", "distinct_amounts", "ratio"), emptyList()))
             assertEquals(listOf(listOf(decimal("1"), decimal("40"), decimal("20"), decimal("2"), decimal("1"), decimal("20")), listOf(decimal("2"), null, null, decimal("0"), decimal("0"), null),
-                listOf(decimal("3"), decimal("10"), decimal("10"), decimal("1"), decimal("1"), decimal("10"))), numericRows(execute(engine, definitions,
-                memberScope("customers", listOf("customer", "total", "average", "observations", "distinct_amounts", "ratio"), emptyList()))))
+                listOf(decimal("3"), decimal("10"), decimal("10"), decimal("1"), decimal("1"), decimal("10"))), numericRows(observed))
+            listOf("average", "ratio").forEach { name ->
+                val contract = requireNotNull(observed.columns.single { it.symbol.name == name }.symbol.quantity).declaration
+                assertTrue(contract.arithmetic is MetricValueContract.NativeFloating, name)
+                assertEquals(MetricValueContract.BinaryFloat(64), contract.result, name)
+            }
             val local = CalculationBindings.LocalRef("customers", identityOutputs(result))
-            val shared = measures(listOf(QueryComputation.Invocation("left", totalInstance, "left_total", emptyMap(), mapOf("members" to local), emptyMap(), DimensionCondition.Unrestricted()), QueryComputation.Invocation("right", totalInstance, "right_total", emptyMap(), mapOf("members" to local), emptyMap(), DimensionCondition.Unrestricted())),
-                mapOf("customers" to QueryComputation.Input("ROOT", memberScope("customers", result.outputs.keys.toList(), emptyList()))))
+            val shared = measures(listOf(Calculation.Call("left", Calculation.Instance(totalInstance), "left_total", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), mapOf("members" to local), emptyMap()), Calculation.Call("right", Calculation.Instance(totalInstance), "right_total", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), mapOf("members" to local), emptyMap())),
+                mapOf("customers" to Calculation.InputScope("ROOT", memberScope("customers", result.outputs.keys.toList(), emptyList()))))
             assertEquals(listOf(listOf(decimal("50"), decimal("50"))), numericRows(execute(engine, definitions, shared)))
             val overall = numericRows(execute(engine, definitions, memberScope("observations", listOf("amount"), listOf(regroup(emptyList(),
                 listOf(reduction("amount", ResultAggregation.Average(mean, ResultAggregation.NullPolicy.IGNORE, MeanTarget.SOURCE_NATIVE), "overall_average"), reduction("amount", ResultAggregation.Count(true, ResultAggregation.NullPolicy.IGNORE), "overall_distinct")))))))
@@ -1560,7 +1541,7 @@ class MemberRelationExecutionTest {
             completedSums.forEach { (field, instance) ->
                 val source = CalculationBindings.SourceCall(MemberRef("customers", 1), emptyMap(), identityOutputs(result), emptyMap(), emptyMap())
                 assertEquals(listOf(listOf(expectedSums.getValue(field))), numericRows(execute(engine, definitions,
-                    measures(listOf(QueryComputation.Invocation("completed", instance, "completed_total", emptyMap(), mapOf("members" to source), emptyMap(), DimensionCondition.Unrestricted())), emptyMap()))), field)
+                    measures(listOf(Calculation.Call("completed", Calculation.Instance(instance), "completed_total", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), mapOf("members" to source), emptyMap())), emptyMap()))), field)
             }
             assertEquals(listOf(listOf(decimal("50"), decimal("50"))), numericRows(execute(engine, definitions, shared)))
         }
@@ -1601,12 +1582,12 @@ class MemberRelationExecutionTest {
             val instance = installMemberReduction(definitions, "customer_count", result, "customer", ResultAggregation.Count(false, ResultAggregation.NullPolicy.IGNORE), recordCount())
             warehouse.finishSetup(); val engine = engine(warehouse)
             val local = CalculationBindings.LocalRef("customers", mapOf("customer" to "customer"))
-            val calls = listOf(QueryComputation.Invocation("first", instance, "first_count", emptyMap(), mapOf("members" to local), emptyMap(), DimensionCondition.Unrestricted()), QueryComputation.Invocation("second", instance, "second_count", emptyMap(), mapOf("members" to local), emptyMap(), DimensionCondition.Unrestricted()))
+            val calls = listOf(Calculation.Call("first", Calculation.Instance(instance), "first_count", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), mapOf("members" to local), emptyMap()), Calculation.Call("second", Calculation.Instance(instance), "second_count", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), mapOf("members" to local), emptyMap()))
             val projected = memberScope("orders", listOf("customer"), emptyList())
             assertEquals(listOf(listOf(decimal("1")), listOf(decimal("1")), listOf(decimal("2")), listOf(decimal("3"))), numericRows(execute(engine, definitions, projected)))
-            assertEquals("ANALYZE_STAGES", assertThrows(EngineExecutionException::class.java) { execute(engine, definitions, measures(calls, mapOf("customers" to QueryComputation.Input("ROOT", projected)))) }.stage)
+            assertEquals("ANALYZE_STAGES", assertThrows(EngineExecutionException::class.java) { execute(engine, definitions, measures(calls, mapOf("customers" to Calculation.InputScope("ROOT", projected)))) }.stage)
             val customers = memberScope("orders", listOf("id", "customer"), listOf(regroup(listOf("customer"), listOf(reduction("id", ResultAggregation.Count(false, ResultAggregation.NullPolicy.IGNORE), "orders"))), Project(listOf("customer"))))
-            val explicit = measures(calls, mapOf("customers" to QueryComputation.Input("ROOT", customers)))
+            val explicit = measures(calls, mapOf("customers" to Calculation.InputScope("ROOT", customers)))
             repeat(2) { assertEquals(listOf(listOf(decimal("3"), decimal("3"))), numericRows(execute(engine, definitions, explicit))) }
         }
     }

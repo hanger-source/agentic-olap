@@ -5,6 +5,7 @@ import com.olap.prototype.expression.SemanticExpression
 import com.olap.prototype.expression.SemanticExpressionInspector
 import com.olap.prototype.governance.contract.DefinitionImpact.Reference
 import com.olap.prototype.member.MemberSourceDefinition
+import com.olap.prototype.member.MemberRef
 import com.olap.prototype.metric.MetricValueContract
 import com.olap.prototype.query.PostOperationTraversal
 import com.olap.prototype.query.ResultAggregation
@@ -60,14 +61,7 @@ internal class DefinitionReferences(private val instances: (MetricInstanceRef) -
         }
     }
     private fun calculation(value: Calculation) {
-        value.callSites().forEach { site -> (site.call.target as? Calculation.Fixed)?.let { emit(Reference("METRIC", it.metric.id, it.metric.version)) } }
-        value.memberSlots.forEach { slot ->
-            slot.fixedSource?.let { reference("MEMBER_SOURCE", it.id, it.version) }
-            slot.outputs.values.filterIsInstance<Calculation.ScalarMemberOutput>().forEach { it.valueContract?.let(::quantity) }
-        }
-        value.parameters.values.forEach { it.valueContract?.let(::quantity) }
-        value.relationSlots.forEach { slot -> slot.outputs.forEach { shape(it.shape) } }
-        value.measurementSlots.forEach { slot -> quantity(slot.valueContract); slot.parameters.values.forEach { it.valueContract?.let(::quantity) } }
+        value.fixedMemberSources().values.forEach { reference("MEMBER_SOURCE", it.id, it.version) }
         fun scope(current: Calculation.Scope) {
             current.stages.forEach { operation -> PostOperationTraversal.valueContracts(operation).forEach(::quantity) }
             when (val root = current.root) {
@@ -82,7 +76,14 @@ internal class DefinitionReferences(private val instances: (MetricInstanceRef) -
             }
             current.children().values.forEach { scope(it.computation) }
         }
-        scope(value.computation)
+        value.definitionBodies().values.forEach { body ->
+            body.callSites().forEach { site -> (site.call.target as? Calculation.Fixed)?.let { emit(Reference("METRIC", it.metric.id, it.metric.version)) } }
+            body.memberSlots.forEach { slot -> slot.outputs.values.filterIsInstance<Calculation.ScalarMemberOutput>().forEach { it.valueContract?.let(::quantity) } }
+            body.parameters.values.forEach { it.valueContract?.let(::quantity) }
+            body.relationSlots.forEach { slot -> slot.outputs.forEach { shape(it.shape) } }
+            body.measurementSlots.forEach { slot -> quantity(slot.valueContract); slot.parameters.values.forEach { it.valueContract?.let(::quantity) } }
+            scope(body.computation)
+        }
     }
     private fun shape(value: SetOutputContract.Shape) {
         when (value) {
@@ -96,4 +97,30 @@ internal class DefinitionReferences(private val instances: (MetricInstanceRef) -
     }
     private fun quantity(value: MetricValueContract) { (value.unit as? MetricValueContract.EventDimension)?.let { reference("DIMENSION_EVENT_BINDING", it.bindingId, it.bindingVersion) } }
     private fun reference(type: String, id: String, version: Long) { emit(Reference(type, id, version.toString())) }
+}
+
+/** 固定来源是精确采用依赖；同时收集直接来源与实参中的正式引用节点。 */
+internal fun Calculation.fixedMemberSources(): Map<String, MemberRef> = linkedMapOf<String, MemberRef>().apply {
+    fun members(values: Map<String, CalculationBindings.Member>, path: String) {
+        values.forEach { (name, value) -> if (value is CalculationBindings.SourceCall) {
+            put("$path/$name/source", value.source)
+            members(value.members, "$path/$name/members")
+        } }
+    }
+    fun scope(current: Calculation.Scope, path: String) {
+        when (val root = current.root) {
+            is Calculation.Members -> {
+                (root.target as? Calculation.MemberSource)?.let { put("$path/root/source", it.source) }
+                members(root.members, "$path/root/members")
+            }
+            is Calculation.Measures -> root.calls.forEach { call -> members(call.members, "$path/root/calls/${call.callId}/members") }
+            else -> Unit
+        }
+        current.children().forEach { (name, child) -> scope(child.computation, "$path/inputs/$name/computation") }
+    }
+    definitionBodies().forEach { (path, body) ->
+        val prefix = if (path.isEmpty()) "" else "$path/"
+        body.memberSlots.forEach { slot -> slot.fixedSource?.let { put("${prefix}memberSlots/${slot.name}/fixedSource", it) } }
+        scope(body.computation, "${prefix}computation")
+    }
 }

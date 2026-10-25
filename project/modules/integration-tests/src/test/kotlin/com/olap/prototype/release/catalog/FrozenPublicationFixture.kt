@@ -4,6 +4,7 @@ import com.olap.prototype.codec.GovernanceProto
 import com.olap.prototype.codec.SemanticProto
 import com.olap.prototype.codec.ProtoBytes
 import com.olap.prototype.calculation.*
+import com.olap.prototype.dsl.Computations
 import com.olap.prototype.connector.JdbcAccess
 import com.olap.prototype.contract.JdbcColumnType
 import com.olap.prototype.engine.catalog.ExecutableCatalog
@@ -163,20 +164,20 @@ internal class FrozenPublicationFixture(directory: Path, dialect: String, unique
             return GovernanceProto.fromProto(ProtoBytes.decode(ProtoBytes.encode(GovernanceProto.toProto(published)), com.olap.prototype.wire.governance.PublishedExecutableCatalog.getDefaultInstance()))
         }
 
-        fun request(calls: List<QueryComputation.Invocation>, grouping: List<ScopedInputContract.DimensionRef> = emptyList(),
-            events: List<QueryComputation.EventCondition> = emptyList(), timed: Boolean = true): QueryComputation.Scope {
-            val measures = QueryComputation.Measures(calls, grouping, if (timed) QueryComputation.TimeRange(ScopedInputContract.DimensionRef("business_date", "1", "day"),
-                TemporalWindow(TemporalWindow.ValueType.DATE, TemporalWindow.BOUNDARY, "2026-06-01", "2026-06-08")) else null, emptyMap(),
-                DimensionCondition.Unrestricted(), DimensionCondition.Unrestricted(), events, RowPopulationContract.calls(calls.map { it.callId }), null)
-            return QueryComputation.Scope(measures, emptyMap(), emptyList())
+        fun request(calls: List<Calculation.Call>, grouping: List<ScopedInputContract.DimensionRef> = emptyList(),
+            events: List<Calculation.EventCondition> = emptyList(), timed: Boolean = true): Calculation.Scope {
+            return Computations.measure(calls, grouping.map { Calculation.PublishedDimension(it) }, RowPopulationContract.calls(calls.map { it.callId }),
+                timeRange = if (timed) Calculation.TimeRange(Calculation.PublishedDimension(ScopedInputContract.DimensionRef("business_date", "1", "day")),
+                    Calculation.Range(TemporalWindow(TemporalWindow.ValueType.DATE, TemporalWindow.BOUNDARY, "2026-06-01", "2026-06-08"))) else null,
+                sourceEventConditions = events)
         }
 
-        fun computation(request: QueryComputation.Scope): QueryComputation.Scope = request
-        fun bindFrozen(publication: PublishedExecutableCatalog, request: QueryComputation.Scope): ExecutableInputScope = bind(publication.catalog, request)
-        fun bind(catalog: ExecutableCatalog, request: QueryComputation.Scope): ExecutableInputScope = ExecutableSemanticBinder(connectors).bind(catalog,
+        fun computation(request: Calculation.Scope): Calculation.Scope = request
+        fun bindFrozen(publication: PublishedExecutableCatalog, request: Calculation.Scope): ExecutableInputScope = bind(publication.catalog, request)
+        fun bind(catalog: ExecutableCatalog, request: Calculation.Scope): ExecutableInputScope = ExecutableSemanticBinder(connectors).bind(catalog,
             ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION, "frozen_catalog", catalog.manifest.catalogId, request))
 
-        fun execute(fixture: FrozenPublicationFixture, catalog: PublishedExecutableCatalog, request: QueryComputation.Scope): List<List<Any?>> {
+        fun execute(fixture: FrozenPublicationFixture, catalog: PublishedExecutableCatalog, request: Calculation.Scope): List<List<Any?>> {
             val graph = ExecutableInputGraph.index(bindFrozen(catalog, request))
             val sources = ExecutableSourceResolver().resolve(catalog.catalog, graph)
             val compiled = CalciteRelCompiler(connectors).compile(graph, ExecutableStageAnalysis.analyze(graph, connectors), sources, OlapQueryContext("frozen_catalog")).lowering
@@ -190,7 +191,7 @@ internal class FrozenPublicationFixture(directory: Path, dialect: String, unique
         fun adoptedInstance(catalog: PublishedExecutableCatalog, code: String): MetricInstanceRef = catalog.queryCapability.metricCandidates.single {
             it.adoptionId == MetricAdoption.identity("subject", code) && it.adoptionVersion == 1L
         }.instance
-        fun call(catalog: PublishedExecutableCatalog, callId: String, code: String) = QueryComputation.Invocation(callId, adoptedInstance(catalog, code), callId, emptyMap(), emptyMap(), emptyMap(), DimensionCondition.Unrestricted())
+        fun call(catalog: PublishedExecutableCatalog, callId: String, code: String) = Computations.invoke(adoptedInstance(catalog, code), callId)
         fun cityAmounts(rows: List<List<Any?>>): Map<String, BigDecimal> = rows.associate { it[0] as String to it[1] as BigDecimal }
     }
 }

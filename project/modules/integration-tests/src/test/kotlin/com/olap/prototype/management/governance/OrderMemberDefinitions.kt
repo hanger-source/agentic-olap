@@ -1,6 +1,7 @@
 package com.olap.prototype.management.governance
 
 import com.olap.prototype.calculation.*
+import com.olap.prototype.dsl.Computations
 import com.olap.prototype.event.RelationAccessPath
 import com.olap.prototype.event.EventRef
 import com.olap.prototype.member.*
@@ -20,8 +21,20 @@ internal object OrderMemberDefinitions {
 
     fun computed(threshold: String, projectionRange: Boolean): MemberSourceDefinition.Computed {
         val outputs = mapOf("order" to Calculation.MemberProperty("order", ScalarValueType.TEXT, null), "amount" to Calculation.MemberProperty("amount", ScalarValueType.NUMBER, GovernanceOrderFixture.money()))
-        val calculation = Calculation(emptyList(), listOf(Calculation.MemberSlot("rows", "订单", "order", MemberShape.RECORDS, outputs, null)), emptyList(), emptyList(), mapOf("window" to Calculation.Parameter(Calculation.ParameterKind.RANGE, "DATE", emptyList(), null, null), threshold to Calculation.Parameter(Calculation.ParameterKind.SCALAR, "NUMBER", emptyList(), null, GovernanceOrderFixture.money())), Calculation.Scope(Calculation.Members("rows", "rows", listOf(Calculation.MemberProjection("order", "order"), Calculation.MemberProjection("amount", "amount")),
-            if (projectionRange) Calculation.Argument("window") else null, emptyMap(), MemberCondition.Predicate("amount", MemberCondition.Operator.GTE, listOf(Calculation.Argument(threshold)))), emptyMap(), emptyList()))
+        val parameters = mapOf("window" to Calculation.Parameter(Calculation.ParameterKind.RANGE, "DATE", emptyList(), null, null),
+            threshold to Calculation.Parameter(Calculation.ParameterKind.SCALAR, "NUMBER", emptyList(), null, GovernanceOrderFixture.money()))
+        // 未在本层投影应用的期间，由外层采用的 SourceCall.arguments 消费。
+        val localNames = parameters.keys.filter { projectionRange || it != "window" }.associateWith { "nested_$it" }
+        val local = Calculation(emptyList(), listOf(Calculation.MemberSlot("selected_rows", "订单", "order", MemberShape.RECORDS, outputs, null)),
+            emptyList(), emptyList(), localNames.entries.associate { (name, localName) -> localName to parameters.getValue(name) },
+            Computations.members("rows", Calculation.MemberParameter("selected_rows"),
+                listOf(Calculation.MemberProjection("order", "order", null), Calculation.MemberProjection("amount", "amount", null)),
+                range = if (projectionRange) Calculation.Argument(localNames.getValue("window")) else null,
+                condition = MemberCondition.Predicate("amount", MemberCondition.Operator.GTE, listOf(Calculation.Argument(localNames.getValue(threshold))))))
+        val calculation = Calculation(emptyList(), listOf(Calculation.MemberSlot("rows", "订单", "order", MemberShape.RECORDS, outputs, null)),
+            emptyList(), emptyList(), parameters,
+            Computations.compute(local, Calculation.ParentSlots(emptyMap(), mapOf("selected_rows" to "rows"), emptyMap(), emptyMap()),
+                localNames.entries.associate { (name, localName) -> localName to Calculation.Argument(name) }))
         return MemberSourceDefinition.Computed(calculation, MemberResult("订单", "order", MemberShape.RECORDS, listOf("order"), mapOf(
             "order" to MemberSourceDefinition.ComputedPropertyOutput("订单", "order", ScalarValueType.TEXT, "order", null),
             "amount" to MemberSourceDefinition.ComputedPropertyOutput("金额", "amount", ScalarValueType.NUMBER, "amount", GovernanceOrderFixture.money()),

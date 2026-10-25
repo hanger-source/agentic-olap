@@ -71,7 +71,7 @@ agentic-olap start
 agentic-olap info
 agentic-olap tools
 agentic-olap call describe-script-api --payload '{}'
-agentic-olap call execute-script --payload '{"executionId":"sources-1","waitMillis":1000,"source":"olap.output(olap.sources.list(EmptyRequest))","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v7","parameters":{}}'
+agentic-olap call execute-script --payload '{"executionId":"sources-1","waitMillis":1000,"source":"olap.output(olap.sources.list(EmptyRequest))","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v8","parameters":{}}'
 ```
 
 回执包含 `sessionId`、`executionId` 和实际状态。若仍为 `RUNNING`，调用 `wait-script` 等待同一执行；后续代码传同一 `sessionId` 和新的 `executionId`，可继续使用已有对象与函数。同执行身份的重试只观察已有执行，不重复副作用。用完后调用 `close-script-session` 关闭自己建立的会话；语言会话关闭不会删除已保存的定义、发布或结果。
@@ -125,7 +125,9 @@ npx skills add hanger-source/agentic-olap --skill agentic-olap
 
 Agent 用 `describe-script-api` 发现实际 Kotlin 方法、构造器、属性、封闭变体及枚举，再通过 `execute-script` 提交完整 kts 程序。脚本固定提供 `olap` 和 `parameters`；可以用普通 Kotlin 分支、循环和局部函数读取真实回执后继续构造输入。构造与执行分离，正式调用由 Kotlin 主服务按本次可信主体和实际资源授权，再直接交给相应应用处理。
 
-Query 使用正式 `QueryIntent(publication, computation)`，计算由根、独立输入和有序阶段构成。DSL 的 `scope/query/input/stage` 构造已有语义模型；根可使用测量、成员、输入、集合或共同计算，输入自身也可以是完整计算。定义内部与本次查询共同保留粒度、数量、单位、NULL 和来源含义。
+Query 使用正式 `QueryIntent(publication, computation)`；本次查询与定义内部都使用同一个 `Calculation.Scope`，包含根、独立输入和有序阶段。`Computations` 直接构造成员调用、测量、集合、对象资格、完成对齐及观察统计，输出可以继续作为这些运算的输入。已选定的实际计算不需要先声明形式槽或重述其数量与键；绑定和分析从实际计算保留这些事实。
+
+需要可替换输入时，`Calculation` 在共同计算体外声明正式参数与接受条件。调用定义只绑定剩余输入和参数；已采用实例拥有的绑定不被外层覆盖。公开查询只能使用获准的精确采用与输出，定义的私有依赖继续按冻结合同核验。统一计算体不改变采用、发布及授权边界。
 
 共同计算分别声明成员、可调用测量和完成关系输入。完成关系按真实列、数量合同和观察键传入，可继续交给其他定义使用；不把金额或计数伪装为成员属性。调用中的来源条件沿显式参数传给指定事实，仍受本次发布的过滤权限约束，不自动向所有子计算继承。
 

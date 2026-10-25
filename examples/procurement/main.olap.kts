@@ -162,7 +162,7 @@ class BusinessExample(val client: OlapClient, val parameters: ScriptArguments, v
         return client.semantics.publication(QueryCapabilityRequest(scenario.id, 1, "$domain-release", "1"))
     }
     data class Saved(val query: QueryReference, val result: QueryResultReference, val page: ResultPage)
-    fun execute(entry: PublishedQueryEntry, name: String, computation: QueryComputation.Scope): Saved {
+    fun execute(entry: PublishedQueryEntry, name: String, computation: Calculation.Scope): Saved {
         val intent = QueryIntent(PublishedQueryEntry.key(entry.capability), computation)
         val saved = client.queries.save(QueryDefinitionCommand(null, null, requireNotNull(entry.capability.capabilityHash), name, intent, null))
         val reference = saved.reference
@@ -192,11 +192,7 @@ class BusinessExample(val client: OlapClient, val parameters: ScriptArguments, v
     fun grant(scenario: ScenarioRecord, axis: Axis) {
         governance.createScenarioAnalysisDimensionRef(ScenarioAnalysisDimensionRefCreateRequest(scenario.id, 1, axis.analysis.id, 1, axis.bound.reference.levelCode, true, 1))
     }
-    fun call(adoption: SubjectAreaMetricRefRecord, alias: String = adoption.code, arguments: Map<String, Calculation.Value> = emptyMap()) =
-        QueryComputation.Invocation(alias, adoption.instance, alias, arguments, emptyMap(), emptyMap(), DimensionCondition.Unrestricted())
-    fun scope(calls: List<QueryComputation.Invocation>, grouping: List<ScopedInputContract.DimensionRef>, population: List<String> = calls.map { it.callId }) =
-        QueryComputation.Scope(QueryComputation.Measures(calls, grouping, null, emptyMap(), DimensionCondition.Unrestricted(), DimensionCondition.Unrestricted(), emptyList(),
-            RowPopulationContract.calls(population), null), emptyMap(), emptyList())
+
 }
 
 fun resume(client: OlapClient, parameters: ScriptArguments, verify: (ResultPage) -> Unit): ScriptValue {
@@ -233,9 +229,8 @@ fun receiptDefinition(po: Calculation.DimensionSlot, latestFirst: Boolean): Memb
     val stages: List<ValidatedOperation> = if (latestFirst) listOf(versions, accepted) else listOf(accepted, versions)
     val calculation = Calculation(listOf(po), listOf(Calculation.MemberSlot("deliveries", "收货投递", "delivery",
         MemberShape.RECORDS, outputs, null)), emptyList(), emptyList(), mapOf("accepted" to Calculation.Parameter(
-    Calculation.ParameterKind.SCALAR, "TEXT", emptyList(), null, null)), Calculation.Scope(
-    Calculation.Members("deliveries", "deliveries", outputs.keys.map { Calculation.MemberProjection(it, it) },
-        null, emptyMap(), MemberCondition.Unrestricted()), emptyMap(),
+    Calculation.ParameterKind.SCALAR, "TEXT", emptyList(), null, null)), Computations.stages(
+    Computations.members("deliveries", Calculation.MemberParameter("deliveries"), outputs.keys.map { Calculation.MemberProjection(it, it, null) }),
     stages + Project(listOf("receipt", "po", "amount"))))
     return MemberSourceDefinition.Computed(calculation, MemberResult("业务金额记录", "amount_record", MemberShape.RECORDS,
         listOf("id"), mapOf(
@@ -252,15 +247,15 @@ fun sumDefinition(po: Calculation.DimensionSlot): MetricCalculation {
         "po" to Calculation.MemberDimension("po", null),
         "amount" to Calculation.MemberProperty("amount", ScalarValueType.NUMBER, money()),
     ), null)
-    val body = Calculation(listOf(po), listOf(rows), emptyList(), emptyList(), emptyMap(), Calculation.Scope(
-        Calculation.Members("records", "rows", listOf("id", "po", "amount").map { Calculation.MemberProjection(it, it) },
-            null, emptyMap(), MemberCondition.Unrestricted()), emptyMap(), listOf(sum(listOf("po"), "amount"))))
+    val body = Calculation(listOf(po), listOf(rows), emptyList(), emptyList(), emptyMap(), Computations.stages(
+        Computations.members("records", Calculation.MemberParameter("rows"), listOf("id", "po", "amount").map { Calculation.MemberProjection(it, it, null) }), listOf(sum(listOf("po"), "amount"))))
     return MetricCalculation(body, "value", listOf("po"), money())
 }
 
 fun totalDefinition(po: Calculation.DimensionSlot) = MetricCalculation(
-    Calculation(listOf(po), emptyList(), listOf(Calculation.MeasurementSlot("amount", emptyMap(), listOf(po), emptyList(), money())), emptyList(), emptyMap(), Calculation.Scope(Calculation.Measures(listOf(Calculation.Call("amount", Calculation.Measurement("amount"), "amount", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()))), listOf("po"), emptyList(), null, null,
-        emptyMap(), Calculation.Population(listOf("amount")), null), emptyMap(), listOf(sum(emptyList(), "amount")))),
+    Calculation(listOf(po), emptyList(), listOf(Calculation.MeasurementSlot("amount", emptyMap(), listOf(po), emptyList(), money())), emptyList(), emptyMap(),
+        Computations.stages(Computations.measure(listOf(Computations.invoke(Calculation.Measurement("amount"), "amount")),
+            listOf(Calculation.DimensionParameter("po")), RowPopulationContract.calls(listOf("amount"))), listOf(sum(emptyList(), "amount")))),
     "value", emptyList(), money())
 
 fun verifyProcurement(page: ResultPage) = expect(page, mapOf(
@@ -323,11 +318,11 @@ fun buildProcurement(): BusinessExample.Saved {
         "独立完成采购和收货，按采购人口对齐", example.actor)).scenario
     example.grant(scenario, axis)
     val entry = example.publish(subject, scenario, metrics.values.toList(), emptyList())
-    val totals = example.execute(entry, "procurement_totals", example.scope(listOf("purchase", "latest_effective", "latest_successful").map {
-        example.call(metrics.getValue("${it}_total"), it) }, emptyList(), listOf("purchase")))
+    val totals = example.execute(entry, "procurement_totals", Computations.measure(listOf("purchase", "latest_effective", "latest_successful").map {
+        Computations.invoke(metrics.getValue("${it}_total").instance, it) }, emptyList(), RowPopulationContract.calls(listOf("purchase"))))
     expect(totals.page, mapOf("total" to mapOf("purchase" to "250", "latest_effective" to "130", "latest_successful" to "200")))
-    return example.execute(entry, "procurement_by_po", example.scope(listOf("purchase", "latest_effective", "latest_successful").map {
-        example.call(metrics.getValue(it)) }, listOf(axis.bound.reference), listOf("purchase"))).also { verifyProcurement(it.page) }
+    return example.execute(entry, "procurement_by_po", Computations.measure(listOf("purchase", "latest_effective", "latest_successful").map {
+        Computations.invoke(metrics.getValue(it).instance, it) }, listOf(Calculation.PublishedDimension(axis.bound.reference)), RowPopulationContract.calls(listOf("purchase")))).also { verifyProcurement(it.page) }
 }
 
 olap.output(if (parameters.text("phase") == "build") references(buildProcurement()) else resume(olap, parameters, ::verifyProcurement))

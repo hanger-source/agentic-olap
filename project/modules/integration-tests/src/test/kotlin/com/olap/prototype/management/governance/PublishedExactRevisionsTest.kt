@@ -1,5 +1,6 @@
 package com.olap.prototype.management.governance
 
+import com.olap.prototype.calculation.Calculation
 import com.olap.prototype.metric.MetricAggregation
 import com.olap.prototype.calculation.MetricDefinition
 import com.olap.prototype.calculation.CalculationBindings
@@ -12,7 +13,6 @@ import com.olap.prototype.member.MemberCondition
 import com.olap.prototype.member.MemberRef
 import com.olap.prototype.member.MemberShape
 import com.olap.prototype.metric.MetricValueContract
-import com.olap.prototype.query.QueryComputation
 import com.olap.prototype.query.ScalarValueType
 import com.olap.prototype.query.ScopedInputContract
 import com.olap.prototype.query.contract.MemberQueryPermission
@@ -85,8 +85,7 @@ class PublishedExactRevisionsTest {
         PlatformDatabase.openSingleInstance(metadata).use { database ->
             val f = GovernanceOrderFixture(database, directory)
             val publication = f.publication("two_event_versions")
-            val day = QueryComputation.TimeRange(ScopedInputContract.DimensionRef("${GovernanceOrderFixture.SUBJECT}.business_date", "1", "day"),
-                TemporalWindow(TemporalWindow.ValueType.DATE, TemporalWindow.BOUNDARY, "2026-07-21", "2026-07-22"))
+            val day = Calculation.TimeRange(Calculation.PublishedDimension(ScopedInputContract.DimensionRef("${GovernanceOrderFixture.SUBJECT}.business_date", "1", "day")), Calculation.Range(TemporalWindow(TemporalWindow.ValueType.DATE, TemporalWindow.BOUNDARY, "2026-07-21", "2026-07-22")))
             for ((code, expected) in mapOf("pay_amount" to "140", "a_amount" to "100")) {
                 val adoption = f.adoptions.metricAdoption(MetricAdoption.identity(GovernanceOrderFixture.SUBJECT, code), 1)
                 val frame = f.execute(publication, GovernanceOrderFixture.measurementScope(adoption.instance, timeRange = day)).result.resultFrame
@@ -127,7 +126,7 @@ class PublishedExactRevisionsTest {
             val oldPublication = f.artifacts.loadExecutableCatalog(ReleaseCatalogRequest(scenario, 1, "access_v1", "1"))
             val newPublication = f.artifacts.loadExecutableCatalog(ReleaseCatalogRequest(scenario, 2, "access_v2", "1"))
             val minimum = MemberCondition.Predicate("amount", MemberCondition.Operator.GTE, listOf(com.olap.prototype.calculation.Calculation.Scalar(ScalarValueType.NUMBER, "50")))
-            fun query(version: Long, outputs: List<String>, condition: MemberCondition) = QueryComputation.Scope(QueryComputation.Members("orders", MemberRef(first.id, version), emptyMap(), outputs.map { QueryComputation.Slot(it, it) }, null, emptyMap(), condition, emptyMap(), emptyMap()), emptyMap(), emptyList())
+            fun query(version: Long, outputs: List<String>, condition: MemberCondition) = Calculation.Scope(Calculation.Members("orders", Calculation.MemberSource(MemberRef(first.id, version)), outputs.map { Calculation.MemberProjection(it, it, null) }, null, emptyMap(), condition, emptyMap(), emptyMap(), emptyMap()), emptyMap(), emptyList())
             val original = f.execute(oldPublication, query(1, listOf("order", "amount"), minimum)).result.resultFrame
             assertEquals(setOf("1", "3"), original.rows.map { it["order"] }.toSet())
             assertEquals(setOf("100", "60"), original.rows.map { BigDecimal(it["amount"].toString()).stripTrailingZeros().toPlainString() }.toSet())

@@ -1,5 +1,4 @@
 import com.olap.prototype.dsl.*
-import com.olap.prototype.dsl.transport.CapabilityFailureException
 import com.olap.prototype.calculation.*
 import com.olap.prototype.member.*
 import com.olap.prototype.metric.MetricValueContract
@@ -100,50 +99,36 @@ val metric = metrics.getValue(countCode)
 check(publication.semanticCatalogHash == catalogReference.sha256 && publication.semanticCatalog.catalog.coordinate.request() == coordinate)
 
 fun arguments(start: String, end: String): Map<String, Calculation.Value> = mapOf("from" to Calculation.Scalar(ScalarValueType.TEXT, start), "to" to Calculation.Scalar(ScalarValueType.TEXT, end))
-fun members(member: PublishedSemanticCatalog.Member, call: String, arguments: Map<String, Calculation.Value>): QueryComputation.Scope {
+fun members(member: PublishedSemanticCatalog.Member, call: String, arguments: Map<String, Calculation.Value>): Calculation.Scope {
     val dimension = member.outputs.getValue("subject") as MemberCandidate.Dimension
     check("subject" in member.permission.outputs && axis.reference in dimension.mappings && dimension.dimensionId == subjectSlot.dimensionId && dimension.dimensionVersion == subjectSlot.dimensionVersion)
-    return QueryComputation.Scope(QueryComputation.Members(call, MemberRef(member.sourceId, member.sourceVersion), arguments,
-        listOf(QueryComputation.MappedDimension("subject", "subject", axis.reference)) + member.permission.outputs.filter { it != "subject" }.sorted().map { QueryComputation.Slot(it, it) },
-        null, emptyMap(), MemberCondition.Unrestricted(), emptyMap(), emptyMap()), emptyMap(), emptyList())
+    return Computations.members(call, MemberRef(member.sourceId, member.sourceVersion), arguments,
+        listOf(Calculation.MemberProjection("subject", "subject", Calculation.PublishedDimension(axis.reference))) + member.permission.outputs.filter { it != "subject" }.sorted().map { Calculation.MemberProjection(it, it, null) })
 }
 val inputScopes = linkedMapOf("paid_before" to members(paid, "paid_before", arguments(previousFrom, previousTo)),
     "visited_current" to members(visited, "visited_current", arguments(from, to)), "paid_current" to members(paid, "paid_current", arguments(from, to)),
     "activity_completed" to members(activity, "activity_completed", arguments(from, to)), "catalog_completed" to members(catalog, "catalog_completed", emptyMap()))
-val inputQuantities = linkedMapOf("paid_before" to emptyMap<String, MetricValueContract>(), "visited_current" to emptyMap(), "paid_current" to emptyMap(),
-    "activity_completed" to activityQuantities, "catalog_completed" to catalogQuantities)
-val key = listOf(SetOutputContract("subject", SetOutputContract.DimensionSlot("subject")))
-fun relation(name: String) = Calculation.Scope(Calculation.Relation(name), emptyMap(), emptyList())
-fun set(kind: Calculation.SetKind, left: Calculation.Scope, right: Calculation.Scope) = Calculation.Scope(Calculation.SetCombination(kind, false,
-    listOf(Calculation.SetProjection("left", listOf("subject")), Calculation.SetProjection("right", listOf("subject"))), key),
-    mapOf("left" to Calculation.InputScope("ROOT", left), "right" to Calculation.InputScope("ROOT", right)), emptyList())
-val population = set(if (question == "Q2") Calculation.SetKind.INTERSECT else Calculation.SetKind.EXCEPT,
-    set(Calculation.SetKind.INTERSECT, relation("paid_before"), relation("visited_current")), relation("paid_current"))
-fun intent(selectedContract: MetricValueContract): QueryIntent {
-    val slot = Calculation.MeasurementSlot("selected_count", metric.parameters, listOf(subjectSlot), emptyList(), selectedContract)
-    val measured = Calculation.Scope(Calculation.Measures(listOf(Calculation.Call("chosen_count", Calculation.Measurement("selected_count"), "selected_count",
-        emptyMap(), emptyMap(), emptyMap(), emptyMap(), arguments(from, to), Calculation.Condition(DimensionCondition.Unrestricted()))),
-        listOf("subject"), emptyList(), null, null, emptyMap(), Calculation.Population(listOf("chosen_count")), null), emptyMap(), emptyList())
-    fun aligned(body: Calculation.Scope, values: List<String>) = Calculation.AlignedInput(body, mapOf("subject" to "subject"), values.map { Calculation.AlignedValue(it, it, Calculation.NoMatch.PRESERVE_NULL) })
-    val calculation = Calculation(listOf(subjectSlot), emptyList(), listOf(slot), inputQuantities.map { (name, values) ->
-        Calculation.RelationSlot(name, key + values.map { (column, contract) -> SetOutputContract(column, SetOutputContract.Quantity(contract)) }, listOf("subject"))
-    }, emptyMap(), Calculation.Scope(Calculation.AlignMeasurements(linkedMapOf("population" to aligned(population, emptyList()),
-        "catalog" to aligned(relation("catalog_completed"), listOf("items", "qualified_items")),
-        "activity" to aligned(relation("activity_completed"), listOf("amount", "records", "known")), "count" to aligned(measured, listOf("selected_count"))),
-        listOf("subject"), Calculation.AlignmentPopulation(Calculation.PopulationKind.BASE, listOf("population"))), emptyMap(),
-        listOf(Project(listOf("subject", "items", "qualified_items", "amount", "records", "known", "selected_count")))))
-    val bindings = CalculationBindings(mapOf("subject" to axis), emptyMap(), emptyMap(), mapOf("selected_count" to metric.instance), inputScopes.keys.associateWith { CalculationBindings.RelationParameter() })
-    val local = inputQuantities.mapValues { (name, values) -> CalculationBindings.LocalRelation(name, (listOf("subject") + values.keys).associateWith { it }) }
-    return QueryIntent(coordinate, QueryComputation.Scope(QueryComputation.Compute(calculation, bindings, emptyMap(), emptyMap(), local), inputScopes.mapValues { QueryComputation.Input("ROOT", it.value) }, emptyList()))
-}
-val correct = intent(countContract)
+val key = listOf(SetOutputContract("subject", SetOutputContract.Dimension(axis.reference)))
+val priorVisits = Computations.set(Calculation.SetKind.INTERSECT, false, linkedMapOf(
+    "paid_before" to Computations.ProjectedInput(inputScopes.getValue("paid_before"), listOf("subject")),
+    "visited_current" to Computations.ProjectedInput(inputScopes.getValue("visited_current"), listOf("subject"))), key)
+val population = Computations.set(if (question == "Q2") Calculation.SetKind.INTERSECT else Calculation.SetKind.EXCEPT, false, linkedMapOf(
+    "prior_visits" to Computations.ProjectedInput(priorVisits, listOf("subject")),
+    "paid_current" to Computations.ProjectedInput(inputScopes.getValue("paid_current"), listOf("subject"))), key)
+val measured = Computations.measure(listOf(Computations.invoke(metric.instance, "chosen_count", outputAlias = "selected_count", arguments = arguments(from, to))),
+    listOf(Calculation.PublishedDimension(axis.reference)), RowPopulationContract.calls(listOf("chosen_count")))
+val aligned = Computations.align(linkedMapOf(
+    "population" to Computations.aligned(population, mapOf("subject" to "subject"), emptyList()),
+    "catalog" to Computations.aligned(inputScopes.getValue("catalog_completed"), mapOf("subject" to "subject"),
+        listOf("items", "qualified_items").map { Calculation.AlignedValue(it, it, Calculation.NoMatch.PRESERVE_NULL) }),
+    "activity" to Computations.aligned(inputScopes.getValue("activity_completed"), mapOf("subject" to "subject"),
+        listOf("amount", "records", "known").map { Calculation.AlignedValue(it, it, Calculation.NoMatch.PRESERVE_NULL) }),
+    "count" to Computations.aligned(measured, mapOf("subject" to "subject"),
+        listOf(Calculation.AlignedValue("selected_count", "selected_count", Calculation.NoMatch.PRESERVE_NULL)))),
+    listOf("subject"), Calculation.AlignmentPopulation(Calculation.PopulationKind.BASE, listOf("population")))
+val correct = Computations.query(coordinate, Computations.stages(aligned,
+    listOf(Project(listOf("subject", "items", "qualified_items", "amount", "records", "known", "selected_count")))))
 check(olap.queries.validate(QueryValidationRequest(QuerySelection.Inline(correct), QueryExecutionMode.SOURCE)).valid)
-val rejected: com.olap.prototype.dsl.transport.CapabilityFailure? = if (question == "Q3") {
-    // 一个现实的作者错误：把已读到的金额合同放进计数槽；只走正式validate，不提交来源执行。
-    val failure = runCatching { olap.queries.validate(QueryValidationRequest(QuerySelection.Inline(intent(activityQuantities.getValue("amount"))), QueryExecutionMode.SOURCE)) }.exceptionOrNull()
-    check(failure is CapabilityFailureException) { "错误数量签名应被正式校验拒绝：$failure" }
-    failure.failure.also { check(it.operationId == "validate-query") }
-} else null
 val saved = olap.queries.save(QueryDefinitionCommand(null, null, requireNotNull(publication.capability.capabilityHash), "$question 正式语义复用", correct, null, executionMode = QueryExecutionMode.SOURCE))
 val execution = olap.queries.execute(QueryExecutionRequest(QuerySelection.Saved(saved.reference), true, "$question 使用明确期间、集合与计数实例", null, executionMode = QueryExecutionMode.SOURCE))
 check(execution.status == QueryExecutionStatus.SUCCEEDED && execution.saved && execution.sourceState == SourceExecutionState.SUCCEEDED && execution.executionMode == QueryExecutionMode.SOURCE)
@@ -179,5 +164,4 @@ val output = linkedMapOf<String, ScriptValue>("query" to ScriptValue.QueryRefere
     "publication" to ScriptValue.ObjectValue(mapOf("releaseId" to ScriptValue.Text(releaseId), "releaseVersion" to ScriptValue.Text(releaseVersion),
         "scenarioId" to ScriptValue.Text(coordinate.scenarioId), "scenarioVersion" to ScriptValue.DecimalValue(BigDecimal.valueOf(coordinate.scenarioVersion)), "semanticCatalogHash" to ScriptValue.Text(catalogReference.sha256))),
     "selectedCount" to ScriptValue.Text(metric.code))
-rejected?.let { output["rejectedCountSignature"] = ScriptValue.ObjectValue(mapOf("operation" to ScriptValue.Text(it.operationId), "code" to ScriptValue.Text(it.code), "stage" to ScriptValue.Text(it.stage), "message" to ScriptValue.Text(it.message))) }
 olap.output(ScriptValue.ObjectValue(output))

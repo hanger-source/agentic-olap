@@ -38,14 +38,12 @@ fun execute(intent: QueryIntent, question: String): QueryExecutionReceipt =
         verify(requireNotNull(it.resultReference))
     }
 fun computation(entry: PublishedQueryEntry, unauthorized: Boolean = false,
-    codes: List<String> = listOf("sales_amount", "order_count")): QueryComputation.Scope {
+    codes: List<String> = listOf("sales_amount", "order_count")): Calculation.Scope {
     val calls = codes.map { code ->
         val instance = entry.capability.metricCandidates.single { it.code == code }.instance
-        QueryComputation.Invocation(code, if (unauthorized && code == "sales_amount") MetricInstanceRef("metric-instance-" + "0".repeat(64)) else instance,
-            code, emptyMap(), emptyMap(), emptyMap(), DimensionCondition.Unrestricted())
+        Computations.invoke(if (unauthorized && code == "sales_amount") MetricInstanceRef("metric-instance-" + "0".repeat(64)) else instance, code)
     }
-    return scope(QueryComputation.Measures(calls, emptyList(), null, emptyMap(), DimensionCondition.Unrestricted(),
-        DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(calls.map { it.callId }), null))
+    return Computations.measure(calls, emptyList(), RowPopulationContract.calls(calls.map { it.callId }))
 }
 
 val actor = olap.caller.subject
@@ -220,7 +218,7 @@ olap.output(when (parameters.text("phase")) {
                 "RESULT_UNIT_EQUATION_REQUIRED", listOf("branches", "0", "then", "expression", "expression")),
             Triple(guarded(ResultRound(declaredDivision, 18, MetricValueContract.Rounding.HALF_UP)),
                 "RESULT_NUMERIC_CONTRACT_REQUIRED", listOf("branches", "0", "then")))) {
-            val invalid = QueryIntent(coordinate, scope(dayRoot) { stage(PostOperationContract.Derive(bad, "mean_days", "平均日历天数")) })
+            val invalid = QueryIntent(coordinate, Computations.scope(dayRoot) { stage(PostOperationContract.Derive(bad, "mean_days", "平均日历天数")) })
             val failure = runCatching { olap.queries.validate(QueryValidationRequest(QuerySelection.Inline(invalid))) }.exceptionOrNull()
             check(failure is CapabilityFailureException && failure.failure.code == code) { "应交付可定位的作者错误：$failure" }
             check(failure.failure.stage == "ANALYZE_STAGES" && "postOps" in failure.failure.fieldPath && failure.failure.fieldPath.takeLast(tail.size) == tail) {
@@ -231,7 +229,7 @@ olap.output(when (parameters.text("phase")) {
             MetricValueContract.Decimal(28, 18, MetricValueContract.Rounding.HALF_UP), mapOf("ratio" to
                 MetricValueContract.FixedBinary(MetricValueContract.BinaryOperator.DIVIDE, MetricValueContract.ONE, MetricValueContract.ONE, MetricValueContract.ONE)),
             MetricValueContract.Overflow.FAIL)
-        val numericIntent = QueryIntent(coordinate, scope(dayRoot) {
+        val numericIntent = QueryIntent(coordinate, Computations.scope(dayRoot) {
             stage(PostOperationContract.Derive(guarded(ResultNumeric(ResultRound(declaredDivision, 18, MetricValueContract.Rounding.HALF_UP), mean, null)), "mean_days", "平均日历天数"))
             stage(PostOperationContract.Derive(ResultNumeric(ResultOperation(ResultOperator.DIVIDE, listOf(
                 ResultQuantityLiteral(BigDecimal("-9223372036854775808"), count), ResultQuantityLiteral(BigDecimal("1000000000000000000"), count))), ratio, "ratio"), "wide_ratio", "完整整数域的商"))
@@ -247,7 +245,7 @@ olap.output(when (parameters.text("phase")) {
         }
         check(listOf("RESULT_VERIFY", "RESULT_CREATE", "RESULT_WRITE", "RESULT_SYNC", "RESULT_COMMIT", "RESULT_DIRECTORY_SYNC", "RESULT_CLEANUP")
             .all { numericObservation.timingNanos[it]?.let { nanos -> nanos >= 0 } == true })
-        val coreIntent = QueryIntent(coordinate, QueryComputation.Scope(numericIntent.computation.root,
+        val coreIntent = QueryIntent(coordinate, Calculation.Scope(numericIntent.computation.root,
             numericIntent.computation.inputs, numericIntent.computation.stages + PostOperationContract.Derive(
                 ResultNumeric(ResultOperation(ResultOperator.DIVIDE, listOf(ResultSymbol("day_sum"),
                     ResultQuantityLiteral(BigDecimal("3"), count))), mean, "days_per_valid_contribution"),

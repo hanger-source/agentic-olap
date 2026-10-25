@@ -33,10 +33,10 @@ agentic-olap call describe-script-api --payload '{"type":"com.olap.prototype.cal
 
 ## 会话中调用正式能力
 
-`execute-script` 向持续 Kotlin 会话提交一个完整代码片段。DSL 为 `agentic-olap-kotlin-dsl/v7`，实际版本取服务发现结果。省略或留空 `sessionId` 创建会话；后续用实际返回的 `sessionId` 在同一 JVM 中继续。首次调用可以读取来源并保留 Kotlin 对象：
+`execute-script` 向持续 Kotlin 会话提交一个完整代码片段。DSL 为 `agentic-olap-kotlin-dsl/v8`，实际版本取服务发现结果。省略或留空 `sessionId` 创建会话；后续用实际返回的 `sessionId` 在同一 JVM 中继续。首次调用可以读取来源并保留 Kotlin 对象：
 
 ~~~sh
-agentic-olap call execute-script --payload '{"executionId":"sources-001","waitMillis":0,"source":"val sources = olap.sources.list(EmptyRequest)\nolap.output(sources)","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v7","parameters":{}}'
+agentic-olap call execute-script --payload '{"executionId":"sources-001","waitMillis":0,"source":"val sources = olap.sources.list(EmptyRequest)\nolap.output(sources)","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v8","parameters":{}}'
 agentic-olap call wait-script --payload '{"executionId":"sources-001","waitMillis":1000}'
 ~~~
 
@@ -228,9 +228,9 @@ val dayIdentifiers = PostOperationContract.Regroup(
 
 ### 完成对象集合继续参与测量
 
-完成关系可以先用 `INTERSECT`、`EXCEPT` 或 `UNION` 组织对象集合，再交给 `ObjectMeasure` 筛选实际记录，分别完成测量并按对象身份对齐。例如，前期付费对象与本期活动对象取交集、排除本期付费对象后，同一集合可以分别限制本期目录记录和交易记录。`RecordOutputs` 指向实际成员槽的键出口；对象集合仍是完成关系，无需伪装成成员来源。
+完成关系可以先用 `INTERSECT`、`EXCEPT` 或 `UNION` 组织对象集合，再交给 `ObjectMeasure` 筛选实际记录，分别完成测量并按对象身份对齐。例如，前期付费对象与本期活动对象取交集、排除本期付费对象后，同一集合可以分别限制本期目录记录和交易记录。`RecordOutputs` 选择已声明成员形参的键出口；`RecordCallOutputs` 按测量计算中的相对输入路径、局部成员调用身份及键出口选择实际记录调用。后者不要求为已选输入补建形式槽，也不全图搜索同名调用。对象集合仍是完成关系，无需伪装成成员来源。
 
-SET 组合两份及以上显式输入，各输入按位置投影到等宽、非空的共同输出；`Calculation.SetProjection` 指定输入和有序符号，`SetCombination`／`QueryComputation.SetInputs` 的规则分别从正式类型发现。单份关系形成键集合直接使用 REGROUP，不复制输入做 self-UNION。
+SET 组合两份及以上显式输入，各输入按位置投影到等宽、非空的共同输出。`Computations.set` 接收每份实际计算及其有序投影，构造唯一的 `Calculation.SetCombination`；共同输出的语义身份和数量兼容性由引擎核验。单份关系形成键集合直接使用 REGROUP，不复制输入做 self-UNION。
 
 共同输出中的分析维度身份及其实际角色必须一致。引擎沿 SET 的真实分支依赖核对身份和角色，列同名、同为 TEXT 或声明相同输出形状都不能替代证明；缺少来源证明或分支角色冲突时拒绝。`all=false` 的 SET 形成其完整输出行的唯一键，不能因此把被测成员的 `RAW_BAG` 改成唯一记录。对象资格只筛选记录，后续归约明确计算贡献，资格集合不会复制被测记录。
 
@@ -407,7 +407,7 @@ ScriptValue.ArrayValue(contract.modes.map { mode ->
 
 ## 组织本次完整 Query
 
-使用 `olap.semantics` 发现获准发布与定义；方法和模型的准确类型由 `describe-script-api` 返回。Query 使用正式 `QueryIntent(publication, computation)`，计算由 `QueryComputation.Scope` 的根、独立输入和有序阶段构成。DSL 的 `scope/query/input/stage` 只帮助构造这些已有模型，不保存 lambda 或形成另一种计算语言。
+使用 `olap.semantics` 发现获准发布与定义；方法和模型的准确类型由 `describe-script-api` 返回。Query 使用正式 `QueryIntent(publication, computation)`，与定义内部共用唯一的 `Calculation.Scope`。`Computations` 公开同一计算体的构造操作，其方法、参数和返回类型可以直接通过类型发现读取；不保存 lambda 或建立第二种执行语言。
 
 下例是一段完整的参数化对象查询。成员来源、版本和身份槽须从实际精确发布读取，不能用示例名称猜测：
 
@@ -418,21 +418,16 @@ val publication = QueryCapabilityRequest(
     parameters.text("releaseId"),
     parameters.text("releaseVersion")
 )
-val population = QueryComputation.Members(
+val population = Computations.members(
     callId = "population",
     source = MemberRef(
         parameters.text("memberSourceId"),
         parameters.decimal("memberSourceVersion").longValueExact()
     ),
     arguments = emptyMap(),
-    outputs = listOf(QueryComputation.Slot("identity", parameters.text("identitySlot"))),
-    range = null,
-    clocks = emptyMap(),
-    condition = MemberCondition.Unrestricted(),
-    members = emptyMap(),
-    relations = emptyMap()
+    outputs = listOf(Calculation.MemberProjection("identity", parameters.text("identitySlot"), null))
 )
-val intent = QueryIntent(publication, scope(population))
+val intent = Computations.query(publication, population)
 val receipt = olap.queries.execute(
     QueryExecutionRequest(
         query = QuerySelection.Inline(intent),
@@ -446,7 +441,15 @@ if (result == null) olap.output(receipt)
 else olap.output(olap.results.read(ResultReadRequest(result, 0, 100, null)))
 ~~~
 
-根计算可以使用测量、成员、已完成输入、集合或共同计算；独立输入本身也可以是完整计算。阶段直接使用正式操作类型，表达式直接使用 `SemanticExpression/ResultExpression` 及对应构造函数，字段与合法变体由类型发现取得。
+`Computations.members` 调用明确的成员来源，`invoke/measure` 选择实际测量或正式测量形参，`set/objectMeasure/align/statistics` 直接组合计算体。阶段通过 `Computations.stages` 或 `scope` 构造中的 `stage` 追加。实际输入已经具有的数量、身份、键和观察事实由共同绑定与分析传播，不要求作者提取后再声明成形式参数。
+
+需要具名复用时，在 `scope` 中声明输入并通过 `Computations.input` 精确引用；输入模式表示其真实消费方式。对象资格、对齐和统计自身的子计算由相应构造组织，不要求作者额外填写 ROOT map。集合投影、对象角色、对齐键、BASE／UNION／INTERSECTION 人口、无匹配政策及结果量化仍由作者明确选择。
+
+将计算沉淀为可复用定义时，`Calculation` 声明可替换输入的正式合同与参数，共同计算体中的运算保持相同。成员、测量和关系形参分别拥有独立接受条件；调用时才提供实际输入并核验。`Computations.compute` 用于确实需要实例化参数化计算的场合，普通集合、资格或对齐不需要绕经它。固定成员来源引用保留其精确采用上下文，不能当成无上下文的共享定义身份；共享定义和跨上下文复用继续使用正式形参及明确采用。
+
+本地模板无需先保存才能被另一个模板使用。查询使用 `Computations.compute(template, bindings, arguments, members, relations)` 提供明确的实际绑定；定义内部使用 `Calculation.ParentSlots` 映射内层所需的父形参，参数用 `Calculation.Argument` 显式转发。内层的参数名与父参数名可以不同，映射按各自词法作用域解析。嵌套后的计算仍能作为同一 Query 的输入，或按实际出口保存为指标及计算成员；保存不会替作者补期间、人口或输入保证。
+
+逻辑字段使用 `SemanticExpression` 引用精确来源字段，完成阶段使用 `ResultExpression` 引用当前计算输出；两者保留各自的引用域与规则。它们不决定计算执行位置，不能通过转换表达式绕过身份、数量或来源权限。
 
 成员形参保留对象身份与属性角色；测量槽接收已绑定的可调用实例；关系形参接收调用者显式声明的 ROOT 完成关系，按真实列、数量、维度身份及完整键检查。不要为了传入金额或人数把它伪装为成员属性。同一完成关系的不同列视图可以供多个定义消费，再继续对齐、筛选或计算。
 
@@ -464,7 +467,7 @@ else olap.output(olap.results.read(ResultReadRequest(result, 0, 100, null)))
 
 核心终算支持 DERIVE／PROJECT，以及精确数值、布尔、NULL、CASE、COALESCE、NULLIF、ABS、NUMERIC、ROUND 和数值 CAST。COALESCE 按顺序选择首个非 NULL 值，选中后不再求值后续参数；NULLIF 按精确数值或布尔相等比较并保留第一个参数的数量含义，ABS 只处理精确数值。这些函数不隐式量化，也不引入来源的文本或时间转换规则。具体节点、运算与限制从 `QueryExecutionMode.rules` 读取。不支持的本地阶段、函数、类型或表达式在提交来源前拒绝。子输入中的扫描、JOIN、归约、对齐、窗口及来源函数继续在来源完成；当前执行器尚不承载任意本地关系运算，其范围不改变共享定义的业务含义。
 
-例如，`completed` 是已按真实对象完成的同源 `QueryComputation.Scope`，含 `object_key`、Exact DECIMAL 的 `numerator` 和 Exact Integer64 的 `denominator`。下例假设两项数量的单位均为 ONE；具有业务单位的数量须在实际乘除节点使用已声明的单位方程。
+例如，`completed` 是已按真实对象完成的同源 `Calculation.Scope`，含 `object_key`、Exact DECIMAL 的 `numerator` 和 Exact Integer64 的 `denominator`。下例假设两项数量的单位均为 ONE；具有业务单位的数量须在实际乘除节点使用已声明的单位方程。
 
 ~~~kotlin
 val quotientContract = MetricValueContract(
@@ -472,9 +475,9 @@ val quotientContract = MetricValueContract(
     MetricValueContract.Decimal(38, 18, MetricValueContract.Rounding.HALF_UP),
     emptyMap(), MetricValueContract.Overflow.FAIL
 )
-val finalization = QueryComputation.Scope(
-    QueryComputation.Reuse("completed"),
-    mapOf("completed" to QueryComputation.Input("ROOT", completed)),
+val finalization = Calculation.Scope(
+    Calculation.Input("completed"),
+    mapOf("completed" to Calculation.InputScope("ROOT", completed)),
     listOf(
         PostOperationContract.Derive(
             ResultExpression.ResultNumeric(
@@ -496,7 +499,9 @@ olap.output(receipt)
 
 这里 SAFE_DIVIDE 明确选择零分母为 NULL；使用普通 DIVIDE 不会隐式改变其除零政策。查询可以直接执行，不要求先校验；若需要解释或校验同一个计划，其请求也应显式选择相同 `executionMode`。解释的摘要给出实际 `sourceOutputScope`，每个根及阶段分别给出 `rootExecutionLocation` 与 `executionLocation=SOURCE/CORE`；SQL 及原生计划只代表来源部分，保存回执保留实际执行模式。
 
-共同计算可以沉淀为定义：定义以正式关系形参接收完成数量，根使用该关系，阶段表达共同的 DERIVE／PROJECT；查询用根 Compute 调用它并明确绑定 ROOT 输入，选择 CORE_FINALIZATION。多个获准计算可以引用同一份精确完成关系，各自映射关系形参的列。例如，一份按对象完成的 ROOT 同时提供六组 SUM／各字段非 NULL COUNT，六个已发布均值分别将自己的两列映射为 numerator／denominator；来源只交付一次这份完成关系，核心在每一行上执行六份原定义及各自的数量、舍入与 NULL 合同，再投影宽结果。调用者无需复制定义内部公式，也不能绕过采用与发布授权。
+共同计算可以沉淀为定义：定义以正式关系形参接收完成数量，根使用该关系，阶段表达共同的 DERIVE／PROJECT。本地模板通过 `Computations.compute` 提供实际绑定；已保存并发布的测量定义通过 `Computations.invoke` 选择精确采用实例，计算成员通过正式成员调用使用。它们的关系实参显式映射 ROOT 输入，执行请求选择 CORE_FINALIZATION；使用已发布定义无需取出其内部计算体重新实例化。
+
+多个获准计算可以引用同一份精确完成关系，各自映射关系形参的列。例如，一份按对象完成的 ROOT 同时提供六组 SUM／各字段非 NULL COUNT，六个已发布均值分别将自己的两列映射为 numerator／denominator；来源只交付一次这份完成关系，核心在每一行上执行六份原定义及各自的数量、舍入与 NULL 合同，再投影宽结果。调用者无需复制定义内部公式，也不能绕过采用与发布授权。
 
 切点沿实际依赖和阶段位置确定：同一作用域先完成来源的关系前缀，再在核心执行末尾连续的 DERIVE／PROJECT，不需要仅为适配执行器再包一层 ROOT。保存定义内部的关系前缀采用同一规则；关系形参指向的完整 ROOT 仍保留全部完成阶段。关系根的列映射、嵌套调用、调用出口的数量合同及后续标量阶段按真实作用域执行。每个分支必须保持同一份来源人口，完整键逐列来自同一来源身份；CALLS 选择其中一个或多个调用时，保留的仍是这份共同人口。空完成关系不会被补成一行，存在对象但分量全 NULL 时仍由各定义的 CASE 与数量合同决定值。
 

@@ -59,8 +59,7 @@ class PublishedNativeCollectionsTest {
             val projected = f.adoptions.createMemberSource(MemberSourceCreateRequest("travel.arrays", 1, "source", "实际订单容器", MemberSourceDefinition.Projection(EventRef(event.id, 1), projection), CalculationBindings.empty(), emptyMap(), "golden"))
             val body = Calculation(emptyList(), listOf(Calculation.MemberSlot("rows", "订单", "order", MemberShape.RECORDS, mapOf(
                 "order" to Calculation.MemberProperty("order", ScalarValueType.TEXT, null), "labels" to Calculation.MemberContainerProperty("labels", labels),
-                "lines" to Calculation.MemberContainerProperty("lines", lines)), null)), emptyList(), emptyList(), emptyMap(), Calculation.Scope(Calculation.Members("rows", "rows",
-            listOf("order", "labels", "lines").map { Calculation.MemberProjection(it, it) }, null, emptyMap(), MemberCondition.Unrestricted()), emptyMap(), emptyList()))
+                "lines" to Calculation.MemberContainerProperty("lines", lines)), null)), emptyList(), emptyList(), emptyMap(), Calculation.Scope(Calculation.Members("rows", Calculation.MemberParameter("rows"), listOf("order", "labels", "lines").map { Calculation.MemberProjection(it, it, null) }, null, emptyMap(), MemberCondition.Unrestricted(), emptyMap(), emptyMap(), emptyMap()), emptyMap(), emptyList()))
             val computed = MemberResult("订单", "order", MemberShape.RECORDS, listOf("order"), mapOf(
                 "order" to MemberSourceDefinition.ComputedPropertyOutput("订单", "order", ScalarValueType.TEXT, "order", null),
                 "labels" to MemberSourceDefinition.ComputedContainerPropertyOutput("标签", "labels", labels, "labels"),
@@ -89,8 +88,8 @@ class PublishedNativeCollectionsTest {
                     stages += Derive(ResultRowField(ResultSymbol("element"), 1), "amount", "金额")
                     stages += Project(listOf("order", "code", "amount", "ordinal"))
                 } else stages += Project(listOf("order", "element", "ordinal"))
-                val root = QueryComputation.Members("orders", MemberRef(adopted.id, 1), emptyMap(), listOf(QueryComputation.Slot("order", "order"), QueryComputation.Slot("items", slot)), null, emptyMap(), MemberCondition.Unrestricted(), emptyMap(), emptyMap())
-                return f.execute(publication, QueryComputation.Scope(root, emptyMap(), stages)).result.resultFrame.rows.map { row -> row.cells.joinToString("|") {
+                val root = Calculation.Members("orders", Calculation.MemberSource(MemberRef(adopted.id, 1)), listOf(Calculation.MemberProjection("order", "order", null), Calculation.MemberProjection("items", slot, null)), null, emptyMap(), MemberCondition.Unrestricted(), emptyMap(), emptyMap(), emptyMap())
+                return f.execute(publication, Calculation.Scope(root, emptyMap(), stages)).result.resultFrame.rows.map { row -> row.cells.joinToString("|") {
                     val value = it.value
                     if (value is Number) BigDecimal(value.toString()).stripTrailingZeros().toPlainString() else value.toString()
                 } }.sorted()

@@ -24,7 +24,6 @@ import com.olap.prototype.engine.compiler.OlapSemanticCompiler
 import com.olap.prototype.engine.context.OlapQueryContext
 import com.olap.prototype.engine.executable.*
 import com.olap.prototype.expression.SemanticNativeTypes
-import com.olap.prototype.query.QueryComputation
 import com.olap.prototype.query.QueryStageAnalysis
 import com.olap.prototype.query.ScalarValueType
 import com.olap.prototype.query.contract.*
@@ -125,10 +124,11 @@ internal class CandidateHandler(private val connectors: ConnectorRegistry, priva
         val capability = selected.publication.entry.capability
         val catalog = selected.publication.executable.catalog
         PublishedQueryContract.authorizeMemberValues(call, capability)
-        val candidate = capability.memberCandidates.first { it.sourceId == call.source.id && it.sourceVersion == call.source.version }
+        val source = (call.target as Calculation.MemberSource).source
+        val candidate = capability.memberCandidates.first { it.sourceId == source.id && it.sourceVersion == source.version }
         val output = candidate.outputs[call.outputs.first().slot] ?: error("published member output is missing")
         val request = ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION,
-            "member-candidate-${call.callId}", catalog.manifest.catalogId, QueryComputation.Scope(call, emptyMap(), emptyList()))
+            "member-candidate-${call.callId}", catalog.manifest.catalogId, Calculation.Scope(call, emptyMap(), emptyList()))
         val compiled = OlapSemanticCompiler(CalciteRelCompiler.memberCandidateValues(connectors, selected.offset, selected.lookahead))
             .compile(catalog, request, OlapQueryContext(request.requestId), cancellationObserver(control))
         control.checkCancellation()

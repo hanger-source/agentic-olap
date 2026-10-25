@@ -12,8 +12,7 @@ import com.olap.prototype.integration.TestConnectors
 import com.olap.prototype.metric.MetricValueContract
 import com.olap.prototype.metric.MeanTarget
 import com.olap.prototype.query.ResultAggregation
-import com.olap.prototype.query.QueryComputation
-import com.olap.prototype.query.ScopedInputContract
+import com.olap.prototype.query.GroupingLevels
 import com.olap.prototype.query.ScalarValueType
 import org.apache.calcite.rel.RelNode
 import org.apache.calcite.rel.type.DelegatingTypeSystem
@@ -230,10 +229,9 @@ class NumericContractExecutionTest {
             "INSERT INTO numbers VALUES ('a','b','c','d','e','f',11.25)"
         )).use { source ->
             val dimensions = (0..5).map { "d$it" }
-            val references = dimensions.associateWith { ScopedInputContract.DimensionRef(it, "1", "value") }
-            val levels = QueryComputation.Levels("level", (0L..63L).map { mask ->
-                QueryComputation.DimensionLevel("level_$mask", dimensions.filterIndexed { index, _ -> mask and (1L shl (5 - index)) == 0L }.map(references::getValue))
-            }).bind(references)
+            val levels = GroupingLevels("level", (0L..63L).map { mask ->
+                GroupingLevels.Level("level_$mask", dimensions.filterIndexed { index, _ -> mask and (1L shl (5 - index)) == 0L })
+            }).bind(dimensions)
             val b = builder(source)
             b.aggregate(RelationalAggregates.groupKey(b, dimensions, levels), b.sum(false, "total", b.field("n")),
                 b.aggregateCall(Ops.GROUPING, dimensions.map(b::field)).`as`("level"))

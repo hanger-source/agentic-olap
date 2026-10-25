@@ -5,7 +5,6 @@ import com.olap.prototype.query.QueryStageAnalysis
 import com.olap.prototype.query.DimensionCondition
 import com.olap.prototype.query.RowPopulationContract
 import com.olap.prototype.query.TemporalClockBindings
-import com.olap.prototype.query.QueryComputation
 import com.olap.prototype.query.ScopedInputContract
 import com.olap.prototype.calculation.Calculation
 import com.olap.prototype.member.MemberCondition
@@ -22,7 +21,7 @@ data class CompiledScopeExplanation(
     data class Child(val kind: ExecutableInputGraph.EdgeKind, val name: String, val scope: QueryStageAnalysis.ScopeId)
     sealed interface Root {
         data class Measures(val rowPopulation: RowPopulationContract.Selection, val calls: List<String>,
-            val timeRange: QueryComputation.TimeRange?, val clocks: Map<String, TemporalClockBindings.Value>, val outputCondition: DimensionCondition) : Root
+            val timeRange: Calculation.TimeRange?, val clocks: Map<String, TemporalClockBindings.Value>, val outputCondition: DimensionCondition) : Root
         data class Members(val source: Member) : Root
         data class Input(val inputId: String) : Root
         data class Relation(val inputScope: QueryStageAnalysis.ScopeId, val outputs: Map<String, String>,
@@ -49,7 +48,7 @@ data class CompiledScopeExplanation(
 
         private fun root(root: ExecutableInputRoot): Root = when (root) {
             is ExecutableInputRoot.Measures -> Root.Measures(root.population, root.calls.map { it.invocation.callId }, root.timeRange?.let {
-                QueryComputation.TimeRange(ScopedInputContract.DimensionRef(it.timeDimensionId, it.timeDimensionVersion, it.levelCode), it.window())
+                Calculation.TimeRange(Calculation.PublishedDimension(ScopedInputContract.DimensionRef(it.timeDimensionId, it.timeDimensionVersion, it.levelCode)), Calculation.Range(it.window()))
             }, root.clocks, root.outputCondition)
             is ExecutableInputRoot.Members -> Root.Members(member(root.input))
             is ExecutableInputRoot.Input -> Root.Input(root.inputId)
