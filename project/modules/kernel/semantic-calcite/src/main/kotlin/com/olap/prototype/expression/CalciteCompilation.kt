@@ -3,7 +3,6 @@ package com.olap.prototype.expression
 import com.olap.prototype.connector.CompilationSupport
 import org.apache.calcite.config.CalciteConnectionConfigImpl
 import org.apache.calcite.jdbc.CalciteSchema
-import org.apache.calcite.jdbc.JavaTypeFactoryImpl
 import org.apache.calcite.plan.ConventionTraitDef
 import org.apache.calcite.plan.RelOptCluster
 import org.apache.calcite.plan.volcano.VolcanoPlanner
@@ -17,8 +16,12 @@ import java.util.Properties
 
 /** 一个精确来源拥有其 planner、类型工厂和 schema reader。 */
 object CalciteCompilation {
-    fun builder(support: CompilationSupport, schema: SchemaPlus = Frameworks.createRootSchema(false)): RelBuilder {
-        val types = JavaTypeFactoryImpl(SemanticCalciteTypeSystem(support))
+    fun semanticBuilder(): RelBuilder = builder(SemanticCalciteTypes(SemanticCalciteTypeSystem()), Frameworks.createRootSchema(false))
+
+    fun builder(support: CompilationSupport, schema: SchemaPlus = Frameworks.createRootSchema(false)): RelBuilder =
+        builder(SemanticCalciteTypes(SemanticCalciteTypeSystem(support)), schema)
+
+    private fun builder(types: SemanticCalciteTypes, schema: SchemaPlus): RelBuilder {
         val planner = VolcanoPlanner().apply {
             addRelTraitDef(ConventionTraitDef.INSTANCE)
             addRelTraitDef(RelCollationTraitDef.INSTANCE)

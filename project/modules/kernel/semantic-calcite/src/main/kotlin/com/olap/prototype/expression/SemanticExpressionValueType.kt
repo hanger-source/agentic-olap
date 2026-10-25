@@ -3,7 +3,6 @@ package com.olap.prototype.expression
 import com.olap.prototype.query.ScalarValueType
 import org.apache.calcite.config.CalciteConnectionConfigImpl
 import org.apache.calcite.jdbc.CalciteSchema
-import org.apache.calcite.jdbc.JavaTypeFactoryImpl
 import org.apache.calcite.rel.type.RelDataType
 import org.apache.calcite.rel.type.RelDataTypeFactory
 import org.apache.calcite.sql.*
@@ -38,7 +37,7 @@ object SemanticExpressionValueType {
     fun resolve(expression: SemanticExpression, references: (SemanticExpression.Reference) -> ScalarValueType,
         nativeFunctions: (SemanticExpression.NativeCall) -> NativeScalarFunction): ScalarValueType {
         if (expression is SemanticExpression.Reference) return references(expression)
-        val factory = JavaTypeFactoryImpl(SemanticCalciteTypeSystem())
+        val factory = SemanticCalciteTypes(SemanticCalciteTypeSystem())
         val catalog = org.apache.calcite.prepare.CalciteCatalogReader(CalciteSchema.createRootSchema(false), emptyList(), factory, CalciteConnectionConfigImpl(Properties()))
         val validator = SqlValidatorUtil.newValidator(Ops.instance(), catalog, factory, SqlValidator.Config.DEFAULT.withTypeCoercionEnabled(false))
         val select = SqlSelect(pos, SqlNodeList.EMPTY, SqlNodeList(listOf(sql(expression, references, nativeFunctions)), pos),

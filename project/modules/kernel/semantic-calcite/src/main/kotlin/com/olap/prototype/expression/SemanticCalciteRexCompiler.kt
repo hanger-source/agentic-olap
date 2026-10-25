@@ -25,7 +25,7 @@ class SemanticCalciteRexCompiler(private val builder: RelBuilder, private val pa
             is SemanticExpression.Exists -> quantifiers(expression)
             is SemanticExpression.Literal -> {
                 val type = when (val value = expression.value) {
-                    is String -> builder.typeFactory.createSqlType(SqlTypeName.CHAR, value.length)
+                    is String -> builder.typeFactory.createSqlType(SqlTypeName.VARCHAR, SemanticCalciteTypes.textParameterCapacity(value))
                     is BigDecimal -> builder.rexBuilder.makeExactLiteral(value).type
                     else -> builder.literal(value).type
                 }

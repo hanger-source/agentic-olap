@@ -1,12 +1,14 @@
 # Agentic OLAP · 对象人口、独立测量与完成关系复用
 
-本用法用公开合成数据，通过完整服务的正式 MCP 建设来源与定义、冻结发布、保存查询、执行计算并读取结果。六组问题分别展示对象集合、日去重、独立事实、名义数量转换、属性袋贡献及结果恢复；属性贡献同时展示零 Metric 内联 guard 和六个保存算法两种责任形态。输入和独立预期由示例作者给出，客户端只提交 Kotlin 作者程序、读取正式回执并核对结果，不在外围实现 OLAP 计算。
+本用法用公开合成数据，通过完整服务的正式 MCP 建设来源与定义、冻结发布、保存查询、执行计算并读取结果。六组问题分别展示对象集合、日去重、独立事实、名义数量转换、属性袋贡献及结果恢复；目录同时展示 Unicode 逻辑出口和 BOOLEAN 三值，属性贡献展示零 Metric 内联 guard 和六个保存算法两种责任形态。输入和独立预期由示例作者给出，客户端只提交 Kotlin 作者程序、读取正式回执并核对结果，不在外围实现 OLAP 计算。
 
-[Populations.kt](Populations.kt) 只准备原始 DuckDB 数据；[main.olap.kts](main.olap.kts) 构造正式模型并完成业务操作。全部九张表、57 列均可空，无 PK、UNIQUE 或记录唯一性声明，共 55 条原始记录。重复行、空串、NULL 和历史分区保留，不把样本中的单次匹配推断为一对一。
+[Populations.kt](Populations.kt) 只准备原始 DuckDB 数据；[main.olap.kts](main.olap.kts) 构造正式模型并完成业务操作。全部九张表、58 列均可空，无 PK、UNIQUE 或记录唯一性声明，共 55 条原始记录。重复行、空串、NULL 和历史分区保留，不把样本中的单次匹配推断为一对一。
 
 ## 运行与交付
 
 本用法通过完整 MCP 执行核对下述独立预期；运行任务只有在计算、保存、完整读取与生命周期检查都完成后才写出 `passed=true`。这些证据对应本例合成输入，不代表其他业务、后端或任意规模已经通过。
+
+Unicode 逻辑出口已通过本用法的正式建模、发布、查询及完整保存结果读取。外部来源变化后，新旧文本结果分别保存，并在服务重启且移除来源配置后完整读回；下方预期由合成原始数据独立推得，不能代替其他后端或真实业务数据的验收。
 
 在仓库根使用 JDK 21，显式执行本用法；输出目录必须不存在。
 
@@ -32,16 +34,16 @@
 
 `catalog` 给出独立的目录和资格：
 
-| item | subject | current_partition | eligible |
-| --- | --- | --- | --- |
-| a1 | A | TRUE | TRUE |
-| a2 | A | TRUE | TRUE |
-| b1 | B | TRUE | TRUE |
-| b1 | B | TRUE | TRUE |
-| c1 | C | TRUE | FALSE |
-| d1 | D | TRUE | TRUE |
-| empty | `""` | TRUE | TRUE |
-| old | E | FALSE | TRUE |
+| item | subject | current_partition | eligible | caption |
+| --- | --- | --- | --- | --- |
+| a1 | A | TRUE | TRUE | 山川🦊 |
+| a2 | A | TRUE | TRUE | 示例样本 |
+| b1 | B | TRUE | TRUE | NULL |
+| b1 | B | TRUE | TRUE | NULL |
+| c1 | C | TRUE | FALSE | plain |
+| d1 | D | TRUE | TRUE | plain |
+| empty | `""` | TRUE | TRUE | 山川 |
+| old | E | FALSE | TRUE | plain |
 
 `visits` 在 `20000101` 各有一条对 a1、b1、c1、d1、empty、missing 的访问，actor 分别为 va、vb、vc、vd、v0、vn。访问对象通过当前目录映射为 subject；missing 没有目录匹配，不能用日志中的其他字段替代身份。目录的 `eligible` 不参与“访问过”的人口筛选。
 
@@ -65,6 +67,30 @@ NULL subject 不进入身份集合，空串 subject 是合法身份。`ObjectMea
 | C | 1 | 0 | NULL | NULL | NULL |
 
 `items` 为当前目录 item 去重计数，`qualified_items` 只计 eligible 为 TRUE 的 item；B 的重复目录行不能把金额 7 放大。`records` 为本期 activity 的 subject 非空计数，`known` 为 amount 非空计数。A 和空串有真实组但金额全 NULL，C 没有本期 activity 组，三者不能统一填零。前期资格也不会隐式变成本期测量条件。
+
+### Unicode 逻辑出口与完整三值
+
+catalog 在同一正式逻辑表创建请求中保留 nullable `caption` 直列，并以创建物理表返回的精确 caption 列引用声明标量 BOOLEAN 逻辑出口：
+
+```text
+caption_accepted = NOT(caption LIKE '%样本%')
+```
+
+该出口通过正常拓扑、事件、共享成员、场景授权和精确发布进入查询，客户端不计算 LIKE。`山川🦊` 得 TRUE，`示例样本` 得 FALSE，NULL 得 UNKNOWN／NULL，`plain` 得 TRUE。这个资格与原 `eligible` 分别负责自己的问题，不相互替代，不使用 COALESCE、改模式编码或默认值。
+
+同一查询还通过已经授权的 EQ 比较来源 caption 与 typed TEXT 字面量 `山川🦊`，保存 `caption_is_mountain_fox`。初始 a1 为 TRUE，其余非 NULL 为 FALSE，NULL 保 NULL；来源变成 `山川样本🦊` 后 a1 为 FALSE。这让非 BMP 文本同时进入来源值、实际查询字面量、保存内容与历史读取，不只展示一个脱离采用上下文的常量。
+
+一份 `SOURCE` 查询读取当前目录的原 subject、item、caption、caption_accepted，同时在独立分支按完整 subject 键完成来源行数与 TRUE／FALSE／UNKNOWN 数，再把完成数量连接回同一原袋：
+
+| subject | catalog_rows | true_rows | false_rows | unknown_rows |
+| --- | ---: | ---: | ---: | ---: |
+| A | 2 | 1 | 1 | 0 |
+| B | 2 | 0 | 0 | 2 |
+| C | 1 | 1 | 0 | 0 |
+| D | 1 | 1 | 0 | 0 |
+| `""` | 1 | 1 | 0 | 0 |
+
+保存结果保留七条当前目录行，其中 b1 两行完全重复；不按 item 去重，不从示例值推出记录唯一性。原文、两个 BOOLEAN／NULL 和四个完成数量同行输出，数量列前缀为 `counts__`，同 subject 的完成数量会随原袋行重复展示，不能再把这些展示值相加。作者用完整行的多重集逐值核对保存结果，因此既检查 Unicode 和 NULL，也检查重复行没有丢失或增加；仍使用正式 `limit=1` 分页完整读回。
 
 ## 二、每日去重、四次调用同一保存算法与明确十九日
 
@@ -294,16 +320,17 @@ B 的 ratio_f 分母 amount_a=8 合法，分子 amount_c=NULL，因此保留 NUL
 
 初次 `createPhysicalTable` 与 initialAdoption 同事务完成，作者直接把返回的 `SourceAdoptions.references` 交给发布；再按精确结构观察 S 读取采用，核对与初次返回一致，不猜最近来源或自行拼引用。
 
-主题版本 1 冻结零 Metric 的 inline 发布，供集合、独立事实、Scale 及十三贡献／六个内联 guard 的完整宽查询使用。随后读取其 `contextSelection`，用显式 carry 修订同一主题到版本 2，读取延续后的成员和维度映射精确版本，新增一个日均和六个比率算法的采用，再建立场景及 saved 发布。物理合同 P、结构观察 S 和原始定义不因此重建；原 inline 发布与已保存查询仍保持原精确引用。
+主题版本 1 冻结零 Metric 的 inline 发布，供集合、Unicode 目录三值、独立事实、Scale 及十三贡献／六个内联 guard 的完整宽查询使用。随后读取其 `contextSelection`，用显式 carry 修订同一主题到版本 2，读取延续后的成员和维度映射精确版本，新增一个日均和六个比率算法的采用，再建立场景及 saved 发布。物理合同 P、结构观察 S 和原始定义不因此重建；原 inline 发布与已保存查询仍保持原精确引用。
 
 独立客户端还观察以下完整边界：
 
 1. 一段作者程序先正式创建业务线，再主动抛错。脚本状态失败，已提交动作不回滚；正式回执保留唯一 effect 及其精确资产版本。后续只调用 `read-asset-version` 读取该对象，不重放成功写入。
 2. 每个正式查询保存完整结果，以 `limit=1` 读取全部值页，核对正式引用、完整列、NULL 与对象人口，不把首屏当全结果。
 3. 本用法部署的消息容量为 8 KiB，用于实际触发完整作者回执 `SAVED` 和 `read-response`。客户端继续读取同一完整响应，不截断字段、不重新执行业务操作；原操作的成功状态不因消息变大而改变。
-4. 服务重启后，读取正式返回的精确 Query 和结果引用，并用原查询再次执行。来源未变时，新结果与旧保存结果的人口均为 A、B、C。
-5. 从部署配置移除全部来源和连接器后，再重启服务，只按原结果引用读取旧结果，仍得到 A、B、C。来源缺失影响新执行，不影响已有结果资产的读取；只读阶段还核对原始库字节未变。
-6. 外部准备者的 `advance-source` 仅删除 `fact_b` 中 subject=C 的三条记录，不改 P、S、来源绑定、字段或 current 标记。恢复同一来源配置后，以旧保存 Query 新执行，UNION 人口变为 A、B；旧保存结果引用仍返回 A、B、C 及 C 的净额 5。
+4. build 回执分别返回独立事实的 `query/result` 和文本查询的 `captionQuery/captionResult` 正式引用。服务重启后，读取精确 Query 和两份旧结果；原事实查询再次执行时，来源未变，新结果与旧保存结果的人口均为 A、B、C。旧文本结果保留中文、emoji、BOOLEAN／NULL 和两条 b1。
+5. 从部署配置移除全部来源和连接器后，再重启服务，只按原结果引用读取旧事实和旧文本结果，仍得到 A、B、C 与七条目录行。来源缺失影响新执行，不影响已有结果资产的读取；只读阶段还核对原始库字节未变。
+6. 外部准备者的 `advance-source` 删除 `fact_b` 中 subject=C 的三条记录，并把目录 a1 的 caption 改成 `山川样本🦊`、a2 改成 NULL、两条 b1 改成 `plain`；P、S、来源绑定、字段、原资格和 current 标记保持相同。恢复来源配置后，以旧保存 Query 新执行，事实 UNION 人口变为 A、B；旧保存结果仍返回 A、B、C 及 C 的净额 5。原精确 `captionQuery` 也以明确 SOURCE 新执行并保存 `freshCaptionResult`，目录仍有七行：A 的三值数量为 TRUE=0／FALSE=1／UNKNOWN=1，B 为 TRUE=2／FALSE=0／UNKNOWN=0，其余对象不变。
+7. 受控变化后的文本结果保存后再重启服务，`read-caption-history` 只通过公开结果读取接口按 `captionResult` 与 `freshCaptionResult` 分别全页读取。旧引用仍是 `山川🦊`／`示例样本`／NULL，新引用是 `山川样本🦊`／NULL／`plain`，两个 BOOLEAN 三值、重复袋和各自完成数量分别保持；历史读取不重新执行来源或用 live 文本替代保存字节。
 
 来源变化由研发准备者直接作用于自有合成库，不给产品新增写源工具。发布固定定义、采用和授权，不冻结持续变化的数据；保存结果则保留当次实际结果。每次执行明确检查读基础为 `UNKNOWN`，不把不同执行描述成共同事务快照；脚本失败也不意味着先前治理写入或远端来源操作被回滚。
 

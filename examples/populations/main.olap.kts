@@ -109,7 +109,7 @@ class PopulationExample {
     lateinit var axis: CalculationBindings.Dimension
     val slot = Calculation.DimensionSlot("subject", dimension.id, 1, "subject")
     fun activate(type: String, id: String, version: Long = 1) { governance.activate(GovernanceVersionActivationRequest(GovernanceActivationObjectType.valueOf(type), id, version, actor, "示例采用精确版本")) }
-    fun install(name: String, types: Map<String, ScalarValueType>, quantities: Map<String, MetricValueContract> = emptyMap(), castAdjustment: Boolean = false) {
+    fun install(name: String, types: Map<String, ScalarValueType>, quantities: Map<String, MetricValueContract> = emptyMap(), castAdjustment: Boolean = false, captionPredicate: Boolean = false) {
         val discovered = governance.discoverSource(WarehouseDiscoveryCommand(source.binding.dataSourceId, source.binding.sourceIdentityHash, null, "main", name, listOf("TABLE"), 10, emptyMap(), emptyMap(), actor))
         check(discovered.status == "SUCCEEDED" && !discovered.truncated)
         val table = olap.semantics.discoveredTables(GovernanceReadRequests.SnapshotPageInput(discovered.snapshotId, 0, 10)).items.single()
@@ -131,6 +131,13 @@ class PopulationExample {
             units += LogicalTableCreateRequest.LogicUnitInput("adjustment", "正式来源DOUBLE转换", LogicUnitSourceKind.EXPRESSION,
                 SemanticExpression.Cast(SemanticExpression.Reference(SemanticExpression.ReferenceKind.PHYSICAL_COLUMN, column.id, 1), SemanticExpression.ValueType.DOUBLE, null, null, MetricValueContract.Rounding.NONE), LogicType.NUMBER, null, false, false, false, true, true, emptyList())
         }
+        if (captionPredicate) {
+            val caption = physical.physicalColumns.single { it.columnName == "caption" }
+            units += LogicalTableCreateRequest.LogicUnitInput("caption_accepted", "Unicode模式NOT LIKE的三值资格", LogicUnitSourceKind.EXPRESSION,
+                SemanticExpression.Operation(SemanticExpression.Operator.NOT, listOf(SemanticExpression.Operation(SemanticExpression.Operator.LIKE, listOf(
+                    SemanticExpression.Reference(SemanticExpression.ReferenceKind.PHYSICAL_COLUMN, caption.id, caption.currentVersion, null),
+                    SemanticExpression.Literal("%样本%"))))), LogicType.BOOLEAN, null, false, false, false, true, false, emptyList())
+        }
         val logical = governance.createLogicalTable(LogicalTableCreateRequest(physical.physicalTable.id, 1, name, name, LogicalTableRole.FACT, "保原袋与NULL，不造PK", actor, actor, units))
         activate("LOGICAL_TABLE", logical.logicalTable.id)
         val topology = governance.createTopology(TopologyCreateRequest(name, name, "example.populations", "独立来源时钟", logical.logicalTable.id, 1, actor, "完整记录边界", actor)).topology
@@ -139,7 +146,8 @@ class PopulationExample {
             logical.logicUnits.map { EventCreateRequest.LogicUnitRefInput(it.id, 1) }, logical.logicUnits.filter { it.aggregatable }.map { EventCreateRequest.LogicUnitRefInput(it.id, 1) }, "RAW_BAG无记录身份", actor)).event
         activate("EVENT", event.id)
         val bound = if ("subject" in types) governance.createDimensionEventBinding(DimensionEventBindingCreateRequest(dimension.id, 1, event.id, 1, logical.logicUnits.single { it.code == "subject" }.id, 1, null, RelationAccessPath(emptyList()), emptyMap(), actor)).binding.also { activate("DIMENSION_EVENT_BINDING", it.id); bindings += it } else null
-        val effective = types + if (castAdjustment) mapOf("adjustment" to ScalarValueType.NUMBER) else emptyMap()
+        val effective = types + (if (castAdjustment) mapOf("adjustment" to ScalarValueType.NUMBER) else emptyMap()) +
+            (if (captionPredicate) mapOf("caption_accepted" to ScalarValueType.BOOLEAN) else emptyMap())
         val declared: Map<String, MemberSourceDefinition.Output> = effective.mapValues { (code, type) -> if (code == "subject") MemberSourceDefinition.DimensionOutput(code, "subject", type, dimension.id, 1, requireNotNull(bound).id, 1, null)
             else MemberSourceDefinition.PropertyOutput(code, code, type, logical.logicUnits.single { it.code == code }.id, 1, RelationAccessPath(emptyList()), quantities[code]) }
         val allowed = effective.mapValues { (_, type) -> if (type == ScalarValueType.TEXT) listOf(MemberCondition.Operator.EQ, MemberCondition.Operator.BETWEEN) else listOf(MemberCondition.Operator.EQ) }
@@ -259,6 +267,33 @@ val independentExpected = linkedMapOf(
     "A" to mapOf("a" to "9", "conditional_a" to "0", "b" to null, "a_present" to "1", "b_present" to "1", "known_b" to "0"),
     "B" to mapOf("a" to "5", "conditional_a" to "5", "b" to null, "a_present" to "1", "b_present" to null, "b_rows" to null),
     "C" to mapOf("a" to null, "conditional_a" to null, "b" to "5", "a_present" to null, "b_present" to "1", "b_rows" to "2"))
+
+fun captionQuery(e: PopulationExample): QueryComputation.Scope {
+    val selected = e.raw("catalog", listOf("subject", "item", "caption", "caption_accepted"), condition("current_partition", ScalarValueType.BOOLEAN, MemberCondition.Operator.EQ, "true"))
+    val counts = e.complete(selected,
+        Derive(choose(sym("caption_accepted"), number("1", count)), "accepted_row", "仅完整谓词TRUE贡献"),
+        Derive(choose(op(ResultOperator.NOT, sym("caption_accepted")), number("1", count)), "rejected_row", "完整谓词FALSE贡献"),
+        Derive(choose(op(ResultOperator.IS_NULL, sym("caption_accepted")), number("1", count)), "unknown_row", "NULL保UNKNOWN"),
+        regroup(listOf("subject"), counted("subject", "catalog_rows"), counted("accepted_row", "true_rows"), counted("rejected_row", "false_rows"), counted("unknown_row", "unknown_rows")))
+    // 完成关系每subject一个键；回连原目录袋保文本、NULL与重复，不把item声明成唯一键。
+    return QueryComputation.Scope(selected.root, selected.inputs + ("counts" to relation(counts)), selected.stages + listOf(
+        JoinInput("counts", "counts", "LEFT", op(ResultOperator.EQ, sym("subject"), sym("counts__subject"))),
+        Derive(op(ResultOperator.EQ, sym("caption"), text("山川🦊")), "caption_is_mountain_fox", "完整TEXT与非BMP typed literal精确比较"),
+        Project(listOf("subject", "item", "caption", "caption_accepted", "caption_is_mountain_fox", "counts__catalog_rows", "counts__true_rows", "counts__false_rows", "counts__unknown_rows"))))
+}
+fun expectCaptions(rows: List<Map<String, String?>>, changed: Boolean) {
+    fun row(subject: String, item: String, caption: String?, accepted: String?, mountainFox: String?, total: String, yes: String, no: String, unknown: String) = mapOf(
+        "subject" to subject, "item" to item, "caption" to caption, "caption_accepted" to accepted, "caption_is_mountain_fox" to mountainFox,
+        "counts__catalog_rows" to total, "counts__true_rows" to yes, "counts__false_rows" to no, "counts__unknown_rows" to unknown)
+    val expected = if (changed) listOf(
+        row("A", "a1", "山川样本🦊", "false", "false", "2", "0", "1", "1"), row("A", "a2", null, null, null, "2", "0", "1", "1"),
+        row("B", "b1", "plain", "true", "false", "2", "2", "0", "0"), row("B", "b1", "plain", "true", "false", "2", "2", "0", "0"),
+        row("C", "c1", "plain", "true", "false", "1", "1", "0", "0"), row("D", "d1", "plain", "true", "false", "1", "1", "0", "0"), row("", "empty", "山川", "true", "false", "1", "1", "0", "0")) else listOf(
+        row("A", "a1", "山川🦊", "true", "true", "2", "1", "1", "0"), row("A", "a2", "示例样本", "false", "false", "2", "1", "1", "0"),
+        row("B", "b1", null, null, null, "2", "0", "0", "2"), row("B", "b1", null, null, null, "2", "0", "0", "2"),
+        row("C", "c1", "plain", "true", "false", "1", "1", "0", "0"), row("D", "d1", "plain", "true", "false", "1", "1", "0", "0"), row("", "empty", "山川", "true", "false", "1", "1", "0", "0"))
+    check(rows.groupingBy { it }.eachCount() == expected.groupingBy { it }.eachCount()) { "目录文本、BOOLEAN三值或原始重复袋不符：$rows；预期$expected" }
+}
 
 fun dailyBasis(e: PopulationExample): QueryComputation.Scope {
     val input = e.raw("participation")
@@ -478,7 +513,7 @@ fun installInputs(e: PopulationExample) {
     fun numbers(vararg names: String) = names.associateWith { ScalarValueType.NUMBER }
     fun booleans(vararg names: String) = names.associateWith { ScalarValueType.BOOLEAN }
     e.install("activity", texts("subject", "day", "actor") + numbers("amount") + booleans("first_flag"), mapOf("amount" to floating("activity-value")))
-    e.install("catalog", texts("subject", "item") + booleans("current_partition", "eligible"))
+    e.install("catalog", texts("subject", "item", "caption") + booleans("current_partition", "eligible"), captionPredicate = true)
     e.install("visits", texts("item", "actor", "day"))
     e.install("participation", texts("subject", "day", "actor") + booleans("eligible"))
     e.install("fact_a", texts("subject", "clock") + numbers("amount") + booleans("current_partition", "eligible"), mapOf("amount" to floating("a-value")))
@@ -489,8 +524,10 @@ fun installInputs(e: PopulationExample) {
     e.install("attributes", texts("record_ref", "partition_day") + booleans("flag_a", "flag_b") + attributeQuantities.keys.associateWith { ScalarValueType.NUMBER }, attributeQuantities)
     e.createAxis()
 }
-fun references(saved: PopulationExample.Saved) = ScriptValue.ObjectValue(mapOf("query" to ScriptValue.QueryReferenceValue(saved.query), "result" to ScriptValue.ResultReferenceValue(saved.result)))
-fun build(): PopulationExample.Saved {
+fun references(query: QueryReference, result: QueryResultReference, captionQuery: QueryReference, captionResult: QueryResultReference) = ScriptValue.ObjectValue(mapOf(
+    "query" to ScriptValue.QueryReferenceValue(query), "result" to ScriptValue.ResultReferenceValue(result),
+    "captionQuery" to ScriptValue.QueryReferenceValue(captionQuery), "captionResult" to ScriptValue.ResultReferenceValue(captionResult)))
+fun build(): ScriptValue.ObjectValue {
     val e = PopulationExample(); installInputs(e)
     val inline = e.publication("inline")
     val cohort = e.execute(inline, "对象集合后分别测量原始袋", cohortQuery(e))
@@ -501,6 +538,7 @@ fun build(): PopulationExample.Saved {
     val scale = e.execute(inline, "零Metric双尺度与完成关系商", scaledQuery(e))
     expect(scale.rows, mapOf("A" to mapOf("gross_total" to "1", "adjustment_total" to "2", "quantity_total" to "3", "ratio" to "1", "actors" to "1", "label" to "beta"), "B" to mapOf("gross_total" to null, "adjustment_total" to null, "quantity_total" to null, "ratio" to null, "actors" to "1", "label" to "gamma")))
     val primary = e.execute(inline, "独立事实完整人口", independentQuery(e)); expect(primary.rows, independentExpected)
+    val captions = e.execute(inline, "Unicode逻辑出口与目录原袋三值", captionQuery(e)); expectCaptions(captions.rows, false)
     val (inlineAttributes, inlineQuantities) = inlineAttributeQuery(e)
     val inlineResult = e.execute(inline, "零Metric十三贡献与六个内联guard", inlineAttributes)
     expect(inlineResult.rows, inlineAttributeExpected())
@@ -534,23 +572,45 @@ fun build(): PopulationExample.Saved {
     independentCounts.forEach { (name, counts) -> reportSuffixes.zip(counts).forEach { (suffix, value) -> reportExpected["${name}_$suffix"] = value.toString() } }
     expect(report.rows, mapOf("total" to reportExpected), "")
     check(report.rows.single().size == 79)
-    return primary
+    return references(primary.query, primary.result, captions.query, captions.result)
 }
 olap.output(when (parameters.text("phase")) {
-    "build" -> references(build())
+    "build" -> build()
     else -> {
         val q = parameters["query"].fields(); val r = parameters["result"].fields()
         val query = QueryReference(q.text("definitionId"), q.text("definitionVersion").toLong(), q.text("sha256"))
         val result = QueryResultReference(r.text("runId"), r.text("sha256"))
+        val cq = parameters["captionQuery"].fields(); val cr = parameters["captionResult"].fields()
+        val captionQuery = QueryReference(cq.text("definitionId"), cq.text("definitionVersion").toLong(), cq.text("sha256"))
+        val captionResult = QueryResultReference(cr.text("runId"), cr.text("sha256"))
+        val output = references(query, result, captionQuery, captionResult).values.toMutableMap()
         // 变化后的新来源请求和旧保存引用分别观察，不重执来源来伪造旧结果。
         expect(readAll(result), independentExpected)
+        expectCaptions(readAll(captionResult), false)
         if (parameters.text("phase") in setOf("reopen", "refresh-source")) {
             check(olap.queries.read(QueryVersionRequest(query)).reference == query)
             val fresh = olap.queries.execute(QueryExecutionRequest(QuerySelection.Saved(query), true, "精确冻结Query面对当前来源", null))
             check(fresh.status == QueryExecutionStatus.SUCCEEDED && fresh.saved)
             expect(readAll(requireNotNull(fresh.resultReference)), if (parameters.text("phase") == "refresh-source") independentExpected.filterKeys { it != "C" } else independentExpected)
             expect(readAll(result), independentExpected)
+            check(olap.queries.read(QueryVersionRequest(captionQuery)).reference == captionQuery)
+            if (parameters.text("phase") == "refresh-source") {
+                val freshCaption = olap.queries.execute(QueryExecutionRequest(QuerySelection.Saved(captionQuery), true, "原精确Unicode查询面对变化后的caption", null, executionMode = QueryExecutionMode.SOURCE))
+                check(freshCaption.status == QueryExecutionStatus.SUCCEEDED && freshCaption.saved && freshCaption.executionMode == QueryExecutionMode.SOURCE && freshCaption.sourceState == SourceExecutionState.SUCCEEDED)
+                check(freshCaption.sourceReadEvidence?.basis is SourceReadBasis.Unknown)
+                val freshCaptionResult = requireNotNull(freshCaption.resultReference)
+                check(freshCaptionResult != captionResult)
+                expectCaptions(readAll(freshCaptionResult), true)
+                expectCaptions(readAll(captionResult), false)
+                output["freshCaptionResult"] = ScriptValue.ResultReferenceValue(freshCaptionResult)
+            }
+        } else if (parameters.text("phase") == "read-caption-history") {
+            val fr = parameters["freshCaptionResult"].fields()
+            val freshCaptionResult = QueryResultReference(fr.text("runId"), fr.text("sha256"))
+            check(freshCaptionResult != captionResult)
+            expectCaptions(readAll(freshCaptionResult), true)
+            output["freshCaptionResult"] = ScriptValue.ResultReferenceValue(freshCaptionResult)
         } else check(parameters.text("phase") == "read-result")
-        ScriptValue.ObjectValue(mapOf("query" to ScriptValue.QueryReferenceValue(query), "result" to ScriptValue.ResultReferenceValue(result)))
+        ScriptValue.ObjectValue(output)
     }
 })

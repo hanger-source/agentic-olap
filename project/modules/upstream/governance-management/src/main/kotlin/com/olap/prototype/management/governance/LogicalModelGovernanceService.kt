@@ -13,7 +13,6 @@ import com.olap.prototype.warehouse.contract.PhysicalDataContract
 import org.apache.calcite.rex.RexNode
 import org.apache.calcite.sql.type.SqlTypeName
 import org.apache.calcite.sql.type.SqlTypeUtil
-import org.apache.calcite.tools.Frameworks
 import org.apache.calcite.tools.RelBuilder
 import java.time.Instant
 import java.util.Collections
@@ -203,7 +202,7 @@ class LogicalModelGovernanceService(
         return expansion
     }
     private fun validateTypes(expansion: LogicUnitExpansion) {
-        val builder = RelBuilder.create(Frameworks.newConfigBuilder().typeSystem(SemanticCalciteTypeSystem()).build())
+        val builder = CalciteCompilation.semanticBuilder()
         val native = NativeExpressionBindings(physicalAssets, connectors)
         val columns = expansion.columns.mapValues { (_, column) -> standardColumnType(builder, column) }
         val types = linkedMapOf<String, RexNode>()

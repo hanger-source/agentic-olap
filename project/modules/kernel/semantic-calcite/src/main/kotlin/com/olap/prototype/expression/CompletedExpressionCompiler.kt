@@ -108,7 +108,7 @@ internal class CompletedExpressionCompiler private constructor(private val b: Re
     private fun typedLiteral(literal: ResultExpression.ResultTypedLiteral): RexNode {
         val value = literal.valueType.parameter(literal.value)
         val type = when (literal.valueType) {
-            ScalarValueType.TEXT -> b.typeFactory.createSqlType(SqlTypeName.VARCHAR, maxOf(1, (value as String).length))
+            ScalarValueType.TEXT -> b.typeFactory.createSqlType(SqlTypeName.VARCHAR, SemanticCalciteTypes.textParameterCapacity(value as String))
             ScalarValueType.NUMBER -> b.rexBuilder.makeExactLiteral(value as BigDecimal).type
             ScalarValueType.DATE -> b.typeFactory.createSqlType(SqlTypeName.DATE)
             ScalarValueType.LOCAL_TIMESTAMP -> b.typeFactory.createSqlType(SqlTypeName.TIMESTAMP, 9)

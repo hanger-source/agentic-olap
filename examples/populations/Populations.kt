@@ -26,6 +26,9 @@ object Populations {
                 if (arguments[2] == "advance-source") {
                     // P、声明、绑定与当前标签保持相同；来源内容变化并不重写历史结果。
                     sql.execute("DELETE FROM fact_b WHERE subject='C'")
+                    sql.execute("UPDATE catalog SET caption='山川样本🦊' WHERE item='a1'")
+                    sql.execute("UPDATE catalog SET caption=NULL WHERE item='a2'")
+                    sql.execute("UPDATE catalog SET caption='plain' WHERE item='b1'")
                 } else {
                     sourceStatements.forEach(sql::execute)
                 }
@@ -52,17 +55,17 @@ object Populations {
           ('D','20000101',TRUE,'now',5),
           ('','20000101',FALSE,NULL,NULL)
         """.trimIndent(),
-        "CREATE TABLE catalog(item VARCHAR,subject VARCHAR,current_partition BOOLEAN,eligible BOOLEAN)",
+        "CREATE TABLE catalog(item VARCHAR,subject VARCHAR,current_partition BOOLEAN,eligible BOOLEAN,caption VARCHAR)",
         """
         INSERT INTO catalog VALUES
-          ('a1','A',TRUE,TRUE),
-          ('a2','A',TRUE,TRUE),
-          ('b1','B',TRUE,TRUE),
-          ('b1','B',TRUE,TRUE),
-          ('c1','C',TRUE,FALSE),
-          ('d1','D',TRUE,TRUE),
-          ('empty','',TRUE,TRUE),
-          ('old','E',FALSE,TRUE)
+          ('a1','A',TRUE,TRUE,'山川🦊'),
+          ('a2','A',TRUE,TRUE,'示例样本'),
+          ('b1','B',TRUE,TRUE,NULL),
+          ('b1','B',TRUE,TRUE,NULL),
+          ('c1','C',TRUE,FALSE,'plain'),
+          ('d1','D',TRUE,TRUE,'plain'),
+          ('empty','',TRUE,TRUE,'山川'),
+          ('old','E',FALSE,TRUE,'plain')
         """.trimIndent(),
         "CREATE TABLE visits(item VARCHAR,actor VARCHAR,day VARCHAR)",
         """

@@ -137,19 +137,24 @@ internal class Scenario(private val name: String, private val distribution: Path
                 references = built.references()
                 report["build"] = built.report
             }
+            val savedParameters = parameters.with(
+                "query" to references.objectAt("query").objectAt("reference").getValue("query"),
+                "result" to references.objectAt("result").objectAt("reference").getValue("result")
+            ).let { saved ->
+                if (name == "populations") saved.with(
+                    "captionQuery" to references.objectAt("captionQuery").objectAt("reference").getValue("query"),
+                    "captionResult" to references.objectAt("captionResult").objectAt("reference").getValue("result")
+                ) else saved
+            }
             start("reopen").use {
                 val after = client.call("list-data-sources")
                 check(after == sourceBindings) { "来源绑定在服务重开后变化" }
-                report["reopen"] = client.script(author, parameters.with("phase" to text("reopen"),
-                    "query" to references.objectAt("query").objectAt("reference").getValue("query"),
-                    "result" to references.objectAt("result").objectAt("reference").getValue("result")), version).succeeded().report
+                report["reopen"] = client.script(author, savedParameters.with("phase" to text("reopen")), version).succeeded().report
             }
             config = config.with("connectors" to JsonArray(emptyList()), "dataSources" to JsonArray(emptyList()))
             write(configPath, config)
             start("saved-result-without-source").use {
-                report["savedResultWithoutSource"] = client.script(author, parameters.with("phase" to text("read-result"),
-                    "query" to references.objectAt("query").objectAt("reference").getValue("query"),
-                    "result" to references.objectAt("result").objectAt("reference").getValue("result")), version).succeeded().report
+                report["savedResultWithoutSource"] = client.script(author, savedParameters.with("phase" to text("read-result")), version).succeeded().report
             }
             hashes.forEach { (path, hash) -> check(sha(path) == hash) { "只读服务改变业务来源：$path" } }
             if (name in setOf("orders", "populations")) {
@@ -157,10 +162,18 @@ internal class Scenario(private val name: String, private val distribution: Path
                 hashes.forEach { (path, hash) -> check(sha(path) != hash) { "外部业务数据未发生预期改变：$path" } }
                 config = config.with("connectors" to read(connectors), "dataSources" to sources)
                 write(configPath, config)
-                start("changed-source").use {
-                    report["changedSource"] = client.script(author, objectOf("phase" to text("refresh-source"), "sourceId" to text("example-$name"),
-                        "query" to references.objectAt("query").objectAt("reference").getValue("query"),
-                        "result" to references.objectAt("result").objectAt("reference").getValue("result")), version).succeeded().report
+                val changed = start("changed-source").use {
+                    client.script(author, savedParameters.with("phase" to text("refresh-source")), version).succeeded()
+                }
+                report["changedSource"] = changed.report
+                if (name == "populations") {
+                    val freshCaptionResult = changed.references().objectAt("freshCaptionResult").objectAt("reference").getValue("result")
+                    config = config.with("connectors" to JsonArray(emptyList()), "dataSources" to JsonArray(emptyList()))
+                    write(configPath, config)
+                    start("caption-history-without-source").use {
+                        report["captionHistoryWithoutSource"] = client.script(author, savedParameters.with(
+                            "phase" to text("read-caption-history"), "freshCaptionResult" to freshCaptionResult), version).succeeded().report
+                    }
                 }
             }
             report["passed"] = bool(true)

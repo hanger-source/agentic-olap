@@ -1,6 +1,8 @@
 package com.olap.prototype.engine.executable
 
+import com.olap.prototype.calculation.Calculation
 import com.olap.prototype.connector.JdbcAccess
+import com.olap.prototype.connector.CompilationSupport
 import com.olap.prototype.contract.JdbcParameter
 import com.olap.prototype.engine.calcite.*
 import com.olap.prototype.engine.catalog.ExecutablePhysicalExecutionBinding
@@ -12,6 +14,9 @@ import com.olap.prototype.integration.TestConnectors
 import com.olap.prototype.metric.MetricValueContract
 import com.olap.prototype.query.ScalarValueType
 import com.olap.prototype.query.ResultAggregation
+import com.olap.prototype.query.PostOperationContract
+import com.olap.prototype.query.QueryStageAnalysis
+import com.olap.prototype.query.ResultExpression
 import com.olap.prototype.util.OlapJsonUtils
 import org.apache.calcite.rel.RelNode
 import org.apache.calcite.rel.RelVisitor
@@ -63,6 +68,53 @@ class CalciteExpressionExecutionTest {
             super.visit(node, ordinal, parent)
         } }.go(plan)
         return nodes
+    }
+    @Test fun preservesUnicodeTextThroughH2TypedLiteralsAndMixedExpressionTypes() {
+        NativeWarehouse(directory, "h2", listOf(
+            "CREATE TABLE unicode_texts(record_no INTEGER,caption VARCHAR(64))",
+            "INSERT INTO unicode_texts VALUES (1,'山川🧭'),(2,'示例样本🧭'),(3,NULL)")).use { source ->
+            val binding = source.adopt("unicode_texts", mapOf("caption" to "caption"))
+            val support = TestConnectors.registry.require(source.spec.connectorRef).compilation
+            assertEquals(CompilationSupport.ParameterSubmission.TYPED_LITERALS, support.parameterSubmission)
+            val caption = SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, "caption", 1)
+            val accepted = SemanticExpression.Operation(SemanticExpression.Operator.NOT, listOf(
+                SemanticExpression.Operation(SemanticExpression.Operator.LIKE, listOf(caption, SemanticExpression.Literal("%样本🧭%")))))
+            val cast = SemanticExpression.Cast(caption, SemanticExpression.ValueType.STRING, 64, null, MetricValueContract.Rounding.NONE)
+            val available = SemanticExpression.Call(ScalarFunction.COALESCE, listOf(cast, SemanticExpression.Literal("缺失🧭")))
+            val classified = frozenExpression(SemanticExpression.CaseWhen(listOf(SemanticExpression.Branch(accepted, available)),
+                SemanticExpression.Literal("未通过🧭")))
+            assertEquals(ScalarValueType.TEXT, SemanticExpressionValueType.resolve(classified, { ScalarValueType.TEXT },
+                { call -> TestConnectors.registry.require(call.connectorRef).compilation.requireNativeScalarFunction(call.function) }))
+
+            val b = builder(binding)
+            val parameters = mutableListOf<JdbcParameter>()
+            val compiler = localCompiler(b, binding, parameters)
+            val argument = Calculation.Scalar(ScalarValueType.TEXT, "参数🧭")
+            val argumentValue = SemanticCalciteRexCompiler.parameter(b, parameters, SemanticNativeTypes.scalarParameterType(b, argument), argument.jdbcValue())
+            b.project(listOf(b.field("record_no"), b.field("caption"), compiler.compile(frozenExpression(accepted)),
+                compiler.compile(frozenExpression(cast)), compiler.compile(frozenExpression(available)), compiler.compile(classified), argumentValue),
+                listOf("record_no", "caption", "accepted", "cast_text", "source_text", "classified", "argument_text"), true)
+            val scope = QueryStageAnalysis.ScopeId.root()
+            val columns = b.peek().rowType.fieldNames.mapIndexed { index, name -> QueryStageAnalysis.SourceColumn.categorical(name,
+                QueryStageAnalysis.OperationOrigin(scope, 0, index, PostOperationContract.PROJECT)) }
+            val stages = listOf(
+                PostOperationContract.Derive(ResultExpression.ResultTypedLiteral(ScalarValueType.TEXT, "原文🧭"), "annotation", "保留原文本字面量"),
+                PostOperationContract.Derive(ResultExpression.ResultCall(ScalarFunction.COALESCE, listOf(ResultExpression.ResultSymbol("caption"),
+                    ResultExpression.ResultTypedLiteral(ScalarValueType.TEXT, "结果缺失🧭"))), "result_text", "仅显式选择NULL文本"))
+            val analysis = QueryStageAnalysis.analyze(scope, columns, QueryStageAnalysis.UnknownSourceKey.INSTANCE, emptyMap(), stages,
+                QueryStageAnalysis.IntrinsicPopulation(emptySet()), "Unicode文本组合")
+            CompletedRelationCompiler.compile(b, analysis, linkedMapOf(), parameters, emptyMap(), mutableListOf(),
+                NativeExpressionScope(source.spec.connectorRef, support) { null })
+            b.sort(b.field("record_no"))
+            val plan = CalciteQueryCompiler.optimize(b.build(), parameters)
+            val actual = rows(source, plan, parameters)
+            assertEquals(listOf(
+                listOf("山川🧭", true, "山川🧭", "山川🧭", "山川🧭", "参数🧭", "原文🧭", "山川🧭"),
+                listOf("示例样本🧭", false, "示例样本🧭", "示例样本🧭", "未通过🧭", "参数🧭", "原文🧭", "示例样本🧭"),
+                listOf(null, null, null, "缺失🧭", "未通过🧭", "参数🧭", "原文🧭", "结果缺失🧭")), actual.map { it.drop(1) }) {
+                "H2 Unicode组合的实际SQL：\n${CalciteSqlRendering.render(plan, support, parameters).sql}"
+            }
+        }
     }
     @Test fun executesDeclaredTieRoundingOnBothWarehouses() {
         for (dialect in listOf("h2", "duckdb")) NativeWarehouse(directory, dialect, listOf(

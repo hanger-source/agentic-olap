@@ -18,7 +18,7 @@ import java.math.BigDecimal
 object SemanticNativeTypes {
     fun scalarParameterType(builder: RelBuilder, value: Calculation.Scalar): RelDataType = when (value.scalarType) {
         ScalarValueType.NUMBER -> builder.rexBuilder.makeExactLiteral(value.jdbcValue() as BigDecimal).type
-        ScalarValueType.TEXT, ScalarValueType.ENUM -> builder.typeFactory.createSqlType(SqlTypeName.VARCHAR, maxOf(1, value.value.codePointCount(0, value.value.length)))
+        ScalarValueType.TEXT, ScalarValueType.ENUM -> builder.typeFactory.createSqlType(SqlTypeName.VARCHAR, SemanticCalciteTypes.textParameterCapacity(value.value))
         ScalarValueType.BOOLEAN -> builder.typeFactory.createSqlType(SqlTypeName.BOOLEAN)
         ScalarValueType.DATE -> builder.typeFactory.createSqlType(SqlTypeName.DATE)
         ScalarValueType.LOCAL_TIMESTAMP -> builder.typeFactory.createSqlType(SqlTypeName.TIMESTAMP, 9)

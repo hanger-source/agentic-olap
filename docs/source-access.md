@@ -148,6 +148,8 @@ olap.output(olap.sources.connectorCapabilities(
 
 零条输入关系、已存在记录上的 NULL／空数组、NULL 元素及字段全 NULL 的非空 ROW 分别保留自身含义。固定零行或一行的完整集合外壳可能被常量折叠，不能据此推定物理扫描、原生引擎之间的类型传递或记录描述符同样可用；不同 Unknown 读基础下的空人口失败与非空成功也不能定位唯一根因。插件依据实际原生类型和执行路径调查，不删除元素、序号或输入透传列，不将中间 ARRAY／ROW 压成展示字符串来绕过类型边界。
 
+中立类型校验和来源编译使用一致的 Unicode 文本类型与默认 collation，作者可直接使用普通文本字面量。插件显式提供的原生字符集和 collation 保留其声明；内部 Unicode 元数据不证明后端的比较行为。原生参数、SQL 字面量及文本运算仍由精确插件兑现，无需作者在逻辑字段请求中填写字符集。
+
 `textIdentityEquals(builder,left,right)` 接收两个保留真实类型的操作数，为文本身份 EQ、NE、IN 提供完整的 BOOLEAN 比较表达式，遵循 SQL 三值逻辑，不能隐式忽略大小写、尾空格或做 Unicode 归一。原生文本等号是否等价取决于实际类型、编码与 collation；样本相等和估算成本下降都不足以证明普遍等价。插件直接映射完整比较，不必将文本冒充二进制，也不必在 SQL 字符串中寻找操作数。数据库、列或比较策略中影响该保证的条件属于身份与来源保证，不能放入运行参数。这个合同不重新定义所有 CHAR、GROUP BY 或 ORDER BY 行为。
 
 插件的原生 Rex 函数还须诚实声明 NULL 传播，供 Calcite 分析真实过滤条件。返回类型可空不等于严格 NULL 传播；仅当函数严格传播 NULL 且非 NULL 输入不产生 NULL 时，才可用正式 `SqlOperator.getStrongPolicyInference()` 声明 `Strong.Policy.ANY`。内置 DuckDB `ENCODE` 和 H2 `RAWTOHEX/STRINGTOUTF8` 使用这一声明，原生 SQL 与身份比较语义不变。无法证明时，核心仍保留运行关系检查，不据插件函数名或可空类型免除 NULL、人口、重复度与数量边界。
