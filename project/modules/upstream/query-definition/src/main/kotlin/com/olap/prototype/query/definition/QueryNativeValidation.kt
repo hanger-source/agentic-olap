@@ -9,6 +9,7 @@ import com.olap.prototype.engine.compiler.CompiledQuery
 import com.olap.prototype.engine.compiler.OlapSemanticCompiler
 import com.olap.prototype.engine.context.OlapQueryContext
 import com.olap.prototype.engine.executable.*
+import com.olap.prototype.query.QueryExecutionMode
 import com.olap.prototype.query.QueryStageAnalysis
 import com.olap.prototype.query.contract.*
 
@@ -16,13 +17,13 @@ import com.olap.prototype.query.contract.*
 object QueryNativeValidation {
     private val log = System.getLogger(QueryNativeValidation::class.java.name)
 
-    fun validate(intent: QueryIntent, capability: QueryCapabilityView, connectors: ConnectorRegistry) {
+    fun validate(intent: QueryIntent, capability: QueryCapabilityView, connectors: ConnectorRegistry, executionMode: QueryExecutionMode) {
         val computation = intent.computation
         try {
             val catalog = capability.nativeDefinitions.catalog
             try { PublishedInstanceContract.require(catalog, capability) }
             catch (failure: IllegalArgumentException) { throw ProducerContractException(requireNotNull(failure.message), failure) }
-            val request = ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION, "query-validation", catalog.manifest.catalogId, computation)
+            val request = ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION, "query-validation", catalog.manifest.catalogId, computation, executionMode)
             val context = OlapQueryContext(request.requestId)
             val started = System.nanoTime()
             try {

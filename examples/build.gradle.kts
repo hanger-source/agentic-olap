@@ -1,6 +1,6 @@
 import groovy.json.JsonSlurper
 
-sourceSets.main { kotlin.srcDirs("orders", "procurement", "subscriptions", "kernel"); kotlin.include("**/*.kt") }
+sourceSets.main { kotlin.srcDirs("orders", "procurement", "subscriptions", "populations", "kernel"); kotlin.include("**/*.kt") }
 dependencies {
     implementation(project(":worker-runtime"))
     implementation(project(":olap-codec"))
@@ -9,7 +9,7 @@ dependencies {
 }
 tasks.named<Jar>("sourcesJar") { include("**/*.kt", "META-INF/LICENSE") }
 
-for ((name, main) in mapOf("orders" to "Orders", "procurement" to "Procurement", "subscriptions" to "Subscriptions", "kernel" to "Kernel")) {
+for ((name, main) in mapOf("orders" to "Orders", "procurement" to "Procurement", "subscriptions" to "Subscriptions", "populations" to "Populations", "kernel" to "Kernel")) {
     tasks.register<JavaExec>(name) {
         group = "examples"
         classpath = sourceSets.main.get().runtimeClasspath

@@ -16,8 +16,9 @@ message EngineCatalogReceipt { string catalog_id = 1; string content_hash = 2; }
 message EngineInputResolution { QueryCapabilityCoordinate publication = 1; string request_id = 2; string catalog_id = 3; string catalog_hash = 4; string intent_hash = 5; SourceBinding binding = 6; agentic.olap.semantic.v1.ConnectorRef connector_ref = 7; map<string,int64> timing_nanos = 8; QueryExplanationView explanation = 9; }
 message EngineExecutionDiagnostics { string sql = 1; map<string,string> alias_mapping = 2; optional string audit_report = 3; }
 message EngineExecutionPayload { QueryCapabilityCoordinate publication = 1; string request_id = 2; BusinessResult result = 3; SourceReadEvidence source_read_evidence = 4; map<string,int64> stage_nanos = 5; EngineExecutionDiagnostics diagnostics = 6; QueryExplanationView explanation = 7; }
-message QueryWorkerCommand { oneof kind { agentic.olap.governance.v1.PublishedQueryEntry load = 1; QueryUnload unload = 2; QueryIntent validate = 3; WorkerPublicationIdentity lookup = 4; } }
+message QueryWorkerCommand { oneof kind { agentic.olap.governance.v1.PublishedQueryEntry load = 1; QueryUnload unload = 2; QueryValidate validate = 3; WorkerPublicationIdentity lookup = 4; } }
 message QueryUnload { QueryCapabilityCoordinate coordinate = 1; string catalog_hash = 2; string capability_hash = 3; }
+message QueryValidate { QueryIntent intent = 1; QueryExecutionMode execution_mode = 2; }
 message QueryWorkerResult { oneof kind { QueryCapabilityReceipt loaded = 1; QueryCapabilityCoordinate unloaded = 2; string validated_capability_hash = 3; bool present = 4; } }
 message QueryCapabilityReceipt { QueryCapabilityCoordinate coordinate = 1; string catalog_hash = 2; string capability_hash = 3; }
 message SourceWorkerCommand { oneof kind { SourceWorkerDiscover discover = 1; agentic.olap.governance.v1.SourceInspectionPreview preview = 2; SourceWorkerVerify verify = 3; } }

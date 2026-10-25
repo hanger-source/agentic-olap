@@ -7,7 +7,7 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
 }
 
-for (scenario in listOf("orders", "procurement", "subscriptions", "kernel")) {
+for (scenario in listOf("orders", "procurement", "subscriptions", "populations", "kernel")) {
     tasks.register<JavaExec>(scenario) {
         group = "verification"
         description = "通过真实服务和 MCP 执行 $scenario 完整业务用法；仅显式调用。"

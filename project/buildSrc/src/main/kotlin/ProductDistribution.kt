@@ -93,7 +93,7 @@ abstract class ProductDistribution : DefaultTask() {
         val dsl = build.objects("dsl").map { installed[it.text("path")] ?: install(it, "java/lib/${File(it.text("path")).name}") }
         val distribution = mapOf("formatVersion" to "agentic-olap-distribution/v4", "version" to version,
             "server" to server, "worker" to worker,
-            "scripting" to mapOf("dslApiVersion" to "agentic-olap-kotlin-dsl/v6", "runtime" to script, "dsl" to dsl))
+            "scripting" to mapOf("dslApiVersion" to "agentic-olap-kotlin-dsl/v7", "runtime" to script, "dsl" to dsl))
         write(root.resolve("distribution.json"), distribution)
         val pluginManifests = mutableListOf<String>()
         for (id in listOf("h2", "duckdb")) {

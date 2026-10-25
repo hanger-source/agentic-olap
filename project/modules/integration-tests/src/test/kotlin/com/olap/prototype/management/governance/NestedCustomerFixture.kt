@@ -92,7 +92,7 @@ internal class NestedCustomerFixture(val database: PlatformDatabase, directory: 
             f.scenarios.createScenarioAnalysisDimensionRef(ScenarioAnalysisDimensionRefCreateRequest(scenario.id, 1, "$subject.destination", 1, "destination", false, 1))
         }
         queries = QueryDefinitionService(JdbcQueryDefinitionRepository(database, RuntimeDeploymentLimits.io), JdbcPublishedQueryEntryProvider(database),
-            NativeValidator { intent, capability -> QueryNativeValidation.validate(intent, capability, f.connectors) })
+            NativeValidator { intent, capability, executionMode -> QueryNativeValidation.validate(intent, capability, f.connectors, executionMode) })
     }
 
     fun publish() { SUBJECTS.forEach { f.activate("SUBJECT_AREA", it); f.builder().build(SubjectAreaReleaseBuildRequest("$it.release", "1", "独立客户平均发布", it, 1, "golden", f.sourceAdoptions)) } }

@@ -38,7 +38,7 @@ sealed interface QueryWorkerCommand {
     data class Lookup(val coordinate: QueryCapabilityRequest, val catalogHash: String, val capabilityHash: String, val semanticCatalogHash: String) : QueryWorkerCommand
     data class Load(val entry: PublishedQueryEntry) : QueryWorkerCommand
     data class Unload(val coordinate: QueryCapabilityRequest, val catalogHash: String, val capabilityHash: String) : QueryWorkerCommand
-    data class Validate(val intent: QueryIntent) : QueryWorkerCommand
+    data class Validate(val intent: QueryIntent, val executionMode: QueryExecutionMode) : QueryWorkerCommand
 }
 sealed interface QueryWorkerResult {
     data class Present(val value: Boolean) : QueryWorkerResult

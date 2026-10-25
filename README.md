@@ -71,7 +71,7 @@ agentic-olap start
 agentic-olap info
 agentic-olap tools
 agentic-olap call describe-script-api --payload '{}'
-agentic-olap call execute-script --payload '{"executionId":"sources-1","waitMillis":1000,"source":"olap.output(olap.sources.list(EmptyRequest))","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v6","parameters":{}}'
+agentic-olap call execute-script --payload '{"executionId":"sources-1","waitMillis":1000,"source":"olap.output(olap.sources.list(EmptyRequest))","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v7","parameters":{}}'
 ```
 
 回执包含 `sessionId`、`executionId` 和实际状态。若仍为 `RUNNING`，调用 `wait-script` 等待同一执行；后续代码传同一 `sessionId` 和新的 `executionId`，可继续使用已有对象与函数。同执行身份的重试只观察已有执行，不重复副作用。用完后调用 `close-script-session` 关闭自己建立的会话；语言会话关闭不会删除已保存的定义、发布或结果。
@@ -193,7 +193,7 @@ Gradle 统一编排协议生成、服务构建和发行，独立 Kotlin 研发�
 - [文档导航](docs/README.md)：按使用、部署、开发和研究查找说明。
 - [AI 使用指引](docs/agent-usage.md)：通过 MCP 发现实际合同，建设语义资产或组织完整查询。
 - [架构](docs/architecture.md)：内核、上游、应用及计算语言之间的责任。
-- [业务用法](examples/README.md)：订单、采购、订阅的远程服务示例，以及单独列出的研发试验。
+- [业务用法](examples/README.md)：订单、采购、订阅、对象人口与完成关系的远程服务示例，以及单独列出的研发试验。
 - [版本与变更](CHANGELOG.md)：构件版本、合同格式与变化。
 
 项目采用 [Apache License 2.0](LICENSE)。第三方许可证与 NOTICE 随实际构件分发，说明见[贡献文档](CONTRIBUTING.md)。

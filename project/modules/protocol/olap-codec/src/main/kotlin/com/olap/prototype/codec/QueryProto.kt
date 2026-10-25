@@ -104,9 +104,9 @@ object QueryProto {
     fun toProto(v: QuerySource): WSource = WSource.newBuilder().setName(v.name).setSource(v.source).setDslApiVersion(v.dslApiVersion).setSha256(v.sha256).build()
     fun fromProto(v: WSource) = QuerySource(v.name, v.source, v.dslApiVersion, v.sha256)
     fun toProto(v: QueryDefinitionCommand): WDefinitionCommand = WDefinitionCommand.newBuilder().setCapabilityHash(v.capabilityHash).setName(v.name)
-        .setIntent(toProto(v.intent)).apply { v.definitionId?.let(::setDefinitionId); v.sourceVersion?.let(::setSourceVersion); v.source?.let { setSource(toProto(it)) } }.build()
+        .setIntent(toProto(v.intent)).setExecutionMode(toProto(v.executionMode)).apply { v.definitionId?.let(::setDefinitionId); v.sourceVersion?.let(::setSourceVersion); v.source?.let { setSource(toProto(it)) } }.build()
     fun fromProto(v: WDefinitionCommand): QueryDefinitionCommand { require(v.hasIntent()); return QueryDefinitionCommand(if (v.hasDefinitionId()) v.definitionId else null,
-        if (v.hasSourceVersion()) v.sourceVersion else null, v.capabilityHash, v.name, fromProto(v.intent), if (v.hasSource()) fromProto(v.source) else null) }
+        if (v.hasSourceVersion()) v.sourceVersion else null, v.capabilityHash, v.name, fromProto(v.intent), if (v.hasSource()) fromProto(v.source) else null, fromProto(v.executionMode)) }
     fun toProto(v: QueryDefinitionView): WDefinitionView = WDefinitionView.newBuilder().setDefinitionId(v.definitionId).setDefinitionVersion(v.definitionVersion)
         .setName(v.name).setScenarioId(v.scenarioId).setScenarioVersion(v.scenarioVersion).setScenarioDisplayName(v.scenarioDisplayName)
         .setReleaseId(v.releaseId).setReleaseVersion(v.releaseVersion).setReleaseDisplayName(v.releaseDisplayName).setCatalogHash(v.catalogHash)

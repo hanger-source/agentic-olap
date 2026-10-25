@@ -13,6 +13,7 @@ import com.olap.prototype.wire.query.EngineInputResolution as WResolution
 import com.olap.prototype.wire.query.EngineExecutionPayload as WPayload
 import com.olap.prototype.wire.query.EngineExecutionDiagnostics as WDiagnostics
 import com.olap.prototype.wire.query.QueryUnload
+import com.olap.prototype.wire.query.QueryValidate
 import com.olap.prototype.wire.query.QueryCapabilityReceipt
 
 /** 具体worker消息与实际请求/回执的一一转换；没有通用命令名或AST JSON。 */
@@ -64,13 +65,13 @@ object QueryWorkerProto {
             .setCoordinate(QueryProto.toProto(v.coordinate)).setCatalogHash(v.catalogHash).setCapabilityHash(v.capabilityHash).setSemanticCatalogHash(v.semanticCatalogHash).build()
         is QueryWorkerCommand.Load -> load = GovernanceProto.toProto(v.entry)
         is QueryWorkerCommand.Unload -> unload = QueryUnload.newBuilder().setCoordinate(QueryProto.toProto(v.coordinate)).setCatalogHash(v.catalogHash).setCapabilityHash(v.capabilityHash).build()
-        is QueryWorkerCommand.Validate -> validate = QueryProto.toProto(v.intent)
+        is QueryWorkerCommand.Validate -> validate = QueryValidate.newBuilder().setIntent(QueryProto.toProto(v.intent)).setExecutionMode(QueryProto.toProto(v.executionMode)).build()
     } }.build()
     fun fromProto(v: WQueryCommand): QueryWorkerCommand = when (v.kindCase) {
         WQueryCommand.KindCase.LOOKUP -> v.lookup.let { require(it.hasCoordinate()); QueryWorkerCommand.Lookup(QueryProto.fromProto(it.coordinate), it.catalogHash, it.capabilityHash, it.semanticCatalogHash) }
         WQueryCommand.KindCase.LOAD -> QueryWorkerCommand.Load(GovernanceProto.fromProto(v.load))
         WQueryCommand.KindCase.UNLOAD -> v.unload.let { require(it.hasCoordinate()); QueryWorkerCommand.Unload(QueryProto.fromProto(it.coordinate), it.catalogHash, it.capabilityHash) }
-        WQueryCommand.KindCase.VALIDATE -> QueryWorkerCommand.Validate(QueryProto.fromProto(v.validate))
+        WQueryCommand.KindCase.VALIDATE -> v.validate.let { require(it.hasIntent()); QueryWorkerCommand.Validate(QueryProto.fromProto(it.intent), QueryProto.fromProto(it.executionMode)) }
         else -> error("query worker command requires one explicit variant")
     }
     fun toProto(v: QueryWorkerResult): WQueryResult = WQueryResult.newBuilder().apply { when (v) {

@@ -27,9 +27,9 @@ internal class ServerQueries(private val queries: JdbcQueryDefinitionRepository,
     private val mapper = OlapJsonUtils.mapper()
     private val log = org.slf4j.LoggerFactory.getLogger(ServerQueries::class.java)
     private data class Selected(val intent: QueryIntent, val reference: QueryReference?)
-    private fun definitions(request: ServerRequest) = QueryDefinitionService(queries, publications) { intent, capability ->
+    private fun definitions(request: ServerRequest) = QueryDefinitionService(queries, publications) { intent, capability, executionMode ->
         val publication = publications.readPublication(PublishedQueryEntry.key(capability))
-        requireResolution(intent, inspect(request, intent, publication, InspectionMode.VALIDATE), publication)
+        requireResolution(intent, inspect(request, intent, publication, InspectionMode.VALIDATE, executionMode), publication)
     }
     private fun requireQuery(request: ServerRequest, reference: QueryReference): QueryDefinitionView {
         require(queries.requireReference(reference.definitionId, reference.definitionVersion) == reference) {

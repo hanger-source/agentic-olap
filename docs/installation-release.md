@@ -27,7 +27,7 @@ repositories {
     }
 }
 dependencies {
-    compileOnly("com.github.hanger-source.agentic-olap:connector-api:v0.22.1")
+    compileOnly("com.github.hanger-source.agentic-olap:connector-api:v0.23.0")
 }
 ```
 
@@ -47,7 +47,7 @@ dependencies {
 
 一次语言会话固定产品构建、Kotlin 版本、DSL、classpath、默认 imports 与 JVM 目标，不在存活会话里替换 JAR。升级沿明确停止服务、安装并启动的现有入口进行；旧语言内存结束，持久业务资产按各自格式和授权继续读取，不承诺跨版本搬运 JVM 对象。
 
-产品 0.22.1 的公开作者环境为 `agentic-olap-kotlin-dsl/v6`，内部进程合同为 `agentic-olap-runtime/v8`。创建场景阶段规则必须提供作者显式选择的 `authorization`；历史分页使用 `Long` 坐标和正 `Int` 页长，治理目录、解释及结果元数据按实际内存列表使用非负 `Int` 坐标和正 `Int` 页长，准确类型与默认行为通过服务发现。提交源码使用目标服务披露的 DSL，不自动改用旧作者合同。连接器 API 为 v14，元数据库格式为 18、Query intent 为 v8；查询定义制品 v12、结果封套／记录 v6 和发行清单 v4 各自保持原格式职责。
+产品 0.23.0 的公开作者环境为 `agentic-olap-kotlin-dsl/v7`，内部进程合同为 `agentic-olap-runtime/v9`。创建场景阶段规则必须提供作者显式选择的 `authorization`；历史分页使用 `Long` 坐标和正 `Int` 页长，治理目录、解释及结果元数据按实际内存列表使用非负 `Int` 坐标和正 `Int` 页长，准确类型与默认行为通过服务发现。提交源码使用目标服务披露的 DSL，不自动改用旧作者合同。连接器 API 为 v14，元数据库格式为 18、Query intent 为 v8；查询定义制品 v12、结果封套／记录 v6 和发行清单 v4 各自保持原格式职责。
 
 来源访问插件通过 API v14 分别取得物理数据合同要求和发布选定的兑现采用，按随产品提供的 SDK 构建。替换插件或精确来源绑定后，先为原数据合同登记新采用，再由新发布显式选择其 references；没有变化的业务定义继续引用自身精确版本。旧发布的采用不自动切换，当前部署未提供其精确实现时返回不可用原因。采用登记不承诺来源快照、历史数据重放或后端行为等价。
 
@@ -59,7 +59,7 @@ dependencies {
 4. 手动运行 **发布 Agentic OLAP**，指定标签与上一步成功的构建任务 ID。发布工作流核对构建来源、精确源码和安装验收成功状态，直接在 GitHub runner 取得同轮原包，建立同标签 draft 并上传 tarball 与 `SHA256SUMS`，无需维护者本地下载和重新上传。skill 直接使用标签中的 `skills/agentic-olap`，不生成或同步另一份仓库。
 5. 同一发布任务核验实际归档、文件摘要和完整安装清单，通过 GitHub OIDC 发布一个 npm 产品包，成功后公开 GitHub release。npm 接受提交即记录结果，不轮询 registry。若 npm 已受理而公开 release 失败，直接修正 release 状态，不重复提交 npm。
 
-JitPack 构件完成后才能装配 npm，不能预先猜测远端 JAR 摘要。源码 push、JVM 公开、安装验收和 npm 发布各有实际结果，不能相互替代。三个完整业务用法按需手动运行，不加入 push／PR 的重复业务执行。
+JitPack 构件完成后才能装配 npm，不能预先猜测远端 JAR 摘要。源码 push、JVM 公开、安装验收和 npm 发布各有实际结果，不能相互替代。完整业务用法按需手动运行，不加入 push／PR 的重复业务执行。
 
 Git 标签或 JitPack 构建成功不表示 npm 产品已经交付。正式安装对象是同版本 `@hanger-source/agentic-olap`；发布工作流消费成功构建的原始 tarball 与 `SHA256SUMS`，不重新构建产品。发行产物位于 `project/build/npm/tarballs`；工作流中的产品与安装报告分别保存在 `npm-product-darwin-arm64` 和 `installed-darwin-arm64`，安装失败时只保留失败报告。
 

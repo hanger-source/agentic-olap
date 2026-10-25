@@ -40,7 +40,7 @@ data class ApiOverview(val formatVersion: String, val dslApiVersion: String, val
 
 /** 结构来自真实公开声明；局部语义规则只读取已知模型自身合同，不执行任意 getter 或工厂。 */
 object ApiDiscovery {
-    const val VERSION = "agentic-olap-kotlin-dsl/v6"
+    const val VERSION = "agentic-olap-kotlin-dsl/v7"
     val imports: List<String> = listOf("com.olap.prototype.dsl.*", "com.olap.prototype.governance.contract.*",
         "com.olap.prototype.governance.contract.GovernanceReadRequests.AssetVersionRequest",
         "com.olap.prototype.governance.contract.GovernanceReadRequests.DefinitionDependenciesRequest",
@@ -187,6 +187,7 @@ object ApiDiscovery {
             com.olap.prototype.metric.MetricValueContract.UnitEquation::class -> mapOf(
                 "fixedBinary" to com.olap.prototype.metric.MetricValueContract.FixedBinary.contract())
             com.olap.prototype.query.QueryExecutionMode::class -> com.olap.prototype.query.QueryExecutionMode.contract()
+            com.olap.prototype.query.definition.QueryDefinitionCommand::class -> com.olap.prototype.query.definition.QueryDefinitionCommand.contract()
             ResultExpression.ResultOperator::class -> ResultExpression.ResultOperator.contract()
             com.olap.prototype.query.ResultAggregation.Sum::class -> com.olap.prototype.query.ResultAggregation.Sum.contract()
             com.olap.prototype.query.ResultAggregation.Count::class -> com.olap.prototype.query.ResultAggregation.Count.contract()

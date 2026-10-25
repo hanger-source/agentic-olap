@@ -34,7 +34,7 @@ internal class QueryHandler(private val connectors: ConnectorRegistry, private v
             }
             is QueryWorkerCommand.Validate -> {
                 val entry = capabilities[command.intent.publication]?.entry ?: error("exact published capability is not loaded")
-                QueryNativeValidation.validate(command.intent, entry.capability, connectors)
+                QueryNativeValidation.validate(command.intent, entry.capability, connectors, command.executionMode)
                 control.checkCancellation()
                 QueryWorkerResult.Validated(requireNotNull(entry.capability.capabilityHash))
             }

@@ -43,7 +43,7 @@ class QueryDefinitionService(
         if (capability.releaseId != command.releaseId || capability.releaseVersion != command.releaseVersion ||
             capability.scenario.scenarioId != command.scenarioId || capability.scenario.scenarioVersion != command.scenarioVersion)
             throw ProducerContractException("QueryDefinition command does not match QueryCapabilityView boundary")
-        nativeValidator.validate(command.intent, capability)
+        nativeValidator.validate(command.intent, capability, command.executionMode)
         return entry
     }
 

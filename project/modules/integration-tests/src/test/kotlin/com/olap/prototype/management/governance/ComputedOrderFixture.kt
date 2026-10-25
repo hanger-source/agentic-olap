@@ -74,7 +74,7 @@ internal class ComputedOrderFixture(val database: PlatformDatabase, directory: P
             MemberQueryPermission(listOf("order", "amount"), listOf("candidate_amount"), mapOf("amount" to listOf(MemberCondition.Operator.GTE)), false, emptyList())))
         f.scenarios.createScenarioMemberSourceRef(ScenarioMemberSourceRefCreateRequest("travel.trade.formed", 1, raw.id, 1, MemberQueryPermission(listOf("amount"), emptyList(), emptyMap(), false, emptyList())))
         queries = QueryDefinitionService(JdbcQueryDefinitionRepository(database, RuntimeDeploymentLimits.io), JdbcPublishedQueryEntryProvider(database),
-            NativeValidator { intent, capability -> QueryNativeValidation.validate(intent, capability, f.connectors) })
+            NativeValidator { intent, capability, executionMode -> QueryNativeValidation.validate(intent, capability, f.connectors, executionMode) })
     }
 
     fun publish() { f.activate("SUBJECT_AREA", "travel.trade"); f.activate("SUBJECT_AREA", "travel.shared"); f.build("formed_orders"); f.builder().build(SubjectAreaReleaseBuildRequest("shared_orders", "1", "双口径发布", "travel.shared", 1, "golden", f.sourceAdoptions)) }

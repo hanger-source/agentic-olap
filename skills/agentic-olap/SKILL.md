@@ -4,7 +4,7 @@ description: 使用 Agentic OLAP 服务调查业务数据、建设和复用可�
 license: Apache-2.0
 metadata:
   author: hanger
-  version: "0.22.1"
+  version: "0.23.0"
   repository: https://github.com/hanger-source/agentic-olap
 ---
 
@@ -46,10 +46,10 @@ agentic-olap call describe-script-api --payload '{"type":"com.olap.prototype.cal
 
 `LogicUnitInput.rules.valueTypeRules` 要求标量 `logicType` 与容器 `valueShape` 恰好选一个：标量的 `valueShape=null`；容器的 `logicType=null`，形状为正式 `SetOutputContract.Container` 的 ARRAY／ROW。普通金额字段使用 `LogicType.NUMBER`，数量合同中的单位、算术和结果容量不填入字段的容器形状。
 
-`execute-script` 向持续 Kotlin 会话提交一个完整片段。DSL 为 `agentic-olap-kotlin-dsl/v6`，以服务发现结果为准。`executionId` 必填；不填 `sessionId` 创建会话，后续使用实际返回的会话 ID：
+`execute-script` 向持续 Kotlin 会话提交一个完整片段。DSL 为 `agentic-olap-kotlin-dsl/v7`，以服务发现结果为准。`executionId` 必填；不填 `sessionId` 创建会话，后续使用实际返回的会话 ID：
 
 ~~~sh
-agentic-olap call execute-script --payload '{"executionId":"sources-001","waitMillis":0,"source":"val sources = olap.sources.list(EmptyRequest)\nolap.output(sources)","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v6","parameters":{}}'
+agentic-olap call execute-script --payload '{"executionId":"sources-001","waitMillis":0,"source":"val sources = olap.sources.list(EmptyRequest)\nolap.output(sources)","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v7","parameters":{}}'
 agentic-olap call wait-script --payload '{"executionId":"sources-001","waitMillis":1000}'
 ~~~
 
@@ -117,7 +117,7 @@ agentic-olap call wait-script --payload '{"executionId":"sources-001","waitMilli
 
 官方 SDK 生成的完整最终 JSON/MCP 消息不超过 `responseBytes` 时直接返回，超过时自动完整保存在 `dataRoot/responses`。当前消息给出简短提示、`location` 和 `read.operation/read.payload`；将实际 `read.payload` 原样用于 `read-response`，其中的 `reference={responseId,sha256}` 是精确存档引用。读取按字节 `offset` 和可选 `length` 分段，必须从 UTF-8 字符起点开始，段尾不截破字符；按返回的 `nextOffset` 继续。服务不截断删减，不要求预先保存，不重执行业务，也不增加存储配额或审批。成功保持成功，失败响应完整保存后仍保留原失败。
 
-保存查询用于复用模型；`QueryDefinitionResult` 返回 `definition/reference`，执行保存版本时用真实精确 `reference`。执行的 `saveResult=true` 显式保存历史 SQL 结果，只用实际返回的 `resultReference` 分页读取；它与完整响应自动存档及 SQL 结果物化限额分别成立。保留精确数值、NULL、单位和 ROW／ARRAY。
+保存查询用于复用模型；`QueryDefinitionCommand.executionMode` 明确选择保存或更新前的本次完整编译验证，默认 SOURCE。需要核心精确终算的查询应在保存命令中明确选择 CORE_FINALIZATION；模式不写入 QueryIntent、保存定义或其语义身份，后续执行、校验与解释仍各自显式选择模式。`QueryDefinitionResult` 返回 `definition/reference`，执行保存版本时用真实精确 `reference`。执行的 `saveResult=true` 显式保存历史 SQL 结果，只用实际返回的 `resultReference` 分页读取；它与完整响应自动存档及 SQL 结果物化限额分别成立。保留精确数值、NULL、单位和 ROW／ARRAY。
 
 分别读取执行、来源结局和结果交付。停止等待不等于来源取消；UNKNOWN 不能包装成成功。交付失败时先读运行状态，不盲目重跑。定义冻结不冻结动态数据；历史结果按保存字节读取，重跑是否能固定读基础由来源能力决定。
 

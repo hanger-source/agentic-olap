@@ -179,7 +179,7 @@ class PublishedRelationMembersTest {
             f.activate("SUBJECT_AREA", GovernanceOrderFixture.SUBJECT); f.build("related_release")
             val publication = f.publication("related_release", scenario = scenario.id)
             val definitions = QueryDefinitionService(JdbcQueryDefinitionRepository(database, RuntimeDeploymentLimits.io), JdbcPublishedQueryEntryProvider(database),
-                NativeValidator { intent, capability -> QueryNativeValidation.validate(intent, capability, f.connectors) })
+                NativeValidator { intent, capability, executionMode -> QueryNativeValidation.validate(intent, capability, f.connectors, executionMode) })
             for ((threshold, expected) in linkedMapOf("0" to "220", "15" to "200", "40" to "170", "90" to "100")) {
                 val condition = DimensionCondition.Exists("eligible_order", filter.relation.id,
                     MemberCondition.Predicate("amount", MemberCondition.Operator.GT, listOf(Calculation.Scalar(ScalarValueType.NUMBER, threshold))), null, emptyMap())

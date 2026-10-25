@@ -14,18 +14,35 @@ import com.olap.prototype.calculation.*
 import com.olap.prototype.contract.ProducerContractException
 import com.olap.prototype.engine.EngineExecutionException
 import com.olap.prototype.event.EventIdentity
+import com.olap.prototype.event.EventRef
+import com.olap.prototype.event.RelationAccessPath
+import com.olap.prototype.engine.executable.ExecutableBusinessResult
 import com.olap.prototype.governance.contract.*
-import com.olap.prototype.member.MemberCondition
+import com.olap.prototype.member.*
 import com.olap.prototype.metric.MetricBusinessMeaning
 import com.olap.prototype.metric.MetricValueContract
 import com.olap.prototype.query.*
+import com.olap.prototype.query.PostOperationContract.Derive
+import com.olap.prototype.query.PostOperationContract.JoinInput
+import com.olap.prototype.query.PostOperationContract.Project
+import com.olap.prototype.query.PostOperationContract.Regroup
+import com.olap.prototype.query.PostOperationContract.ResultAggregate
+import com.olap.prototype.query.PostOperationContract.ResultGrouping
+import com.olap.prototype.query.PostOperationContract.PostFilter
+import com.olap.prototype.query.ResultExpression.*
 import com.olap.prototype.query.contract.MetricAdoption
 import com.olap.prototype.query.contract.StageAuthorization
 import com.olap.prototype.query.contract.ExpressionAuthorization
 import com.olap.prototype.query.contract.FilterLeafOperator
+import com.olap.prototype.query.contract.MemberQueryPermission
+import com.olap.prototype.integration.RuntimeDeploymentLimits
 import com.olap.prototype.storage.PlatformDatabase
 import com.olap.prototype.warehouse.contract.JdbcConnectionSpec
 import com.olap.prototype.warehouse.contract.SourceConfiguration
+import com.olap.prototype.warehouse.contract.SourceAdoptionRef
+import com.olap.prototype.warehouse.inspection.JdbcWarehouseInspector
+import com.olap.prototype.warehouse.jdbc.JdbcSourceInspection
+import com.olap.prototype.warehouse.onboarding.WarehouseDiscoveryCommand
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
@@ -179,6 +196,260 @@ class PublishedCalculationArgumentsTest {
             val rows = f.execute(publication, query).result.resultFrame.rows
             assertEquals(1, rows.size)
             number("55", rows.single()["mean"])
+        }
+    }
+
+    @Test
+    fun publishesSixGuardedRatiosOverAnIndependentDenominatorAndReportsTheActualLeftBag(@TempDir directory: Path) {
+        val metadata = directory.resolve("population-platform")
+        val count = GovernanceOrderFixture.records()
+        fun sourceNumber(name: String) = MetricValueContract(MetricValueContract.Fixed(MetricValueContract.UnitIdentity("example", name, 1)),
+            MetricValueContract.NativeFloating(), MetricValueContract.BinaryFloat(64), emptyMap(), MetricValueContract.Overflow.FAIL)
+        val amounts = linkedMapOf("base_a" to sourceNumber("base_a"), "base_b" to sourceNumber("base_b"))
+        val contributions = listOf("raw_a", "raw_b", "raw_c", "raw_d", "component_e", "component_f").associateWith(::sourceNumber)
+        data class Ratio(val code: String, val numerator: String, val denominator: String, val flag: String, val counter: String, val positiveOnly: Boolean)
+        val ratios = listOf(Ratio("ratio_a", "raw_a", "base_a", "flag_a", "count_a", false),
+            Ratio("ratio_b", "raw_b", "base_a", "flag_a", "count_a", false),
+            Ratio("ratio_c", "raw_c", "base_b", "flag_a", "count_b", false),
+            Ratio("ratio_d", "raw_d", "base_b", "flag_a", "count_b", false),
+            Ratio("ratio_e", "component_e", "base_a", "flag_b", "count_a", true),
+            Ratio("ratio_f", "component_f", "component_e", "flag_b", "count_b", true))
+        val contracts = amounts + contributions
+        val accountConcept = "example.account"
+        val axis = ScopedInputContract.DimensionRef("${GovernanceOrderFixture.SUBJECT}.account", "1", "account")
+        fun sym(name: String): ResultExpression = ResultSymbol(name)
+        fun op(operator: ResultOperator, vararg operands: ResultExpression) = ResultOperation(operator, operands.toList())
+        fun quantity(value: Int, contract: MetricValueContract) = ResultQuantityLiteral(BigDecimal.valueOf(value.toLong()), contract)
+        fun choose(condition: ResultExpression, yes: ResultExpression, no: ResultExpression) = ResultCaseWhen(listOf(ResultCaseBranch(condition, yes)), no)
+        fun sum(input: String, output: String, contract: MetricValueContract) = ResultAggregate(input, ResultAggregation.Sum(contract, ResultAggregation.NullPolicy.IGNORE), output, output)
+        fun definition(spec: Ratio): MetricCalculation {
+            val n = contracts.getValue(spec.numerator)
+            val d = contracts.getValue(spec.denominator)
+            val output = sourceNumber(spec.code)
+            val equation = MetricValueContract.FixedBinary(MetricValueContract.BinaryOperator.DIVIDE,
+                (n.unit as MetricValueContract.Fixed).identity, (d.unit as MetricValueContract.Fixed).identity, (output.unit as MetricValueContract.Fixed).identity)
+            val result = MetricValueContract(output.unit, output.arithmetic, output.result, mapOf("quotient" to equation), output.overflow)
+            val guard = if (spec.positiveOnly) op(ResultOperator.GT, sym("denominator"), quantity(0, d)) else op(ResultOperator.AND,
+                op(ResultOperator.IS_NOT_NULL, sym("denominator")), op(ResultOperator.NE, sym("denominator"), quantity(0, d)))
+            val invalid = if (spec.positiveOnly) quantity(0, output) else ResultLiteral(null)
+            val quotient = ResultNumeric(op(ResultOperator.DIVIDE, sym("numerator"), sym("denominator")), result, "quotient")
+            return MetricCalculation(Calculation(listOf(Calculation.DimensionSlot("account", accountConcept, 1, "account")), emptyList(), emptyList(),
+                listOf(Calculation.RelationSlot("basis", listOf(SetOutputContract("account", SetOutputContract.DimensionSlot("account")),
+                    SetOutputContract("numerator", SetOutputContract.Quantity(n)), SetOutputContract("denominator", SetOutputContract.Quantity(d))), listOf("account"))), emptyMap(),
+                Calculation.Scope(Calculation.Relation("basis"), emptyMap(), listOf(Derive(choose(guard, quotient, invalid), "value", "按完整分母政策计算"),
+                    Project(listOf("account", "value"))))), "value", listOf("account"), result)
+        }
+        val ledgerTypes = linkedMapOf("account" to ScalarValueType.TEXT, "record_reference" to ScalarValueType.TEXT,
+            "count_a" to ScalarValueType.NUMBER, "count_b" to ScalarValueType.NUMBER, "base_a" to ScalarValueType.NUMBER, "base_b" to ScalarValueType.NUMBER)
+        val attributeTypes = linkedMapOf("partition_key" to ScalarValueType.TEXT, "record_reference" to ScalarValueType.TEXT,
+            "flag_a" to ScalarValueType.TEXT, "flag_b" to ScalarValueType.TEXT) + contributions.keys.associateWith { ScalarValueType.NUMBER }
+        val inputSql = listOf(
+            "CREATE TABLE main.population_ledger(account VARCHAR, record_reference VARCHAR, count_a BIGINT, count_b BIGINT, base_a DOUBLE, base_b DOUBLE)",
+            "INSERT INTO main.population_ledger VALUES ('A','rA',1,1,100,50),('B','rB',1,1,NULL,NULL),('C','rC',1,1,-10,-5),('D','rD',0,0,0,0),('E','rE',1,1,20,10)",
+            "CREATE TABLE main.population_attributes(partition_key VARCHAR, record_reference VARCHAR, flag_a VARCHAR, flag_b VARCHAR, raw_a DOUBLE, raw_b DOUBLE, raw_c DOUBLE, raw_d DOUBLE, component_e DOUBLE, component_f DOUBLE)",
+            """INSERT INTO main.population_attributes VALUES
+                ('20000101','rA','Y','Y',10,NULL,3,4,5,6),('20000102','rA','Y','Y',20,NULL,7,8,9,10),
+                ('20000101','rB','Y','Y',NULL,NULL,NULL,NULL,NULL,NULL),
+                ('20000101','rC','Y','Y',5,1,2,3,4,5),
+                ('20000101','rD',NULL,NULL,9,9,9,9,9,9)
+            """.trimIndent())
+        var selectedAdoptions: List<SourceAdoptionRef> = emptyList()
+        lateinit var ledgerMember: MemberRef
+        lateinit var attributeMember: MemberRef
+        lateinit var accountMapping: String
+        PlatformDatabase.openSingleInstance(metadata).use { database ->
+            val f = GovernanceOrderFixture(database, directory, inputSql)
+            f.seed()
+            val catalog = TestConnectors.open("duckdb", f.spec.jdbcUrl).use { it.catalog }
+            fun register(table: String, types: Map<String, ScalarValueType>): EventRef {
+                val discovered = f.onboarding.discover(WarehouseDiscoveryCommand("duckdb", f.spec.sourceIdentityHash(), catalog, "main", table,
+                    emptyList(), 10, emptyMap(), emptyMap(), "golden"), RuntimeDeploymentLimits.CONTROL,
+                    JdbcSourceInspection(JdbcWarehouseInspector(f.connectors), f.connectors))
+                assertEquals("SUCCEEDED", discovered.snapshot.status, discovered.snapshot.errorMessage)
+                val sourceTable = discovered.tables.single()
+                val physical = f.physical.createPhysicalTable(PhysicalTableCreateRequest("example.$table", table, table, "合成袋来源", "example", "data", "internal",
+                    "example", "duckdb", sourceTable.catalogName, sourceTable.schemaName, PhysicalTableCreateRequest.SourceAdoptionInput(sourceTable.id, emptyList()), "golden",
+                    discovered.columns.map { PhysicalTableCreateRequest.ColumnInput(it.columnName, it.columnName, it.typeName, "internal", requireNotNull(it.nullable), "实际来源列",
+                        com.olap.prototype.contract.JdbcColumnType(it.jdbcType, it.typeName, it.precision, it.scale, it.nullable)) }))
+                f.sourceAdoptions += physical.sourceAdoptions.references
+                f.activate("PHYSICAL_TABLE", physical.physicalTable.id)
+                val columns = physical.physicalColumns.associate { it.columnName to it.id }
+                f.logical.createLogicalTable(LogicalTableCreateRequest(physical.physicalTable.id, 1, table, table, LogicalTableRole.FACT, "未声明记录唯一性的袋", "data", "golden",
+                    types.map { (name, type) -> LogicalTableCreateRequest.LogicUnitInput(name, name, LogicUnitSourceKind.COLUMN, null,
+                        if (type == ScalarValueType.TEXT) LogicType.STRING else LogicType.NUMBER, null, false, false, false, true, type == ScalarValueType.NUMBER,
+                        listOf(LogicalTableCreateRequest.SourceRefInput(columns.getValue(name), 1, LogicUnitSourceRefRole.DIRECT_SOURCE))) }))
+                val topology = f.topologies.createTopology(TopologyCreateRequest(table, table, "example.population", "合成来源", table, 1, "data", "独立测量来源", "golden")).topology
+                val event = f.events.createEvent(EventCreateRequest(topology.id, 1, "rows", table, "data", null, null, EventIdentity(emptyList(), emptyMap()), emptyMap(),
+                    types.filterValues { it == ScalarValueType.TEXT }.keys.map { EventCreateRequest.LogicUnitRefInput("$table.$it", 1) },
+                    types.filterValues { it == ScalarValueType.NUMBER }.keys.map { EventCreateRequest.LogicUnitRefInput("$table.$it", 1) }, "无跨分区唯一性推断", "golden")).event
+                f.activate("LOGICAL_TABLE", table); f.activate("TOPOLOGY", topology.id); f.activate("EVENT", event.id)
+                return EventRef(event.id, 1)
+            }
+            val ledgerEvent = register("population_ledger", ledgerTypes)
+            val attributeEvent = register("population_attributes", attributeTypes)
+            f.dimensions.createDimension(DimensionCreateRequest(accountConcept, "合成对象", "账户", "data", "正式TEXT账户身份", "golden"))
+            val binding = f.dimensions.createDimensionEventBinding(DimensionEventBindingCreateRequest(accountConcept, 1, ledgerEvent.eventId, 1,
+                "population_ledger.account", 1, null, RelationAccessPath(emptyList()), emptyMap(), "golden")).binding
+            val analysis = f.analysis.createAnalysisDimension(AnalysisDimensionCreateRequest(GovernanceOrderFixture.SUBJECT, 1, "account", "账户", "账户", "account", "完成账户人口", "golden")).analysisDimension
+            AnalysisDimensionGovernanceRepository(database).saveAnalysisDimensionValueAlignment(AnalysisDimensionValueAlignmentRecord("population-account-alignment", analysis.id, 1,
+                "account", "PROVEN_SAME_KEY", f.mapper.writeValueAsString(mapOf("logicUnitId" to "population_ledger.account")), "golden", f.now, "PROVEN", f.now))
+            accountMapping = f.analysis.createAnalysisDimensionEventMapping(AnalysisDimensionEventMappingCreateRequest(analysis.id, 1, "account", binding.id, 1,
+                "PROVEN_SAME_KEY", "population-account-alignment")).mapping.id
+            f.activate("DIMENSION", accountConcept); f.activate("DIMENSION_EVENT_BINDING", binding.id)
+            fun member(table: String, event: EventRef, types: Map<String, ScalarValueType>): MemberRef {
+                val outputs = types.mapValues { (name, type) ->
+                    if (name == "account") MemberSourceDefinition.DimensionOutput("账户", "account", type, accountConcept, 1, binding.id, 1, null)
+                    else MemberSourceDefinition.PropertyOutput(name, name, type, "$table.$name", 1, RelationAccessPath(emptyList()),
+                        if (name.startsWith("count_")) count else contracts[name])
+                }
+                val adopted = f.adoptions.createMemberSource(MemberSourceCreateRequest(GovernanceOrderFixture.SUBJECT, 1, table, table,
+                    MemberSourceDefinition.Projection(event, MemberResult(table, "observations", MemberShape.RAW_BAG, emptyList(), outputs, emptyMap(), null, emptyMap(), null)),
+                    CalculationBindings.empty(), emptyMap(), "golden"))
+                f.scenarios.createScenarioMemberSourceRef(ScenarioMemberSourceRefCreateRequest(GovernanceOrderFixture.SCENARIO, 1, adopted.id, 1,
+                    MemberQueryPermission(types.keys.toList(), emptyList(), emptyMap(), false, emptyList())))
+                return MemberRef(adopted.id, 1)
+            }
+            ledgerMember = member("population_ledger", ledgerEvent, ledgerTypes)
+            attributeMember = member("population_attributes", attributeEvent, attributeTypes)
+            val dimensionBindings = mapOf("account" to CalculationBindings.Dimension(axis, "account", listOf(accountMapping)))
+            ratios.forEachIndexed { index, spec ->
+                val created = f.metrics.createMetricCalculation(MetricCalculationCreateRequest(spec.code, spec.code, "data", definition(spec),
+                    "同一账户完成关系上的已批准guard", MetricBusinessMeaning("保留原生数量、负分母和NULL政策的商值", "来源商值", "调用明确提供的账户人口", emptyList()), "golden")).metric
+                f.activate("METRIC", created.id)
+                f.adopt(created.id, bindings = CalculationBindings(dimensionBindings, emptyMap(), emptyMap(), emptyMap(), mapOf("basis" to CalculationBindings.RelationParameter())))
+                f.grantMetric(created.id, order = index + 2)
+            }
+            f.scenarios.createScenarioAnalysisDimensionRef(ScenarioAnalysisDimensionRefCreateRequest(GovernanceOrderFixture.SCENARIO, 1, analysis.id, 1, "account", true, 3))
+            listOf("POST_FILTER", "DERIVE", "REGROUP", "JOIN_INPUT", "PROJECT").forEachIndexed { index, operation ->
+                f.scenarios.createScenarioPipelineRule(ScenarioPipelineRuleCreateRequest(GovernanceOrderFixture.SCENARIO, 1, operation, index + 1, StageAuthorization.current(operation)))
+            }
+            f.activateSubjectGraph()
+            selectedAdoptions = f.sourceAdoptions
+        }
+
+        // 真正重开持久元数据，算法与采用均从已保存内容读取；来源采用仍由作者显式选定。
+        PlatformDatabase.openSingleInstance(metadata).use { database ->
+            val f = GovernanceOrderFixture(database, directory)
+            f.sourceAdoptions = selectedAdoptions
+            f.build("population_guarded_ratios")
+            val publication = f.publication("population_guarded_ratios")
+            val dimensionBindings = mapOf("account" to CalculationBindings.Dimension(axis, "account", listOf(accountMapping)))
+            val sourceCount = "source_record_count"
+            val joinedCount = "joined_bag_rows"
+            val knownCount = "eligible_known_amounts"
+            val nullCount = "eligible_null_amounts"
+            val eligibilityCounts = listOf("eligible_true", "eligible_false", "eligible_unknown")
+            val unmatchedCount = "unmatched_bag_rows"
+            fun rows(reference: MemberRef, types: Map<String, ScalarValueType>) = QueryComputation.Scope(QueryComputation.Members("rows", reference, emptyMap(), types.keys.map {
+                if (it == "account") QueryComputation.MappedDimension(it, it, axis) else QueryComputation.Slot(it, it)
+            }, null, emptyMap(), MemberCondition.Unrestricted(), emptyMap(), emptyMap()), emptyMap(), emptyList())
+            val rawLedger = rows(ledgerMember, ledgerTypes)
+            val rawAttributes = rows(attributeMember, attributeTypes)
+            val completedAmountSymbols = amounts.keys.associateWith { "completed_$it" }
+            fun query(empty: Boolean): QueryComputation.Scope {
+                val ledger = QueryComputation.Scope(rawLedger.root, rawLedger.inputs, listOf(PostFilter(if (empty) ResultLiteral(false) else op(ResultOperator.IS_NOT_NULL, sym("account")))))
+                val completedAmounts = QueryComputation.Scope(QueryComputation.Reuse("ledger"), mapOf("ledger" to QueryComputation.Input("ROOT", ledger)), listOf(
+                    Regroup(ResultGrouping(listOf("account"), amounts.map { (name, contract) -> sum(name, completedAmountSymbols.getValue(name), contract) } +
+                        ResultAggregate("account", ResultAggregation.Count(false, ResultAggregation.NullPolicy.IGNORE), sourceCount, "关联前来源观察行"), null))))
+                val bagStages = mutableListOf<PostOperationContract.ValidatedOperation>(
+                    JoinInput("attributes", "attr", "LEFT", op(ResultOperator.EQ, sym("record_reference"), sym("attr__record_reference"))),
+                    Derive(quantity(1, count), "one_row", "每条LEFT输出贡献"),
+                    Derive(choose(op(ResultOperator.IS_NULL, sym("attr__record_reference")), quantity(1, count), quantity(0, count)), "unmatched_row", "实际LEFT未匹配"))
+                val aggregateBag = mutableListOf(sum("one_row", joinedCount, count), sum("unmatched_row", unmatchedCount, count))
+                ratios.forEach { spec ->
+                    val eligible = op(ResultOperator.AND, op(ResultOperator.EQ, sym("attr__${spec.flag}"), ResultTypedLiteral(ScalarValueType.TEXT, "Y")),
+                        op(ResultOperator.EQ, sym(spec.counter), quantity(1, count)))
+                    bagStages += Derive(choose(eligible, sym("attr__${spec.numerator}"), quantity(0, contracts.getValue(spec.numerator))), "row_${spec.numerator}", "完整CASE保TRUE金额NULL")
+                    aggregateBag += sum("row_${spec.numerator}", spec.numerator, contracts.getValue(spec.numerator))
+                    if (spec.code == "ratio_a") {
+                        eligibilityCounts.zip(listOf(eligible, op(ResultOperator.NOT, eligible), op(ResultOperator.IS_NULL, eligible))).forEach { (name, condition) ->
+                            bagStages += Derive(choose(condition, quantity(1, count), quantity(0, count)), "row_$name", "完整AND资格的三值状态")
+                            aggregateBag += sum("row_$name", name, count)
+                        }
+                        bagStages += Derive(choose(op(ResultOperator.AND, eligible, op(ResultOperator.IS_NOT_NULL, sym("attr__raw_a"))), quantity(1, count), quantity(0, count)), "known_row", "资格TRUE且金额已知")
+                        bagStages += Derive(choose(op(ResultOperator.AND, eligible, op(ResultOperator.IS_NULL, sym("attr__raw_a"))), quantity(1, count), quantity(0, count)), "null_row", "资格TRUE但金额NULL")
+                        aggregateBag += sum("known_row", knownCount, count)
+                        aggregateBag += sum("null_row", nullCount, count)
+                    }
+                }
+                bagStages += Regroup(ResultGrouping(listOf("account"), aggregateBag, null))
+                val completedBag = QueryComputation.Scope(QueryComputation.Reuse("ledger"), mapOf("ledger" to QueryComputation.Input("ROOT", ledger),
+                    "attributes" to QueryComputation.Input("RELATION", rawAttributes)), bagStages)
+                val amountContracts = amounts + (sourceCount to count)
+                val bagContracts = contributions + mapOf(joinedCount to count, knownCount to count, nullCount to count, unmatchedCount to count) +
+                    eligibilityCounts.associateWith { count }
+                fun outputs(values: Map<String, MetricValueContract>) = listOf(SetOutputContract("account", SetOutputContract.DimensionSlot("account"))) +
+                    values.map { (name, contract) -> SetOutputContract(name, SetOutputContract.Quantity(contract)) }
+                fun aligned(name: String, values: Map<String, MetricValueContract>) = Calculation.AlignedInput(Calculation.Scope(Calculation.Relation(name), emptyMap(), emptyList()),
+                    mapOf("account" to "account"), values.keys.map { Calculation.AlignedValue(it, it, Calculation.NoMatch.PRESERVE_NULL) })
+                val alignment = Calculation(listOf(Calculation.DimensionSlot("account", accountConcept, 1, "account")), emptyList(), emptyList(), listOf(
+                    Calculation.RelationSlot("amounts", outputs(amountContracts), listOf("account")), Calculation.RelationSlot("bag", outputs(bagContracts), listOf("account"))), emptyMap(),
+                    Calculation.Scope(Calculation.AlignMeasurements(linkedMapOf("amounts" to aligned("amounts", amountContracts), "bag" to aligned("bag", bagContracts)), listOf("account"),
+                        Calculation.AlignmentPopulation(Calculation.PopulationKind.BASE, listOf("amounts"))), emptyMap(), emptyList()))
+                val basis = QueryComputation.Scope(QueryComputation.Compute(alignment,
+                    CalculationBindings(dimensionBindings, emptyMap(), emptyMap(), emptyMap(), mapOf("amounts" to CalculationBindings.RelationParameter(), "bag" to CalculationBindings.RelationParameter())),
+                    emptyMap(), emptyMap(), mapOf("amounts" to CalculationBindings.LocalRelation("amounts", completedAmountSymbols + mapOf("account" to "account", sourceCount to sourceCount)),
+                        "bag" to CalculationBindings.LocalRelation("bag", (bagContracts.keys + "account").associateWith { it }))),
+                    mapOf("amounts" to QueryComputation.Input("ROOT", completedAmounts), "bag" to QueryComputation.Input("ROOT", completedBag)), emptyList())
+                val calls = ratios.map { spec -> QueryComputation.Invocation(spec.code, instance(f, spec.code), spec.code, emptyMap(), emptyMap(),
+                    mapOf("basis" to CalculationBindings.LocalRelation("completed", mapOf("account" to "account", "numerator" to spec.numerator, "denominator" to spec.denominator))),
+                    DimensionCondition.Unrestricted()) }
+                val measured = QueryComputation.Scope(QueryComputation.Measures(calls, listOf(axis), null, emptyMap(), DimensionCondition.Unrestricted(), DimensionCondition.Unrestricted(), emptyList(),
+                    RowPopulationContract.calls(calls.map { it.callId }), null), mapOf("completed" to QueryComputation.Input("ROOT", basis)), emptyList())
+                val detailNames = listOf("account", "base_a", "base_b") + contributions.keys + listOf(sourceCount, joinedCount, knownCount, nullCount) + ratios.map { "metric__${it.code}" }
+                val stages = mutableListOf<PostOperationContract.ValidatedOperation>(
+                    JoinInput("metrics", "metric", "LEFT", op(ResultOperator.EQ, sym("account"), sym("metric__account"))),
+                    Derive(ResultRow(detailNames.map(::sym)), "account_detail", "实际完成分量、独立分母及六个保存公式"),
+                    Derive(choose(op(ResultOperator.IS_NULL, sym("base_a")), quantity(1, count), quantity(0, count)), "null_denominator", "NULL分母账户"),
+                    Derive(choose(op(ResultOperator.LT, sym("base_a"), quantity(0, amounts.getValue("base_a"))), quantity(1, count), quantity(0, count)), "negative_denominator", "负分母账户"),
+                    Derive(choose(op(ResultOperator.EQ, sym("base_a"), quantity(0, amounts.getValue("base_a"))), quantity(1, count), quantity(0, count)), "zero_denominator", "零分母账户"),
+                    Regroup(ResultGrouping(emptyList(), listOf(ResultAggregate("account", ResultAggregation.Count(false, ResultAggregation.NullPolicy.IGNORE), "accounts", "完成账户数"),
+                        sum(sourceCount, "source_records", count), sum(joinedCount, "joined_rows", count), sum(knownCount, "known_amount_rows", count), sum(nullCount, "null_amount_rows", count),
+                        sum(unmatchedCount, "unmatched_rows", count),
+                        sum("eligible_true", "true_rows", count), sum("eligible_false", "false_rows", count), sum("eligible_unknown", "unknown_rows", count),
+                        sum("null_denominator", "null_denominator_accounts", count), sum("negative_denominator", "negative_denominator_accounts", count), sum("zero_denominator", "zero_denominator_accounts", count),
+                        ResultAggregate("account_detail", ResultAggregation.Collect(false), "details", "全局报告保留完整账户结果")), null)))
+                return QueryComputation.Scope(QueryComputation.Reuse("basis"), mapOf("basis" to QueryComputation.Input("ROOT", basis), "metrics" to QueryComputation.Input("RELATION", measured)), stages)
+            }
+            // Query也经过正式Protobuf往返，保存算法由重开的发布提供；全局报告与明细在同一次执行内完成。
+            val encoded = ProtoBytes.encode(QueryProto.toProto(f.intent(publication, query(false))))
+            val decoded = QueryProto.fromProto(ProtoBytes.decode(encoded, com.olap.prototype.wire.query.QueryIntent.getDefaultInstance()))
+            val result = f.execute(publication, decoded.computation).businessResult
+            val report = result.columns.map { it.symbol.name }.zip(result.rows.single()).toMap()
+            fun scalar(value: ExecutableBusinessResult.Value): String? = when (value) {
+                is ExecutableBusinessResult.NullValue -> null
+                is ExecutableBusinessResult.ScalarValue -> value.value
+                else -> error("expected scalar")
+            }
+            listOf("accounts" to "5", "source_records" to "5", "joined_rows" to "6", "known_amount_rows" to "3", "null_amount_rows" to "1",
+                "unmatched_rows" to "1", "true_rows" to "4", "false_rows" to "1", "unknown_rows" to "1",
+                "null_denominator_accounts" to "1", "negative_denominator_accounts" to "1", "zero_denominator_accounts" to "1").forEach { (name, expected) ->
+                number(expected, scalar(report.getValue(name)))
+            }
+            val detail = (report.getValue("details") as ExecutableBusinessResult.ArrayValue).value.associate { value ->
+                val fields = (value as ExecutableBusinessResult.RowValue).value
+                requireNotNull(scalar(fields.first())) to fields.drop(1).map(::scalar)
+            }
+            val expected = mapOf(
+                "A" to listOf("100", "50", "30", null, "10", "12", "14", "16", "1", "2", "2", "0", "0.3", null, "0.2", "0.24", "0.14", (16.0 / 14.0).toString()),
+                "B" to listOf(null, null, null, null, null, null, null, null, "1", "1", "0", "1", null, null, null, null, "0", "0"),
+                "C" to listOf("-10", "-5", "5", "1", "2", "3", "4", "5", "1", "1", "1", "0", "-0.5", "-0.1", "-0.4", "-0.6", "0", "1.25"),
+                "D" to listOf("0", "0", "0", "0", "0", "0", "0", "0", "1", "1", "0", "0", null, null, null, null, "0", "0"),
+                "E" to listOf("20", "10", "0", "0", "0", "0", "0", "0", "1", "1", "0", "0", "0", "0", "0", "0", "0", "0"))
+            assertEquals(expected.keys, detail.keys)
+            expected.forEach { (account, values) ->
+                assertEquals(values.size, detail.getValue(account).size)
+                values.zip(detail.getValue(account)).forEachIndexed { index, (wanted, actual) ->
+                    if (wanted == null) assertNull(actual, "$account field $index")
+                    else { assertNotNull(actual, "$account field $index"); assertEquals(wanted.toDouble(), actual!!.toDouble(), "$account field $index") }
+                }
+            }
+            val empty = f.execute(publication, query(true)).businessResult
+            val emptyReport = empty.columns.map { it.symbol.name }.zip(empty.rows.single()).toMap()
+            number("0", scalar(emptyReport.getValue("accounts")))
+            emptyReport.filterKeys { it != "accounts" }.forEach { (name, value) ->
+                assertTrue(value is ExecutableBusinessResult.NullValue, "$name：空总体的SUM/集合保NULL，不造账户或补零")
+            }
         }
     }
 

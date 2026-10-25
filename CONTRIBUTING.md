@@ -28,8 +28,11 @@
 | 精确标签的 npm 产品包 | `./project/gradlew -p project npmPackage` |
 | npm 产品真实安装用法 | `./project/gradlew -p project :development:installedProduct` |
 | 正式 MCP 业务用法 | `./project/gradlew -p project :development:orders` |
+| 对象人口、保存算法与交付组合 | `./project/gradlew -p project :development:populations` |
 
-`:development` 下的 `orders`、`procurement`、`subscriptions` 与 `kernel` 任务明确选择独立用法。默认输出到 `.tmp/<用法>`，可用 `-Partifacts=/absolute/path` 指定；目标必须尚不存在。安装用法默认消费 `project/build/npm/tarballs`，可用 `-Ptarballs=/absolute/path` 指定同轮包；不从本机已安装版本猜测输入。
+`:development` 下的 `orders`、`procurement`、`subscriptions`、`populations` 与 `kernel` 任务明确选择独立用法。默认输出到 `.tmp/<用法>`，可用 `-Partifacts=/absolute/path` 指定；目标必须尚不存在。安装用法默认消费 `project/build/npm/tarballs`，可用 `-Ptarballs=/absolute/path` 指定同轮包；不从本机已安装版本猜测输入。
+
+`populations` 以公开合成数据执行对象集合、独立袋测量、完成关系参数、保存算法和独立分母的完整组合，并穿过来源采用、精确发布、保存查询、完整结果读取及重启。外部改变来源后，分别核对新执行与旧保存结果；脚本部分成功时从正式回执恢复，不重放已经成功的写入。业务问题、输入及独立预期见[对象人口用法](examples/populations/README.md)。
 
 `:development:runtime` 使用真实服务、HTTPS JWKS、REPL 和 macOS 沙箱，观察正式能力回调、持续语言历史、参数快照、会话与主体隔离、文件／网络／外部程序权限、失控取消后的进程及目录回收，以及 chunked 请求预算。默认输出根 `.tmp/runtime` 必须尚不存在，可用 `-Partifacts=/absolute/path` 指定。运行试验与完整业务用法均显式调用，不作为构建的隐式步骤。
 

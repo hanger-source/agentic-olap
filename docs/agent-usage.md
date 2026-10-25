@@ -33,10 +33,10 @@ agentic-olap call describe-script-api --payload '{"type":"com.olap.prototype.cal
 
 ## 会话中调用正式能力
 
-`execute-script` 向持续 Kotlin 会话提交一个完整代码片段。DSL 为 `agentic-olap-kotlin-dsl/v6`，实际版本取服务发现结果。省略或留空 `sessionId` 创建会话；后续用实际返回的 `sessionId` 在同一 JVM 中继续。首次调用可以读取来源并保留 Kotlin 对象：
+`execute-script` 向持续 Kotlin 会话提交一个完整代码片段。DSL 为 `agentic-olap-kotlin-dsl/v7`，实际版本取服务发现结果。省略或留空 `sessionId` 创建会话；后续用实际返回的 `sessionId` 在同一 JVM 中继续。首次调用可以读取来源并保留 Kotlin 对象：
 
 ~~~sh
-agentic-olap call execute-script --payload '{"executionId":"sources-001","waitMillis":0,"source":"val sources = olap.sources.list(EmptyRequest)\nolap.output(sources)","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v6","parameters":{}}'
+agentic-olap call execute-script --payload '{"executionId":"sources-001","waitMillis":0,"source":"val sources = olap.sources.list(EmptyRequest)\nolap.output(sources)","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v7","parameters":{}}'
 agentic-olap call wait-script --payload '{"executionId":"sources-001","waitMillis":1000}'
 ~~~
 
@@ -459,6 +459,8 @@ else olap.output(olap.results.read(ResultReadRequest(result, 0, 100, null)))
 `CandidateRequest` 按获准发布的维度或成员出口读取真实候选值，`offset` 为非负 Int，`limit` 为正 Int，不另设 200 条或百万偏移政策。来源查询读取一条额外探针以判断是否有下一页，使用 Long 计算 SQL 取数长度；实际读取仍受既有来源期限、内存和结果物化预算约束。仅在确有后续值时，按实际返回数量计算 `nextOffset`；超出 Int 坐标表示范围时明确返回该字段的合同错误，不截断坐标、假称没有下一页或自动重执行。
 
 完成关系保留已经形成的列、键、人口和数量来源，本身不指定执行位置。执行、校验与解释请求通过 `executionMode` 选择本次物理执行：`QueryExecutionMode.SOURCE` 将完整计算交给精确来源；`CORE_FINALIZATION` 在同一引擎 worker 内先接收同源完成关系，再执行根计算绑定后的标量阶段。它不是来源失败后的自动切换，也不读取其他运行的保存结果。
+
+保存或更新查询时，`QueryDefinitionCommand.executionMode` 选择本次保存前的完整编译验证，默认 SOURCE。需要 CORE_FINALIZATION 的完整查询应在该命令中同样明确选择；不能因为来源无法兑现精确除法就拒绝它本来合法的核心执行计划。保存仍检查发布授权、绑定、来源关系前缀及核心后缀，不跳过实际编译。这个请求选项不进入 QueryIntent、QueryDefinitionView 或保存制品，不形成保存查询的隐式执行偏好；后续执行、校验与解释分别选择自己的模式。完整示例见[对象人口与完成关系](../examples/populations/README.md)。
 
 核心终算支持 DERIVE／PROJECT，以及精确数值、布尔、NULL、CASE、COALESCE、NULLIF、ABS、NUMERIC、ROUND 和数值 CAST。COALESCE 按顺序选择首个非 NULL 值，选中后不再求值后续参数；NULLIF 按精确数值或布尔相等比较并保留第一个参数的数量含义，ABS 只处理精确数值。这些函数不隐式量化，也不引入来源的文本或时间转换规则。具体节点、运算与限制从 `QueryExecutionMode.rules` 读取。不支持的本地阶段、函数、类型或表达式在提交来源前拒绝。子输入中的扫描、JOIN、归约、对齐、窗口及来源函数继续在来源完成；当前执行器尚不承载任意本地关系运算，其范围不改变共享定义的业务含义。
 

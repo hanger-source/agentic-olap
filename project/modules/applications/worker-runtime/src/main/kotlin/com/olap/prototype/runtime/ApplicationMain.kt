@@ -13,7 +13,7 @@ fun main(args: Array<String>) {
     require(args.contentEquals(arrayOf("--mode", "worker"))) { "runtime --mode worker" }
     val input = BufferedInputStream(System.`in`)
     val initial = ProtocolPeer.readFrame(input, 64 * 1024 * 1024) ?: error("worker bootstrap is required")
-    require(initial.bodyCase == Frame.BodyCase.BOOTSTRAP && initial.bootstrap.protocol == "agentic-olap-runtime/v8") {
+    require(initial.bodyCase == Frame.BodyCase.BOOTSTRAP && initial.bootstrap.protocol == "agentic-olap-runtime/v9") {
         "unsupported runtime protocol bootstrap"
     }
     val bootstrap = initial.bootstrap

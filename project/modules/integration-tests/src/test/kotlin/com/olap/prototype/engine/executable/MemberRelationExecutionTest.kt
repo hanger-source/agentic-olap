@@ -844,6 +844,137 @@ class MemberRelationExecutionTest {
         }
     }
 
+    @Test fun composesTextObjectPopulationsWithIndependentBagMeasurementsAndAbsentGroups(@TempDir directory: Path) {
+        NativeWarehouse(directory, "duckdb", listOf(
+            "CREATE TABLE activity(account VARCHAR, period VARCHAR, first_flag VARCHAR, amount DOUBLE)",
+            """INSERT INTO activity VALUES
+                ('A','previous','Y',1),('B','previous','Y',1),('C','previous','Y',1),
+                ('D','previous','Y',1),('E','previous','Y',1),('','previous','Y',1),
+                ('A','current','N',NULL),('A','current','N',NULL),('B','current','N',7),
+                ('D','current','Y',5),('','current','N',3),(NULL,'previous','Y',99)
+            """.trimIndent(),
+            "CREATE TABLE directory(entry VARCHAR, account VARCHAR, online VARCHAR, excluded BOOLEAN, end_day VARCHAR)",
+            """INSERT INTO directory VALUES
+                ('a1','A','Y',FALSE,NULL),('a2','A','Y',FALSE,NULL),
+                ('b1','B','Y',FALSE,NULL),('b1','B','Y',FALSE,NULL),
+                ('c1','C','Y',FALSE,NULL),('d1','D','Y',FALSE,NULL),('empty','','Y',FALSE,NULL)
+            """.trimIndent(),
+            "CREATE TABLE visits(entry VARCHAR, logged_account VARCHAR, period VARCHAR, eligible BOOLEAN)",
+            """INSERT INTO visits VALUES
+                ('a1','not-A','current',TRUE),('b1','not-B','current',TRUE),
+                ('c1','not-C','current',TRUE),('d1','not-D','current',TRUE),
+                ('empty','not-empty','current',TRUE),('missing','E','current',TRUE)
+            """.trimIndent()
+        )).use { warehouse ->
+            val nativeAmount = MetricValueContract(MetricValueContract.Fixed(MetricValueContract.UnitIdentity("example", "source_amount", 1)),
+                MetricValueContract.NativeFloating(), MetricValueContract.BinaryFloat(64), emptyMap(), MetricValueContract.Overflow.FAIL)
+            val definitions = Definitions(ExecutableCatalog(ExecutableCatalogManifest("text_cohort", ExecutableCatalogManifest.SCHEMA_VERSION)))
+            definitions.dimensions["account@1"] = ExecutableDimension("account", "1", "account", "example", "account", "账户")
+            definitions.analyses["accounts@1"] = ExecutableAnalysisDimension("accounts", "1", "账户", "account", "account", "account",
+                listOf(ExecutableAnalysisDimensionLevel("account", "账户", null)))
+            val types = linkedMapOf(
+                "activity" to linkedMapOf("account" to ScalarValueType.TEXT, "period" to ScalarValueType.TEXT, "first_flag" to ScalarValueType.TEXT, "amount" to ScalarValueType.NUMBER),
+                "directory" to linkedMapOf("entry" to ScalarValueType.TEXT, "account" to ScalarValueType.TEXT, "online" to ScalarValueType.TEXT,
+                    "excluded" to ScalarValueType.BOOLEAN, "end_day" to ScalarValueType.TEXT),
+                "visits" to linkedMapOf("entry" to ScalarValueType.TEXT, "logged_account" to ScalarValueType.TEXT, "period" to ScalarValueType.TEXT, "eligible" to ScalarValueType.BOOLEAN))
+            types.forEach { (table, columns) ->
+                definitions.physical["$table@1"] = warehouse.adopt(table, columns.keys.associate { "$table.$it" to it })
+                declareUnits(definitions, table, columns)
+                definitions.topologies["$table@1"] = ExecutableTopology(table, "1", table, null, table, "1")
+                definitions.events["$table@1"] = ExecutableEvent(table, "1", table, "1", null, EventIdentity(emptyList(), emptyMap()), emptyMap(), null, null, null)
+                if ("account" in columns) {
+                    val binding = "account_$table"
+                    definitions.bindings["$binding@1"] = ExecutableDimensionBinding(binding, "1", "account", "1", table, "1", table, "1", "$table.account", "1",
+                        SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, "$table.account", 1), local, emptyMap(), emptyList(), table, "1")
+                    val analysis = definitions.analyses.getValue("accounts@1")
+                    definitions.analyses["accounts@1"] = analysis.copy(eventMappings = analysis.eventMappings + ExecutableAnalysisDimensionEventMapping(
+                        binding, "accounts", "1", "account", table, "1", "account", "1", binding, "1", "$table.account", "1", "$table.account@1", ValueAlignmentContract.PROVEN_SAME_KEY))
+                }
+                val outputs = columns.mapValues { (name, type) ->
+                    if (name == "account") MemberSourceDefinition.DimensionOutput("账户", "account", type, "account", 1, "account_$table", 1, null)
+                    else property(name, name, type, "$table.$name", contract = if (name == "amount") nativeAmount else null)
+                }
+                definitions.members["$table@1"] = MemberSource.Projection(table, 1, MemberSourceDefinition.Projection(EventRef(table, 1),
+                    MemberResult(table, "observations", MemberShape.RAW_BAG, emptyList(), outputs, emptyMap(), null, emptyMap(), null)),
+                    columns.keys.associateWith { SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, "$table.$it", 1) })
+            }
+            val axis = ScopedInputContract.DimensionRef("accounts", "1", "account")
+            fun op(operator: ResultOperator, vararg operands: ResultExpression) = ResultOperation(operator, operands.toList())
+            fun text(value: String) = ResultTypedLiteral(ScalarValueType.TEXT, value)
+            fun rows(table: String) = QueryComputation.Scope(QueryComputation.Members(table, MemberRef(table, 1), emptyMap(), types.getValue(table).keys.map {
+                if (it == "account") QueryComputation.MappedDimension(it, it, axis) else QueryComputation.Slot(it, it)
+            }, null, emptyMap(), MemberCondition.Unrestricted(), emptyMap(), emptyMap()), emptyMap(), emptyList())
+            fun paid(period: String): QueryComputation.Scope {
+                val raw = rows("activity")
+                return QueryComputation.Scope(raw.root, raw.inputs, listOf(PostFilter(op(ResultOperator.AND,
+                    op(ResultOperator.AND, op(ResultOperator.EQ, symbol("period"), text(period)), op(ResultOperator.EQ, symbol("first_flag"), text("Y"))),
+                    op(ResultOperator.IS_NOT_NULL, symbol("account")))), regroup(listOf("account"), listOf(
+                    reduction("account", ResultAggregation.Count(false, ResultAggregation.NullPolicy.IGNORE), "observations"))), Project(listOf("account"))))
+            }
+            val catalogRows = rows("directory")
+            val visits = rows("visits")
+            val mappedAccount = ScopedInputContract.metricSymbol("mapped", "account")
+            val visited = QueryComputation.Scope(visits.root, mapOf("directory" to QueryComputation.Input("RELATION", catalogRows)), listOf(
+                PostFilter(op(ResultOperator.AND, op(ResultOperator.EQ, symbol("period"), text("current")), symbol("eligible"))),
+                JoinInput("directory", "mapped", "LEFT", op(ResultOperator.EQ, symbol("entry"), symbol("mapped__entry"))),
+                PostFilter(op(ResultOperator.IS_NOT_NULL, symbol(mappedAccount))),
+                regroup(listOf(mappedAccount), listOf(reduction("entry", ResultAggregation.Count(false, ResultAggregation.NullPolicy.IGNORE), "visits"))),
+                Project(listOf(mappedAccount))))
+            val setOutputs = listOf(SetOutputContract("account", SetOutputContract.DimensionSlot("account")))
+            fun relation(name: String) = Calculation.Scope(Calculation.Relation(name), emptyMap(), emptyList())
+            fun set(kind: Calculation.SetKind, left: Calculation.Scope, right: Calculation.Scope) = Calculation.Scope(
+                Calculation.SetCombination(kind, false, listOf(Calculation.SetProjection("left", listOf("account")), Calculation.SetProjection("right", listOf("account"))), setOutputs),
+                mapOf("left" to Calculation.InputScope("ROOT", left), "right" to Calculation.InputScope("ROOT", right)), emptyList())
+            val cohort = set(Calculation.SetKind.EXCEPT, set(Calculation.SetKind.INTERSECT, relation("previous"), relation("visited")), relation("current_first"))
+            fun raw(slot: String) = Calculation.Scope(Calculation.Members(slot, slot, types.getValue(slot).keys.map { Calculation.MemberProjection(it, it) },
+                null, emptyMap(), MemberCondition.Unrestricted()), emptyMap(), emptyList())
+            fun qualified(slot: String, source: Calculation.Scope) = Calculation.Scope(Calculation.ObjectMeasure(source, cohort,
+                listOf(Calculation.ObjectRole(listOf("account"), Calculation.RecordOutputs(slot, listOf("account"))))), emptyMap(), emptyList())
+            val currentActivity = Calculation.Scope(raw("activity").root, emptyMap(), listOf(PostFilter(op(ResultOperator.EQ, symbol("period"), text("current")))))
+            val activity = qualified("activity", currentActivity).let { Calculation.Scope(it.root, it.inputs, listOf(regroup(listOf("account"), listOf(
+                reduction("amount", ResultAggregation.Sum(nativeAmount, ResultAggregation.NullPolicy.IGNORE), "completed_amount"),
+                reduction("account", ResultAggregation.Count(false, ResultAggregation.NullPolicy.IGNORE), "source_rows"),
+                reduction("amount", ResultAggregation.Count(false, ResultAggregation.NullPolicy.IGNORE), "known_amounts"))))) }
+            val available = op(ResultOperator.AND, op(ResultOperator.NOT, symbol("excluded")), op(ResultOperator.OR,
+                op(ResultOperator.EQ, symbol("online"), text("Y")), op(ResultOperator.GTE, symbol("end_day"), text("20000101"))))
+            val directory = qualified("directory", raw("directory")).let { Calculation.Scope(it.root, it.inputs, listOf(
+                Derive(ResultCaseWhen(listOf(ResultCaseBranch(available, symbol("entry"))), ResultLiteral(null)), "qualified_entry", "三值资格仅TRUE参与"),
+                regroup(listOf("account"), listOf(reduction("entry", ResultAggregation.Count(true, ResultAggregation.NullPolicy.IGNORE), "entries"),
+                    reduction("qualified_entry", ResultAggregation.Count(true, ResultAggregation.NullPolicy.IGNORE), "qualified_entries"),
+                    reduction("entry", ResultAggregation.Count(false, ResultAggregation.NullPolicy.IGNORE), "directory_rows"))))) }
+            fun aligned(body: Calculation.Scope, values: Map<String, String>) = Calculation.AlignedInput(body, mapOf("account" to "account"),
+                values.map { (symbol, outputAlias) -> Calculation.AlignedValue(symbol, outputAlias, Calculation.NoMatch.PRESERVE_NULL) })
+            val outputNames = listOf("account", "entries", "qualified_entries", "directory_rows", "amount", "source_rows", "known_amounts")
+            val calculation = Calculation(listOf(Calculation.DimensionSlot("account", "account", 1, "account")), listOf("activity", "directory").map { table ->
+                Calculation.MemberSlot(table, table, "observations", MemberShape.RAW_BAG, types.getValue(table).mapValues { (name, type) ->
+                    if (name == "account") Calculation.MemberDimension("account", null) else Calculation.MemberProperty(name, type, if (name == "amount") nativeAmount else null)
+                }, null)
+            }, emptyList(), listOf("previous", "visited", "current_first").map { Calculation.RelationSlot(it, setOutputs, listOf("account")) }, emptyMap(),
+                Calculation.Scope(Calculation.AlignMeasurements(linkedMapOf("cohort" to aligned(cohort, emptyMap()),
+                    "directory" to aligned(directory, listOf("entries", "qualified_entries", "directory_rows").associateWith { it }),
+                    "activity" to aligned(activity, linkedMapOf("completed_amount" to "amount", "source_rows" to "source_rows", "known_amounts" to "known_amounts"))), listOf("account"),
+                    Calculation.AlignmentPopulation(Calculation.PopulationKind.BASE, listOf("cohort"))), emptyMap(), listOf(Project(outputNames))))
+            val relationNames = listOf("previous", "visited", "current_first")
+            val bindings = CalculationBindings(mapOf("account" to CalculationBindings.Dimension(axis, "account",
+                definitions.analyses.getValue("accounts@1").eventMappings.map { it.mappingId })), listOf("activity", "directory").associateWith { table ->
+                CalculationBindings.SourceCall(MemberRef(table, 1), emptyMap(), types.getValue(table).keys.associateWith { it }, emptyMap(), emptyMap())
+            }, emptyMap(), emptyMap(), relationNames.associateWith { CalculationBindings.RelationParameter() })
+            val query = QueryComputation.Scope(QueryComputation.Compute(calculation, bindings, emptyMap(), emptyMap(), relationNames.associateWith {
+                CalculationBindings.LocalRelation(it, mapOf("account" to if (it == "visited") mappedAccount else "account")) }), mapOf(
+                    "previous" to QueryComputation.Input("ROOT", paid("previous")), "visited" to QueryComputation.Input("ROOT", visited),
+                    "current_first" to QueryComputation.Input("ROOT", paid("current"))), emptyList())
+            warehouse.finishSetup()
+            val actual = execute(engine(warehouse), definitions, query).rows.associate { row ->
+                (row[0] as ExecutableBusinessResult.ScalarValue).value to row.drop(1).map { value ->
+                    if (value is ExecutableBusinessResult.NullValue) null else decimal((value as ExecutableBusinessResult.ScalarValue).value)
+                }
+            }
+            fun values(vararg numbers: String?) = numbers.map { it?.let(::decimal) }
+            assertEquals(mapOf("A" to values("2", "2", "2", null, "2", "0"), "B" to values("1", "1", "2", "7", "1", "1"),
+                "C" to values("1", "1", "1", null, null, null), "" to values("1", "1", "1", "3", "1", "1")), actual)
+        }
+    }
+
     @Test fun retainsSetIdentityWhenQualifyingRawRecordsAndAligningAKeyOnlyPopulation(@TempDir directory: Path) {
         NativeWarehouse(directory, "duckdb", listOf(
             "CREATE TABLE orders(id INTEGER PRIMARY KEY, customer INTEGER, period INTEGER, kind INTEGER, amount DECIMAL(18,2))",

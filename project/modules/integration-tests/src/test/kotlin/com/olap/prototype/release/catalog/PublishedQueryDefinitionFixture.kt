@@ -30,7 +30,7 @@ internal class PublishedQueryDefinitionFixture(directory: Path, name: String, re
             }
         }
         service = QueryDefinitionService(JdbcQueryDefinitionRepository(database, RuntimeDeploymentLimits.io), capabilities,
-            NativeValidator { intent, checked -> QueryNativeValidation.validate(intent, checked, TestConnectors.registry) })
+            NativeValidator { intent, checked, executionMode -> QueryNativeValidation.validate(intent, checked, TestConnectors.registry, executionMode) })
     }
 
     fun command(id: String, computation: QueryComputation.Scope): QueryDefinitionCommand = QueryDefinitionCommand(id, null,

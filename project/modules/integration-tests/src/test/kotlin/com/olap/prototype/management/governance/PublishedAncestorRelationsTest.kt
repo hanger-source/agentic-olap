@@ -70,7 +70,7 @@ class PublishedAncestorRelationsTest {
             f.activateSubjectGraph(); f.build("staff_ancestor_release")
             val publication = f.publication("staff_ancestor_release", scenario = scenario.id)
             val definitions = QueryDefinitionService(JdbcQueryDefinitionRepository(database, RuntimeDeploymentLimits.io), JdbcPublishedQueryEntryProvider(database),
-                NativeValidator { intent, capability -> QueryNativeValidation.validate(intent, capability, f.connectors) })
+                NativeValidator { intent, capability, executionMode -> QueryNativeValidation.validate(intent, capability, f.connectors, executionMode) })
             for (includeSelf in listOf(false, true)) {
                 val scope = QueryComputation.Scope(QueryComputation.Members("members", MemberRef(member.id, 1), emptyMap(), listOf(QueryComputation.Slot("employee", "employee"), QueryComputation.Slot("manager", "manager")), null, emptyMap(), MemberCondition.Unrestricted(), emptyMap(), emptyMap()),
                     emptyMap(), listOf(PostOperationContract.AncestorClosure(listOf("employee"), listOf("manager"), listOf("descendant"), listOf("ancestor"), includeSelf)))

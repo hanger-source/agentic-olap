@@ -25,7 +25,7 @@ internal class Scenario(private val name: String, private val distribution: Path
     private val fixtureLaunch: Path? = null) {
     private val business = if (name == "http-source") "orders" else name
     fun run() {
-        require(name in setOf("orders", "procurement", "subscriptions", "kernel", "http-source"))
+        require(name in setOf("orders", "procurement", "subscriptions", "populations", "kernel", "http-source"))
         require((name == "http-source") == (fixtureLaunch != null)) { "HTTP 用法必须显式提供已生成的真实 fixture 启动清单" }
         require(!Files.exists(output)) { "业务用法输出目录必须不存在：$output" }
         Files.createDirectories(output)
@@ -77,9 +77,11 @@ internal class Scenario(private val name: String, private val distribution: Path
                 "scripting" to base.objectAt("scripting").with("maxCalls" to number(1000)),
                 "auth" to objectOf("mode" to text("external-jwt"), "issuer" to text(issuer.address), "audience" to text(audience),
                     "jwksUri" to text(issuer.address + "jwks"), "algorithms" to JsonArray(listOf(text("RS256"))), "grants" to JsonArray(listOf(grant))))
+            if (name == "populations") config = config.with("limits" to config.objectAt("limits").with("responseBytes" to number(8192)))
             write(configPath, config)
             val endpoint = "http://127.0.0.1:$port/mcp"
             val client = McpClient(endpoint, { issuer.token(audience, "http-trial-manager") }, output.resolve("mcp-calls.jsonl"))
+            if (name == "populations") client.responseLimit = 8192
             fun start(phase: String): ManagedProcess = ManagedProcess(listOf(distribution.resolve("runtime/agentic-olap").toAbsolutePath().toString(),
                 "start", "--config", configPath.toAbsolutePath().toString()), workspace, output.resolve("$phase.log"),
                 (mapOf("SSL_CERT_FILE" to issuer.ca.toString(), "NO_PROXY" to "127.0.0.1,localhost") +
@@ -95,6 +97,28 @@ internal class Scenario(private val name: String, private val distribution: Path
                 authentication(endpoint, issuer, audience)
                 version = client.call("describe-script-api").jsonObject.string("dslApiVersion")
                 sourceBindings = client.call("list-data-sources")
+                if (name == "populations") {
+                    val partial = client.script("""
+                        val created = olap.governance.createBusinessLine(com.olap.prototype.governance.contract.BusinessLineCreateRequest(
+                            code = parameters.text("code"), displayName = "保留已提交动作", owner = olap.caller.subject,
+                            description = "作者随后失败不回滚先前正式调用", createdBy = olap.caller.subject)).businessLine
+                        olap.output(ScriptValue.Text(created.id))
+                        error("author stopped after a committed governance call")
+                    """.trimIndent(), objectOf("code" to text("population_receipt_${java.util.UUID.randomUUID().toString().replace("-", "")}")), version, "partial-effects.olap.kts")
+                    check(!partial.envelope.getValue("success").jsonPrimitive.boolean)
+                    val effects = partial.report.array("calls").flatMap { it.jsonObject.array("effects") }.map { it.jsonObject }
+                    check(effects.size == 1 && effects.single()["readOperation"] == text("read-asset-version"))
+                    val reference = effects.single().objectAt("assetVersion")
+                    val recovered = client.script("""
+                        val exact = com.olap.prototype.governance.contract.GovernanceReadRequests.AssetVersionRequest(
+                            parameters.text("assetType"), parameters.text("id"), parameters.text("version").toLong())
+                        val asset = olap.semantics.asset(exact) as com.olap.prototype.governance.contract.AssetSnapshot.BusinessLine
+                        check(asset.value.id == parameters.text("id"))
+                        olap.output(ScriptValue.Text(asset.value.id))
+                    """.trimIndent(), reference, version, "read-committed-effect.olap.kts").succeeded()
+                    check(recovered.report.array("calls").map { it.jsonObject["operationId"] } == listOf(text("read-asset-version")))
+                    report["partialEffects"] = objectOf("failedAuthor" to partial.report, "readCommittedEffect" to recovered.report)
+                }
                 if (fixture != null) {
                     report["unsupportedHttpCatalog"] = client.script("""
                         val selected = olap.sources.list(EmptyRequest).items.single { it.binding.dataSourceId == parameters.text("sourceId") }
@@ -106,6 +130,10 @@ internal class Scenario(private val name: String, private val distribution: Path
                     """.trimIndent(), parameters, version, "unsupported-http-catalog.olap.kts").succeeded().report
                 }
                 val built = client.script(author, parameters.with("phase" to text("build")), version, "$business.olap.kts").succeeded()
+                if (name == "populations") {
+                    check(built.raw.objectAt("result")["delivery"] == text("SAVED")) { "完整作者回执应经过正式大响应保存及继续读取" }
+                    report["completeBuildResponse"] = built.raw.objectAt("result")
+                }
                 references = built.references()
                 report["build"] = built.report
             }
@@ -124,7 +152,7 @@ internal class Scenario(private val name: String, private val distribution: Path
                     "result" to references.objectAt("result").objectAt("reference").getValue("result")), version).succeeded().report
             }
             hashes.forEach { (path, hash) -> check(sha(path) == hash) { "只读服务改变业务来源：$path" } }
-            if (name == "orders") {
+            if (name in setOf("orders", "populations")) {
                 prepare(connectors, "advance-source", input)
                 hashes.forEach { (path, hash) -> check(sha(path) != hash) { "外部业务数据未发生预期改变：$path" } }
                 config = config.with("connectors" to read(connectors), "dataSources" to sources)
@@ -140,7 +168,7 @@ internal class Scenario(private val name: String, private val distribution: Path
         }
     }
     private fun prepare(connectors: Path, phase: String, input: Path) {
-        val main = mapOf("orders" to "Orders", "procurement" to "Procurement", "subscriptions" to "Subscriptions").getValue(business)
+        val main = mapOf("orders" to "Orders", "procurement" to "Procurement", "subscriptions" to "Subscriptions", "populations" to "Populations").getValue(business)
         execute(listOf(Path.of(System.getProperty("java.home"), "bin/java").toString(), "-cp", System.getProperty("java.class.path"),
             main, "--connectors", connectors.toAbsolutePath().toString(), phase, input.toAbsolutePath().toString()), workspace)
     }
