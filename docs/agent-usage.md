@@ -209,6 +209,42 @@ olap.output(rule)
 
 每个正式写操作保有自己的事务与失败责任。整段脚本不是覆盖所有调用的一个数据库事务：后续报错不会撤销之前已完成的写入、发布或来源查询。先读真实状态再决定继续，不盲目重放有副作用的脚本。
 
+### 以计算及其结果继续组合
+
+`Calculation.Scope` 是共同的计算体：对象集合、记录关系、测量、资格、对齐和有序阶段都构造并返回它。Query 将该计算体交给某个精确发布执行；可复用定义在计算体外声明真正可替换的形参、参数和接受条件。两者使用同一绑定与计算规则。保存定义不会把计算换成另一套语言，内联组合也不要求先建立一个指标。
+
+具体输入已经选定时，直接传递它的计算体。`Computations.set`、`objectMeasure`、`align` 和 `statistics` 各自接收实际计算；不为组合眼前的输入重新声明成员槽、测量槽或关系槽。只有抽象“以后允许替换什么”时才声明这些形参。成员形参约束真实对象来源与角色，关系形参接收带原数量、身份和键事实的完成结果，两者不能相互伪装。
+
+调用一个接受完成关系的定义时，使用 `Computations.scope { ... }` 同时组织实际输入和消费它的计算。例如下面的函数把不同的已完成数量传给同一个已采用算法；该算法的正式合同声明 `completed(subject, quantity)` 与数值参数 `days`：
+
+~~~kotlin
+fun averageCompleted(
+    basis: Calculation.Scope,
+    algorithm: MetricInstanceRef,
+    quantity: String,
+    days: String,
+    subject: ScopedInputContract.DimensionRef
+): Calculation.Scope = Computations.scope {
+    val completed = relation("basis", basis,
+        mapOf("subject" to "subject", "quantity" to quantity))
+    Computations.measure(
+        listOf(Computations.invoke(algorithm, "average", "average",
+            arguments = mapOf("days" to Calculation.Scalar(ScalarValueType.NUMBER, days)),
+            relations = mapOf("completed" to completed))),
+        listOf(Calculation.PublishedDimension(subject)),
+        RowPopulationContract.calls(listOf("average"))
+    )
+}
+~~~
+
+`relation` 一次登记实际完成输入，并返回本作用域中的正式关系引用。作者选择实际列与形参列的对应，不重复填入输入已经具有的单位、数量合同或完整键，也不另行登记 ROOT。对同一 `id` 的多份列映射复用同一个精确计算；不同计算或模式不能占用同一身份。结果仍为普通 `Calculation.Scope`，可以继续加阶段、作为对齐输入，或成为更高层定义的计算体。返回计算已有的输入与阶段保留，builder 的 `stage(...)` 按登记顺序追加在其后。
+
+同一作用域入口也用于 `Computations.compute` 的内联参数化计算和 `Computations.members` 的计算成员调用。真实成员输入用 `member(id, computation, outputs)` 登记；它不会为普通完成测量补造成员角色。显式具名输入仍用于需要直接引用的关系、键对齐和复杂图。局部引用按最终消费它的作用域解析，不捕获 builder，也不是可跨作用域搬运的全局句柄；继续组合时传递完整计算体，定义嵌套通过已声明形参转发输入。
+
+定义的接受条件与实际输入各有 owner：例如算法要求每对象一行及精确数量，这是形参合同；输入是否真的满足，由共同分析核验。采用已经固定的身份、角色、数量、NULL、来源和键不靠 SDK 猜测、字段同名或调用者重复声明成立。Computed 成员的维度出口可以继承其采用的正式身份；需要在多个获准分析映射中选择时，仍明确选择目标维度。
+
+`SemanticExpression` 用于定义来源字段含义，`ResultExpression` 用于当前完成关系的值与阶段；它们的引用对象不同。业务条件、来源映射、定义形参和执行编译分别保持自己的责任。作者选择人口、观察粒度、贡献关系、期间、单位与缺失政策；SDK 组织正式对象，确定性引擎展开、传播事实、核验授权并规划执行。可使用这些低层构造，但正常组合不以手写编译绑定为前提。完整的内联、嵌套、计算成员和保存算法用法见[人口组合示例](../examples/populations/README.md)。
+
 ### 单关系形成键集合
 
 `REGROUP` 可以只指定分组键，不要求声明额外聚合。例如，下面两个阶段分别从一份关系形成唯一对象人口和日期标识元组；将所需阶段放入正式 `Calculation.Scope` 或 Query 作用域的 `stages`：
@@ -535,7 +571,7 @@ olap.output(receipt)
 
 不可变定义和发布不冻结动态数据。普通重跑读取届时数据；只有来源声明并兑现固定读基础时，才可提交明确的版本化 `readBasis`。历史保存结果按原字节读取，不重跑来源，也不要求重新装载当年的执行插件。
 
-结果读取仍须使用支持其精确文件格式的发行。保存结果的封套为 `olap-query-result-artifact/v5`，记录为 `olap-query-result-record/v5`；格式在解释领域内容前核对，不将缺失的执行事实猜补为当前模型。格式不支持时，读取错误与就绪检查给出实际格式及支持格式；原文件保留，可用写入该格式的匹配发行读取，无需重新执行原查询。元数据库格式相同不代表结果文件格式相同。
+结果读取仍须使用支持其精确文件格式的发行。当前发行的保存结果封套与记录格式见[服务说明](../skills/agentic-olap/references/server.md)，实际服务通过就绪报告披露支持格式。格式在解释领域内容前核对，不将缺失的执行事实猜补为当前模型。格式不支持时，读取错误与就绪检查给出实际格式及支持格式；原文件保留，可用写入该格式的匹配发行读取，无需重新执行原查询。元数据库格式相同不代表结果文件格式相同。
 
 ## 读取结果与实际使用记录
 

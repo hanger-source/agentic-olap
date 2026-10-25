@@ -46,6 +46,8 @@ agentic-olap call describe-script-api --payload '{"type":"com.olap.prototype.cal
 
 `LogicUnitInput.rules.valueTypeRules` 要求标量 `logicType` 与容器 `valueShape` 恰好选一个：标量的 `valueShape=null`；容器的 `logicType=null`，形状为正式 `SetOutputContract.Container` 的 ARRAY／ROW。普通金额字段使用 `LogicType.NUMBER`，数量合同中的单位、算术和结果容量不填入字段的容器形状。
 
+计算以共同 `Calculation.Scope` 为中心，直接构造、内联组合、引用定义以及成为更高层定义的计算体使用同一规则。`Computations` 的类型发现披露这些入口。具体集合、测量与完成结果直接组合；只有真实可替换输入才声明形式槽。`Computations.scope { ... }` 内用 `relation(id, computation, outputs)` 或 `member(...)` 一次登记完成输入并取得正式局部引用，供内联计算、算法或计算成员调用，不再分开填写 ROOT 与局部引用。已有身份、数量与键由引擎核验传播，作者明确期间、人口、列映射与缺失政策。成员必须具有实际来源与角色，不能将完成测量包装成属性。完整构造见[共同计算使用方式](https://github.com/hanger-source/agentic-olap/blob/main/docs/agent-usage.md#以计算及其结果继续组合)。
+
 `execute-script` 向持续 Kotlin 会话提交一个完整片段。DSL 为 `agentic-olap-kotlin-dsl/v8`，以服务发现结果为准。`executionId` 必填；不填 `sessionId` 创建会话，后续使用实际返回的会话 ID：
 
 ~~~sh

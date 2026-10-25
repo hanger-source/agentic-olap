@@ -3,6 +3,7 @@ package com.olap.prototype.management.governance
 import com.olap.prototype.calculation.*
 import com.olap.prototype.contract.InputContractException
 import com.olap.prototype.contract.ProducerContractException
+import com.olap.prototype.dsl.Computations
 import com.olap.prototype.governance.contract.*
 import com.olap.prototype.member.*
 import com.olap.prototype.query.*
@@ -30,9 +31,13 @@ class PublishedComputedOrdersTest {
             assertFalse(DefinitionImpactService(database).read(DefinitionImpactRequest("MEMBER_DEFINITION", c.sharedRule.id, 2)).dependents.any { it.reference.id in setOf(c.inner.id, c.sharedV1.id, "formed_orders") })
             assertPublicationPages(c)
             for (window in listOf(c.july, c.august)) for (local in listOf(false, true)) {
-                val rows: CalculationBindings.Member = if (local) CalculationBindings.LocalRef("formed", OrderMemberDefinitions.slots) else c.source(c.publicRows, window)
-                val calls = c.metrics.map { (code, adoption) -> Calculation.Call(code, Calculation.Instance(adoption.instance), code, emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), if (code in setOf("sum", "average")) mapOf("rows" to rows) else emptyMap(), emptyMap()) }
-                val scope = Calculation.Scope(measures(calls), if (local) mapOf("formed" to Calculation.InputScope("ROOT", Calculation.Scope(c.formed(mapOf("window" to window)), emptyMap(), emptyList()))) else emptyMap(), emptyList())
+                val scope = Computations.scope {
+                    val rows = if (local) member("formed", Computations.scope(c.formed(mapOf("window" to window))), OrderMemberDefinitions.slots)
+                        else c.source(c.publicRows, window)
+                    val calls = c.metrics.map { (code, adoption) -> Computations.invoke(adoption.instance, code,
+                        members = if (code in setOf("sum", "average")) mapOf("rows" to rows) else emptyMap()) }
+                    Computations.measure(calls, emptyList(), RowPopulationContract.calls(calls.map { it.callId }))
+                }
                 val frame = c.execute(scope).result.resultFrame; assertEquals(1, frame.rows.size)
                 val row = frame.rows.single()
                 number(if (window == c.july) 90.0 else 100.0, row["sum"]); number(if (window == c.july) 45.0 else 100.0, row["average"])
@@ -103,7 +108,10 @@ class PublishedComputedOrdersTest {
         val bindings = CalculationBindings(emptyMap(), mapOf("rows" to CalculationBindings.InputParameter(), "eligible" to CalculationBindings.InputParameter()), emptyMap(), mapOf("sum" to c.metrics.getValue("sum").instance), emptyMap())
         for (window in listOf(c.july, c.august)) for (local in listOf(false, true)) {
             val source = c.source(c.publicRows, window)
-            val scope = Calculation.Scope(Calculation.Compute(inline, Calculation.ExplicitBindings(bindings, mapOf("rows" to if (local) CalculationBindings.LocalRef("formed", OrderMemberDefinitions.slots) else source, "eligible" to source), emptyMap()), emptyMap()), if (local) mapOf("formed" to Calculation.InputScope("ROOT", Calculation.Scope(c.formed(mapOf("window" to window)), emptyMap(), emptyList()))) else emptyMap(), emptyList())
+            val scope = Computations.scope {
+                val actualRows = if (local) member("formed", Computations.scope(c.formed(mapOf("window" to window))), OrderMemberDefinitions.slots) else source
+                Computations.compute(inline, bindings, members = mapOf("rows" to actualRows, "eligible" to source))
+            }
             number(if (window == c.july) 70.0 else 100.0, c.execute(scope).result.resultFrame.rows.single()["qualified_sum"])
         }
         val july = c.source(c.publicRows, c.july)
@@ -116,7 +124,7 @@ class PublishedComputedOrdersTest {
             CalculationBindings.SourceCall(MemberRef(c.publicRows.id, 1), mapOf("window" to c.july, "lower" to Calculation.Scalar(ScalarValueType.NUMBER, "0")), OrderMemberDefinitions.slots, emptyMap(), emptyMap()))) {
             assertThrows(ProducerContractException::class.java) { c.freeze(Calculation.Scope(Calculation.Compute(inline, Calculation.ExplicitBindings(bindings, mapOf("rows" to rejected, "eligible" to july), emptyMap()), emptyMap()), emptyMap(), emptyList())) }
         }
-        val accepted = Calculation.Scope(Calculation.Compute(inline, Calculation.ExplicitBindings(bindings, mapOf("rows" to july, "eligible" to july), emptyMap()), emptyMap()), emptyMap(), emptyList())
+        val accepted = Computations.compute(inline, bindings, members = mapOf("rows" to july, "eligible" to july))
         number(70.0, c.execute(accepted).result.resultFrame.rows.single()["qualified_sum"])
     }
 

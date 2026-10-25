@@ -223,9 +223,12 @@ fun cohortQuery(e: PopulationExample): Calculation.Scope {
         condition("day", ScalarValueType.TEXT, MemberCondition.Operator.EQ, day), condition("first_flag", ScalarValueType.BOOLEAN, MemberCondition.Operator.EQ, "true")))), listOf(regroup(listOf("subject"), counted("actor", "actors", true)), PostFilter(op(ResultOperator.GT, sym("actors"), number("0"))), Project(listOf("subject"))))
     val directory = e.raw("catalog", listOf("subject", "item"), condition("current_partition", ScalarValueType.BOOLEAN, MemberCondition.Operator.EQ, "true"))
     val visits = e.raw("visits", listOf("item", "actor"), condition("day", ScalarValueType.TEXT, MemberCondition.Operator.BETWEEN, "20000101", "20000102"))
-    val visited = Calculation.Scope(visits.root, mapOf("directory" to Calculation.InputScope("RELATION", directory)), listOf(
-        JoinInput("directory", "d", "LEFT", op(ResultOperator.EQ, sym("item"), sym("d__item"))), PostFilter(nonnull("d__subject")),
-        regroup(listOf("d__subject"), counted("actor", "actors", true)), PostFilter(op(ResultOperator.GT, sym("actors"), number("0"))), Project(listOf("d__subject"))))
+    val visited = Computations.scope {
+        input("directory", directory, InputMode.RELATION)
+        Computations.stages(visits, listOf(
+            JoinInput("directory", "d", "LEFT", op(ResultOperator.EQ, sym("item"), sym("d__item"))), PostFilter(nonnull("d__subject")),
+            regroup(listOf("d__subject"), counted("actor", "actors", true)), PostFilter(op(ResultOperator.GT, sym("actors"), number("0"))), Project(listOf("d__subject"))))
+    }
     val identity = listOf(SetOutputContract("subject", SetOutputContract.Dimension(e.axis.reference)))
     val priorVisits = Computations.set(Calculation.SetKind.INTERSECT, false, linkedMapOf(
         "previous" to Computations.ProjectedInput(paid("19991231"), listOf("subject")),
@@ -239,10 +242,10 @@ fun cohortQuery(e: PopulationExample): Calculation.Scope {
             Calculation.RecordCallOutputs(emptyList(), name, listOf("subject")))))
     }
     val catalog = qualified("catalog", condition("current_partition", ScalarValueType.BOOLEAN, MemberCondition.Operator.EQ, "true"))
-    val completedCatalog = Calculation.Scope(catalog.root, catalog.inputs, listOf(Derive(choose(sym("eligible"), sym("item")), "qualified_item", "显式目录资格"),
+    val completedCatalog = Computations.stages(catalog, listOf(Derive(choose(sym("eligible"), sym("item")), "qualified_item", "显式目录资格"),
         regroup(listOf("subject"), counted("item", "items", true), counted("qualified_item", "qualified_items", true))))
     val records = qualified("activity", condition("day", ScalarValueType.TEXT, MemberCondition.Operator.BETWEEN, "20000101", "20000102"))
-    val completedAmount = Calculation.Scope(records.root, records.inputs, listOf(regroup(listOf("subject"), sum("amount", "measured_amount", floating("activity-value")), counted("subject", "records"), counted("amount", "known"))))
+    val completedAmount = Computations.stages(records, listOf(regroup(listOf("subject"), sum("amount", "measured_amount", floating("activity-value")), counted("subject", "records"), counted("amount", "known"))))
     val key = mapOf("subject" to "subject")
     return Computations.align(linkedMapOf("population" to Computations.aligned(population, key, emptyList()),
         "catalog" to Computations.aligned(completedCatalog, key, listOf("items", "qualified_items").map { Calculation.AlignedValue(it, it, Calculation.NoMatch.PRESERVE_NULL) }),
@@ -255,9 +258,12 @@ fun latestPartitionRows(e: PopulationExample, source: String, columns: List<Stri
     val maximum = Computations.stages(e.raw(source, listOf("partition_key")), listOf(regroup(emptyList(),
         ResultAggregate("partition_key", ResultAggregation.Maximum(ResultAggregation.NullPolicy.IGNORE), "latest_partition", "本来源执行时最大分区"))))
     val rows = e.raw(source, (columns + "partition_key").distinct(), condition)
-    return Calculation.Scope(rows.root, rows.inputs + ("latest" to Calculation.InputScope("RELATION", maximum)), rows.stages + listOf(
-        JoinInput("latest", "partition", "LEFT", op(ResultOperator.EQ, sym("partition_key"), sym("partition__latest_partition"))),
-        PostFilter(nonnull("partition__latest_partition")), Project(columns)))
+    return Computations.scope {
+        input("latest", maximum, InputMode.RELATION)
+        Computations.stages(rows, listOf(
+            JoinInput("latest", "partition", "LEFT", op(ResultOperator.EQ, sym("partition_key"), sym("partition__latest_partition"))),
+            PostFilter(nonnull("partition__latest_partition")), Project(columns)))
+    }
 }
 
 val labelRelationColumns = listOf("subject", "label_kind", "label_id", "label_display", "has_label_match")
@@ -277,13 +283,16 @@ fun labelRelationsQuery(e: PopulationExample): Calculation.Scope {
         condition("label_kind", ScalarValueType.TEXT, MemberCondition.Operator.IN, "CATEGORY_A", "CATEGORY_B")),
         listOf(regroup(listOf("object_ref", "label_kind", "label_id", "label_display"))))
     // 两类别共用同一标签关系，只LEFT一次；显示文本不替代ID，NULL对象键按普通EQ不匹配。
-    return Calculation.Scope(facts.root, facts.inputs + ("labels" to Calculation.InputScope("RELATION", labels)), facts.stages + listOf(
-        JoinInput("labels", "label", "LEFT", op(ResultOperator.EQ, sym("object_ref"), sym("label__object_ref"))),
-        Derive(sym("label__label_kind"), "label_kind", "标签原类别"),
-        Derive(sym("label__label_id"), "label_id", "标签原ID，不按显示名合并"),
-        Derive(sym("label__label_display"), "label_display", "标签原显示文本"),
-        Derive(nonnull("label__label_kind"), "has_label_match", "是否存在本次两类别的当前标签匹配"),
-        Project(labelRelationColumns), regroup(labelRelationColumns)))
+    return Computations.scope {
+        input("labels", labels, InputMode.RELATION)
+        Computations.stages(facts, listOf(
+            JoinInput("labels", "label", "LEFT", op(ResultOperator.EQ, sym("object_ref"), sym("label__object_ref"))),
+            Derive(sym("label__label_kind"), "label_kind", "标签原类别"),
+            Derive(sym("label__label_id"), "label_id", "标签原ID，不按显示名合并"),
+            Derive(sym("label__label_display"), "label_display", "标签原显示文本"),
+            Derive(nonnull("label__label_kind"), "has_label_match", "是否存在本次两类别的当前标签匹配"),
+            Project(labelRelationColumns), regroup(labelRelationColumns)))
+    }
 }
 
 val ledgerOwnershipColumns = listOf("raw_activity_rows", "account_count", "activity_reference_is_null", "activity_reference_is_empty", "activity_coordinate_groups")
@@ -317,10 +326,10 @@ fun ledgerAttributionQuery(e: PopulationExample, question: String): Calculation.
         stages += regroup(listOf("reference_key", "activity_day"), counted("ledger_row_marker", "raw_rows"))
         return Computations.stages(rows, stages)
     }
-    val inputs = linkedMapOf<String, Calculation.InputScope>()
+    val inputs = linkedMapOf<String, Calculation.Scope>()
     val stages = mutableListOf<ValidatedOperation>()
     if (intersection) listOf("fee_ledger", "adjustment_ledger").forEach { source ->
-        inputs[source] = Calculation.InputScope("RELATION", ledger(source))
+        inputs[source] = ledger(source)
         stages += JoinInput(source, source, "LEFT", op(ResultOperator.AND,
             op(ResultOperator.EQ, sym("reference_key"), sym("${source}__reference_key")),
             op(ResultOperator.EQ, sym("activity_day"), sym("${source}__activity_day"))))
@@ -333,7 +342,10 @@ fun ledgerAttributionQuery(e: PopulationExample, question: String): Calculation.
     val columns = if (intersection) ledgerIntersectionColumns else ledgerOwnershipColumns
     stages += regroup(columns.dropLast(1), counted("coordinate_marker", "activity_coordinate_groups"))
     stages += Project(columns)
-    return Calculation.Scope(activity.root, activity.inputs + inputs, activity.stages + stages)
+    return Computations.scope {
+        inputs.forEach { (id, rows) -> input(id, rows, InputMode.RELATION) }
+        Computations.stages(activity, stages)
+    }
 }
 
 fun sourceRelationCases(e: PopulationExample, entry: PublishedQueryEntry): Map<String, ScriptValue> {
@@ -382,10 +394,13 @@ fun captionQuery(e: PopulationExample): Calculation.Scope {
     val selected = e.raw("catalog", listOf("subject", "item", "caption", "caption_accepted"), condition("current_partition", ScalarValueType.BOOLEAN, MemberCondition.Operator.EQ, "true"))
     val counts = Computations.stages(selected, listOf(Derive(choose(sym("caption_accepted"), number("1", count)), "accepted_row", "仅完整谓词TRUE贡献"), Derive(choose(op(ResultOperator.NOT, sym("caption_accepted")), number("1", count)), "rejected_row", "完整谓词FALSE贡献"), Derive(choose(op(ResultOperator.IS_NULL, sym("caption_accepted")), number("1", count)), "unknown_row", "NULL保UNKNOWN"), regroup(listOf("subject"), counted("subject", "catalog_rows"), counted("accepted_row", "true_rows"), counted("rejected_row", "false_rows"), counted("unknown_row", "unknown_rows"))))
     // 完成关系每subject一个键；回连原目录袋保文本、NULL与重复，不把item声明成唯一键。
-    return Calculation.Scope(selected.root, selected.inputs + ("counts" to Calculation.InputScope("RELATION", counts)), selected.stages + listOf(
-        JoinInput("counts", "counts", "LEFT", op(ResultOperator.EQ, sym("subject"), sym("counts__subject"))),
-        Derive(op(ResultOperator.EQ, sym("caption"), text("山川🦊")), "caption_is_mountain_fox", "完整TEXT与非BMP typed literal精确比较"),
-        Project(listOf("subject", "item", "caption", "caption_accepted", "caption_is_mountain_fox", "counts__catalog_rows", "counts__true_rows", "counts__false_rows", "counts__unknown_rows"))))
+    return Computations.scope {
+        input("counts", counts, InputMode.RELATION)
+        Computations.stages(selected, listOf(
+            JoinInput("counts", "counts", "LEFT", op(ResultOperator.EQ, sym("subject"), sym("counts__subject"))),
+            Derive(op(ResultOperator.EQ, sym("caption"), text("山川🦊")), "caption_is_mountain_fox", "完整TEXT与非BMP typed literal精确比较"),
+            Project(listOf("subject", "item", "caption", "caption_accepted", "caption_is_mountain_fox", "counts__catalog_rows", "counts__true_rows", "counts__false_rows", "counts__unknown_rows"))))
+    }
 }
 fun expectCaptions(rows: List<Map<String, String?>>, changed: Boolean) {
     fun row(subject: String, item: String, caption: String?, accepted: String?, mountainFox: String?, total: String, yes: String, no: String, unknown: String) = mapOf(
@@ -417,7 +432,10 @@ fun dailyBasis(e: PopulationExample): Calculation.Scope {
     qualified.forEach { (name, _) -> stages += JoinInput(name, name, "LEFT", op(ResultOperator.EQ, sym("subject"), sym("${name}__subject")))
         stages += Derive(choose(op(ResultOperator.IS_NULL, sym("${name}__subject")), number("0"), sym("${name}__quantity")), name, "只为缺资格组给零") }
     stages += Project(listOf("subject", "period", "period_nonempty", "days_total") + predicates.keys)
-    return Calculation.Scope(aligned.root, aligned.inputs + qualified.mapValues { Calculation.InputScope("RELATION", it.value) }, aligned.stages + stages)
+    return Computations.scope {
+        qualified.forEach { (name, rows) -> input(name, rows, InputMode.RELATION) }
+        Computations.stages(aligned, stages)
+    }
 }
 val daysContract = MetricValueContract(MetricValueContract.Fixed(MetricValueContract.ONE), MetricValueContract.Exact(), MetricValueContract.Decimal(20, 1, MetricValueContract.Rounding.NONE), emptyMap(), MetricValueContract.Overflow.FAIL)
 val savedMeanContract = MetricValueContract(MetricValueContract.Fixed(MetricValueContract.ONE), MetricValueContract.Exact(), MetricValueContract.Decimal(25, 6, MetricValueContract.Rounding.NONE), emptyMap(), MetricValueContract.Overflow.FAIL)
@@ -444,9 +462,10 @@ fun dailyComparisonTemplate(subject: Calculation.DimensionSlot, mean: Calculatio
 fun dailyTemplateQuery(e: PopulationExample, template: Calculation, basis: Calculation.Scope, quantities: Map<String, String>): Calculation.Scope {
     val bindings = CalculationBindings(mapOf("subject" to e.axis), emptyMap(), emptyMap(), emptyMap(),
         template.relationSlots.associate { it.name to CalculationBindings.RelationParameter() })
-    val computed = Computations.compute(template, bindings, mapOf("days" to Calculation.Scalar(ScalarValueType.NUMBER, "2")),
-        relations = quantities.mapValues { (_, column) -> CalculationBindings.LocalRelation("basis", mapOf("subject" to "subject", "quantity" to column)) })
-    return Computations.scope(computed.root) { input("basis", basis, InputMode.ROOT) }
+    return Computations.scope {
+        Computations.compute(template, bindings, mapOf("days" to Calculation.Scalar(ScalarValueType.NUMBER, "2")),
+            relations = quantities.mapValues { (_, column) -> relation("basis", basis, mapOf("subject" to "subject", "quantity" to column)) })
+    }
 }
 fun saveDailyComparison(e: PopulationExample, template: Calculation): MemberSourceRecord {
     val columns = linkedMapOf<String, MemberSourceDefinition.Output>("subject" to MemberSourceDefinition.ComputedDimensionOutput("对象", "subject", ScalarValueType.TEXT, "subject", "subject", null))
@@ -460,21 +479,19 @@ fun saveDailyComparison(e: PopulationExample, template: Calculation): MemberSour
     e.members["daily_comparison"] = adopted; e.outputs["daily_comparison"] = columns; e.filters["daily_comparison"] = emptyMap()
     return adopted
 }
-fun publishedDailyComparison(e: PopulationExample, member: MemberSourceRecord, basis: Calculation.Scope): Calculation.Scope {
-    val selected = Computations.members("daily_comparison", MemberRef(member.id, member.subjectAreaVersion), mapOf("days" to Calculation.Scalar(ScalarValueType.NUMBER, "2")),
+fun publishedDailyComparison(e: PopulationExample, member: MemberSourceRecord, basis: Calculation.Scope): Calculation.Scope = Computations.scope {
+    Computations.members("daily_comparison", MemberRef(member.id, member.subjectAreaVersion), mapOf("days" to Calculation.Scalar(ScalarValueType.NUMBER, "2")),
         listOf(Calculation.MemberProjection("subject", "subject", Calculation.PublishedDimension(e.axis.reference))) +
             dailyComparisons.map { Calculation.MemberProjection("${it}_average", "${it}_average", null) },
-        relations = dailyComparisons.associateWith { column -> CalculationBindings.LocalRelation("basis", mapOf("subject" to "subject", "quantity" to column)) })
-    return Computations.scope(selected.root) { input("basis", basis, InputMode.ROOT) }
+        relations = dailyComparisons.associateWith { column -> relation("basis", basis, mapOf("subject" to "subject", "quantity" to column)) })
 }
-fun savedDailyQuery(e: PopulationExample, metric: SubjectAreaMetricRefRecord, basis: Calculation.Scope): Calculation.Scope {
+fun savedDailyQuery(e: PopulationExample, metric: SubjectAreaMetricRefRecord, basis: Calculation.Scope): Calculation.Scope = Computations.scope {
     val calls = listOf("days_total", "eligible_total", "ineligible_total", "unknown_total").map { column ->
         Computations.invoke(metric.instance, column, outputAlias = "${column}_average", arguments = mapOf("days" to Calculation.Scalar(ScalarValueType.NUMBER, "2")),
-            relations = mapOf("completed" to CalculationBindings.LocalRelation("basis", mapOf("subject" to "subject", "quantity" to column)))) }
-    val selected = Computations.measure(calls, listOf(Calculation.PublishedDimension(e.axis.reference)), RowPopulationContract.calls(calls.map { it.callId }))
-    return Calculation.Scope(selected.root, mapOf("basis" to Calculation.InputScope("ROOT", basis)), selected.stages)
+            relations = mapOf("completed" to relation("basis", basis, mapOf("subject" to "subject", "quantity" to column)))) }
+    Computations.measure(calls, listOf(Calculation.PublishedDimension(e.axis.reference)), RowPopulationContract.calls(calls.map { it.callId }))
 }
-fun exactDailyQuery(basis: Calculation.Scope) = Calculation.Scope(basis.root, basis.inputs, basis.stages + listOf(
+fun exactDailyQuery(basis: Calculation.Scope) = Computations.stages(basis, listOf(
     Derive(ResultNumeric(op(ResultOperator.DIVIDE, sym("days_total"), number("19", daysContract)), exact(18, MetricValueContract.Rounding.HALF_UP), null), "mean", "显式十九日，不用活跃日期数"),
     Derive(ResultNumeric(op(ResultOperator.SUBTRACT, sym("days_total"), sym("period_nonempty")), count, null), "repeat_days", "跨日重复贡献"), Project(listOf("subject", "days_total", "period", "period_nonempty", "mean", "repeat_days"))))
 
@@ -548,7 +565,10 @@ fun inlineAttributeQuery(e: PopulationExample): Pair<Calculation.Scope, Map<Stri
         aggregates += counted("row_$nullOutput", nullOutput); bagQuantities[nullOutput] = count
     }
     stages += Regroup(ResultGrouping(listOf("subject"), aggregates, null))
-    val bag = Calculation.Scope(original.root, mapOf("attributes" to Calculation.InputScope("RELATION", e.raw("attributes"))), original.stages + stages)
+    val bag = Computations.scope {
+        input("attributes", e.raw("attributes"), InputMode.RELATION)
+        Computations.stages(original, stages)
+    }
     val aligned = Computations.align(linkedMapOf(
         "bases" to Computations.aligned(bases, mapOf("subject" to "subject"), baseQuantities.keys.map { Calculation.AlignedValue(it, it, Calculation.NoMatch.PRESERVE_NULL) }),
         "contributions" to Computations.aligned(bag, mapOf("subject" to "subject"), bagQuantities.keys.map { Calculation.AlignedValue(it, it, Calculation.NoMatch.PRESERVE_NULL) })),
@@ -575,7 +595,7 @@ fun inlineAttributeQuery(e: PopulationExample): Pair<Calculation.Scope, Map<Stri
     val outputs = contributions.map { it.output } + ratios.map { it.name } + listOf("base_a", "base_b", "source_rows", "bag_rows", "matched_rows", "unmatched_rows", "extra_rows", "attribute_partitions") +
         predicates.keys.flatMap { name -> listOf("${name}_true_rows", "${name}_false_rows", "${name}_unknown_rows") } + contributions.map { "true_null_${it.output}" }
     finalStages += Project(listOf("subject") + outputs)
-    return Calculation.Scope(aligned.root, aligned.inputs, aligned.stages + finalStages) to outputs.associateWith { quantities.getValue(it) }
+    return Computations.stages(aligned, finalStages) to outputs.associateWith { quantities.getValue(it) }
 }
 
 fun inlineAttributeExpected(): Map<String, Map<String, String?>> {
@@ -624,7 +644,10 @@ fun attributeBasis(e: PopulationExample): AttributeBasis {
         }
     }
     stages += Regroup(ResultGrouping(listOf("subject"), aggregates, null))
-    val contributions = Calculation.Scope(original.root, mapOf("attributes" to Calculation.InputScope("RELATION", e.raw("attributes"))), original.stages + stages)
+    val contributions = Computations.scope {
+        input("attributes", e.raw("attributes"), InputMode.RELATION)
+        Computations.stages(original, stages)
+    }
     val amountQuantities = linkedMapOf("base_a" to floating("base-a"), "base_b" to floating("base-b"), "source_rows" to count)
     val basis = Computations.align(linkedMapOf(
         "amounts" to Computations.aligned(amounts, mapOf("subject" to "subject"), amountQuantities.keys.map { Calculation.AlignedValue(it, it, Calculation.NoMatch.PRESERVE_NULL) }),
@@ -633,11 +656,15 @@ fun attributeBasis(e: PopulationExample): AttributeBasis {
     return AttributeBasis(basis, amountQuantities + quantities)
 }
 fun attributeDetails(e: PopulationExample, basis: Calculation.Scope, metrics: List<SubjectAreaMetricRefRecord>): Calculation.Scope {
-    val calls = ratios.zip(metrics).map { (spec, metric) -> Computations.invoke(metric.instance, spec.name, outputAlias = "ratio_${spec.name}",
-        relations = mapOf("basis" to CalculationBindings.LocalRelation("basis", mapOf("subject" to "subject", "numerator" to spec.name, "denominator" to spec.denominator)))) }
-    val measured = Computations.measure(calls, listOf(Calculation.PublishedDimension(e.axis.reference)), RowPopulationContract.calls(calls.map { it.callId }))
-    val values = Calculation.Scope(measured.root, mapOf("basis" to Calculation.InputScope("ROOT", basis)), measured.stages)
-    return Calculation.Scope(basis.root, basis.inputs + ("ratios" to Calculation.InputScope("RELATION", values)), basis.stages + listOf(JoinInput("ratios", "r", "LEFT", op(ResultOperator.EQ, sym("subject"), sym("r__subject")))))
+    val values = Computations.scope {
+        val calls = ratios.zip(metrics).map { (spec, metric) -> Computations.invoke(metric.instance, spec.name, outputAlias = "ratio_${spec.name}",
+            relations = mapOf("basis" to relation("basis", basis, mapOf("subject" to "subject", "numerator" to spec.name, "denominator" to spec.denominator)))) }
+        Computations.measure(calls, listOf(Calculation.PublishedDimension(e.axis.reference)), RowPopulationContract.calls(calls.map { it.callId }))
+    }
+    return Computations.scope {
+        input("ratios", values, InputMode.RELATION)
+        Computations.stages(basis, listOf(JoinInput("ratios", "r", "LEFT", op(ResultOperator.EQ, sym("subject"), sym("r__subject")))))
+    }
 }
 fun attributeReport(details: Calculation.Scope): Calculation.Scope {
     val stages = mutableListOf<ValidatedOperation>(Derive(ResultNumeric(op(ResultOperator.SUBTRACT, sym("bag_rows"), sym("source_rows")), count, null), "extra_rows", "关联额外行"),
@@ -654,7 +681,7 @@ fun attributeReport(details: Calculation.Scope): Calculation.Scope {
     }
     check(totals.size == 79)
     stages += Regroup(ResultGrouping(emptyList(), totals, null))
-    return Calculation.Scope(details.root, details.inputs, details.stages + stages)
+    return Computations.stages(details, stages)
 }
 
 val reusePeriod = linkedMapOf("from" to Calculation.Parameter(Calculation.ParameterKind.SCALAR, "TEXT", emptyList(), null, null),
@@ -684,7 +711,7 @@ fun reuseResult(calculation: Calculation, quantities: Map<String, Pair<String, M
 fun paidDefinition(e: PopulationExample): MemberSourceDefinition.Computed {
     val columns = listOf("subject", "day", "first_flag", "actor")
     val rows = reuseMembers("activity", columns, MemberCondition.All(listOf(reusePeriodCondition(), condition("first_flag", ScalarValueType.BOOLEAN, MemberCondition.Operator.EQ, "true"))))
-    val body = Calculation.Scope(rows.root, rows.inputs, listOf(PostFilter(nonnull("subject")), regroup(listOf("subject"), counted("actor", "paid_actors", true)),
+    val body = Computations.stages(rows, listOf(PostFilter(nonnull("subject")), regroup(listOf("subject"), counted("actor", "paid_actors", true)),
         PostFilter(op(ResultOperator.GT, sym("paid_actors"), number("0", count))), Project(listOf("subject"))))
     return reuseResult(Calculation(listOf(e.slot), listOf(reuseSlot(e, "activity", "activity", columns)), emptyList(), emptyList(), reusePeriod, body),
         emptyMap(), "subject", MemberShape.UNIQUE_MEMBERS, "明确期间内first_flag为TRUE且至少一个非NULL actor；不新增actor空串政策")
@@ -693,9 +720,12 @@ fun visitedDefinition(e: PopulationExample): MemberSourceDefinition.Computed {
     val visits = listOf("item", "actor", "day"); val catalog = listOf("subject", "item", "current_partition")
     val rows = reuseMembers("visits", visits, reusePeriodCondition())
     val directory = reuseMembers("catalog", catalog, condition("current_partition", ScalarValueType.BOOLEAN, MemberCondition.Operator.EQ, "true"))
-    val body = Calculation.Scope(rows.root, mapOf("directory" to Calculation.InputScope("RELATION", directory)), listOf(
-        JoinInput("directory", "d", "LEFT", op(ResultOperator.EQ, sym("item"), sym("d__item"))), PostFilter(nonnull("d__subject")),
-        regroup(listOf("d__subject"), counted("actor", "visit_actors", true)), PostFilter(op(ResultOperator.GT, sym("visit_actors"), number("0", count))), Project(listOf("d__subject"))))
+    val body = Computations.scope {
+        input("directory", directory, InputMode.RELATION)
+        Computations.stages(rows, listOf(
+            JoinInput("directory", "d", "LEFT", op(ResultOperator.EQ, sym("item"), sym("d__item"))), PostFilter(nonnull("d__subject")),
+            regroup(listOf("d__subject"), counted("actor", "visit_actors", true)), PostFilter(op(ResultOperator.GT, sym("visit_actors"), number("0", count))), Project(listOf("d__subject"))))
+    }
     return reuseResult(Calculation(listOf(e.slot), listOf(reuseSlot(e, "visits", "visits", visits), reuseSlot(e, "catalog", "catalog", catalog)), emptyList(), emptyList(), reusePeriod, body),
         emptyMap(), "d__subject", MemberShape.UNIQUE_MEMBERS, "期间访问按当前目录归属，有非NULL actor；目录eligible不改变访问人口，不声称历史归属")
 }
@@ -703,7 +733,7 @@ fun activityDefinition(e: PopulationExample): MemberSourceDefinition.Computed {
     val columns = listOf("subject", "day", "amount")
     val rows = reuseMembers("activity", columns, reusePeriodCondition())
     val amount = requireNotNull(MemberSourceDefinition.rootValueContract(e.outputs.getValue("activity").getValue("amount")))
-    val body = Calculation.Scope(rows.root, rows.inputs, listOf(PostFilter(nonnull("subject")), regroup(listOf("subject"), sum("amount", "amount_total", amount), counted("subject", "records"), counted("amount", "known"))))
+    val body = Computations.stages(rows, listOf(PostFilter(nonnull("subject")), regroup(listOf("subject"), sum("amount", "amount_total", amount), counted("subject", "records"), counted("amount", "known"))))
     return reuseResult(Calculation(listOf(e.slot), listOf(reuseSlot(e, "activity", "activity", columns)), emptyList(), emptyList(), reusePeriod, body),
         linkedMapOf("amount" to ("amount_total" to amount), "records" to ("records" to count), "known" to ("known" to count)), "subject", MemberShape.RECORDS,
         "期间活动原袋按完整subject完成金额/来源行/金额非NULL行，真实组全NULL与无组分别保留")
@@ -712,7 +742,7 @@ fun catalogDefinition(e: PopulationExample, requireCaption: Boolean): MemberSour
     val columns = listOf("subject", "item", "current_partition", "eligible", "caption_accepted")
     val rows = reuseMembers("catalog", columns, condition("current_partition", ScalarValueType.BOOLEAN, MemberCondition.Operator.EQ, "true"))
     val policy = if (requireCaption) op(ResultOperator.AND, sym("eligible"), sym("caption_accepted")) else sym("eligible")
-    val body = Calculation.Scope(rows.root, rows.inputs, listOf(PostFilter(nonnull("subject")), Derive(choose(policy, sym("item")), "qualified_item", "目录资格只取完整谓词TRUE"),
+    val body = Computations.stages(rows, listOf(PostFilter(nonnull("subject")), Derive(choose(policy, sym("item")), "qualified_item", "目录资格只取完整谓词TRUE"),
         regroup(listOf("subject"), counted("item", "items", true), counted("qualified_item", "qualified_items", true))))
     return reuseResult(Calculation(listOf(e.slot), listOf(reuseSlot(e, "catalog", "catalog", columns)), emptyList(), emptyList(), emptyMap(), body),
         linkedMapOf("items" to ("items" to count), "qualified_items" to ("qualified_items" to count)), "subject", MemberShape.RECORDS,
@@ -739,7 +769,7 @@ fun reusePublications(e: PopulationExample): Map<String, ScriptValue> {
             mapOf("subject" to Calculation.MemberDimension("subject", null), "quantity" to Calculation.MemberProperty(field, ScalarValueType.NUMBER, count)), null)
         val rows = reuseMembers("completed", listOf("subject", "quantity"), MemberCondition.Unrestricted())
         val definition = MetricCalculation(Calculation(listOf(e.slot), listOf(slot), emptyList(), emptyList(), reusePeriod,
-            Calculation.Scope(rows.root, rows.inputs, listOf(Derive(sym("quantity"), "value", displayName), Project(listOf("subject", "value"))))), "value", listOf("subject"), count)
+            Computations.stages(rows, listOf(Derive(sym("quantity"), "value", displayName), Project(listOf("subject", "value"))))), "value", listOf("subject"), count)
         val meaning = MetricBusinessMeaning(displayName, "ONE/Exact/I64", "完整subject键的期间活动", listOf("调用正式period_activity闭包，不继承本次集合资格"))
         val metric = e.governance.createMetricCalculation(MetricCalculationCreateRequest("population_$code", displayName, e.actor, definition, "来源和归约由正式Computed定义拥有", meaning, e.actor)).metric
         e.activate("METRIC", metric.id)
@@ -845,10 +875,11 @@ fun build(): ScriptValue.ObjectValue {
     // 算法的completed形参要求ONE计数；实际金额完成量不能作为其quantity输入。
     val amountInput = Computations.stages(e.raw("activity", listOf("subject", "amount")),
         listOf(regroup(listOf("subject"), sum("amount", "completed_amount", floating("activity-value")))))
-    val invalidCall = Computations.invoke(mean.instance, "invalid_daily", arguments = mapOf("days" to Calculation.Scalar(ScalarValueType.NUMBER, "2")),
-        relations = mapOf("completed" to CalculationBindings.LocalRelation("amount_input", mapOf("subject" to "subject", "quantity" to "completed_amount"))))
-    val invalidMeasurement = Computations.measure(listOf(invalidCall), listOf(Calculation.PublishedDimension(e.axis.reference)), RowPopulationContract.calls(listOf("invalid_daily")))
-    val invalid = Computations.scope(invalidMeasurement.root) { input("amount_input", amountInput, InputMode.ROOT) }
+    val invalid = Computations.scope {
+        val invalidCall = Computations.invoke(mean.instance, "invalid_daily", arguments = mapOf("days" to Calculation.Scalar(ScalarValueType.NUMBER, "2")),
+            relations = mapOf("completed" to relation("amount_input", amountInput, mapOf("subject" to "subject", "quantity" to "completed_amount"))))
+        Computations.measure(listOf(invalidCall), listOf(Calculation.PublishedDimension(e.axis.reference)), RowPopulationContract.calls(listOf("invalid_daily")))
+    }
     val invalidFailure = runCatching { olap.queries.validate(QueryValidationRequest(QuerySelection.Inline(
         Computations.query(PublishedQueryEntry.key(saved.capability), invalid)), QueryExecutionMode.CORE_FINALIZATION)) }.exceptionOrNull()
     check(invalidFailure is CapabilityFailureException) { "真实金额输入必须被计数形参拒绝：${invalidFailure?.javaClass?.name}: ${invalidFailure?.message}" }

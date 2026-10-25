@@ -45,7 +45,7 @@ internal class InputRootCompiler(
         val projection = input.projection
         val names = projection.outputs.map { it.name }
         names.forEach { name -> display[name] = originalDisplay[projection.outputSlots.getValue(name)] ?: name }
-        builder.project(projection.outputs.map { output -> builder.field(projection.outputSlots.getValue(output.name)).also { SemanticNativeTypes.requireSetType(it.type, output.shape) } }, names, true)
+        builder.project(projection.outputs.map { output -> builder.field(projection.outputSlots.getValue(output.name)).also { SemanticNativeTypes.requireCompletedRepresentation(it.type, output.shape) } }, names, true)
         return builder.build()
     }
     private fun objects(restriction: ExecutableObjectRestriction) = relation(restriction.objectsScope, linkedMapOf())
@@ -85,7 +85,7 @@ internal class InputRootCompiler(
         val operands = root.inputs.map { projection ->
             builder.push(rootInput(input, scope, projection.inputId, linkedMapOf()))
             val values = projection.symbols.mapIndexed { index, symbol ->
-                builder.field(symbol).also { SemanticNativeTypes.requireSetType(it.type, root.outputSlots[index].shape) }
+                builder.field(symbol).also { SemanticNativeTypes.requireCompletedRepresentation(it.type, root.outputSlots[index].shape) }
             }
             builder.project(values, root.outputSlots.map { it.name }, true)
             builder.build()

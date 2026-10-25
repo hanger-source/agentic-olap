@@ -104,13 +104,13 @@ internal object MemberRelationCompiler {
         is ExecutableMemberInput.Computed -> input.source.definition.result.outputs.mapValues { (_, output) ->
             MemberSourceDefinition.completedSymbol(output).also { symbol ->
                 if (output is MemberSourceDefinition.ScalarOutput) SemanticNativeTypes.requireScalarType(builder.field(symbol).type, output.valueType)
-                else SemanticNativeTypes.requireSetType(builder.field(symbol).type, MemberSourceDefinition.containerShape(output))
+                else SemanticNativeTypes.requireCompletedRepresentation(builder.field(symbol).type, MemberSourceDefinition.containerShape(output))
             }
         }
         is ExecutableMemberInput.Local -> input.usedSlots.associateWith { it }.also {
             input.outputs.forEach { (alias, symbol) -> when (val meaning = input.meanings[alias]) {
                 is QueryStageAnalysis.MemberProperty -> SemanticNativeTypes.requireScalarType(builder.field(symbol).type, meaning.valueType)
-                is QueryStageAnalysis.MemberContainer -> SemanticNativeTypes.requireSetType(builder.field(symbol).type, meaning.shape)
+                is QueryStageAnalysis.MemberContainer -> SemanticNativeTypes.requireCompletedRepresentation(builder.field(symbol).type, meaning.shape)
                 else -> Unit
             } }
         }

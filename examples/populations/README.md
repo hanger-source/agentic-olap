@@ -129,6 +129,8 @@ TRUE、FALSE、UNKNOWN 是三个独立资格分支，各自完成完整日／标
 | A | 1.500000 | 1.000000 | 0.500000 | 0.000000 |
 | B | 0.000000 | 0.000000 | 0.000000 | 0.000000 |
 
+三种调用都在 `Computations.scope { ... }` 中用 `relation("basis", basis, outputs)` 登记完成输入并交出正式实参。列映射选择本次的数量，SDK 负责 ROOT 与局部引用的共同作用域；作者不重述 basis 的单位、数量合同或键。形参中的数量接受条件、days 参数和实际人口仍由定义及调用者明确。各入口返回同一种计算体，既有输入与阶段保留后继续交给查询或更高层定义。
+
 模板内联、四次保存算法调用及外层比较成员调用均明确使用 `CORE_FINALIZATION`。输入数量为 INTEGER64／Exact，days 为 ONE／Exact／DECIMAL(20,1)，输出为 ONE／Exact／DECIMAL(25,6)，舍入 NONE、溢出 FAIL。来源完成去重和计数，核心完成精确除法；不把 DuckDB 原生浮点商宣称为 Exact。各次结果保存后全页读取，外层还核对五个完整输出及四列正式数量合同；三种模板使用方式的精确 Query／结果引用进入 `http/report.json` 的 `dailyTemplateReuse`。
 
 保存请求通过 `QueryDefinitionCommand.executionMode` 明确选择保存前完整编译的模式，本例将同一次操作的 `mode` 分别传给保存请求与执行请求。保存请求未指定时使用 `SOURCE`；这个字段只决定保存前校验，不进入 QueryIntent、保存查询内容或哈希，也不规定以后执行的默认模式。执行保存查询时仍由 `QueryExecutionRequest.executionMode` 明确选择 `CORE_FINALIZATION` 或 `SOURCE`，没有模式切换重试或自动回退。

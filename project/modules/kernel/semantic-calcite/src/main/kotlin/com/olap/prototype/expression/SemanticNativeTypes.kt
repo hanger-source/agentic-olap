@@ -117,18 +117,35 @@ object SemanticNativeTypes {
     }
 
     fun requireSetType(type: RelDataType, shape: SetOutputContract.Shape) {
+        requireShapeType(type, shape) { native, quantity ->
+            require(MetricValueContract.resultFits(numericResult(native), quantity.valueContract.result)) {
+                "set native value exceeds its declared common output capacity"
+            }
+        }
+    }
+
+    /** 完成值的数量接受条件已经由共同分析核验；承载类型不重新定义其已检查的值域。 */
+    fun requireCompletedRepresentation(type: RelDataType, shape: SetOutputContract.Shape) {
+        requireShapeType(type, shape) { native, quantity ->
+            require(SqlTypeUtil.isNumeric(native)) { "completed quantity requires a numeric representation" }
+            require(quantity.valueContract.arithmetic !is MetricValueContract.Exact || SqlTypeUtil.isExactNumeric(native)) {
+                "completed Exact quantity requires an exact numeric representation"
+            }
+        }
+    }
+
+    private fun requireShapeType(type: RelDataType, shape: SetOutputContract.Shape,
+        quantity: (RelDataType, SetOutputContract.Quantity) -> Unit) {
         when (shape) {
-            is SetOutputContract.Array -> requireSetType(requireNotNull(type.componentType) { "set array slot requires an array native value" }, shape.element)
+            is SetOutputContract.Array -> requireShapeType(requireNotNull(type.componentType) { "set array slot requires an array native value" }, shape.element, quantity)
             is SetOutputContract.Row -> {
                 require(type.isStruct && type.fieldCount == shape.fields.size) { "set row slot requires its exact ordinal width" }
-                shape.fields.forEachIndexed { index, field -> requireSetType(type.fieldList[index].type, field) }
+                shape.fields.forEachIndexed { index, field -> requireShapeType(type.fieldList[index].type, field, quantity) }
             }
             else -> {
                 require(!type.isStruct && type.componentType == null) { "scalar set slot cannot hide a container" }
                 when (shape) {
-                    is SetOutputContract.Quantity -> require(MetricValueContract.resultFits(numericResult(type), shape.valueContract.result)) {
-                        "set native value exceeds its declared common output capacity"
-                    }
+                    is SetOutputContract.Quantity -> quantity(type, shape)
                     is SetOutputContract.Property -> requireScalarType(type, shape.valueType)
                     is SetOutputContract.Scalar -> requireScalarType(type, ScalarValueType.valueOf(shape.valueType.name))
                     is SetOutputContract.Dimension, is SetOutputContract.DimensionSlot, is SetOutputContract.MemberDimension -> Unit

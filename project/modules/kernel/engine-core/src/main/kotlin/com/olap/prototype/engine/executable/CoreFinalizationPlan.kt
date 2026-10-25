@@ -287,7 +287,7 @@ class CoreFinalizationPlan private constructor(private val sourceLayout: Executa
                         val relation = root.input.projection
                         relation.outputs.forEach { output ->
                             val storage = completedTypes.getValue(root.input.inputScope).getValue(relation.outputSlots.getValue(output.name)).storage
-                            SemanticNativeTypes.requireSetType(requireNotNull(storage) { "completed relation needs an actual source representation" }, output.shape)
+                            SemanticNativeTypes.requireCompletedRepresentation(requireNotNull(storage) { "completed relation needs an actual source representation" }, output.shape)
                         }
                         project(root.input.inputScope, relation.outputs.associate { it.name to relation.outputSlots.getValue(it.name) })
                         projection(CoreFinalizationGraph.Population(Calculation.PopulationKind.BASE, listOf(root.input.inputScope)))

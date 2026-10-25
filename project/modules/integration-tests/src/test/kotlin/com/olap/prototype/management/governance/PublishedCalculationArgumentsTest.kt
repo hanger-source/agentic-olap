@@ -12,6 +12,7 @@ import com.olap.prototype.integration.TestConnectors
 import com.olap.prototype.metric.MetricAggregation
 import com.olap.prototype.calculation.*
 import com.olap.prototype.contract.ProducerContractException
+import com.olap.prototype.dsl.Computations
 import com.olap.prototype.engine.EngineExecutionException
 import com.olap.prototype.event.EventIdentity
 import com.olap.prototype.event.EventRef
@@ -254,6 +255,7 @@ class PublishedCalculationArgumentsTest {
                 mapOf("completed" to CalculationBindings.RelationParameter())))
             f.grantMetric(average.id, order = 3)
             f.scenarios.createScenarioPipelineRule(ScenarioPipelineRuleCreateRequest(GovernanceOrderFixture.SCENARIO, 1, "DERIVE", 1, StageAuthorization.current("DERIVE")))
+            f.scenarios.createScenarioPipelineRule(ScenarioPipelineRuleCreateRequest(GovernanceOrderFixture.SCENARIO, 1, "REGROUP", 2, StageAuthorization.current("REGROUP")))
             f.activateSubjectGraph()
             selectedAdoptions = f.sourceAdoptions
         }
@@ -268,13 +270,34 @@ class PublishedCalculationArgumentsTest {
                 invocation("amount", instance(f, "pay_amount"), "amount"),
                 invocation("orders", instance(f, "order_count"), "orders"))
             val measured = measures(calls)
-            val completed = Calculation.Scope(measured.root, measured.inputs, listOf(PostOperationContract.Derive(
+            val completed = Computations.stages(measured, listOf(PostOperationContract.Derive(
                 ResultExpression.ResultTypedLiteral(ScalarValueType.TEXT, "completed"), "label", "完成结果说明")))
-            val average = Calculation.Call("average", Calculation.Instance(instance(f, "completed_order_mean")), "mean", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), mapOf("completed" to CalculationBindings.LocalRelation("paid", mapOf("amount" to "amount", "orders" to "orders", "label" to "label"))))
-            val query = Calculation.Scope(measures(listOf(average)).root, mapOf("paid" to Calculation.InputScope("ROOT", completed)), emptyList())
-            val rows = f.execute(publication, query).result.resultFrame.rows
-            assertEquals(1, rows.size)
-            number("55", rows.single()["mean"])
+            val doubled = Computations.stages(completed, listOf(Derive(ResultNumeric(
+                ResultOperation(ResultOperator.ADD, listOf(ResultSymbol("amount"), ResultSymbol("amount"))),
+                GovernanceOrderFixture.money(), null), "double_amount", "只在本次完成输入上形成双倍金额")))
+            // 来源 SUM 使用更宽的原生承载类型，正式完成值仍兑现原精确金额与 Integer64 数量。
+            val summed = Computations.stages(measured, listOf(Regroup(ResultGrouping(emptyList(), listOf(
+                ResultAggregate("amount", ResultAggregation.Sum(GovernanceOrderFixture.money(), ResultAggregation.NullPolicy.IGNORE), "summed_amount", "完成金额之和"),
+                ResultAggregate("orders", ResultAggregation.Sum(GovernanceOrderFixture.records(), ResultAggregation.NullPolicy.IGNORE), "summed_orders", "完成订单数之和")), null)),
+                Derive(ResultTypedLiteral(ScalarValueType.TEXT, "completed"), "label", "完成结果说明")))
+            val originalColumns = mapOf("amount" to "amount", "orders" to "orders", "label" to "label")
+            for ((basis, columns, expected) in listOf(Triple(completed, originalColumns, "55"),
+                Triple(doubled, originalColumns + ("amount" to "double_amount"), "110"),
+                Triple(summed, mapOf("amount" to "summed_amount", "orders" to "summed_orders", "label" to "label"), "55"))) {
+                val query = Computations.scope {
+                    val average = Computations.invoke(instance(f, "completed_order_mean"), "average", outputAlias = "mean",
+                        relations = mapOf("completed" to relation("paid", basis, columns)))
+                    stage(Derive(ResultSymbol("body_mean"), "builder_mean", "消费返回计算体已经形成的列"))
+                    Computations.stages(measures(listOf(average)), listOf(Derive(ResultSymbol("mean"), "body_mean", "返回计算体自有阶段")))
+                }
+                val encoded = ProtoBytes.encode(QueryProto.toProto(f.intent(publication, query)))
+                val decoded = QueryProto.fromProto(ProtoBytes.decode(encoded, com.olap.prototype.wire.query.QueryIntent.getDefaultInstance()))
+                val rows = f.execute(publication, decoded.computation).result.resultFrame.rows
+                assertEquals(1, rows.size)
+                number(expected, rows.single()["mean"])
+                number(expected, rows.single()["body_mean"])
+                number(expected, rows.single()["builder_mean"])
+            }
         }
     }
 

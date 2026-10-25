@@ -143,8 +143,8 @@ object ApiDiscovery {
         type.sealedSubclasses.mapNotNull { it.qualifiedName }.sorted(),
         type.java.enumConstants?.map { (it as Enum<*>).name } ?: emptyList(),
         when (type) {
-            CalculationScopeBuilder::class -> mapOf("receiverContext" to "Computations.scope(root) { ... }",
-                "construction" to "CREATED_BY_SCOPE", "result" to "Calculation.Scope")
+            Computations::class -> Computations.contract()
+            CalculationScopeBuilder::class -> CalculationScopeBuilder.contract()
             Calculation.Call::class -> Calculation.Call.contract()
             Calculation.Compute::class -> Calculation.Compute.contract()
             com.olap.prototype.warehouse.contract.SourceAdoptionRegistrationRequest::class ->

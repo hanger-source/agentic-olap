@@ -16,15 +16,61 @@ annotation class OlapDsl
 
 /** 局部 builder 只在 build 时交出完整正式模型，不保存 lambda。 */
 @OlapDsl
-class CalculationScopeBuilder internal constructor(private val root: Calculation.Root) {
+class CalculationScopeBuilder internal constructor() {
     private val inputs = linkedMapOf<String, Calculation.InputScope>()
     private val stages = mutableListOf<PostOperationContract.ValidatedOperation>()
     fun input(id: String, computation: Calculation.Scope, mode: InputMode) {
-        require(id !in inputs) { "query input identity is repeated: $id" }
+        require(id !in inputs) { "computation input identity is repeated: $id" }
         inputs[id] = Calculation.InputScope(mode.name, computation)
     }
+
+    /** 实际完成输入与其形参列映射一起登记；身份、数量及键仍由共同绑定核验。 */
+    fun relation(id: String, computation: Calculation.Scope,
+        outputs: Map<String, String>): CalculationBindings.LocalRelation {
+        val reference = CalculationBindings.LocalRelation(id, outputs)
+        completed(id, computation)
+        return reference
+    }
+
+    /** 保留实际成员的来源及角色，不将普通完成测量变成成员属性。 */
+    fun member(id: String, computation: Calculation.Scope,
+        outputs: Map<String, String>): CalculationBindings.LocalRef {
+        val reference = CalculationBindings.LocalRef(id, outputs)
+        completed(id, computation)
+        return reference
+    }
+
+    private fun completed(id: String, computation: Calculation.Scope) {
+        val declared = inputs[id]
+        if (declared == null) input(id, computation, InputMode.ROOT)
+        else require(declared.mode == InputMode.ROOT.name && declared.computation == computation) {
+            "completed input identity refers to a different computation or mode: $id"
+        }
+    }
+
     fun stage(operation: PostOperationContract.ValidatedOperation) { stages.add(operation) }
-    internal fun build(): Calculation.Scope = Calculation.Scope(root, inputs, stages)
+    internal fun build(computation: Calculation.Scope): Calculation.Scope {
+        val children = LinkedHashMap(computation.inputs)
+        inputs.forEach { (id, input) ->
+            val existing = children.putIfAbsent(id, input)
+            require(existing == null || existing == input) { "computation input identity is already owned by a different input: $id" }
+        }
+        return Calculation.Scope(computation.root, children, computation.stages + stages)
+    }
+
+    companion object {
+        fun contract(): Map<String, Any> = mapOf(
+            "receiverContext" to "Computations.scope { ... } or Computations.scope(root) { ... }",
+            "construction" to "CREATED_BY_SCOPE", "result" to "Calculation.Scope",
+            "stageOrder" to "RETURNED_COMPUTATION_STAGES_THEN_BUILDER_STAGES",
+            "completedInputs" to mapOf(
+                "relation" to "REGISTER_COMPLETED_SCOPE_AND_RETURN_LOCAL_RELATION_WITH_EXPLICIT_FORMAL_TO_ACTUAL_COLUMNS",
+                "member" to "REGISTER_COMPLETED_SCOPE_AND_RETURN_LOCAL_MEMBER_WITH_ORIGINAL_SOURCE_IDENTITY_AND_ROLE_CHECKS",
+                "registration" to "SDK_OWNS_ROOT_MODE_AND_LOCAL_REFERENCE_IN_THE_SAME_LEXICAL_SCOPE",
+                "referenceScope" to "CONSUMER_LOCAL_ID_NOT_A_CAPTURED_OR_GLOBAL_HANDLE_PASS_THE_WHOLE_SCOPE_OR_FORWARD_A_DECLARED_FORMAL",
+                "sameId" to "REUSE_ONLY_THE_SAME_EXACT_COMPUTATION_AND_MODE_OTHERWISE_REJECT",
+                "outputMapping" to "CALLER_SELECTS_COLUMNS_ENGINE_CHECKS_FORMAL_ACCEPTANCE_WITHOUT_COPYING_ACTUAL_CONTRACTS"))
+    }
 }
 enum class InputMode { ROOT, KEY_ALIGNMENT, RELATION }
 
@@ -32,11 +78,24 @@ enum class InputMode { ROOT, KEY_ALIGNMENT, RELATION }
 object Computations {
     data class ProjectedInput(val computation: Calculation.Scope, val symbols: List<String>)
 
+    fun contract(): Map<String, Any> = mapOf(
+        "computation" to "ONE_CALCULATION_SCOPE_FOR_INLINE_COMPOSITION_QUERY_AND_DEFINITION_BODY",
+        "scope" to "RETURNS_THE_FORMAL_COMPUTATION_WITH_ITS_EXACT_INPUTS_AND_ORDERED_STAGES",
+        "formalInputs" to "DECLARE_ONLY_FOR_REPLACEABLE_INPUTS_OF_A_PARAMETERIZED_CALCULATION",
+        "meaning" to "IDENTITY_QUANTITY_NULL_AND_KEYS_ARE_ANALYZED_BY_THE_COMMON_ENGINE_NOT_REDECLARED_BY_THE_SDK")
+
     fun scope(root: Calculation.Root, build: CalculationScopeBuilder.() -> Unit = {}): Calculation.Scope =
-        CalculationScopeBuilder(root).apply(build).build()
+        CalculationScopeBuilder().apply(build).build(Calculation.Scope(root, emptyMap(), emptyList()))
+
+    /** 返回共同计算体；本地实参登记与最终消费它们的根拥有同一词法作用域。 */
+    fun scope(build: CalculationScopeBuilder.() -> Calculation.Scope): Calculation.Scope =
+        CalculationScopeBuilder().let { builder -> builder.build(build.invoke(builder)) }
 
     fun query(publication: QueryCapabilityRequest, computation: Calculation.Scope): QueryIntent =
         QueryIntent(publication, computation)
+
+    fun query(publication: QueryCapabilityRequest, build: CalculationScopeBuilder.() -> Calculation.Scope): QueryIntent =
+        query(publication, scope(build))
 
     fun query(publication: QueryCapabilityRequest, root: Calculation.Root,
         build: CalculationScopeBuilder.() -> Unit = {}): QueryIntent = query(publication, scope(root, build))
