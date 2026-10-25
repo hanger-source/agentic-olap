@@ -1,14 +1,16 @@
 # Agentic OLAP · 对象人口、独立测量与完成关系复用
 
-本用法用公开合成数据，通过完整服务的正式 MCP 建设来源与定义、冻结发布、保存查询、执行计算并读取结果。六组问题分别展示对象集合、日去重、独立事实、名义数量转换、属性袋贡献及结果恢复；目录同时展示 Unicode 逻辑出口和 BOOLEAN 三值，属性贡献展示零 Metric 内联 guard 和六个保存算法两种责任形态。输入和独立预期由示例作者给出，客户端只提交 Kotlin 作者程序、读取正式回执并核对结果，不在外围实现 OLAP 计算。
+本用法用公开合成数据，通过完整服务的正式 MCP 建设来源与定义、冻结发布、保存查询、执行计算并读取结果。完整问题覆盖对象集合、日去重、独立事实、名义数量转换、属性袋贡献及结果恢复；目录同时展示 Unicode 逻辑出口和 BOOLEAN 三值，属性贡献展示零 Metric 内联 guard 和六个保存算法两种责任形态。共享资格、归属和完成量再由独立消费者继续组合。输入和独立预期由示例作者给出，客户端只提交 Kotlin 作者程序、读取正式回执并核对结果，不在外围实现 OLAP 计算。
 
-[Populations.kt](Populations.kt) 只准备原始 DuckDB 数据；[main.olap.kts](main.olap.kts) 构造正式模型并完成业务操作。全部九张表、58 列均可空，无 PK、UNIQUE 或记录唯一性声明，共 55 条原始记录。重复行、空串、NULL 和历史分区保留，不把样本中的单次匹配推断为一对一。
+[Populations.kt](Populations.kt) 只准备原始 DuckDB 数据；[main.olap.kts](main.olap.kts) 构造正式模型并完成业务操作；[consume.olap.kts](consume.olap.kts) 在独立会话中发现并消费已发布定义。全部九张表、58 列均可空，无 PK、UNIQUE 或记录唯一性声明，共 55 条原始记录。重复行、空串、NULL 和历史分区保留，不把样本中的单次匹配推断为一对一。
 
 ## 运行与交付
 
 本用法通过完整 MCP 执行核对下述独立预期；运行任务只有在计算、保存、完整读取与生命周期检查都完成后才写出 `passed=true`。这些证据对应本例合成输入，不代表其他业务、后端或任意规模已经通过。
 
 Unicode 逻辑出口已通过本用法的正式建模、发布、查询及完整保存结果读取。外部来源变化后，新旧文本结果分别保存，并在服务重启且移除来源配置后完整读回；下方预期由合成原始数据独立推得，不能代替其他后端或真实业务数据的验收。
+
+正式共享定义、Q1／Q2／Q3 消费和目录资格显式修订已通过完整用法验收。五次消费者调用使用各自独立会话，从获准精确发布发现定义并完整读取保存结果；修订后再消费原发布，保留其原有口径。下述预期由原始数据独立给出，不代表其他后端或私有业务已完成同样采用。
 
 在仓库根使用 JDK 21，显式执行本用法；输出目录必须不存在。
 
@@ -333,5 +335,63 @@ B 的 ratio_f 分母 amount_a=8 合法，分子 amount_c=NULL，因此保留 NUL
 7. 受控变化后的文本结果保存后再重启服务，`read-caption-history` 只通过公开结果读取接口按 `captionResult` 与 `freshCaptionResult` 分别全页读取。旧引用仍是 `山川🦊`／`示例样本`／NULL，新引用是 `山川样本🦊`／NULL／`plain`，两个 BOOLEAN 三值、重复袋和各自完成数量分别保持；历史读取不重新执行来源或用 live 文本替代保存字节。
 
 来源变化由研发准备者直接作用于自有合成库，不给产品新增写源工具。发布固定定义、采用和授权，不冻结持续变化的数据；保存结果则保留当次实际结果。每次执行明确检查读基础为 `UNKNOWN`，不把不同执行描述成共同事务快照；脚本失败也不意味着先前治理写入或远端来源操作被回滚。
+
+## 七、首次建设正式含义，再在独立会话继续提问
+
+原 inline 发布位于主题版本 1，保存算法发布位于版本 2。建设作者随后显式 carry 到版本 3 的 DRAFT，创建、激活并采用以下四个共享 `MemberSourceDefinition.Computed`，再冻结 `reuse-original` 发布：
+
+| 正式采用 code | 正式定义拥有的业务事实 | 公开输入与完整输出 |
+| --- | --- | --- |
+| paid_subjects | 活动期间、first_flag=TRUE、actor 去重计数大于 0、排 NULL subject | from/to；UNIQUE_MEMBERS，完整键 subject |
+| visited_subjects | 访问期间、当前目录归属 LEFT、非 NULL 归属与 actor 计数、对象去重 | from/to；UNIQUE_MEMBERS，完整键 subject |
+| period_activity | 期间活动原袋、完整 subject 分组、金额 SUM、来源行 COUNT、金额非 NULL COUNT | from/to；RECORDS，完整键 subject；amount、records、known |
+| current_catalog | 当前目录 item 去重；eligible 仅 TRUE 参与 qualified_items | 无期间参数；RECORDS，完整键 subject；items、qualified_items |
+
+from/to 是明确的 `yyyyMMdd` TEXT 参数，直接进入各定义自己的条件，不靠调用方继承根条件。付费标记定义沿用已有 `COUNT DISTINCT(actor)>0` 的非 NULL 计数含义；没有为 actor 空串新增政策。访问归属明确使用当前目录，不冒充历史归属；目录原 `eligible` 也不改变访问人口。UNIQUE_MEMBERS 和完成关系的 subject 键来自实际归约，不给原始来源袋补唯一性声明。
+
+共享定义通过 `createMemberDefinition`、激活与 `adoptMemberDefinition` 成为持久资产。来源成员和维度映射由精确采用绑定，正式计算闭包拥有来源筛选、资格、关联和归约；这些内容不会在每个消费问题中重写。`period_activity.amount` 保留现有 activity-value／NativeFloating／Float64；records、known 以及目录数量保持 ONE／Exact／INTEGER64／FAIL。
+
+来源记录数 `source_record_count` 与金额非 NULL 数 `known_amount_count` 是两个真实 `MetricCalculation`。各自通过正式采用闭包调用 period_activity 的实际完成出口，并传递 from/to；二者具备同一 subject 完整键、参数签名和 ONE／Exact／INTEGER64／FAIL 合同。它们的业务含义不同，因此可以在一个声明这种签名的 `MeasurementSlot` 中显式替换，不能把不同名义单位的六个比率也据此互换。
+
+### 从正式目录发现并精确读取
+
+研发客户端先完整分页调用正式 MCP `list-publications`，按明确的 releaseId、releaseVersion、scenarioDisplayName 选择唯一授权条目，再将返回的 scenarioId/scenarioVersion 连同发布坐标传给独立消费脚本。同名歧义应要求明确选择；不按 latest 或列表第一项猜测。这个发布目录按调用者的发布授权过滤，消费脚本不以治理全资产读取作为前提。
+
+`consume.olap.kts` 先调用 `publication` 核对精确入口，再在同一发布中完整分页 `search`，分别找到对象、归属、完成量和计数测量候选。随后 `publishedAsset` 与 `publishedDefinition` 读取真实采用后的成员、实际测量实例和计算定义，核对完整键、参数、输出数量、授权槽位及维度绑定。目录引用使用搜索返回的 coordinate 与语义目录 hash；保存查询则使用 publication 的 capability hash。消费者使用返回的实际引用，不重建资产 ID，也不把执行目录 hash、语义目录 hash 和 capability hash 混用。
+
+脚本只构造本次参数调用、对象 SET 和 BASE／PRESERVE_NULL 对齐。成员定义内部的 CASE、JOIN 和 SUM 不复制到消费作者；REPL 变量、建设作者函数和保存结果也不成为它的输入关系。MEASUREMENT 调用保持空 dimensionSlots／measurementSlots，维度绑定仍归正式采用实例所有。
+
+消费参数如下，精确 scenario 坐标必须来自所选正式目录条目：
+
+| 参数 | 本用法的明确选择 |
+| --- | --- |
+| releaseId | populations-release |
+| releaseVersion | reuse-original 或 reuse-revised |
+| scenarioDisplayName | 对象人口复用 |
+| scenarioId / scenarioVersion | 对应正式发布条目返回的实际值，scenarioVersion 以数值文本传入 |
+| question | Q1、Q2 或 Q3 |
+| selectedCount | Q1/Q2 为 source_record_count；Q3 为 known_amount_count |
+| previousStart / previousEnd | 19991231 / 19991231 |
+| currentStart / currentEnd | Q1/Q3 为 20000101 / 20000102；Q2 为 20000101 / 20000101 |
+
+### 相邻问题的独立预期
+
+A 为前期付费标记对象，B 为本期按当前目录归属的访问对象，C 为本期付费标记对象。Q1 选择 `(A INTERSECT B) EXCEPT C`；Q2 明确换本期并选择 `(A INTERSECT B) INTERSECT C`；Q3 保留 Q1 期间及人口，只把获准计数实例换成金额非 NULL 数。
+
+| 问题与发布 | subject 人口 | amount / records / known | selected_count |
+| --- | --- | --- | --- |
+| 原发布 Q1 | 空串、A、B、C | 空串 NULL/1/0；A NULL/2/0；B 7/1/1；C NULL/NULL/NULL | 空串 1、A 2、B 1、C NULL |
+| 原发布 Q2 | D | 5/1/1 | 1 |
+| 原发布 Q3 | 空串、A、B、C | 与 Q1 相同 | 空串 0、A 0、B 1、C NULL |
+
+Q3 先通过正式 `validate-query` 核对正确的计数调用，再展示一个实际合同错误：把已读到的 activity-value／NativeFloating 金额合同误写到计数槽，仍绑定真实计数实例。正式校验以 `EXECUTABLE_QUERY_NOT_PUBLISHED / AUTHORIZE_INPUT` 拒绝，并说明 `measurement has a different fixed unit`；诊断原样保留到作者回执，这条错误请求不执行来源。实际保存与执行仍使用计数实例自己的正式合同，不改单位、洗精度或加回退来通过。
+
+### 显式修订资格与新旧精确发布
+
+建设作者继续 carry 到主题版本 4 的 DRAFT，将共享 current_catalog 定义修订为 `eligible AND caption_accepted`，激活新的共享版本，再用带 expectedDefinition 的 `reviseMemberAdoption` 更新本主题采用，最后冻结 `reuse-revised`。完整输出、subject 键、items 和数量合同不变，改变的是 qualified_items 的明确业务资格。原 `reuse-original` 发布保留原定义。
+
+在来源尚未 advance 时，新发布 Q1 的 A qualified_items 为 1（原发布为 2），B 为 0（原发布为 1）；空串仍为 1、C 仍为 0，items、人口、活动量和计数不变。独立新会话依次消费原发布 Q1/Q2/Q3、新发布 Q1，再读原发布 Q1，核对两个精确发布各自含义。所有查询都正式保存、明确 SOURCE 执行，并以 limit=1 完整读回；规则修订先于外部来源变化，两个责任分别观察。
+
+build 回执中的 `reuseOriginalPublication`、`reuseRevisedPublication` 只投影正式发布的可追溯坐标；独立消费不接收建设过程中成员 ID、轴 map 或本机私有路径。正式定义负责持久语义，保存 Query 固定本次选择和组合，保存结果保留实际执行内容；这些资产分别拥有自己的生命周期。
 
 正常使用方式见[作者使用指引](../../docs/agent-usage.md)，部署、认证和预算见[服务说明](../../skills/agentic-olap/references/server.md)。本用法不要求业务项目读服务器私有文件、放宽合同、改写生成 SQL 或维护外围计算器。

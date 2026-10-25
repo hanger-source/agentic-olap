@@ -93,6 +93,8 @@ agentic-olap call wait-script --payload '{"executionId":"sources-001","waitMilli
 
 来源条件通过定义声明的 CONDITION 参数显式传给指定事实，不自动继承到子树。长期人口与资格规则沉淀到定义，本次期间与选择由调用者明确。保留单位、算术、缺组、NULL、重复度与贡献关系，不补零、加 MAX、拼身份或去重来制造通过。
 
+消费已有口径时，先从 `list-publications` 明确选择获准的精确发布入口，再在脚本中用 `publication`、`search`、`publishedAsset`、`publishedDefinition` 读取该目录的候选、签名及真实采用。使用实际返回的资产引用和绑定；同名候选、不同单位或粒度不能自动互换。首次建设与后续消费的完整源码见[对象人口与正式定义复用](https://github.com/hanger-source/agentic-olap/tree/main/examples/populations)。
+
 本次内联 Query 可以在 NUMERIC 的 `valueContract.unitEquations` 中显式声明名义单位方程，不必先创建 Metric，也不借用已发布 Metric 的输出合同授权方程。方程只作用于这个 NUMERIC 直接包住的运算；引擎核对实际单位、运算符、精确倍率及输出合同，场景对输入、节点和算子的权限继续生效。声明不登记或覆盖长期定义；需要复用完整口径时保存真实计算，不创建只有方程的空壳 Metric。成员出口和关系形参只声明数量事实，方程留在计算体。规则与可定位的单位错误见[数量合同与人口](https://github.com/hanger-source/agentic-olap/blob/main/docs/agent-usage.md#数量合同与人口)。
 
 均值由 `MeanTarget.MATHEMATICAL` 或 `SOURCE_NATIVE` 显式选择；作者声明最终数量与量化，不照填插件原生舍入。事实、完成／窗口及快照共用此目标，实际输入保证不会因 DECIMAL 或精确算法升级；快照中间量化保留。插件描述实际节点行为，内核核能否兑现，不自动改 SUM/COUNT、CORE 或 DOUBLE。完整语义与来源边界见[数量合同与人口](https://github.com/hanger-source/agentic-olap/blob/main/docs/agent-usage.md#数量合同与人口)及[来源接入](references/connections.md)。

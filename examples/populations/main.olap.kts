@@ -155,7 +155,7 @@ class PopulationExample {
         val definition = MemberSourceDefinition.Projection(EventRef(event.id, 1), MemberResult(name, "records", MemberShape.RAW_BAG, emptyList(), declared, allowed, null, emptyMap(), null))
         members[name] = governance.createMemberSource(MemberSourceCreateRequest(subject.id, 1, name, name, definition, CalculationBindings.empty(), emptyMap(), actor))
     }
-    fun savedContext() {
+    fun savedContext(): SubjectContextRevisionResult {
         // 显式延续同一主题的成员、轴、场景；旧发布仍保持版本1，不重建P/S或业务采用。
         val carry = olap.semantics.contextSelection(SubjectContextSelectionRequest(subject.id, subject.currentVersion)).selection
         val revised = governance.reviseSubjectArea(SubjectContextRevisionRequest(subject.id, subject.currentVersion, subjectDefinition, carry))
@@ -167,6 +167,7 @@ class PopulationExample {
         val mappings = olap.semantics.dimensionMappings(GovernanceReadRequests.VersionPageInput(dimension.id, dimension.targetVersion, 0, 100))
         check(mappings.items.size.toLong() == mappings.total.toLong() && mappings.items.size == bindings.size)
         axis = CalculationBindings.Dimension(ScopedInputContract.DimensionRef(dimension.id, dimension.targetVersion.toString(), "subject"), "subject", mappings.items.map { it.id })
+        return revised
     }
     fun createAxis() {
         val analysis = governance.createAnalysisDimension(AnalysisDimensionCreateRequest(subject.id, 1, "subject", "对象", "同一来源声明的完整TEXT身份", "subject", "subject", actor)).analysisDimension
@@ -174,9 +175,10 @@ class PopulationExample {
         val mappings = bindings.map { binding -> governance.createAnalysisDimensionEventMapping(AnalysisDimensionEventMappingCreateRequest(analysis.id, 1, "subject", binding.id, 1, "PROVEN_SAME_KEY", alignment.id)).mapping }
         axis = CalculationBindings.Dimension(ScopedInputContract.DimensionRef(analysis.id, "1", "subject"), "subject", mappings.map { it.id })
     }
-    fun publication(version: String, metrics: List<SubjectAreaMetricRefRecord> = emptyList()): PublishedQueryEntry {
-        val scenario = governance.createScenario(ScenarioCreateRequest(subject.id, subject.currentVersion, "scenario_$version", "人口组合$version", actor, "正式成员与实际阶段授权", actor)).scenario
-        members.forEach { (name, member) -> governance.createScenarioMemberSourceRef(ScenarioMemberSourceRefCreateRequest(scenario.id, 1, member.id, member.subjectAreaVersion, MemberQueryPermission(outputs.getValue(name).keys.toList(), emptyList(), filters.getValue(name), false, emptyList()))) }
+    fun publication(version: String, metrics: List<SubjectAreaMetricRefRecord> = emptyList(), memberNames: List<String> = members.keys.toList(), displayName: String = "人口组合$version"): PublishedQueryEntry {
+        val scenario = governance.createScenario(ScenarioCreateRequest(subject.id, subject.currentVersion, "scenario_${version.replace('-', '_')}", displayName, actor, "正式成员与实际阶段授权", actor)).scenario
+        memberNames.forEach { name -> val member = members.getValue(name)
+            governance.createScenarioMemberSourceRef(ScenarioMemberSourceRefCreateRequest(scenario.id, 1, member.id, member.subjectAreaVersion, MemberQueryPermission(outputs.getValue(name).keys.toList(), emptyList(), filters.getValue(name), false, emptyList()))) }
         governance.createScenarioAnalysisDimensionRef(ScenarioAnalysisDimensionRefCreateRequest(scenario.id, 1, axis.reference.id, axis.reference.version.toLong(), "subject", true, 1))
         metrics.forEachIndexed { index, metric -> governance.createScenarioMetricRef(ScenarioMetricRefCreateRequest(scenario.id, 1, metric.id, metric.subjectAreaVersion, true, index + 1)) }
         listOf("POST_FILTER", "DERIVE", "REGROUP", "JOIN_INPUT", "PROJECT").forEachIndexed { index, stage -> governance.createScenarioPipelineRule(ScenarioPipelineRuleCreateRequest(scenario.id, 1, stage, index + 1, stageAuthorization(stage))) }
@@ -508,6 +510,125 @@ fun attributeReport(details: QueryComputation.Scope): QueryComputation.Scope {
     return QueryComputation.Scope(details.root, details.inputs, details.stages + stages)
 }
 
+val reusePeriod = linkedMapOf("from" to Calculation.Parameter(Calculation.ParameterKind.SCALAR, "TEXT", emptyList(), null, null),
+    "to" to Calculation.Parameter(Calculation.ParameterKind.SCALAR, "TEXT", emptyList(), null, null))
+fun reusePeriodCondition() = MemberCondition.Predicate("day", MemberCondition.Operator.BETWEEN, listOf(Calculation.Argument("from"), Calculation.Argument("to")))
+fun reuseSlot(e: PopulationExample, name: String, source: String, columns: List<String>): Calculation.MemberSlot {
+    val result = e.members.getValue(source).definition.result
+    return Calculation.MemberSlot(name, result.entity, result.role, result.shape, columns.associateWith { column ->
+        when (val output = result.outputs.getValue(column)) {
+            is MemberSourceDefinition.DimensionOutput, is MemberSourceDefinition.ComputedDimensionOutput -> Calculation.MemberDimension("subject", MemberSourceDefinition.rootValueContract(output))
+            is MemberSourceDefinition.ScalarOutput -> Calculation.MemberProperty(output.role, output.valueType, output.valueContract)
+            else -> error("本例复用定义只接收正式标量出口")
+        }
+    }, null)
+}
+fun reuseSource(e: PopulationExample, source: String, columns: List<String>, arguments: Map<String, Calculation.Binding> = emptyMap()): CalculationBindings.SourceCall {
+    val member = e.members.getValue(source)
+    return CalculationBindings.SourceCall(MemberRef(member.id, member.subjectAreaVersion), arguments, columns.associateWith { it }, emptyMap(), emptyMap())
+}
+fun reuseMembers(name: String, columns: List<String>, condition: MemberCondition) = calc(Calculation.Members(name, name, columns.map { Calculation.MemberProjection(it, it) }, null, emptyMap(), condition))
+fun reuseResult(calculation: Calculation, quantities: Map<String, Pair<String, MetricValueContract>>, subjectSymbol: String, shape: MemberShape, description: String): MemberSourceDefinition.Computed {
+    val outputs = linkedMapOf<String, MemberSourceDefinition.Output>("subject" to MemberSourceDefinition.ComputedDimensionOutput("对象", "subject", ScalarValueType.TEXT, "subject", subjectSymbol, null))
+    quantities.forEach { (name, value) -> outputs[name] = MemberSourceDefinition.ComputedPropertyOutput(name, name, ScalarValueType.NUMBER, value.first, value.second) }
+    return MemberSourceDefinition.Computed(calculation, MemberResult("population_subject", "subject", shape, listOf("subject"), outputs, emptyMap(), null, emptyMap(), description))
+}
+fun paidDefinition(e: PopulationExample): MemberSourceDefinition.Computed {
+    val columns = listOf("subject", "day", "first_flag", "actor")
+    val rows = reuseMembers("activity", columns, MemberCondition.All(listOf(reusePeriodCondition(), condition("first_flag", ScalarValueType.BOOLEAN, MemberCondition.Operator.EQ, "true"))))
+    val body = Calculation.Scope(rows.root, rows.inputs, listOf(PostFilter(nonnull("subject")), regroup(listOf("subject"), counted("actor", "paid_actors", true)),
+        PostFilter(op(ResultOperator.GT, sym("paid_actors"), number("0", count))), Project(listOf("subject"))))
+    return reuseResult(Calculation(listOf(e.slot), listOf(reuseSlot(e, "activity", "activity", columns)), emptyList(), emptyList(), reusePeriod, body),
+        emptyMap(), "subject", MemberShape.UNIQUE_MEMBERS, "明确期间内first_flag为TRUE且至少一个非NULL actor；不新增actor空串政策")
+}
+fun visitedDefinition(e: PopulationExample): MemberSourceDefinition.Computed {
+    val visits = listOf("item", "actor", "day"); val catalog = listOf("subject", "item", "current_partition")
+    val rows = reuseMembers("visits", visits, reusePeriodCondition())
+    val directory = reuseMembers("catalog", catalog, condition("current_partition", ScalarValueType.BOOLEAN, MemberCondition.Operator.EQ, "true"))
+    val body = Calculation.Scope(rows.root, mapOf("directory" to Calculation.InputScope("RELATION", directory)), listOf(
+        JoinInput("directory", "d", "LEFT", op(ResultOperator.EQ, sym("item"), sym("d__item"))), PostFilter(nonnull("d__subject")),
+        regroup(listOf("d__subject"), counted("actor", "visit_actors", true)), PostFilter(op(ResultOperator.GT, sym("visit_actors"), number("0", count))), Project(listOf("d__subject"))))
+    return reuseResult(Calculation(listOf(e.slot), listOf(reuseSlot(e, "visits", "visits", visits), reuseSlot(e, "catalog", "catalog", catalog)), emptyList(), emptyList(), reusePeriod, body),
+        emptyMap(), "d__subject", MemberShape.UNIQUE_MEMBERS, "期间访问按当前目录归属，有非NULL actor；目录eligible不改变访问人口，不声称历史归属")
+}
+fun activityDefinition(e: PopulationExample): MemberSourceDefinition.Computed {
+    val columns = listOf("subject", "day", "amount")
+    val rows = reuseMembers("activity", columns, reusePeriodCondition())
+    val amount = requireNotNull(MemberSourceDefinition.rootValueContract(e.outputs.getValue("activity").getValue("amount")))
+    val body = Calculation.Scope(rows.root, rows.inputs, listOf(PostFilter(nonnull("subject")), regroup(listOf("subject"), sum("amount", "amount_total", amount), counted("subject", "records"), counted("amount", "known"))))
+    return reuseResult(Calculation(listOf(e.slot), listOf(reuseSlot(e, "activity", "activity", columns)), emptyList(), emptyList(), reusePeriod, body),
+        linkedMapOf("amount" to ("amount_total" to amount), "records" to ("records" to count), "known" to ("known" to count)), "subject", MemberShape.RECORDS,
+        "期间活动原袋按完整subject完成金额/来源行/金额非NULL行，真实组全NULL与无组分别保留")
+}
+fun catalogDefinition(e: PopulationExample, requireCaption: Boolean): MemberSourceDefinition.Computed {
+    val columns = listOf("subject", "item", "current_partition", "eligible", "caption_accepted")
+    val rows = reuseMembers("catalog", columns, condition("current_partition", ScalarValueType.BOOLEAN, MemberCondition.Operator.EQ, "true"))
+    val policy = if (requireCaption) op(ResultOperator.AND, sym("eligible"), sym("caption_accepted")) else sym("eligible")
+    val body = Calculation.Scope(rows.root, rows.inputs, listOf(PostFilter(nonnull("subject")), Derive(choose(policy, sym("item")), "qualified_item", "目录资格只取完整谓词TRUE"),
+        regroup(listOf("subject"), counted("item", "items", true), counted("qualified_item", "qualified_items", true))))
+    return reuseResult(Calculation(listOf(e.slot), listOf(reuseSlot(e, "catalog", "catalog", columns)), emptyList(), emptyList(), emptyMap(), body),
+        linkedMapOf("items" to ("items" to count), "qualified_items" to ("qualified_items" to count)), "subject", MemberShape.RECORDS,
+        if (requireCaption) "当前目录item去重；资格为eligible AND caption_accepted，仅TRUE参与" else "当前目录item去重；资格为eligible，仅TRUE参与")
+}
+fun reusePublications(e: PopulationExample): Map<String, ScriptValue> {
+    // v1 inline和v2 saved均已冻结；正式复用资产在carry后的v3 DRAFT首次建设。
+    e.savedContext()
+    val definitions = linkedMapOf<String, MemberDefinitionRecord>()
+    fun adopt(code: String, displayName: String, definition: MemberSourceDefinition.Computed, sources: Map<String, CalculationBindings.SourceCall>) {
+        val created = e.governance.createMemberDefinition(MemberDefinitionCreateRequest("population_$code", displayName, definition, definition.result.description, e.actor, e.actor))
+        e.activate("MEMBER_DEFINITION", created.id, created.currentVersion)
+        val adopted = e.governance.adoptMemberDefinition(MemberDefinitionAdoptRequest(e.subject.id, e.subject.currentVersion, code, displayName, created.reference,
+            CalculationBindings(mapOf("subject" to e.axis), sources, emptyMap(), emptyMap(), emptyMap()), emptyMap(), e.actor))
+        definitions[code] = created; e.members[code] = adopted; e.outputs[code] = definition.result.outputs; e.filters[code] = definition.result.filterOperators
+    }
+    adopt("paid_subjects", "复用付费标记对象", paidDefinition(e), mapOf("activity" to reuseSource(e, "activity", listOf("subject", "day", "first_flag", "actor"))))
+    adopt("visited_subjects", "复用当前目录访问对象", visitedDefinition(e), mapOf("visits" to reuseSource(e, "visits", listOf("item", "actor", "day")),
+        "catalog" to reuseSource(e, "catalog", listOf("subject", "item", "current_partition"))))
+    adopt("period_activity", "复用期间活动完成量", activityDefinition(e), mapOf("activity" to reuseSource(e, "activity", listOf("subject", "day", "amount"))))
+    adopt("current_catalog", "复用当前目录完成量", catalogDefinition(e, false), mapOf("catalog" to reuseSource(e, "catalog", listOf("subject", "item", "current_partition", "eligible", "caption_accepted"))))
+    fun countMetric(code: String, field: String, displayName: String): SubjectAreaMetricRefRecord {
+        val member = e.members.getValue("period_activity").definition.result
+        val slot = Calculation.MemberSlot("completed", member.entity, member.role, member.shape,
+            mapOf("subject" to Calculation.MemberDimension("subject", null), "quantity" to Calculation.MemberProperty(member.outputs.getValue(field).role, ScalarValueType.NUMBER, count)), null)
+        val rows = reuseMembers("completed", listOf("subject", "quantity"), MemberCondition.Unrestricted())
+        val definition = MetricCalculation(Calculation(listOf(e.slot), listOf(slot), emptyList(), emptyList(), reusePeriod,
+            Calculation.Scope(rows.root, rows.inputs, listOf(Derive(sym("quantity"), "value", displayName), Project(listOf("subject", "value"))))), "value", listOf("subject"), count)
+        val meaning = MetricBusinessMeaning(displayName, "ONE/Exact/I64", "完整subject键的期间活动", listOf("调用正式period_activity闭包，不继承本次集合资格"))
+        val metric = e.governance.createMetricCalculation(MetricCalculationCreateRequest("population_$code", displayName, e.actor, definition, "来源和归约由正式Computed定义拥有", meaning, e.actor)).metric
+        e.activate("METRIC", metric.id)
+        val source = e.members.getValue("period_activity")
+        val binding = CalculationBindings.SourceCall(MemberRef(source.id, source.subjectAreaVersion), mapOf("from" to Calculation.Argument("from"), "to" to Calculation.Argument("to")),
+            mapOf("subject" to "subject", "quantity" to field), emptyMap(), emptyMap())
+        return e.governance.createSubjectAreaMetricRef(SubjectAreaMetricRefCreateRequest(e.subject.id, e.subject.currentVersion, code, displayName, meaning, metric.id, 1,
+            CalculationBindings(mapOf("subject" to e.axis), mapOf("completed" to binding), emptyMap(), emptyMap(), emptyMap()), emptyMap(), e.actor)).subjectAreaMetricRef
+    }
+    val metrics = listOf(countMetric("source_record_count", "records", "期间来源记录数"), countMetric("known_amount_count", "known", "期间金额非NULL数"))
+    val names = definitions.keys.toList()
+    val original = e.publication("reuse-original", metrics, names, "对象人口复用")
+    // 规则修订先完成并发布，再由独立外部阶段改变来源；旧发布仍引用原定义。
+    val revisedContext = e.savedContext()
+    val oldDefinition = definitions.getValue("current_catalog")
+    val revised = e.governance.reviseMemberDefinition(GovernanceRevisionRequest(oldDefinition.id, oldDefinition.currentVersion,
+        MemberDefinitionCreateRequest(oldDefinition.code, oldDefinition.displayName, catalogDefinition(e, true), "目录资格明确增加caption_accepted", e.actor, e.actor)))
+    e.activate("MEMBER_DEFINITION", revised.id, revised.currentVersion)
+    val previous = e.members.getValue("current_catalog")
+    val current = e.governance.reviseMemberAdoption(MemberAdoptionRevisionRequest(MemberRef(previous.id, previous.subjectAreaVersion), oldDefinition.reference, revised.reference,
+        previous.displayName, previous.bindings, previous.fixedArguments, e.actor))
+    e.members["current_catalog"] = current; e.outputs["current_catalog"] = current.definition.result.outputs
+    val carried = olap.semantics.metricAdoptions(GovernanceReadRequests.VersionPageInput(e.subject.id, e.subject.currentVersion, 0, 100))
+    check(carried.items.size.toLong() == carried.total.toLong())
+    val selected = carried.items.filter { it.code in setOf("source_record_count", "known_amount_count") }
+    check(selected.map { it.code }.toSet() == setOf("source_record_count", "known_amount_count") && selected.size == 2)
+    val scenario = revisedContext.carried.single { it.assetType == "SCENARIO" && it.id == original.capability.scenario.scenarioId }
+    e.activate("SUBJECT_AREA", e.subject.id, e.subject.currentVersion)
+    e.governance.buildRelease(SubjectAreaReleaseBuildRequest("populations-release", "reuse-revised", "目录资格显式修订的复用发布", e.subject.id, e.subject.currentVersion, e.actor, e.adopted))
+    val updated = olap.semantics.publication(QueryCapabilityRequest(scenario.id, scenario.targetVersion, "populations-release", "reuse-revised"))
+    fun coordinate(entry: PublishedQueryEntry) = ScriptValue.ObjectValue(mapOf("releaseId" to ScriptValue.Text(entry.capability.releaseId), "releaseVersion" to ScriptValue.Text(entry.capability.releaseVersion),
+        "scenarioId" to ScriptValue.Text(entry.capability.scenario.scenarioId), "scenarioVersion" to ScriptValue.DecimalValue(BigDecimal.valueOf(entry.capability.scenario.scenarioVersion)),
+        "scenarioDisplayName" to ScriptValue.Text(entry.capability.scenario.scenarioDisplayName)))
+    return mapOf("reuseOriginalPublication" to coordinate(original), "reuseRevisedPublication" to coordinate(updated))
+}
+
 fun installInputs(e: PopulationExample) {
     fun texts(vararg names: String) = names.associateWith { ScalarValueType.TEXT }
     fun numbers(vararg names: String) = names.associateWith { ScalarValueType.NUMBER }
@@ -572,7 +693,7 @@ fun build(): ScriptValue.ObjectValue {
     independentCounts.forEach { (name, counts) -> reportSuffixes.zip(counts).forEach { (suffix, value) -> reportExpected["${name}_$suffix"] = value.toString() } }
     expect(report.rows, mapOf("total" to reportExpected), "")
     check(report.rows.single().size == 79)
-    return references(primary.query, primary.result, captions.query, captions.result)
+    return ScriptValue.ObjectValue(references(primary.query, primary.result, captions.query, captions.result).values + reusePublications(e))
 }
 olap.output(when (parameters.text("phase")) {
     "build" -> build()

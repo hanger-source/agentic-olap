@@ -151,6 +151,48 @@ internal class Scenario(private val name: String, private val distribution: Path
                 check(after == sourceBindings) { "来源绑定在服务重开后变化" }
                 report["reopen"] = client.script(author, savedParameters.with("phase" to text("reopen")), version).succeeded().report
             }
+            if (name == "populations") {
+                val consumer = Files.readString(workspace.resolve("examples/populations/consume.olap.kts"))
+                fun consume(publication: String, question: String, selectedCount: String): JsonObject {
+                    val selected = references.objectAt(publication).objectAt("object").objectAt("values")
+                    val releaseId = selected.objectAt("releaseId").getValue("text")
+                    val releaseVersion = selected.objectAt("releaseVersion").getValue("text")
+                    val scenarioName = selected.objectAt("scenarioDisplayName").getValue("text")
+                    val candidates = buildList {
+                        var offset = 0
+                        while (true) {
+                            val page = client.call("list-publications", objectOf("releaseId" to releaseId,
+                                "offset" to number(offset), "limit" to number(1))).jsonObject
+                            addAll(page.array("items").map { it.jsonObject })
+                            val nextValue = page.getValue("nextOffset")
+                            if (nextValue == JsonNull) break
+                            val next = nextValue.jsonPrimitive.int
+                            check(next > offset) { "发布发现的分页未前进" }
+                            offset = next
+                        }
+                    }
+                    val entry = candidates.single { it["releaseId"] == releaseId && it["releaseVersion"] == releaseVersion &&
+                        it["scenarioDisplayName"] == scenarioName }
+                    val request = objectOf(
+                        "releaseId" to releaseId, "releaseVersion" to releaseVersion, "scenarioDisplayName" to scenarioName,
+                        "scenarioId" to entry.getValue("scenarioId"),
+                        "scenarioVersion" to text(entry.getValue("scenarioVersion").jsonPrimitive.long.toString()),
+                        "question" to text(question), "selectedCount" to text(selectedCount),
+                        "previousStart" to text("19991231"), "previousEnd" to text("19991231"),
+                        "currentStart" to text("20000101"), "currentEnd" to text(if (question == "Q2") "20000101" else "20000102")
+                    )
+                    return client.script(consumer, request, version, "consume-populations.olap.kts").succeeded().report
+                }
+                start("consume-definitions").use {
+                    report["semanticReuse"] = objectOf(
+                        "originalQ1" to consume("reuseOriginalPublication", "Q1", "source_record_count"),
+                        "originalQ2" to consume("reuseOriginalPublication", "Q2", "source_record_count"),
+                        "originalQ3" to consume("reuseOriginalPublication", "Q3", "known_amount_count"),
+                        "revisedQ1" to consume("reuseRevisedPublication", "Q1", "source_record_count"),
+                        "originalQ1AfterRevision" to consume("reuseOriginalPublication", "Q1", "source_record_count")
+                    )
+                }
+            }
             config = config.with("connectors" to JsonArray(emptyList()), "dataSources" to JsonArray(emptyList()))
             write(configPath, config)
             start("saved-result-without-source").use {
