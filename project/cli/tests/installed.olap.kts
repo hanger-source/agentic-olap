@@ -119,16 +119,16 @@ olap.output(when (parameters.text("phase")) {
             MetricValueContract.Integer(64), emptyMap(), MetricValueContract.Overflow.FAIL)
         val specifications = listOf(
             Triple("sales_amount", MetricDefinition.FactMeasure(EventRef(event.id, 1), SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT,
-                units.getValue("AMOUNT").id, 1), MetricAggregation.SUM, false, null, emptyMap(), null, amount, MetricValueContract.Rounding.NONE),
+                units.getValue("AMOUNT").id, 1), MetricAggregation.SUM, false, null, emptyMap(), null, amount),
                 MetricBusinessMeaning("所有已登记订单的金额之和", "CNY", "订单", listOf("不含退款及状态限定"))),
             Triple("order_count", MetricDefinition.FactMeasure(EventRef(event.id, 1), SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT,
-                units.getValue("ORDER_ID").id, 1), MetricAggregation.COUNT, false, null, emptyMap(), null, count, MetricValueContract.Rounding.NONE),
+                units.getValue("ORDER_ID").id, 1), MetricAggregation.COUNT, false, null, emptyMap(), null, count),
                 MetricBusinessMeaning("已登记订单记录数", "单", "订单", listOf("不作客户去重"))),
             Triple("day_sum", MetricDefinition.FactMeasure(EventRef(event.id, 1), SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT,
-                units.getValue("CALENDAR_DAYS").id, 1), MetricAggregation.SUM, false, null, emptyMap(), null, days, MetricValueContract.Rounding.NONE),
+                units.getValue("CALENDAR_DAYS").id, 1), MetricAggregation.SUM, false, null, emptyMap(), null, days),
                 MetricBusinessMeaning("订单记录日历天数之和", "日历天", "订单", emptyList())),
             Triple("valid_count", MetricDefinition.FactMeasure(EventRef(event.id, 1), SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT,
-                units.getValue("CALENDAR_DAYS").id, 1), MetricAggregation.COUNT, false, null, emptyMap(), null, count, MetricValueContract.Rounding.NONE),
+                units.getValue("CALENDAR_DAYS").id, 1), MetricAggregation.COUNT, false, null, emptyMap(), null, count),
                 MetricBusinessMeaning("有非空日历天数的订单数", "单", "订单", emptyList()))
         )
         val metrics = specifications.map { (code, definition, meaning) ->
