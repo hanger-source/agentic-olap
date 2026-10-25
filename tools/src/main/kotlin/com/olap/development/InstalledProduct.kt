@@ -80,7 +80,7 @@ internal class InstalledProduct(private val tarballs: Path, private val root: Pa
             val numeric = divisionResult(numericReference)
             authorContracts(query, result)
             val serialCalls = serialCapabilities(built)
-            val sourceAdoption = sourceAdoptionContracts(built)
+            val sourceAdoption = sourceAdoptionContracts(built, snapshotId)
             val approvals = stageApprovalContracts(businessLineId, built.objectAt("scenarioId").string("text"))
             stop(); start("analysis-reopened"); initializeClient()
             salesResult(result)
@@ -283,22 +283,19 @@ internal class InstalledProduct(private val tarballs: Path, private val root: Pa
             session?.let { check(client.call("close-script-session", objectOf("sessionId" to text(it))).jsonObject.string("state") == "CLOSED") }
         }
     }
-    private fun sourceAdoptionContracts(built: JsonObject): JsonObject {
+    private fun sourceAdoptionContracts(built: JsonObject, snapshotId: String): JsonObject {
         val registered = client.script("""
             val logical = olap.semantics.definition(GovernanceReadRequests.AssetVersionRequest("LOGICAL_TABLE", parameters.text("logicalTableId"), 1)) as GovernanceDefinition.LogicalTable
             val physical = PhysicalTableRef(logical.physicalTableId, logical.physicalTableVersion)
             val definition = olap.semantics.definition(GovernanceReadRequests.AssetVersionRequest("PHYSICAL_TABLE", physical.id, physical.version)) as GovernanceDefinition.PhysicalTable
-            val snapshots = olap.semantics.sourceDiscoveries(GovernanceReadRequests.SourceDiscoveriesInput(definition.dataContract.dataSourceId, null, null, 0, Int.MAX_VALUE)).items
-            val existing = snapshots.flatMap { snapshot ->
-                olap.semantics.sourceAdoptions(SourceAdoptionReadRequest(snapshot.id)).items
-            }.single { it.physicalTable == physical }
+            val existing = olap.semantics.sourceAdoptions(SourceAdoptionReadRequest(parameters.text("snapshotId"))).items.single { it.physicalTable == physical }
             existing.requireContract(definition.dataContract)
             val adopted = olap.governance.registerSourceAdoptions(SourceAdoptionRegistrationRequest(listOf(physical), existing.evidence.discoverySnapshotId, olap.caller.subject))
             check(adopted.references == listOf(existing.reference) && adopted.items == listOf(existing))
             val recovered = olap.semantics.sourceAdoptions(SourceAdoptionReadRequest(existing.evidence.discoverySnapshotId))
             check(recovered.items.single { it.reference == existing.reference } == existing)
             olap.output(ScriptValue.Text(adopted.references.single().id))
-        """.trimIndent(), objectOf("logicalTableId" to built.objectAt("logicalTableId").getValue("text")), dslVersion).succeeded()
+        """.trimIndent(), objectOf("logicalTableId" to built.objectAt("logicalTableId").getValue("text"), "snapshotId" to text(snapshotId)), dslVersion).succeeded()
         val calls = registered.report.array("calls").map { it.jsonObject }
         val write = calls.single { it["operationId"] == text("register-source-adoptions") }
         check(calls.all { it.getValue("success").jsonPrimitive.boolean })
