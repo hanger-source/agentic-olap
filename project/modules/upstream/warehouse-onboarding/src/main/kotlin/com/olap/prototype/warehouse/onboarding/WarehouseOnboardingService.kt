@@ -3,6 +3,7 @@ package com.olap.prototype.warehouse.onboarding
 import com.olap.prototype.contract.ProducerContractException
 import com.olap.prototype.governance.contract.PhysicalAssetRegistrar
 import com.olap.prototype.management.warehouse.WarehouseRegistryService
+import com.olap.prototype.management.warehouse.PhysicalSourceAdoptionService
 import com.olap.prototype.warehouse.SourceGuaranteeException
 import com.olap.prototype.warehouse.WarehouseExecutionControl
 import com.olap.prototype.warehouse.WarehouseSourceInspection
@@ -10,13 +11,16 @@ import com.olap.prototype.warehouse.contract.SourceBindingRef
 import com.olap.prototype.warehouse.contract.SourceCollectionRecord
 import com.olap.prototype.warehouse.contract.SourceConfiguration
 import com.olap.prototype.warehouse.contract.StructureProvenance
+import com.olap.prototype.warehouse.contract.SourceAdoptionRegistrationRequest
+import com.olap.prototype.warehouse.contract.SourceAdoptionReadRequest
+import com.olap.prototype.warehouse.contract.SourceAdoptions
 import com.olap.prototype.warehouse.inspection.*
 import java.time.Instant
 import java.util.UUID
 
 /** 接入应用只组织获授权绑定、调查与采用；具体来源访问通过正式插件端口完成。 */
 class WarehouseOnboardingService(physicalAssets: PhysicalAssetRegistrar, private val registry: WarehouseRegistryService,
-    private val authorizedSources: (SourceBindingRef) -> SourceConfiguration?) {
+    private val authorizedSources: (SourceBindingRef) -> SourceConfiguration?, private val sourceAdoptions: PhysicalSourceAdoptionService) {
     private val recording = WarehouseDiscoveryRecording(registry)
     private val adoption = DiscoveredPhysicalTableAdoption(physicalAssets, registry)
     private val sealed = SealedSourceRegistration(registry)
@@ -48,6 +52,13 @@ class WarehouseOnboardingService(physicalAssets: PhysicalAssetRegistrar, private
     fun registerSourceDataset(request: SourceDatasetRegistrationRequest, control: WarehouseExecutionControl, inspector: WarehouseSourceInspection): List<SourceCollectionRecord> =
         sealed.register(requireAuthorizedSource(SourceBindingRef(request.dataSourceId, request.sourceIdentityHash)), request, control, inspector)
     fun register(request: DiscoveredPhysicalTableRegistrationRequest): RegisteredPhysicalTable = adoption.adopt(request)
+    fun registerSourceAdoptions(request: SourceAdoptionRegistrationRequest): SourceAdoptions {
+        requireAuthorizedSnapshot(request.discoverySnapshotId)
+        return sourceAdoptions.register(request)
+    }
+    fun readSourceAdoptions(request: SourceAdoptionReadRequest): SourceAdoptions {
+        return sourceAdoptions.read(request)
+    }
     fun preview(request: DiscoveredTablePreviewRequest, control: WarehouseExecutionControl, inspector: WarehouseSourceInspection): WarehousePreview {
         val table = registry.findDiscoveredTable(request.discoveredTableId)
             ?: throw ProducerContractException("warehouse_discovered_table.id not found: ${request.discoveredTableId}")
@@ -64,5 +75,9 @@ class WarehouseOnboardingService(physicalAssets: PhysicalAssetRegistrar, private
         if (deployed == null || deployed.bindingRef() != reference || deployed.bindingRef() != registered.reference)
             throw ProducerContractException("exact source binding is not authorized by deployment: $reference")
         return deployed
+    }
+    private fun requireAuthorizedSnapshot(id: String) {
+        val snapshot = registry.findDiscoverySnapshot(id) ?: throw ProducerContractException("exact source adoption snapshot is missing: $id")
+        requireAuthorizedSource(SourceBindingRef(snapshot.dataSource, snapshot.sourceIdentityHash))
     }
 }

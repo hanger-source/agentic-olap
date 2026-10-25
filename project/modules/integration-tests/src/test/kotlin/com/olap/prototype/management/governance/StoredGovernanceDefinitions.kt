@@ -38,14 +38,15 @@ internal class StoredGovernanceDefinitions(private val database: PlatformDatabas
                 time, primaryKey, false, !aggregatable, aggregatable, status, version, "tester", now, null, null), emptyList()))
     }
 
-    fun physicalTable(version: Long, displayName: String, tableName: String, columnId: String, columnVersion: Long, status: String = "ACTIVE") {
+    fun physicalTable(version: Long, displayName: String, tableName: String, columnId: String, columnVersion: Long,
+        columnName: String, columnType: JdbcColumnType, status: String = "ACTIVE") {
         if (version == 1L) execute("INSERT INTO physical_table (id,code,created_by,created_at) VALUES (?,?,?,?)", "pt_orders", "ods.orders", "tester", now)
-        val constraints = PhysicalSourceConstraints("declared-storage-fixture", "schema", "0".repeat(64), TestConnectors.ref("duckdb"),
-            null, null, null, null, JdbcTableConstraints(emptyList(), emptyList(), emptyList(), emptyList()),
-            mapOf(tableName to "$columnId@$columnVersion"), emptyList(), StructureProvenance(StructureProvenance.Kind.DECLARED, "storage-fixture", "1"))
+        val contract = PhysicalDataContract(PhysicalTableRef("pt_orders", version), "duckdb", JdbcTableConstraints.Table(null, "main", tableName),
+            mapOf(columnName to PhysicalDataContract.Column("$columnId@$columnVersion", columnType)),
+            JdbcTableConstraints(emptyList(), emptyList(), emptyList(), emptyList()), emptyList(), emptyList(), "declared-storage-fixture")
         version("physical_table_version", "physical_table_id", "pt_orders", version, status, GovernanceDefinition.PhysicalTable(
-            PhysicalTableRecord("pt_orders", "ods.orders", displayName, "duckdb", "duckdb", null, "main", tableName, "snapshot", "data", "LOADED", 100,
-                "schema", status, version, "tester", now, null, null), listOf(GovernanceDefinition.VersionRef(columnId, columnVersion)), constraints, null, null, null))
+            PhysicalTableRecord("pt_orders", "ods.orders", displayName, "duckdb", null, "main", tableName, "snapshot", "data", "LOADED", 100,
+                status, version, "tester", now, null, null), listOf(GovernanceDefinition.VersionRef(columnId, columnVersion)), contract, null, null, null))
     }
 
     fun physicalColumn(id: String, name: String, position: Int = 1, version: Long = 1, status: String = "ACTIVE", displayName: String = name, dataType: String = "varchar") {

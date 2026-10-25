@@ -7,7 +7,8 @@ import com.olap.prototype.contract.JdbcColumnType
 import com.olap.prototype.engine.catalog.ExecutablePhysicalExecutionBinding
 import com.olap.prototype.expression.SemanticNativeTypes
 import com.olap.prototype.util.OlapJsonUtils
-import com.olap.prototype.warehouse.contract.JdbcConnectionSpec
+import com.olap.prototype.warehouse.contract.*
+import com.olap.prototype.codec.GovernanceProto
 import com.olap.prototype.warehouse.jdbc.JdbcConnectionFactory
 import org.apache.calcite.jdbc.JavaTypeFactoryImpl
 import java.nio.file.Files
@@ -96,7 +97,11 @@ object TestConnectors {
         })) { "test driver did not accept its declared URL" }
 
     fun physical(binding: ExecutablePhysicalExecutionBinding): ExecutablePhysicalExecutionBinding {
-        val connector = binding.sourceConstraints.connectorRef
-        return binding.copy(connectorRef = connector, qualifiedTablePath = registry.require(connector).compilation.tablePath(binding.catalogName, binding.schemaName, binding.tableName))
+        return binding.copy(qualifiedTablePath = registry.require(binding.adoption.connectorRef).compilation.tablePath(binding.catalogName, binding.schemaName, binding.tableName))
     }
+
+    fun adoption(contract: PhysicalDataContract, source: SourceConfiguration, evidence: PhysicalSourceEvidence): PhysicalSourceAdoption =
+        PhysicalSourceAdoption(GovernanceProto.sourceAdoptionReference(contract.reference, source.bindingRef(), source.connectorRef,
+            source.dialectId, contract.table, evidence), contract.reference, source.bindingRef(), source.connectorRef, source.dialectId,
+            contract.table, evidence, "integration-test", java.time.Instant.parse("2026-07-21T00:00:00Z"))
 }

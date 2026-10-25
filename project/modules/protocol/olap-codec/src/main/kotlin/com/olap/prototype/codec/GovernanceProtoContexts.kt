@@ -324,6 +324,7 @@ internal fun SubjectAreaReleaseBuildRequestToProto(value: com.olap.prototype.gov
     setSubjectAreaId(value.subjectAreaId)
     setSubjectAreaVersion(value.subjectAreaVersion)
     setCreatedBy(value.createdBy)
+    addAllSourceAdoptions(value.sourceAdoptions.map(::SourceAdoptionRefToProto))
 }.build()
 internal fun SubjectAreaReleaseBuildRequestFromProto(value: com.olap.prototype.wire.governance.SubjectAreaReleaseBuildRequest): com.olap.prototype.governance.contract.SubjectAreaReleaseBuildRequest = com.olap.prototype.governance.contract.SubjectAreaReleaseBuildRequest(
     releaseId = value.getReleaseId(),
@@ -331,7 +332,8 @@ internal fun SubjectAreaReleaseBuildRequestFromProto(value: com.olap.prototype.w
     releaseDisplayName = value.getReleaseDisplayName(),
     subjectAreaId = value.getSubjectAreaId(),
     subjectAreaVersion = value.getSubjectAreaVersion(),
-    createdBy = value.getCreatedBy()
+    createdBy = value.getCreatedBy(),
+    sourceAdoptions = value.getSourceAdoptionsList().map(::SourceAdoptionRefFromProto)
 )
 
 internal fun SubjectAreaReleaseBuildResultToProto(value: com.olap.prototype.governance.contract.SubjectAreaReleaseBuildResult): com.olap.prototype.wire.governance.SubjectAreaReleaseBuildResult = com.olap.prototype.wire.governance.SubjectAreaReleaseBuildResult.newBuilder().apply {

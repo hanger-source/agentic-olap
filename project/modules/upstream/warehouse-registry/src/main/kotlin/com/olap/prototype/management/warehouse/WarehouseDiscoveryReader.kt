@@ -2,6 +2,8 @@ package com.olap.prototype.management.warehouse
 
 import com.olap.prototype.warehouse.contract.SourceBindingRef
 import com.olap.prototype.warehouse.contract.SourceCollectionRecord
+import com.olap.prototype.warehouse.contract.PhysicalSourceAdoption
+import com.olap.prototype.warehouse.contract.SourceAdoptionRef
 
 interface WarehouseDataSourceReader {
     fun findDataSource(id: String): WarehouseDataSourceRecord?
@@ -16,4 +18,6 @@ interface WarehouseDiscoveryReader : WarehouseDataSourceReader {
     fun listDiscoveredUniqueKeys(discoveredTableId: String): List<WarehouseDiscoveredUniqueKeyRecord>
     fun listDiscoveredTables(snapshotId: String): List<WarehouseDiscoveredTableRecord>
     fun findSourceCollection(id: String): SourceCollectionRecord?
+    fun findSourceAdoption(reference: SourceAdoptionRef): PhysicalSourceAdoption?
+    fun listSourceAdoptions(discoverySnapshotId: String): List<PhysicalSourceAdoption>
 }

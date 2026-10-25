@@ -1,29 +1,23 @@
 package com.olap.prototype.contract
 
 import com.olap.prototype.connector.ConnectorRef
-import com.olap.prototype.warehouse.contract.JdbcTableConstraints
-import com.olap.prototype.warehouse.contract.PhysicalSourceConstraints
+import com.olap.prototype.warehouse.contract.PhysicalDataContract
+import com.olap.prototype.warehouse.contract.PhysicalSourceAdoption
 import com.olap.prototype.warehouse.contract.SourceBindingRef
 
-/** 原生函数实际使用的精确已采用物理表；不伪造字段或逻辑表。 */
-data class NativeTableDependency(
-    val physicalTableId: String,
-    val physicalTableVersion: Long,
-    val dataSourceId: String,
-    val dialect: String,
-    val table: JdbcTableConstraints.Table,
-    val sourceConstraints: PhysicalSourceConstraints,
-) {
-    init {
-        ProducerContracts.requireText(physicalTableId, "native physical table id")
-        require(physicalTableVersion > 0) { "native table version must be exact" }
-        ProducerContracts.requireText(dataSourceId, "native table source")
-        ProducerContracts.requireText(dialect, "native table dialect")
-    }
+/** 发布明确选择的原生 TABLE 参数；数据合同与执行采用分别保留。 */
+data class NativeTableDependency(val dataContract: PhysicalDataContract, val adoption: PhysicalSourceAdoption) {
+    init { adoption.requireContract(dataContract) }
+    val physicalTableId: String get() = dataContract.reference.id
+    val physicalTableVersion: Long get() = dataContract.reference.version
+    val dataSourceId: String get() = adoption.binding.dataSourceId
+    val connectorRef: ConnectorRef get() = adoption.connectorRef
+    val dialect: String get() = adoption.dialect
+    val table get() = adoption.table
     fun key(): String = "$physicalTableId@$physicalTableVersion"
-    fun bindingRef(): SourceBindingRef = SourceBindingRef(dataSourceId, sourceConstraints.sourceIdentityHash)
+    fun bindingRef(): SourceBindingRef = adoption.binding
     fun matchesSource(binding: SourceBindingRef, connector: ConnectorRef, sourceDialect: String): Boolean =
-        bindingRef() == binding && sourceConstraints.connectorRef == connector && dialect == sourceDialect
+        bindingRef() == binding && adoption.connectorRef == connector && dialect == sourceDialect
     fun requireSource(binding: SourceBindingRef, connector: ConnectorRef, sourceDialect: String) {
         require(matchesSource(binding, connector, sourceDialect)) { "native table differs from its exact source binding, connector or dialect" }
     }

@@ -223,6 +223,11 @@ message CapabilityEffect {
     agentic.olap.query.v1.QueryReference query = 6;
   }
   optional string status = 7;
+  CapabilitySourceAdoptions source_adoptions = 8;
+}
+message CapabilitySourceAdoptions {
+  repeated agentic.olap.governance.v1.SourceAdoptionRef references = 1;
+  repeated string discovery_snapshot_ids = 2;
 }
 message CapabilityOwnedMember {
   agentic.olap.governance.v1.DefinitionImpactReference owner = 1;

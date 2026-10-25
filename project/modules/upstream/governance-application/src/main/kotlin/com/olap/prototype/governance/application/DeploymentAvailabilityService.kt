@@ -128,7 +128,7 @@ class DeploymentAvailabilityService(private val database: PlatformDatabase, priv
     }
     private fun requireDeployed(publication: PublishedExecutableCatalog, deployed: Map<SourceBindingRef, SourceConfiguration>, authorizeSource: (String) -> Unit) {
         publication.catalog.physicalExecutionBindings.values.forEach { binding ->
-            requireDeployed(SourceBindingRef(binding.dataSourceId, binding.sourceConstraints.sourceIdentityHash), binding.connectorRef, binding.dialect, deployed, authorizeSource)
+            requireDeployed(binding.adoption.binding, binding.connectorRef, binding.dialect, deployed, authorizeSource)
         }
     }
     private fun requireDeployed(binding: SourceBindingRef, connector: com.olap.prototype.connector.ConnectorRef, dialect: String, deployed: Map<SourceBindingRef, SourceConfiguration>, authorizeSource: (String) -> Unit) {

@@ -19,7 +19,6 @@ import com.olap.prototype.query.TemporalJoinContract
 import com.olap.prototype.query.contract.*
 import com.olap.prototype.release.contract.*
 import com.olap.prototype.warehouse.contract.JdbcTableConstraints
-import com.olap.prototype.warehouse.contract.SnapshotUniqueKey
 import com.olap.prototype.warehouse.contract.SourceBindingRef
 import java.time.Instant
 
@@ -55,7 +54,6 @@ class ReleaseExecutableCatalogAssembler(private val connectors: ConnectorRegistr
         fun complete(): ExecutableCatalog {
             release.objectVersionRefs.filter { it.objectType == "LOGIC_UNIT" }.forEach(::addLogicUnit)
             attachNativeTables()
-            attachSourceProofs()
             release.objectVersionRefs.filter { it.objectType != "LOGIC_UNIT" }.forEach(::addObject)
             release.objectVersionRefs.filter { it.objectType == "DIMENSION_EVENT_BINDING" }.forEach(::addDimensionBinding)
             release.dimensionMappings.forEach(::addAnalysisDimensionMapping)
@@ -80,21 +78,6 @@ class ReleaseExecutableCatalogAssembler(private val connectors: ConnectorRegistr
             }
             return instances
         }
-        private fun attachSourceProofs() {
-            release.objectVersionRefs.filter { it.objectType == "SOURCE_UNIQUE_KEY" }.forEach { reference ->
-                val proof = read(reference, SourceUniqueKeySnapshot::class.java, "invalid frozen source unique proof")
-                if (proof.proofId != reference.objectId || reference.objectVersion != 1L) throw ProducerContractException("source proof differs from frozen identity")
-                val owners = physicalBindings.filterValues { it.physicalTableId == proof.physicalTableId && it.physicalTableVersion == proof.physicalTableVersion.toString() }
-                if (owners.isEmpty()) throw ProducerContractException("source proof has no exact frozen physical owner")
-                owners.forEach { (key, binding) ->
-                    val evidence = binding.sourceConstraints
-                    if (evidence.discoverySnapshotId != proof.discoverySnapshotId || evidence.schemaHash != proof.schemaHash || evidence.sourceIdentityHash != proof.sourceIdentityHash ||
-                        !evidence.columnVersionRefs.keys.containsAll(proof.key.rule.columns)) throw ProducerContractException("source proof differs from its adopted investigation")
-                    if (binding.snapshotUniqueKeys.any { it.rule.name == proof.key.rule.name }) throw ProducerContractException("duplicate frozen source proof name")
-                    physicalBindings[key] = replaceBinding(binding, snapshotUniqueKeys = binding.snapshotUniqueKeys + proof.key)
-                }
-            }
-        }
         private fun attachNativeTables() {
             val tables = linkedMapOf<String, NativeTableDependency>()
             release.objectVersionRefs.filter { it.objectType == "PHYSICAL_TABLE" }.forEach { reference ->
@@ -105,8 +88,7 @@ class ReleaseExecutableCatalogAssembler(private val connectors: ConnectorRegistr
             }
             physicalBindings.values.forEach { binding ->
                 tables[versionKey(binding.physicalTableId, binding.physicalTableVersion)]?.let { owner ->
-                    val frozen = NativeTableDependency(binding.physicalTableId, binding.physicalTableVersion.toLong(), binding.dataSourceId, binding.dialect,
-                        JdbcTableConstraints.Table(binding.catalogName, binding.schemaName, binding.tableName), binding.sourceConstraints)
+                    val frozen = NativeTableDependency(binding.dataContract, binding.adoption)
                     if (owner != frozen) throw ProducerContractException("native physical table dependency conflicts with its frozen physical execution owner: ${owner.key()}")
                 }
                 binding.nativeTableDependencies.forEach { (key, dependency) ->
@@ -115,7 +97,7 @@ class ReleaseExecutableCatalogAssembler(private val connectors: ConnectorRegistr
                 }
             }
             tables.values.forEach { dependency ->
-                val owners = physicalBindings.filterValues { dependency.matchesSource(SourceBindingRef(it.dataSourceId, it.sourceConstraints.sourceIdentityHash), it.sourceConstraints.connectorRef, it.dialect) }
+                val owners = physicalBindings.filterValues { dependency.matchesSource(it.adoption.binding, it.connectorRef, it.dialect) }
                 if (owners.isEmpty()) throw ProducerContractException("native physical table dependency has no exact source binding in this release: ${dependency.key()}")
                 owners.forEach { (key, binding) ->
                     val dependencies = LinkedHashMap(binding.nativeTableDependencies)
@@ -171,9 +153,7 @@ class ReleaseExecutableCatalogAssembler(private val connectors: ConnectorRegistr
             ProducerContracts.requireText(snapshot.physicalExecutionBindingVersion, "logic_unit_snapshot.physicalExecutionBindingVersion")
             ProducerContracts.requireText(snapshot.logicUnitId, "logic_unit_snapshot.logicUnitId"); ProducerContracts.requireVersion(snapshot.logicUnitVersion, "logic_unit_snapshot.logicUnitVersion")
             snapshot.valueType?.let { ScalarValueType.valueOf(ProducerContracts.requireText(it, "logic_unit_snapshot.valueType")) }
-            if (snapshot.catalogName == null) throw ProducerContractException("logic_unit_snapshot.catalogName is required")
-            ProducerContracts.requireText(snapshot.schemaName, "logic_unit_snapshot.schemaName"); ProducerContracts.requireText(snapshot.tableName, "logic_unit_snapshot.tableName")
-            ProducerContracts.requireText(snapshot.dataSourceId, "logic_unit_snapshot.dataSourceId"); ProducerContracts.requireText(snapshot.dialect, "logic_unit_snapshot.dialect")
+            snapshot.adoption.requireContract(snapshot.dataContract)
             snapshot.logicUnitBindings.forEach { (reference, _) ->
                 if (!reference.matches(Regex(".+@[1-9][0-9]*"))) throw ProducerContractException("logic_unit_snapshot.logicUnitBindings key 必须是 exact LogicUnitRef: $reference")
             }
@@ -184,7 +164,7 @@ class ReleaseExecutableCatalogAssembler(private val connectors: ConnectorRegistr
             if (snapshot.physicalColumnTypes.keys != snapshot.physicalColumnBindings.keys) throw ProducerContractException("logic_unit_snapshot.physicalColumnTypes must describe every exact physical column ref")
             snapshot.nativeTableDependencies.forEach { (key, dependency) ->
                 requireNativeIdentity(key, dependency)
-                dependency.requireSource(SourceBindingRef(snapshot.dataSourceId, snapshot.sourceConstraints.sourceIdentityHash), snapshot.sourceConstraints.connectorRef, snapshot.dialect)
+                dependency.requireSource(snapshot.adoption.binding, snapshot.adoption.connectorRef, snapshot.adoption.dialect)
             }
         }
         private fun mergePhysicalBinding(snapshot: LogicUnitExecutionSnapshot) {
@@ -192,16 +172,14 @@ class ReleaseExecutableCatalogAssembler(private val connectors: ConnectorRegistr
             val previous = physicalBindings[key]
             if (previous == null) {
                 physicalBindings[key] = ExecutablePhysicalExecutionBinding(snapshot.physicalExecutionBindingId, snapshot.physicalExecutionBindingVersion, null, null,
-                    snapshot.logicUnitId, snapshot.logicUnitVersion.toString(), snapshot.logicalTableId, snapshot.logicalTableVersion.toString(), snapshot.physicalTableId,
-                    snapshot.physicalTableVersion.toString(), snapshot.dataSourceId, snapshot.sourceConstraints.connectorRef,
-                    connectors.require(snapshot.sourceConstraints.connectorRef).compilation.tablePath(snapshot.catalogName, snapshot.schemaName, snapshot.tableName), snapshot.dialect,
-                    snapshot.catalogName, snapshot.schemaName, snapshot.tableName, snapshot.sourceConstraints, emptyList(), snapshot.nativeTableDependencies,
+                    snapshot.logicUnitId, snapshot.logicUnitVersion.toString(), snapshot.logicalTableId, snapshot.logicalTableVersion.toString(),
+                    connectors.require(snapshot.adoption.connectorRef).compilation.tablePath(snapshot.adoption.table.catalog, snapshot.adoption.table.schema, snapshot.adoption.table.table),
+                    snapshot.dataContract, snapshot.adoption, snapshot.nativeTableDependencies,
                     parseLogicUnits(snapshot), snapshot.physicalColumnBindings, snapshot.physicalColumnTypes)
                 return
             }
             if (previous.logicalTableId != snapshot.logicalTableId || previous.logicalTableVersion != snapshot.logicalTableVersion.toString() || previous.physicalTableId != snapshot.physicalTableId ||
-                previous.physicalTableVersion != snapshot.physicalTableVersion.toString() || previous.catalogName != snapshot.catalogName || previous.schemaName != snapshot.schemaName ||
-                previous.tableName != snapshot.tableName || previous.dataSourceId != snapshot.dataSourceId || previous.dialect != snapshot.dialect || previous.sourceConstraints != snapshot.sourceConstraints)
+                previous.physicalTableVersion != snapshot.physicalTableVersion.toString() || previous.dataContract != snapshot.dataContract || previous.adoption != snapshot.adoption)
                 throw ProducerContractException("physical execution binding snapshot conflict: $key")
             val units = LinkedHashMap(previous.logicUnitBindings).also { merge(it, parseLogicUnits(snapshot), "LogicUnit", key) }
             val columns = LinkedHashMap(previous.physicalColumnBindings).also { merge(it, snapshot.physicalColumnBindings, "PhysicalColumn", key) }
@@ -275,12 +253,12 @@ class ReleaseExecutableCatalogAssembler(private val connectors: ConnectorRegistr
                 time.logicUnitCode, time.displayName, time.physicalExecutionBindingId, time.physicalExecutionBindingVersion, time.outputSymbols)
         }
 
-        private fun replaceBinding(binding: ExecutablePhysicalExecutionBinding, snapshotUniqueKeys: List<SnapshotUniqueKey> = binding.snapshotUniqueKeys,
+        private fun replaceBinding(binding: ExecutablePhysicalExecutionBinding,
             nativeTables: Map<String, NativeTableDependency> = binding.nativeTableDependencies, units: Map<String, SemanticExpression> = binding.logicUnitBindings,
             columns: Map<String, String> = binding.physicalColumnBindings, types: Map<String, JdbcColumnType> = binding.physicalColumnTypes): ExecutablePhysicalExecutionBinding =
             ExecutablePhysicalExecutionBinding(binding.bindingId, binding.bindingVersion, binding.eventId, binding.eventVersion, binding.logicUnitId, binding.logicUnitVersion,
-                binding.logicalTableId, binding.logicalTableVersion, binding.physicalTableId, binding.physicalTableVersion, binding.dataSourceId, binding.connectorRef,
-                binding.qualifiedTablePath, binding.dialect, binding.catalogName, binding.schemaName, binding.tableName, binding.sourceConstraints, snapshotUniqueKeys, nativeTables, units, columns, types)
+                binding.logicalTableId, binding.logicalTableVersion,
+                binding.qualifiedTablePath, binding.dataContract, binding.adoption, nativeTables, units, columns, types)
         private fun requireNativeIdentity(key: String, dependency: NativeTableDependency) {
             if (key != dependency.key()) throw ProducerContractException("native physical table dependency requires its exact identity and version: $key")
         }

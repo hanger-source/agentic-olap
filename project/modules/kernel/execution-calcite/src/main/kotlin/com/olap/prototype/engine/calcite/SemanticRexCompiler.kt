@@ -26,7 +26,7 @@ class SemanticRexCompiler(builder: RelBuilder, private val root: ExecutableRelat
         val system = builder.typeFactory.typeSystem as? SemanticCalciteTypeSystem ?: throw IllegalArgumentException("source expression requires native compilation types")
         val tables = linkedMapOf<String, NativeTableDependency>()
         this.positions.values.forEach { binding -> binding.nativeTableDependencies.forEach { (key, dependency) ->
-            dependency.requireSource(SourceBindingRef(local.dataSourceId, requireNotNull(local.sourceConstraints).sourceIdentityHash), local.connectorRef, local.dialect)
+            dependency.requireSource(local.adoption.binding, local.connectorRef, local.dialect)
             val prior = tables.putIfAbsent(key, dependency)
             require(prior == null || prior == dependency) { "native table has conflicting frozen dependencies" }
         } }

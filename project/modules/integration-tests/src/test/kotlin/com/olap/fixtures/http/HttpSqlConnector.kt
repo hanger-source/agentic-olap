@@ -98,13 +98,13 @@ class HttpSqlConnector : OlapConnector {
             validateConfiguration(source)
             return SourceCapabilities(if (source.identityParameters["consistentChecks"] == true) setOf(SourceCapabilities.Capability.CONSISTENT_READ, SourceCapabilities.Capability.CONSTRAINT_VERIFICATION) else emptySet())
         }
-        override fun supportsConstraintVerification(evidence: PhysicalSourceConstraints): Boolean = true
+        override fun supportsConstraintVerification(dataContract: PhysicalDataContract, adoption: PhysicalSourceAdoption): Boolean = true
         private fun constraints(source: SourceConfiguration, requirements: List<JdbcSourceRequirement>): List<JdbcRelationCheck> = requirements.flatMap { requirement -> requirement.constraintUses.map { use ->
             val table = requirement.table
             val path = compilation.tablePath(table.catalog, table.schema, table.table).map(compilation.dialect::quoteIdentifier)
             when (use.kind) {
                 JdbcSourceRequirement.ConstraintKind.PRIMARY_KEY -> {
-                    val keys = requirement.evidence.constraints.primaryKeyColumns
+                    val keys = requirement.dataContract.constraints.primaryKeyColumns
                     check(keys.isNotEmpty()) { "required primary key declaration is absent" }
                     val quoted = keys.map(compilation.dialect::quoteIdentifier)
                     JdbcRelationCheck("SOURCE_PRIMARY_KEY_VIOLATION", "SELECT 1 FROM ${path.joinToString(".")} GROUP BY ${quoted.joinToString(",")} HAVING COUNT(*) > 1 OR ${quoted.joinToString(" OR ") { "$it IS NULL" }} LIMIT 1", emptyList())

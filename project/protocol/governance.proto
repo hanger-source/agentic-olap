@@ -229,11 +229,22 @@ message ExecutablePhysicalExecutionBindingPhysicalColumnBindingsEntry { string k
 
 message ExecutablePhysicalExecutionBindingPhysicalColumnTypesEntry { string key = 1; JdbcColumnType value = 2; }
 
-message ExecutablePhysicalExecutionBinding { string binding_id = 1; string binding_version = 2; optional string event_id = 3; optional string event_version = 4; optional string logic_unit_id = 5; optional string logic_unit_version = 6; string logical_table_id = 7; string logical_table_version = 8; string physical_table_id = 9; string physical_table_version = 10; string data_source_id = 11; agentic.olap.semantic.v1.ConnectorRef connector_ref = 12; repeated string qualified_table_path = 13; string dialect = 14; optional string catalog_name = 15; optional string schema_name = 16; string table_name = 17; PhysicalSourceConstraints source_constraints = 18; repeated SnapshotUniqueKey snapshot_unique_keys = 19; repeated ExecutablePhysicalExecutionBindingNativeTableDependenciesEntry native_table_dependencies = 20; repeated ExecutablePhysicalExecutionBindingLogicUnitBindingsEntry logic_unit_bindings = 21; repeated ExecutablePhysicalExecutionBindingPhysicalColumnBindingsEntry physical_column_bindings = 22; repeated ExecutablePhysicalExecutionBindingPhysicalColumnTypesEntry physical_column_types = 23; }
+message ExecutablePhysicalExecutionBinding { string binding_id = 1; string binding_version = 2; optional string event_id = 3; optional string event_version = 4; optional string logic_unit_id = 5; optional string logic_unit_version = 6; string logical_table_id = 7; string logical_table_version = 8; repeated string qualified_table_path = 9; PhysicalDataContract data_contract = 10; PhysicalSourceAdoption adoption = 11; repeated ExecutablePhysicalExecutionBindingNativeTableDependenciesEntry native_table_dependencies = 12; repeated ExecutablePhysicalExecutionBindingLogicUnitBindingsEntry logic_unit_bindings = 13; repeated ExecutablePhysicalExecutionBindingPhysicalColumnBindingsEntry physical_column_bindings = 14; repeated ExecutablePhysicalExecutionBindingPhysicalColumnTypesEntry physical_column_types = 15; }
 
-message PhysicalSourceConstraintsColumnVersionRefsEntry { string key = 1; string value = 2; }
+message PhysicalTableRef { string id = 1; int64 version = 2; }
+message PhysicalDataContractColumn { string ref = 1; JdbcColumnType type = 2; }
+message PhysicalDataContractColumnsEntry { string key = 1; PhysicalDataContractColumn value = 2; }
+message SourceCollectionDeclaration { string declaration_sha256 = 1; string source_authority = 2; string rule_document_sha256 = 3; JdbcTableConstraintsDataAnchor anchor = 4; SealedSourceDatasetScope scope = 5; SealedSourceDatasetCollection collection = 6; }
+message PhysicalDataContract { PhysicalTableRef reference = 1; string data_source_id = 2; JdbcTableConstraintsTable table = 3; repeated PhysicalDataContractColumnsEntry columns = 4; JdbcTableConstraints constraints = 5; repeated SnapshotUniqueKey snapshot_unique_keys = 6; repeated SourceCollectionDeclaration source_collections = 7; string origin_discovered_table_id = 8; }
 
-message PhysicalSourceConstraints { string discovery_snapshot_id = 1; string schema_hash = 2; string source_identity_hash = 3; agentic.olap.semantic.v1.ConnectorRef connector_ref = 4; optional string database_product_name = 5; optional string database_product_version = 6; optional string driver_name = 7; optional string driver_version = 8; JdbcTableConstraints constraints = 9; repeated PhysicalSourceConstraintsColumnVersionRefsEntry column_version_refs = 10; repeated SourceCollectionRecord source_collections = 11; StructureProvenance structure_provenance = 12; }
+message SourceAdoptionRef { string id = 1; }
+message SnapshotUniqueKeyProof { string id = 1; SnapshotUniqueKey key = 2; }
+message PhysicalSourceEvidenceColumnsEntry { string key = 1; JdbcColumnType value = 2; }
+message PhysicalSourceEvidence { string discovery_snapshot_id = 1; string discovered_table_id = 2; string schema_hash = 3; StructureProvenance structure_provenance = 4; optional string database_product_name = 5; optional string database_product_version = 6; optional string driver_name = 7; optional string driver_version = 8; repeated PhysicalSourceEvidenceColumnsEntry columns = 9; JdbcTableConstraints constraints = 10; repeated SnapshotUniqueKeyProof snapshot_unique_keys = 11; repeated SourceCollectionRecord source_collections = 12; }
+message PhysicalSourceAdoption { SourceAdoptionRef reference = 1; PhysicalTableRef physical_table = 2; agentic.olap.query.v1.SourceBinding binding = 3; agentic.olap.semantic.v1.ConnectorRef connector_ref = 4; string dialect = 5; JdbcTableConstraintsTable table = 6; PhysicalSourceEvidence evidence = 7; string adopted_by = 8; string adopted_at = 9; }
+message SourceAdoptions { repeated PhysicalSourceAdoption items = 1; }
+message SourceAdoptionRegistrationRequest { repeated PhysicalTableRef physical_tables = 1; string discovery_snapshot_id = 2; string adopted_by = 3; }
+message SourceAdoptionReadRequest { string discovery_snapshot_id = 1; }
 
 message JdbcTableConstraints { repeated string primary_key_columns = 1; repeated JdbcTableConstraintsUniqueKey unique_keys = 2; repeated JdbcTableConstraintsForeignKeyColumn imported_keys = 3; repeated JdbcTableConstraintsTemporalKey temporal_keys = 4; }
 
@@ -263,7 +274,7 @@ message SnapshotUniqueKey { SnapshotUniqueKeyRule rule = 1; JdbcTableConstraints
 
 message SnapshotUniqueKeyRule { string name = 1; repeated string columns = 2; }
 
-message NativeTableDependency { string physical_table_id = 1; int64 physical_table_version = 2; string data_source_id = 3; string dialect = 4; JdbcTableConstraintsTable table = 5; PhysicalSourceConstraints source_constraints = 6; }
+message NativeTableDependency { PhysicalDataContract data_contract = 1; PhysicalSourceAdoption adoption = 2; }
 
 message JdbcColumnType { int32 jdbc_type = 1; string type_name = 2; optional int32 precision = 3; optional int32 scale = 4; optional bool nullable = 5; }
 
@@ -513,9 +524,8 @@ message LogicUnitExecutionSnapshotPhysicalColumnTypesEntry { string key = 1; Jdb
 
 message LogicUnitExecutionSnapshotNativeTableDependenciesEntry { string key = 1; NativeTableDependency value = 2; }
 
-message LogicUnitExecutionSnapshot { string format_version = 1; string physical_execution_binding_id = 2; string physical_execution_binding_version = 3; string logic_unit_id = 4; int64 logic_unit_version = 5; optional string value_type = 6; agentic.olap.semantic.v1.SetOutputShape value_shape = 7; string logical_table_id = 8; int64 logical_table_version = 9; string physical_table_id = 10; int64 physical_table_version = 11; string data_source_id = 12; optional string catalog_name = 13; optional string schema_name = 14; string table_name = 15; string dialect = 16; repeated LogicUnitExecutionSnapshotLogicUnitBindingsEntry logic_unit_bindings = 17; repeated LogicUnitExecutionSnapshotPhysicalColumnBindingsEntry physical_column_bindings = 18; repeated LogicUnitExecutionSnapshotPhysicalColumnTypesEntry physical_column_types = 19; repeated LogicUnitExecutionSnapshotNativeTableDependenciesEntry native_table_dependencies = 20; PhysicalSourceConstraints source_constraints = 21; }
+message LogicUnitExecutionSnapshot { string format_version = 1; string physical_execution_binding_id = 2; string physical_execution_binding_version = 3; string logic_unit_id = 4; int64 logic_unit_version = 5; optional string value_type = 6; agentic.olap.semantic.v1.SetOutputShape value_shape = 7; string logical_table_id = 8; int64 logical_table_version = 9; string physical_table_id = 10; int64 physical_table_version = 11; repeated LogicUnitExecutionSnapshotLogicUnitBindingsEntry logic_unit_bindings = 12; repeated LogicUnitExecutionSnapshotPhysicalColumnBindingsEntry physical_column_bindings = 13; repeated LogicUnitExecutionSnapshotPhysicalColumnTypesEntry physical_column_types = 14; repeated LogicUnitExecutionSnapshotNativeTableDependenciesEntry native_table_dependencies = 15; PhysicalDataContract data_contract = 16; PhysicalSourceAdoption adoption = 17; }
 
-message SourceUniqueKeySnapshot { string proof_id = 1; string physical_table_id = 2; int64 physical_table_version = 3; string discovery_snapshot_id = 4; string schema_hash = 5; string source_identity_hash = 6; SnapshotUniqueKey key = 7; }
 
 message FrozenAnalysisDimensionMeaning { optional string description = 1; repeated AnalysisDimensionValueAlignmentRecord value_alignment_evidence = 2; }
 
@@ -557,15 +567,15 @@ message ReleaseScenarioSnapshotFilterGrant { string id = 1; string target_type =
 
 message SourceBindingConflictExceptionInput { repeated string scope_path = 1; string anchor = 2; string data_source_id = 3; string source_identity_hash = 4; agentic.olap.semantic.v1.ConnectorRef connector_ref = 5; string dialect = 6; string physical_table_id = 7; string physical_table_version = 8; }
 
-message PhysicalTableCreateRequest { string code = 1; string table_name = 2; string display_name = 3; optional string description = 4; optional string data_domain = 5; string owner = 6; optional string sensitivity_level = 7; optional string source_system = 8; string data_source = 9; string dialect_id = 10; optional string catalog = 11; optional string schema_name = 12; string schema_hash = 13; PhysicalTableCreateRequestSourceConstraintsInput source_constraints = 14; string created_by = 15; repeated PhysicalTableCreateRequestColumnInput columns = 16; }
+message PhysicalTableCreateRequest { string code = 1; string table_name = 2; string display_name = 3; optional string description = 4; optional string data_domain = 5; string owner = 6; optional string sensitivity_level = 7; optional string source_system = 8; string data_source = 9; optional string catalog = 10; optional string schema_name = 11; PhysicalTableCreateRequestSourceAdoptionInput initial_adoption = 12; string created_by = 13; repeated PhysicalTableCreateRequestColumnInput columns = 14; }
 
-message PhysicalTableCreateRequestSourceConstraintsInput { string discovered_table_id = 1; repeated string source_collection_ids = 2; }
+message PhysicalTableCreateRequestSourceAdoptionInput { string discovered_table_id = 1; repeated string source_collection_ids = 2; }
 
 message PhysicalTableCreateRequestColumnInput { string column_name = 1; string display_name = 2; string column_type = 3; optional string sensitivity_level = 4; bool nullable = 5; optional string description = 6; JdbcColumnType jdbc_column_type = 7; }
 
-message PhysicalTableCreateResult { PhysicalTableRecord physical_table = 1; PhysicalTableVersionRecord physical_table_version = 2; repeated PhysicalColumnRecord physical_columns = 3; repeated PhysicalColumnVersionRecord physical_column_versions = 4; }
+message PhysicalTableCreateResult { PhysicalTableRecord physical_table = 1; PhysicalTableVersionRecord physical_table_version = 2; repeated PhysicalColumnRecord physical_columns = 3; repeated PhysicalColumnVersionRecord physical_column_versions = 4; SourceAdoptions source_adoptions = 5; }
 
-message PhysicalTableRecord { string id = 1; string code = 2; string display_name = 3; string data_source = 4; string dialect_id = 5; optional string catalog_name = 6; optional string schema_name = 7; string table_name = 8; optional string description = 9; string owner = 10; string load_status = 11; optional int64 row_count = 12; optional string schema_hash = 13; string status = 14; int64 current_version = 15; string created_by = 16; string created_at = 17; optional string updated_by = 18; optional string updated_at = 19; }
+message PhysicalTableRecord { string id = 1; string code = 2; string display_name = 3; string data_source = 4; optional string catalog_name = 5; optional string schema_name = 6; string table_name = 7; optional string description = 8; string owner = 9; string load_status = 10; optional int64 row_count = 11; string status = 12; int64 current_version = 13; string created_by = 14; string created_at = 15; optional string updated_by = 16; optional string updated_at = 17; }
 
 message PhysicalTableVersionRecord { string id = 1; string physical_table_id = 2; int64 version = 3; string version_status = 4; string content_proto = 5; optional string diagnostic_json = 6; optional int64 source_version = 7; string created_by = 8; string created_at = 9; optional string activated_by = 10; optional string activated_at = 11; optional string deprecated_by = 12; optional string deprecated_at = 13; optional string archived_by = 14; optional string archived_at = 15; }
 
@@ -845,7 +855,7 @@ message GovernanceVersionDeprecationRequest { string object_type = 1; string obj
 
 message GovernanceVersionDeprecationResult { string object_type = 1; string object_id = 2; int64 object_version = 3; string status = 4; string deprecated_at = 5; }
 
-message SubjectAreaReleaseBuildRequest { string release_id = 1; string release_version = 2; string release_display_name = 3; string subject_area_id = 4; int64 subject_area_version = 5; string created_by = 6; }
+message SubjectAreaReleaseBuildRequest { string release_id = 1; string release_version = 2; string release_display_name = 3; string subject_area_id = 4; int64 subject_area_version = 5; string created_by = 6; repeated SourceAdoptionRef source_adoptions = 7; }
 
 message SubjectAreaReleaseBuildResult { string release_id = 1; string release_version = 2; string subject_area_id = 3; int64 subject_area_version = 4; string build_status = 5; int32 releases_written = 6; int32 release_object_refs_written = 7; int32 metrics_frozen = 8; int32 analysis_dimensions_frozen = 9; int32 scenarios_frozen = 10; int32 events_frozen = 11; int32 topologies_frozen = 12; int32 join_paths_frozen = 13; int32 logic_units_frozen = 14; int32 dimensions_frozen = 15; int32 dimension_event_bindings_frozen = 16; int32 metric_dimension_capabilities_written = 17; int32 unavailable_reasons_written = 18; }
 
@@ -949,7 +959,7 @@ message DefinitionRevisionDiffValueDefinition { GovernanceDefinition value = 1; 
 
 message GovernanceDefinition { oneof kind { GovernanceDefinitionPhysicalTable physical_table = 1; GovernanceDefinitionPhysicalColumn physical_column = 2; GovernanceDefinitionLogicalTable logical_table = 3; GovernanceDefinitionLogicUnit logic_unit = 4; GovernanceDefinitionTopology topology = 5; GovernanceDefinitionJoinPath join_path = 6; GovernanceDefinitionEvent event = 7; GovernanceDefinitionMetric metric = 8; GovernanceDefinitionDimension dimension = 9; GovernanceDefinitionDimensionBinding dimension_binding = 10; GovernanceDefinitionBusinessLine business_line = 11; GovernanceDefinitionSubjectArea subject_area = 12; GovernanceDefinitionAnalysisDimension analysis_dimension = 13; GovernanceDefinitionScenario scenario = 14; } }
 
-message GovernanceDefinitionPhysicalTable { PhysicalTableRecord record = 1; repeated GovernanceDefinitionVersionRef column_version_refs = 2; PhysicalSourceConstraints source_constraints = 3; optional string data_domain = 4; optional string sensitivity_level = 5; optional string source_system = 6; }
+message GovernanceDefinitionPhysicalTable { PhysicalTableRecord record = 1; repeated GovernanceDefinitionVersionRef column_version_refs = 2; PhysicalDataContract data_contract = 3; optional string data_domain = 4; optional string sensitivity_level = 5; optional string source_system = 6; }
 
 message GovernanceDefinitionVersionRef { string id = 1; int64 version = 2; }
 

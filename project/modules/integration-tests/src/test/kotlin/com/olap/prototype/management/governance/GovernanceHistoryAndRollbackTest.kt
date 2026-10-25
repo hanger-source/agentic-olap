@@ -31,8 +31,8 @@ class GovernanceHistoryAndRollbackTest {
     fun logicalTableAndLogicUnitPagesReadRequestedSnapshots() {
         PlatformDatabase.inMemory().use { database ->
             val stored = StoredGovernanceDefinitions(database)
-            stored.physicalTable(1, "订单源表 v1", "orders_v1", "pc_amount", 1, "DEPRECATED")
-            stored.physicalTable(2, "订单源表 v2", "orders_v2", "pc_amount", 2)
+            stored.physicalTable(1, "订单源表 v1", "orders_v1", "pc_amount", 1, "amount_v1", JdbcColumnType(java.sql.Types.DECIMAL, "DECIMAL", 18, 2, false), "DEPRECATED")
+            stored.physicalTable(2, "订单源表 v2", "orders_v2", "pc_amount", 2, "amount_v2", JdbcColumnType(java.sql.Types.DECIMAL, "DECIMAL", 18, 2, false))
             stored.physicalColumn("pc_amount", "amount_v1", version = 1, status = "DEPRECATED", displayName = "金额列 v1", dataType = "decimal")
             stored.physicalColumn("pc_amount", "amount_v2", version = 2, displayName = "金额列 v2", dataType = "decimal")
             stored.logicalTable("order_fact", "FACT", 1, "DEPRECATED", "订单事实 v1")
@@ -62,10 +62,10 @@ class GovernanceHistoryAndRollbackTest {
             stored.businessAndSubject()
             val registry = WarehouseRegistryRepository(database)
             val assets = PhysicalAssetGovernanceService(database, registry)
-            val onboarding = WarehouseOnboardingService(assets, WarehouseRegistryService(database, registry, assets)) { null }
+            val onboarding = WarehouseOnboardingService(assets, WarehouseRegistryService(database, registry, assets), { null }, com.olap.prototype.management.warehouse.PhysicalSourceAdoptionService(registry, assets))
             val operations = GovernanceOperations(GovernanceApplication(database, connectors), emptyMap(), onboarding)
             assertThrows(ProducerContractException::class.java) {
-                operations.dispatchAuthenticated("build-release", SubjectAreaReleaseBuildRequest("rel_trade", "1", "交易发布", "trade", 1, "tester"),
+                operations.dispatchAuthenticated("build-release", SubjectAreaReleaseBuildRequest("rel_trade", "1", "交易发布", "trade", 1, "tester", emptyList()),
                     RuntimeDeploymentLimits.CONTROL, "tester", JdbcSourceInspection(JdbcWarehouseInspector(connectors), connectors)) { }
             }
             assertEquals(0L, stored.count("subject_area_release", "release_id", "rel_trade"))
@@ -77,7 +77,7 @@ class GovernanceHistoryAndRollbackTest {
     fun logicalTableAggregateRollsBackEveryRowWhenLaterWriteFails() {
         PlatformDatabase.inMemory().use { database ->
             val stored = StoredGovernanceDefinitions(database)
-            stored.physicalTable(1, "订单表", "orders", "pc_order_id", 1)
+            stored.physicalTable(1, "订单表", "orders", "pc_order_id", 1, "order_id", JdbcColumnType(java.sql.Types.VARCHAR, "VARCHAR", 128, null, false))
             stored.physicalColumn("pc_order_id", "order_id", 1)
             stored.physicalColumn("pc_amount", "amount", 2)
             stored.execute("CREATE UNIQUE INDEX test_one_logic_unit_per_table ON logic_unit(logical_table_id)")
@@ -102,7 +102,7 @@ class GovernanceHistoryAndRollbackTest {
             SourceRegistrationService(database, connectors).initializeAuthorizedSources(listOf(source))
             val registry = WarehouseRegistryRepository(database)
             val assets = PhysicalAssetGovernanceService(database, registry)
-            val onboarding = WarehouseOnboardingService(assets, WarehouseRegistryService(database, registry, assets)) { reference -> source.takeIf { it.bindingRef() == reference } }
+            val onboarding = WarehouseOnboardingService(assets, WarehouseRegistryService(database, registry, assets), { reference -> source.takeIf { it.bindingRef() == reference } }, com.olap.prototype.management.warehouse.PhysicalSourceAdoptionService(registry, assets))
             val discovery = onboarding.discover(WarehouseDiscoveryCommand("duckdb", source.sourceIdentityHash(), null, "source_test", "orders", emptyList(), 10, emptyMap(), emptyMap(), "tester"),
                 RuntimeDeploymentLimits.CONTROL, JdbcSourceInspection(JdbcWarehouseInspector(connectors), connectors))
             assertEquals("SUCCEEDED", discovery.snapshot.status, discovery.snapshot.errorMessage)
@@ -111,8 +111,8 @@ class GovernanceHistoryAndRollbackTest {
             val input = PhysicalTableCreateRequest.ColumnInput(column.columnName, "订单 ID", column.typeName, "内部", requireNotNull(column.nullable), "订单主键",
                 JdbcColumnType(column.jdbcType, column.typeName, column.precision, column.scale, column.nullable))
             fun definition(columns: List<PhysicalTableCreateRequest.ColumnInput>) = PhysicalTableCreateRequest("orders", "orders", "交易订单", "交易订单事实", "交易", "data-platform",
-                "内部", "warehouse", "duckdb", "duckdb", table.catalogName, table.schemaName, requireNotNull(table.schemaHash),
-                PhysicalTableCreateRequest.SourceConstraintsInput(table.id, emptyList()), "tester", columns)
+                "内部", "warehouse", "duckdb", table.catalogName, table.schemaName,
+                PhysicalTableCreateRequest.SourceAdoptionInput(table.id, emptyList()), "tester", columns)
             assertThrows(RuntimeException::class.java) { assets.createPhysicalTable(definition(listOf(input, input))) }
             val stored = StoredGovernanceDefinitions(database)
             listOf("physical_table", "physical_table_version", "physical_column", "physical_column_version").forEach { assertEquals(0L, stored.count(it)) }

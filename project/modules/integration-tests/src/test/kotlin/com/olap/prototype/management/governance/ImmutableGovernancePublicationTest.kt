@@ -62,7 +62,7 @@ class ImmutableGovernancePublicationTest {
                     throw CancellationException("publisher interrupted after final storage write before commit")
                 }
             }
-            assertThrows(CancellationException::class.java) { f.builder(interrupted).build(SubjectAreaReleaseBuildRequest("interrupted_release", "1", "提交前中断", GovernanceOrderFixture.SUBJECT, 1, "golden")) }
+            assertThrows(CancellationException::class.java) { f.builder(interrupted).build(SubjectAreaReleaseBuildRequest("interrupted_release", "1", "提交前中断", GovernanceOrderFixture.SUBJECT, 1, "golden", f.sourceAdoptions)) }
             assertFalse(CanonicalReleaseRepository(database).existsRelease("interrupted_release", "1"))
             assertThrows(ProducerContractException::class.java) { f.artifacts.loadArtifact("interrupted_release", "1") }
             assertThrows(ProducerContractException::class.java) { f.capabilities.load(QueryCapabilityRequest(GovernanceOrderFixture.SCENARIO, 1, "interrupted_release", "1")) }

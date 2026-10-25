@@ -34,7 +34,7 @@ internal class FrozenCalciteTable(private val table: FrozenSourceTables.Table, s
 
     override fun <C : Any?> unwrap(type: Class<C>): C? {
         if (type == FrozenCatalogSchema.UnavailableKeys::class.java && table.unavailableConstraints != null) {
-            val declared = table.unavailableConstraints.evidence.constraints
+            val declared = table.unavailableConstraints.dataContract.constraints
             val keys = mutableListOf<ImmutableBitSet>()
             addKey(keys, declared.primaryKeyColumns)
             declared.uniqueKeys.filter { it.filterCondition == null && it.expressions == null }.forEach { addKey(keys, it.columns) }

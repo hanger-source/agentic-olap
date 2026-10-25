@@ -1,27 +1,25 @@
 package com.olap.prototype.management.governance
 
 import com.olap.prototype.contract.JdbcColumnType
-import com.olap.prototype.contract.NativeTableDependency
 import com.olap.prototype.contract.ProducerContractException
 import com.olap.prototype.expression.SemanticExpression.TableArgument
 import com.olap.prototype.governance.contract.*
 import com.olap.prototype.management.warehouse.*
 import com.olap.prototype.storage.PlatformDatabase
-import com.olap.prototype.warehouse.contract.JdbcTableConstraints
-import com.olap.prototype.warehouse.contract.PhysicalSourceConstraints
-import com.olap.prototype.warehouse.contract.SourceBindingRef
+import com.olap.prototype.warehouse.contract.*
 import java.nio.charset.StandardCharsets
 import java.time.Instant
 import java.util.Base64
 
-/** Physical versions adopt exact discovery evidence; metadata edits retain only unchanged observed types. */
+/** 物理版本拥有数据合同；来源兑现采用有独立精确身份和生命周期。 */
 class PhysicalAssetGovernanceService(
     private val database: PlatformDatabase,
-    private val warehouseDataSources: WarehouseDiscoveryReader
-) : PhysicalAssetRegistrar, PhysicalAssetReferenceResolver {
+    private val warehouseDataSources: SourceAdoptionRegistry
+) : PhysicalAssetRegistrar, PhysicalAssetReferenceResolver, PhysicalDataContractReader {
     private val snapshots = GovernanceSnapshotReader(database)
     private val assets = GovernanceRepository(database)
     private val versions = GovernanceVersionRefRepository(database)
+    private val sourceAdoptions = PhysicalSourceAdoptionService(warehouseDataSources, this)
 
     override fun createPhysicalTable(request: PhysicalTableCreateRequest): PhysicalTableCreateResult =
         database.inTransaction { create(request, null) }
@@ -32,7 +30,10 @@ class PhysicalAssetGovernanceService(
     private fun create(request: PhysicalTableCreateRequest, revision: GovernanceRevisionRequest<PhysicalTableCreateRequest>?): PhysicalTableCreateResult {
         val change = prepareTable(request, revision)
         write(change)
-        return PhysicalTableCreateResult(change.table, change.version, change.activeColumns, change.columnVersions)
+        val contract = readPhysicalDataContract(PhysicalTableRef(change.table.id, change.table.currentVersion))
+        val adopted = sourceAdoptions.registerInitial(contract, request.initialAdoption.discoveredTableId,
+            request.initialAdoption.sourceCollectionIds, request.createdBy)
+        return PhysicalTableCreateResult(change.table, change.version, change.activeColumns, change.columnVersions, SourceAdoptions(listOf(adopted)))
     }
 
     fun updatePhysicalTableMetadata(request: PhysicalTableMetadataUpdateRequest): PhysicalTableMetadataUpdateResult = database.inTransaction {
@@ -47,8 +48,7 @@ class PhysicalAssetGovernanceService(
             owner = text(request.owner, "physical_table.owner"), status = "DRAFT", currentVersion = draft.version, updatedBy = actor, updatedAt = now)
         val columns = snapshots.physicalTableColumns(id, expected)
         val previous = snapshots.physicalTableContent(id, expected)
-        val evidence = retainedEvidence(PhysicalAssetSnapshots.sourceConstraints(previous), columns, columns)
-        val version = tableVersion(updated, PhysicalAssetSnapshots.revisedTableContent(updated, previous, columns, evidence), expected, actor, now)
+        val version = tableVersion(updated, PhysicalAssetSnapshots.revisedTableContent(updated, previous, columns), expected, actor, now)
         savePhysicalTable(updated)
         savePhysicalTableVersion(version)
         PhysicalTableMetadataUpdateResult(updated, version)
@@ -97,34 +97,32 @@ class PhysicalAssetGovernanceService(
         val updated = table.copy(status = "DRAFT", currentVersion = draft.version, updatedBy = actor, updatedAt = now)
         val previous = snapshots.physicalTableContent(id, expected)
         val active = writes.map { it.column }.filter { it.enabled }
-        val evidence = retainedEvidence(PhysicalAssetSnapshots.sourceConstraints(previous), prior, active)
-        return TableChange(updated, tableVersion(updated, PhysicalAssetSnapshots.revisedTableContent(updated, previous, active, evidence), expected, actor, now), writes)
+        if (prior.associate { it.columnName to it.jdbcColumnType } != active.associate { it.columnName to it.jdbcColumnType })
+            throw ProducerContractException("changing physical column types requires a complete physical data contract revision")
+        val content = PhysicalAssetSnapshots.revisedTableContent(updated, previous, active)
+        return TableChange(updated, tableVersion(updated, content, expected, actor, now), writes)
     }
 
     private fun prepareTable(request: PhysicalTableCreateRequest, revision: GovernanceRevisionRequest<PhysicalTableCreateRequest>?): TableChange {
-        text(request.sourceConstraints.discoveredTableId, "physical_table.sourceConstraints.discoveredTableId")
-        text(request.schemaHash, "physical_table.schemaHash from the same exact discovery table")
+        text(request.initialAdoption.discoveredTableId, "physical_table.initialAdoption.discoveredTableId")
         val tableName = text(request.tableName, "physical_table.table_name")
         val schema = text(request.schemaName, "physical_table.schema_name")
         val sourceId = text(request.dataSource, "physical_table.data_source")
         val source = warehouseDataSources.findDataSource(sourceId) ?: throw ProducerContractException("physical_table.data_source not found: $sourceId")
-        val dialect = text(request.dialectId, "physical_table.dialect_id")
         if (source.status != "ACTIVE") throw ProducerContractException("physical table requires an active source identity")
-        val adopted = warehouseDataSources.findDiscoveredTable(request.sourceConstraints.discoveredTableId) ?: throw ProducerContractException("exact discovery table not found")
+        val adopted = warehouseDataSources.findDiscoveredTable(request.initialAdoption.discoveredTableId) ?: throw ProducerContractException("exact discovery table not found")
         val discovery = warehouseDataSources.findDiscoverySnapshot(adopted.discoverySnapshotId) ?: throw ProducerContractException("exact discovery snapshot not found")
-        val binding = warehouseDataSources.findSourceBinding(SourceBindingRef(sourceId, discovery.sourceIdentityHash)) ?: throw ProducerContractException("exact registered source binding not found")
-        if (binding.source.dialectId != dialect) throw ProducerContractException("physical table dialect must match its adopted source binding")
         val catalog = request.catalog?.trim().orEmpty()
         val id = if (revision == null) physicalTableId(sourceId, catalog, schema, tableName) else text(revision.objectId, "physical_table revision identity")
         val previous = revision?.let { physicalTableSnapshot(id, positive(it.sourceVersion, "physical_table sourceVersion")) }
-        if (previous != null && previous.dataSource != sourceId) throw ProducerContractException("physical table source binding revision must retain its stable data source identity")
+        if (previous != null && previous.dataSource != sourceId) throw ProducerContractException("physical table revision must retain its stable data source identity")
         val priorColumns = if (revision == null) emptyMap() else snapshots.physicalTableColumns(id, revision.sourceVersion).associateBy { it.columnName }
         val draft = GovernanceDraftVersions(database).start(GovernanceDraftVersions.Asset.PHYSICAL_TABLE, id, revision, request.createdBy)
         val actor = text(request.createdBy, "physical_table.created_by")
         if (request.columns.isEmpty()) throw ProducerContractException("physical_table.columns must not be empty")
         val now = Instant.now()
-        val table = PhysicalTableRecord(id, text(request.code, "physical_table.code"), text(request.displayName, "physical_table.display_name"), sourceId, dialect,
-            catalog, schema, tableName, request.description, text(request.owner, "physical_table.owner"), "NOT_LOADED", null, request.schemaHash, "DRAFT", draft.version,
+        val table = PhysicalTableRecord(id, text(request.code, "physical_table.code"), text(request.displayName, "physical_table.display_name"), sourceId,
+            catalog, schema, tableName, request.description, text(request.owner, "physical_table.owner"), "NOT_LOADED", null, "DRAFT", draft.version,
             previous?.createdBy ?: actor, previous?.createdAt ?: now, actor, now)
         val names = hashSetOf<String>()
         val writes = request.columns.mapIndexed { index, input ->
@@ -137,22 +135,22 @@ class PhysicalAssetGovernanceService(
             ColumnWrite(column, columnVersion(column, columnDraft.sourceVersion, actor, now, input.sensitivityLevel))
         }
         val columns = writes.map { it.column }
-        val evidence = adoptedEvidence(table, request.sourceConstraints, columns, adopted, discovery, binding)
-        return TableChange(table, tableVersion(table, PhysicalAssetSnapshots.tableContent(table, request, columns, evidence), draft.sourceVersion, actor, now), writes)
+        val contract = dataContract(table, request.initialAdoption, columns, adopted, discovery)
+        return TableChange(table, tableVersion(table, PhysicalAssetSnapshots.tableContent(table, request, columns, contract), draft.sourceVersion, actor, now), writes)
     }
 
-    private fun adoptedEvidence(table: PhysicalTableRecord, input: PhysicalTableCreateRequest.SourceConstraintsInput, columns: List<PhysicalColumnRecord>,
-        adopted: WarehouseDiscoveredTableRecord, discovery: WarehouseDiscoverySnapshotRecord, binding: WarehouseSourceBindingRecord): PhysicalSourceConstraints {
-        if (discovery.status != "SUCCEEDED" || table.dataSource != discovery.dataSource || table.dialectId != discovery.dialectId ||
-            table.catalogName != adopted.catalogName || table.schemaName != adopted.schemaName || table.tableName != adopted.tableName || table.schemaHash != adopted.schemaHash)
-            throw ProducerContractException("source constraints must match exact discovery source and table")
+    private fun dataContract(table: PhysicalTableRecord, input: PhysicalTableCreateRequest.SourceAdoptionInput, columns: List<PhysicalColumnRecord>,
+        adopted: WarehouseDiscoveredTableRecord, discovery: WarehouseDiscoverySnapshotRecord): PhysicalDataContract {
+        if (discovery.status != "SUCCEEDED" || table.dataSource != discovery.dataSource ||
+            table.catalogName?.takeUnless(String::isEmpty) != adopted.catalogName.takeUnless(String::isEmpty) || table.schemaName != adopted.schemaName || table.tableName != adopted.tableName)
+            throw ProducerContractException("initial adoption must match the exact physical data source and table")
         val observed = warehouseDataSources.listDiscoveredColumns(adopted.id)
-        if (observed.size != columns.size) throw ProducerContractException("source constraints require the complete discovered column set")
+        if (observed.size != columns.size) throw ProducerContractException("initial adoption requires the complete declared physical column set")
         val byName = columns.associateBy { it.columnName }
         observed.forEach { item ->
-            val column = byName[item.columnName] ?: throw ProducerContractException("source constraint column missing from physical version")
+            val column = byName[item.columnName] ?: throw ProducerContractException("initial adoption column is missing from physical version")
             if (JdbcColumnType(item.jdbcType, item.typeName, item.precision, item.scale, item.nullable) != column.jdbcColumnType)
-                throw ProducerContractException("source constraint column type differs from discovery")
+                throw ProducerContractException("physical data contract column type differs from its initial adoption")
         }
         val collections = input.sourceCollectionIds.map { id -> warehouseDataSources.findSourceCollection(id) ?: throw ProducerContractException("exact source collection is missing: $id") }
         collections.forEach { collection ->
@@ -161,19 +159,10 @@ class PhysicalAssetGovernanceService(
                 table.catalogName?.takeUnless { it.isEmpty() } != sourceTable.catalog || table.schemaName != sourceTable.schema || table.tableName != sourceTable.table)
                 throw ProducerContractException("source collection must identify the exact adopted physical source and table: ${collection.id}")
         }
-        val schemaHash = text(adopted.schemaHash, "source constraints discovery.schema_hash")
-        val provenance = discovery.structureProvenance ?: throw ProducerContractException("source constraints require exact discovery structure provenance")
-        return PhysicalSourceConstraints(adopted.discoverySnapshotId, schemaHash, discovery.sourceIdentityHash, binding.source.connectorRef,
-            discovery.databaseProductName, discovery.databaseProductVersion, discovery.driverName, discovery.driverVersion, adopted.constraints,
-            columnRefs(columns), collections, provenance)
-    }
-
-    private fun retainedEvidence(previous: PhysicalSourceConstraints, priorColumns: List<PhysicalColumnRecord>, columns: List<PhysicalColumnRecord>): PhysicalSourceConstraints {
-        if (priorColumns.associate { it.columnName to it.jdbcColumnType } != columns.associate { it.columnName to it.jdbcColumnType })
-            throw ProducerContractException("changing observed source columns requires a new discovery and complete physical definition")
-        return PhysicalSourceConstraints(previous.discoverySnapshotId, previous.schemaHash, previous.sourceIdentityHash, previous.connectorRef,
-            previous.databaseProductName, previous.databaseProductVersion, previous.driverName, previous.driverVersion, previous.constraints,
-            columnRefs(columns), previous.sourceCollections, previous.structureProvenance)
+        return PhysicalDataContract(PhysicalTableRef(table.id, table.currentVersion), table.dataSource,
+            JdbcTableConstraints.Table(table.catalogName?.takeUnless(String::isEmpty), table.schemaName, table.tableName),
+            columns.associate { it.columnName to PhysicalDataContract.Column("${it.id}@${it.currentVersion}", it.jdbcColumnType) },
+            adopted.constraints, warehouseDataSources.listDiscoveredUniqueKeys(adopted.id).map { it.key }, collections.map { it.declaration() }, adopted.id)
     }
 
     private fun write(change: TableChange) {
@@ -202,35 +191,24 @@ class PhysicalAssetGovernanceService(
     fun physicalColumnSnapshot(id: String, version: Long): PhysicalColumnRecord = snapshots.physicalColumn(id, version)
     fun listPhysicalColumnsByTable(id: String): List<PhysicalColumnRecord> = assets.listPhysicalColumnsByTable(id)
 
-    fun nativeTable(reference: TableArgument): NativeTableDependency {
+    fun nativeTable(reference: TableArgument): PhysicalDataContract {
         val table = physicalTableSnapshot(reference.physicalTableId, reference.physicalTableVersion)
         GovernanceContract.requireReferenceableVersion(table.status, "PHYSICAL_TABLE", table.id, reference.physicalTableVersion)
-        return NativeTableDependency(table.id, reference.physicalTableVersion, table.dataSource, table.dialectId,
-            JdbcTableConstraints.Table(table.catalogName, table.schemaName, table.tableName), physicalTableSourceConstraints(table.id, reference.physicalTableVersion))
+        return readPhysicalDataContract(PhysicalTableRef(table.id, reference.physicalTableVersion))
     }
-    fun physicalTableSourceConstraints(id: String, version: Long): PhysicalSourceConstraints {
-        val content = snapshots.physicalTableContent(id, version)
-        val evidence = PhysicalAssetSnapshots.sourceConstraints(content)
-        val table = snapshots.physicalTable(id, version)
-        val binding = warehouseDataSources.findSourceBinding(SourceBindingRef(table.dataSource, evidence.sourceIdentityHash))
-            ?: throw ProducerContractException("frozen physical version source binding is missing: $id@$version")
-        if (binding.source.connectorRef != evidence.connectorRef || binding.source.dialectId != table.dialectId)
-            throw ProducerContractException("frozen physical version differs from its exact source binding")
-        if (columnRefs(snapshots.physicalTableColumns(id, version)) != evidence.columnVersionRefs)
-            throw ProducerContractException("source constraints differ from exact physical column versions")
-        return evidence
+    override fun readPhysicalDataContract(reference: PhysicalTableRef): PhysicalDataContract {
+        val content = snapshots.physicalTableContent(reference.id, reference.version)
+        val contract = content.dataContract
+        val table = snapshots.physicalTable(reference.id, reference.version)
+        if (contract.reference != reference || contract.dataSourceId != table.dataSource ||
+            contract.table != JdbcTableConstraints.Table(table.catalogName?.takeUnless(String::isEmpty), table.schemaName, table.tableName) ||
+            contract.columns != snapshots.physicalTableColumns(reference.id, reference.version).associate {
+                it.columnName to PhysicalDataContract.Column("${it.id}@${it.currentVersion}", it.jdbcColumnType)
+            }) throw ProducerContractException("physical data contract differs from its exact physical version: ${reference.id}@${reference.version}")
+        return contract
     }
-    fun physicalTableUniqueKeys(id: String, version: Long): List<WarehouseDiscoveredUniqueKeyRecord> {
-        val table = physicalTableSnapshot(id, version)
-        val evidence = physicalTableSourceConstraints(id, version)
-        val matches = warehouseDataSources.listDiscoveredTables(evidence.discoverySnapshotId).filter {
-            it.catalogName == table.catalogName && it.schemaName == table.schemaName && it.tableName == table.tableName && it.schemaHash == evidence.schemaHash
-        }
-        if (matches.size != 1) throw ProducerContractException("exact physical version no longer identifies one adopted discovery table")
-        return warehouseDataSources.listDiscoveredUniqueKeys(matches.single().id).also { proofs ->
-            proofs.forEach { if (!evidence.columnVersionRefs.keys.containsAll(it.key.rule.columns)) throw ProducerContractException("source unique proof references columns outside the exact physical version") }
-        }
-    }
+    fun sourceAdoption(reference: SourceAdoptionRef): PhysicalSourceAdoption = warehouseDataSources.findSourceAdoption(reference)
+        ?: throw ProducerContractException("exact source adoption is missing: ${reference.id}")
     override fun requirePhysicalTable(physicalTableId: String, field: String) {
         if (findPhysicalTable(physicalTableId) == null) throw ProducerContractException("$field physical_table not found: $physicalTableId")
     }
@@ -251,7 +229,6 @@ class PhysicalAssetGovernanceService(
             PhysicalAssetSnapshots.physicalColumnSnapshotProto(column, sensitivity), "{}", sourceVersion, actor, now, null, null, null, null, null, null)
     private fun tableVersion(table: PhysicalTableRecord, content: String, sourceVersion: Long?, actor: String, now: Instant) =
         PhysicalTableVersionRecord("${table.id}:v${table.currentVersion}", table.id, table.currentVersion, "DRAFT", content, "{}", sourceVersion, actor, now, null, null, null, null, null, null)
-    private fun columnRefs(columns: List<PhysicalColumnRecord>): Map<String, String> = columns.associateTo(linkedMapOf()) { it.columnName to "${it.id}@${it.currentVersion}" }
     private fun uniqueColumn(value: String, names: MutableSet<String>): String = text(value, "physical_column.column_name").also {
         if (!names.add(it)) throw ProducerContractException("physical_table.columns contains duplicate column: $it")
     }

@@ -53,14 +53,14 @@ internal object QueryExplanation {
     }
     private fun sourceConstraints(source: JdbcSourceRequirement): View.SourceConstraints {
         val constraints = source.constraintUses.sortedWith(compareBy({ it.kind.name }, { it.name ?: "" })).map { use ->
-            val declared = source.evidence.constraints
+            val declared = source.dataContract.constraints
             val columns = when (use.kind) {
                 ConstraintKind.NOT_NULL -> listOf(requireNotNull(use.name))
                 ConstraintKind.PRIMARY_KEY -> declared.primaryKeyColumns
                 ConstraintKind.UNIQUE_KEY -> declared.uniqueKeys.single { it.name == use.name }.columns
                 ConstraintKind.FOREIGN_KEY -> declared.importedKeys.filter { it.name == use.name }.sortedBy { it.keySequence }.map { it.column }
                 ConstraintKind.TEMPORAL_KEY -> declared.temporalKeys.single { it.rule.name == use.name }.rule.columns().sorted()
-                ConstraintKind.SNAPSHOT_UNIQUE_KEY -> source.snapshotUniqueKeys.single { it.rule.name == use.name }.rule.columns
+                ConstraintKind.SNAPSHOT_UNIQUE_KEY -> source.dataContract.snapshotUniqueKeys.single { it.rule.name == use.name }.rule.columns
             }
             val adoptedFor = when (use.kind) {
                 ConstraintKind.NOT_NULL -> "NON_NULL_NATIVE_COLUMN_TYPE"
@@ -68,7 +68,7 @@ internal object QueryExplanation {
                 ConstraintKind.FOREIGN_KEY -> "OPTIMIZER_REFERENCE_METADATA"
                 ConstraintKind.TEMPORAL_KEY -> "TEMPORAL_RELATION_RULE"
             }
-            View.SourceConstraint(use.kind, use.name, columns.associateWith { source.evidence.columnVersionRefs.getValue(it) }, adoptedFor)
+            View.SourceConstraint(use.kind, use.name, columns.associateWith { source.dataContract.columns.getValue(it).ref }, adoptedFor)
         }
         return View.SourceConstraints(source.bindingRef(), source.connectorRef, source.dialect, source.physicalTableId,
             source.physicalTableVersion, source.table.catalog, source.table.schema, source.table.table, constraints)

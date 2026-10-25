@@ -114,7 +114,7 @@ class PublishedExactRevisionsTest {
             f.scenarios.createScenarioMemberSourceRef(ScenarioMemberSourceRefCreateRequest(scenario, 1, first.id, 1,
                 MemberQueryPermission(listOf("order", "amount"), emptyList(), mapOf("amount" to listOf(MemberCondition.Operator.GTE)), false, emptyList())))
             f.activate("SUBJECT_AREA", subject)
-            f.builder().build(SubjectAreaReleaseBuildRequest("access_v1", "1", "原订单权限", subject, 1, "golden"))
+            f.builder().build(SubjectAreaReleaseBuildRequest("access_v1", "1", "原订单权限", subject, 1, "golden", f.sourceAdoptions))
 
             f.subjects.reviseSubjectArea(GovernanceRevisionRequest(subject, 1, subjectDefinition))
             val second = f.adoptions.createMemberSource(MemberSourceCreateRequest(subject, 2, "orders", "订单", OrderMemberDefinitions.projection(MemberShape.RECORDS),
@@ -123,7 +123,7 @@ class PublishedExactRevisionsTest {
             f.scenarios.createScenarioMemberSourceRef(ScenarioMemberSourceRefCreateRequest(scenario, 2, second.id, 2,
                 MemberQueryPermission(listOf("order"), emptyList(), emptyMap(), false, emptyList())))
             f.activate("SUBJECT_AREA", subject, 2)
-            f.builder().build(SubjectAreaReleaseBuildRequest("access_v2", "1", "收窄订单权限", subject, 2, "golden"))
+            f.builder().build(SubjectAreaReleaseBuildRequest("access_v2", "1", "收窄订单权限", subject, 2, "golden", f.sourceAdoptions))
 
             val oldPublication = f.artifacts.loadExecutableCatalog(ReleaseCatalogRequest(scenario, 1, "access_v1", "1"))
             val newPublication = f.artifacts.loadExecutableCatalog(ReleaseCatalogRequest(scenario, 2, "access_v2", "1"))

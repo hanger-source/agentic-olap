@@ -11,11 +11,9 @@ internal fun PhysicalTableCreateRequestToProto(value: com.olap.prototype.governa
     value.sensitivityLevel?.let { setSensitivityLevel(it) }
     value.sourceSystem?.let { setSourceSystem(it) }
     setDataSource(value.dataSource)
-    setDialectId(value.dialectId)
     value.catalog?.let { setCatalog(it) }
     value.schemaName?.let { setSchemaName(it) }
-    setSchemaHash(value.schemaHash)
-    setSourceConstraints(PhysicalTableCreateRequestSourceConstraintsInputToProto(value.sourceConstraints))
+    setInitialAdoption(PhysicalTableCreateRequestSourceAdoptionInputToProto(value.initialAdoption))
     setCreatedBy(value.createdBy)
     addAllColumns(value.columns.map { PhysicalTableCreateRequestColumnInputToProto(it) })
 }.build()
@@ -29,20 +27,18 @@ internal fun PhysicalTableCreateRequestFromProto(value: com.olap.prototype.wire.
     sensitivityLevel = if (value.hasSensitivityLevel()) value.getSensitivityLevel() else null,
     sourceSystem = if (value.hasSourceSystem()) value.getSourceSystem() else null,
     dataSource = value.getDataSource(),
-    dialectId = value.getDialectId(),
     catalog = if (value.hasCatalog()) value.getCatalog() else null,
     schemaName = if (value.hasSchemaName()) value.getSchemaName() else null,
-    schemaHash = value.getSchemaHash(),
-    sourceConstraints = required(value.hasSourceConstraints(), "PhysicalTableCreateRequest.sourceConstraints") { PhysicalTableCreateRequestSourceConstraintsInputFromProto(value.getSourceConstraints()) },
+    initialAdoption = required(value.hasInitialAdoption(), "PhysicalTableCreateRequest.initialAdoption") { PhysicalTableCreateRequestSourceAdoptionInputFromProto(value.getInitialAdoption()) },
     createdBy = value.getCreatedBy(),
     columns = value.getColumnsList().map { PhysicalTableCreateRequestColumnInputFromProto(it) }
 )
 
-internal fun PhysicalTableCreateRequestSourceConstraintsInputToProto(value: com.olap.prototype.governance.contract.PhysicalTableCreateRequest.SourceConstraintsInput): com.olap.prototype.wire.governance.PhysicalTableCreateRequestSourceConstraintsInput = com.olap.prototype.wire.governance.PhysicalTableCreateRequestSourceConstraintsInput.newBuilder().apply {
+internal fun PhysicalTableCreateRequestSourceAdoptionInputToProto(value: com.olap.prototype.governance.contract.PhysicalTableCreateRequest.SourceAdoptionInput): com.olap.prototype.wire.governance.PhysicalTableCreateRequestSourceAdoptionInput = com.olap.prototype.wire.governance.PhysicalTableCreateRequestSourceAdoptionInput.newBuilder().apply {
     setDiscoveredTableId(value.discoveredTableId)
     addAllSourceCollectionIds(value.sourceCollectionIds.map { it })
 }.build()
-internal fun PhysicalTableCreateRequestSourceConstraintsInputFromProto(value: com.olap.prototype.wire.governance.PhysicalTableCreateRequestSourceConstraintsInput): com.olap.prototype.governance.contract.PhysicalTableCreateRequest.SourceConstraintsInput = com.olap.prototype.governance.contract.PhysicalTableCreateRequest.SourceConstraintsInput(
+internal fun PhysicalTableCreateRequestSourceAdoptionInputFromProto(value: com.olap.prototype.wire.governance.PhysicalTableCreateRequestSourceAdoptionInput): com.olap.prototype.governance.contract.PhysicalTableCreateRequest.SourceAdoptionInput = com.olap.prototype.governance.contract.PhysicalTableCreateRequest.SourceAdoptionInput(
     discoveredTableId = value.getDiscoveredTableId(),
     sourceCollectionIds = value.getSourceCollectionIdsList().map { it }
 )
@@ -71,12 +67,14 @@ internal fun PhysicalTableCreateResultToProto(value: com.olap.prototype.governan
     setPhysicalTableVersion(PhysicalTableVersionRecordToProto(value.physicalTableVersion))
     addAllPhysicalColumns(value.physicalColumns.map { PhysicalColumnRecordToProto(it) })
     addAllPhysicalColumnVersions(value.physicalColumnVersions.map { PhysicalColumnVersionRecordToProto(it) })
+    setSourceAdoptions(SourceAdoptionsToProto(value.sourceAdoptions))
 }.build()
 internal fun PhysicalTableCreateResultFromProto(value: com.olap.prototype.wire.governance.PhysicalTableCreateResult): com.olap.prototype.governance.contract.PhysicalTableCreateResult = com.olap.prototype.governance.contract.PhysicalTableCreateResult(
     physicalTable = required(value.hasPhysicalTable(), "PhysicalTableCreateResult.physicalTable") { PhysicalTableRecordFromProto(value.getPhysicalTable()) },
     physicalTableVersion = required(value.hasPhysicalTableVersion(), "PhysicalTableCreateResult.physicalTableVersion") { PhysicalTableVersionRecordFromProto(value.getPhysicalTableVersion()) },
     physicalColumns = value.getPhysicalColumnsList().map { PhysicalColumnRecordFromProto(it) },
-    physicalColumnVersions = value.getPhysicalColumnVersionsList().map { PhysicalColumnVersionRecordFromProto(it) }
+    physicalColumnVersions = value.getPhysicalColumnVersionsList().map { PhysicalColumnVersionRecordFromProto(it) },
+    sourceAdoptions = required(value.hasSourceAdoptions(), "PhysicalTableCreateResult.sourceAdoptions") { SourceAdoptionsFromProto(value.getSourceAdoptions()) }
 )
 
 internal fun PhysicalTableRecordToProto(value: com.olap.prototype.governance.contract.PhysicalTableRecord): com.olap.prototype.wire.governance.PhysicalTableRecord = com.olap.prototype.wire.governance.PhysicalTableRecord.newBuilder().apply {
@@ -84,7 +82,6 @@ internal fun PhysicalTableRecordToProto(value: com.olap.prototype.governance.con
     setCode(value.code)
     setDisplayName(value.displayName)
     setDataSource(value.dataSource)
-    setDialectId(value.dialectId)
     value.catalogName?.let { setCatalogName(it) }
     value.schemaName?.let { setSchemaName(it) }
     setTableName(value.tableName)
@@ -92,7 +89,6 @@ internal fun PhysicalTableRecordToProto(value: com.olap.prototype.governance.con
     setOwner(value.owner)
     setLoadStatus(value.loadStatus)
     value.rowCount?.let { setRowCount(it) }
-    value.schemaHash?.let { setSchemaHash(it) }
     setStatus(value.status)
     setCurrentVersion(value.currentVersion)
     setCreatedBy(value.createdBy)
@@ -105,7 +101,6 @@ internal fun PhysicalTableRecordFromProto(value: com.olap.prototype.wire.governa
     code = value.getCode(),
     displayName = value.getDisplayName(),
     dataSource = value.getDataSource(),
-    dialectId = value.getDialectId(),
     catalogName = if (value.hasCatalogName()) value.getCatalogName() else null,
     schemaName = if (value.hasSchemaName()) value.getSchemaName() else null,
     tableName = value.getTableName(),
@@ -113,7 +108,6 @@ internal fun PhysicalTableRecordFromProto(value: com.olap.prototype.wire.governa
     owner = value.getOwner(),
     loadStatus = value.getLoadStatus(),
     rowCount = if (value.hasRowCount()) value.getRowCount() else null,
-    schemaHash = if (value.hasSchemaHash()) value.getSchemaHash() else null,
     status = value.getStatus(),
     currentVersion = value.getCurrentVersion(),
     createdBy = value.getCreatedBy(),

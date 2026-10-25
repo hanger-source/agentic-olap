@@ -251,10 +251,10 @@ class PublishedSemanticCatalogProducer : ReleaseSemanticCatalogCompiler {
             require(bindings.isNotEmpty()) { "frozen source collection position has no physical binding" }
             val source = bindings.first()
             require(bindings.all { it.bindingId == source.bindingId && it.bindingVersion == source.bindingVersion && it.physicalTableId == source.physicalTableId &&
-                it.physicalTableVersion == source.physicalTableVersion && it.sourceConstraints == source.sourceConstraints }) { "frozen source collection position has inconsistent physical bindings" }
-            return source.sourceConstraints.sourceCollections.map { record ->
-                require(record.dataSourceId == source.dataSourceId && record.sourceIdentityHash == source.sourceConstraints.sourceIdentityHash &&
-                    record.collection.table.catalog == source.catalogName?.takeIf { it.isNotEmpty() } && record.collection.table.schema == source.schemaName && record.collection.table.table == source.tableName) { "frozen source collection differs from its physical position" }
+                it.physicalTableVersion == source.physicalTableVersion && it.dataContract == source.dataContract && it.adoption == source.adoption }) { "frozen source collection position has inconsistent physical bindings" }
+            return source.adoption.evidence.sourceCollections.filter { it.declaration() in source.dataContract.sourceCollections }.map { record ->
+                require(record.dataSourceId == source.dataSourceId && record.sourceIdentityHash == source.adoption.binding.sourceIdentityHash &&
+                    record.collection.table == source.adoption.table) { "frozen source collection differs from its physical position" }
                 SealedSourceCollectionMeaning(record.id, record.sourceAuthority, record.scope, record.collection.ruleIds, SealedSourceCollectionMeaning.MEANING)
             }
         }

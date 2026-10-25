@@ -144,7 +144,7 @@ internal class CandidateHandler(private val connectors: ConnectorRegistry, priva
     }
 
     private fun resolution(request: CandidateRequest, selected: Selected, plan: Planned): CandidateResolution {
-        val required = plan.sourceRequirements.map { CandidateSource(SourceBindingRef(it.dataSourceId, it.evidence.sourceIdentityHash), it.connectorRef) }
+        val required = plan.sourceRequirements.map { CandidateSource(it.bindingRef(), it.connectorRef) }
             .distinct().sortedWith(compareBy<CandidateSource> { it.binding.dataSourceId }.thenBy { it.binding.sourceIdentityHash }
                 .thenBy { it.connectorRef.id }.thenBy { it.connectorRef.version }.thenBy { it.connectorRef.sha256 })
         return CandidateResolution(selected.publication.executable.coordinate, selected.publication.entry.catalogHash,

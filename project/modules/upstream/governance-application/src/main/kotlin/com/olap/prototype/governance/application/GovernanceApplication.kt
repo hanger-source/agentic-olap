@@ -5,6 +5,7 @@ import com.olap.prototype.engine.catalog.ExecutablePostOperationCapabilities
 import com.olap.prototype.governance.contract.*
 import com.olap.prototype.management.governance.*
 import com.olap.prototype.management.warehouse.WarehouseRegistryRepository
+import com.olap.prototype.management.warehouse.PhysicalSourceAdoptionService
 import com.olap.prototype.release.catalog.*
 import com.olap.prototype.release.catalog.capability.QueryCapabilityProducer
 import com.olap.prototype.release.catalog.capability.ReleaseQueryCapabilityRepository
@@ -22,6 +23,7 @@ class GovernanceApplication(private val database: PlatformDatabase, connectors: 
     internal val warehouseRepository = WarehouseRegistryRepository(database)
     internal val businessLines = BusinessLineGovernanceService(database)
     internal val physicalAssets = PhysicalAssetGovernanceService(database, warehouseRepository)
+    internal val sourceAdoptions = PhysicalSourceAdoptionService(warehouseRepository, physicalAssets)
     internal val logicalModel = LogicalModelGovernanceService(database, physicalAssets, connectors)
     private val nativeExpressions = NativeExpressionBindings(physicalAssets, connectors)
     internal val topologies = TopologyGovernanceService(database, logicalModel)

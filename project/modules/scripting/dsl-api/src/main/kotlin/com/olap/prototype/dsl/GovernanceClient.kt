@@ -154,6 +154,10 @@ class GovernanceClient internal constructor(private val calls: CapabilityCalls) 
     @Capability("register-source-structure", "write-governance", "WRITE")
     fun registerSourceStructure(request: SourceStructureRegistrationRequest): SourceDiscoveryReceipt = calls.call(GovernanceClient::class.java, "registerSourceStructure", request)
 
+    @Capability("register-source-adoptions", "write-governance", "WRITE")
+    fun registerSourceAdoptions(request: com.olap.prototype.warehouse.contract.SourceAdoptionRegistrationRequest): com.olap.prototype.warehouse.contract.SourceAdoptions =
+        calls.call(GovernanceClient::class.java, "registerSourceAdoptions", request)
+
     @Capability("discover-source", "write-governance", "WRITE")
     fun discoverSource(request: WarehouseDiscoveryCommand): SourceDiscoveryReceipt = calls.call(GovernanceClient::class.java, "discoverSource", request)
 }

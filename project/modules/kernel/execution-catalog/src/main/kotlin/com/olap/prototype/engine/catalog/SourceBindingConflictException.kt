@@ -10,7 +10,7 @@ class SourceBindingConflictException(inputs: List<Input>) : IllegalArgumentExcep
         val connectorRef: ConnectorRef, val dialect: String, val physicalTableId: String, val physicalTableVersion: String)
     companion object {
         fun input(binding: ExecutablePhysicalExecutionBinding, scopePath: List<String>, anchor: String): Input = Input(scopePath.toList(), anchor,
-            binding.dataSourceId, binding.sourceConstraints.sourceIdentityHash, binding.connectorRef, binding.dialect, binding.physicalTableId, binding.physicalTableVersion)
+            binding.dataSourceId, binding.adoption.binding.sourceIdentityHash, binding.connectorRef, binding.dialect, binding.physicalTableId, binding.physicalTableVersion)
         fun requireSingleBinding(inputs: List<Input>) {
             val first = inputs.firstOrNull() ?: return
             if (inputs.any { it.dataSourceId != first.dataSourceId || it.sourceIdentityHash != first.sourceIdentityHash || it.connectorRef != first.connectorRef || it.dialect != first.dialect })

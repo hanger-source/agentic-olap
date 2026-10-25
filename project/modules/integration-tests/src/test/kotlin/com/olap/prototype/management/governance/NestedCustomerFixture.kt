@@ -95,7 +95,7 @@ internal class NestedCustomerFixture(val database: PlatformDatabase, directory: 
             NativeValidator { intent, capability -> QueryNativeValidation.validate(intent, capability, f.connectors) })
     }
 
-    fun publish() { SUBJECTS.forEach { f.activate("SUBJECT_AREA", it); f.builder().build(SubjectAreaReleaseBuildRequest("$it.release", "1", "独立客户平均发布", it, 1, "golden")) } }
+    fun publish() { SUBJECTS.forEach { f.activate("SUBJECT_AREA", it); f.builder().build(SubjectAreaReleaseBuildRequest("$it.release", "1", "独立客户平均发布", it, 1, "golden", f.sourceAdoptions)) } }
     fun publication(subject: String, version: String = "1", subjectVersion: Long = 1) = f.artifacts.loadExecutableCatalog(ReleaseCatalogRequest("$subject.customers", subjectVersion, "$subject.release", version))
     fun createMetric(code: String, definition: MetricCalculation): MetricRecord = f.metrics.createMetricCalculation(MetricCalculationCreateRequest(code, "客户经营平均", "trade", definition, "客户层归约", meaning, "golden")).metric.also { f.activate("METRIC", it.id) }
     fun adopt(subject: String, code: String, metric: MetricRecord, bindings: CalculationBindings, arguments: Map<String, Calculation.Value> = emptyMap(), subjectVersion: Long = 1, metricVersion: Long = 1): SubjectAreaMetricRefRecord =

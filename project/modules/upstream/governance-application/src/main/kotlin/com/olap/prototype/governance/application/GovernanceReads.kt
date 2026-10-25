@@ -25,6 +25,7 @@ import com.olap.prototype.query.contract.PublishedQueryEntry
 import com.olap.prototype.query.contract.QueryCapabilityRequest
 import com.olap.prototype.query.contract.QueryLanguageContract
 import com.olap.prototype.release.contract.ReleaseCatalogRequest
+import com.olap.prototype.warehouse.contract.SourceAdoptionReadRequest
 
 /** 同一注册事实拥有治理读取的工具名、输入类型和执行规则。 */
 internal class GovernanceReads(
@@ -53,6 +54,7 @@ internal class GovernanceReads(
             operation("list-source-discoveries", SourceDiscoveriesInput::class.java) { r, input ->
                 page(r.application.warehouseRepository.listDiscoverySnapshots(requiredText(input.dataSourceId, "dataSourceId"), requiredCatalog(input.catalog), requiredText(input.schemaName, "schemaName")), input.offset, input.limit) },
             operation("read-source-discovery", SnapshotInput::class.java) { r, input -> r.sourceDiscovery(requiredText(input.snapshotId, "snapshotId")) },
+            operation("read-source-adoptions", SourceAdoptionReadRequest::class.java) { r, input -> r.application.sourceAdoptions.read(input) },
             operation("read-source-discovery-tables", SnapshotPageInput::class.java) { r, input -> r.readSourceDiscoveryTables(input) },
             operation("read-source-discovery-columns", DiscoveredTablePageInput::class.java) { r, input -> r.readSourceDiscoveryColumns(input) },
             operation("read-source-discovery-unique-keys", DiscoveredTablePageInput::class.java) { r, input -> r.readSourceDiscoveryUniqueKeys(input) },

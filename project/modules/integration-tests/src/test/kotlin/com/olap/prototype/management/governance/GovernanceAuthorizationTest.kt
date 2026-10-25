@@ -34,7 +34,7 @@ class GovernanceAuthorizationTest {
             val registry = WarehouseRegistryRepository(database)
             val assets = PhysicalAssetGovernanceService(database, registry)
             val sources = mapOf(source.bindingRef() to source)
-            val onboarding = WarehouseOnboardingService(assets, WarehouseRegistryService(database, registry, assets), sources::get)
+            val onboarding = WarehouseOnboardingService(assets, WarehouseRegistryService(database, registry, assets), sources::get, com.olap.prototype.management.warehouse.PhysicalSourceAdoptionService(registry, assets))
             val operations = GovernanceOperations(GovernanceApplication(database, connectors), sources, onboarding)
             val inspectionCalls = AtomicInteger()
             val inspection = DeniedInspection { inspectionCalls.incrementAndGet() }
@@ -64,7 +64,7 @@ class GovernanceAuthorizationTest {
         PlatformDatabase.openSingleInstance(directory).use { database ->
             val registry = WarehouseRegistryRepository(database)
             val assets = PhysicalAssetGovernanceService(database, registry)
-            val onboarding = WarehouseOnboardingService(assets, WarehouseRegistryService(database, registry, assets)) { null }
+            val onboarding = WarehouseOnboardingService(assets, WarehouseRegistryService(database, registry, assets), { null }, com.olap.prototype.management.warehouse.PhysicalSourceAdoptionService(registry, assets))
             val operations = GovernanceOperations(GovernanceApplication(database, connectors), emptyMap(), onboarding)
             val inspection = DeniedInspection { }
             fun dispatch(name: String, value: Any, subject: String = "alice"): Any = operations.dispatchAuthenticated(name,
@@ -97,7 +97,7 @@ class GovernanceAuthorizationTest {
             val saved = dimensions.listAnalysisDimensionValueAlignments("commerce.trade.city", 1)
             assertEquals(1, saved.size)
             assertEquals("alice", saved.first().confirmedBy)
-            val page = operations.read("list-business-lines", GovernanceReadRequests.PageInput(0, 50), control) as GovernanceReadRequests.Page<*>
+            val page = operations.read("list-business-lines", GovernanceReadRequests.PageInput(0, 50), control) { } as GovernanceReadRequests.Page<*>
             assertEquals(1, page.items.size)
         }
     }

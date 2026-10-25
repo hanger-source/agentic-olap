@@ -43,9 +43,9 @@ internal class FrozenSourceTables private constructor(val connector: ResolvedCon
             var verified: JdbcTableConstraints? = null
             var unavailable: JdbcSourceRequirement? = null
             sources.forEach { source ->
-                if (!connector.access.supportsConstraintVerification(source.evidence)) unavailable = source
+                if (!connector.access.supportsConstraintVerification(source.dataContract, source.adoption)) unavailable = source
                 else {
-                    val constraints = source.evidence.constraints
+                    val constraints = source.dataContract.constraints
                     check(verified == null || verified == constraints) { "conflicting adopted source constraints for one physical table" }
                     verified = constraints
                 }
@@ -71,18 +71,16 @@ internal class FrozenSourceTables private constructor(val connector: ResolvedCon
         private fun rowSources(bindings: Collection<ExecutablePhysicalExecutionBinding>, refs: Set<String>): MutableList<JdbcSourceRequirement> {
             val merged = linkedMapOf<String, JdbcSourceRequirement>()
             bindings.forEach { binding ->
-                val evidence = requireNotNull(binding.sourceConstraints) { "used physical source requires exact adopted evidence" }
+                binding.adoption.requireContract(binding.dataContract)
                 check(binding.physicalColumnBindings.keys == binding.physicalColumnTypes.keys) { "frozen physical column names and types must have identical exact refs" }
                 val columns = linkedMapOf<String, JdbcColumnType>()
                 binding.physicalColumnBindings.forEach { (ref, name) ->
                     if (ref in refs) {
-                        check(ref == evidence.columnVersionRefs[name]) { "binding column differs from adopted exact source version: $ref" }
+                        check(ref == binding.dataContract.columns[name]?.ref) { "binding column differs from exact data contract version: $ref" }
                         columns[name] = requireNotNull(binding.physicalColumnTypes[ref])
                     }
                 }
-                val source = JdbcSourceRequirement(binding.dataSourceId, binding.connectorRef, binding.dialect, binding.physicalTableId,
-                    binding.physicalTableVersion, JdbcTableConstraints.Table(binding.catalogName, binding.schemaName, binding.tableName),
-                    evidence, columns, setOf(JdbcSourceRequirement.Use.ROWS), binding.snapshotUniqueKeys, emptySet())
+                val source = JdbcSourceRequirement(binding.dataContract, binding.adoption, columns, setOf(JdbcSourceRequirement.Use.ROWS), emptySet())
                 val key = "${source.physicalTableId}@${source.physicalTableVersion}"
                 merged[key] = merged[key]?.let { mergeRows(it, source) } ?: source
             }
@@ -90,13 +88,12 @@ internal class FrozenSourceTables private constructor(val connector: ResolvedCon
         }
 
         private fun mergeRows(left: JdbcSourceRequirement, right: JdbcSourceRequirement): JdbcSourceRequirement {
-            check(left.bindingRef() == right.bindingRef() && left.connectorRef == right.connectorRef && left.dialect == right.dialect && left.table == right.table && left.evidence == right.evidence) {
+            check(left.dataContract == right.dataContract && left.adoption == right.adoption) {
                 "conflicting frozen source for one exact physical table"
             }
             val columns = LinkedHashMap(left.columns)
             right.columns.forEach { (name, type) -> val previous = columns.putIfAbsent(name, type); check(previous == null || previous == type) { "conflicting frozen column type: $name" } }
-            return JdbcSourceRequirement(left.dataSourceId, left.connectorRef, left.dialect, left.physicalTableId, left.physicalTableVersion,
-                left.table, left.evidence, columns, left.uses, (left.snapshotUniqueKeys + right.snapshotUniqueKeys).distinct(), emptySet())
+            return JdbcSourceRequirement(left.dataContract, left.adoption, columns, left.uses, emptySet())
         }
 
         private fun adoptNativeTables(bindings: Collection<ExecutablePhysicalExecutionBinding>, refs: Set<TableArgument>, sources: MutableList<JdbcSourceRequirement>): Map<String, NativeTableDependency> {
@@ -114,10 +111,9 @@ internal class FrozenSourceTables private constructor(val connector: ResolvedCon
                 val row = sources.indexOfFirst { "${it.physicalTableId}@${it.physicalTableVersion}" == table.key() }
                 if (row >= 0) {
                     val source = sources[row]
-                    check(source.table == table.table && source.evidence == table.sourceConstraints) { "native table differs from the exact row source evidence" }
+                    check(source.dataContract == table.dataContract && source.adoption == table.adoption) { "native table differs from the exact row source adoption" }
                     sources[row] = source.withUse(JdbcSourceRequirement.Use.NATIVE_TABLE)
-                } else sources.add(JdbcSourceRequirement(table.dataSourceId, table.sourceConstraints.connectorRef, table.dialect, table.physicalTableId,
-                    table.physicalTableVersion.toString(), table.table, table.sourceConstraints, emptyMap(), setOf(JdbcSourceRequirement.Use.NATIVE_TABLE), emptyList(), emptySet()))
+                } else sources.add(JdbcSourceRequirement(table.dataContract, table.adoption, emptyMap(), setOf(JdbcSourceRequirement.Use.NATIVE_TABLE), emptySet()))
                 ref.key() to table
             }
         }

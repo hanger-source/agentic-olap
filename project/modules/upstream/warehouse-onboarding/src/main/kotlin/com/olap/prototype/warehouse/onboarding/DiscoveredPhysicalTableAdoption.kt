@@ -35,8 +35,8 @@ internal class DiscoveredPhysicalTableAdoption(private val physicalAssets: Physi
             val created = physicalAssets.createPhysicalTable(PhysicalTableCreateRequest(required(request.code, "physical_table.code"), table.tableName,
                 required(request.displayName, "physical_table.display_name"), request.description, required(request.dataDomain, "physical_table.data_domain"),
                 required(request.owner, "physical_table.owner"), required(request.sensitivityLevel, "physical_table.sensitivity_level"), required(request.sourceSystem, "physical_table.source_system"),
-                snapshot.dataSource, snapshot.dialectId, table.catalogName, table.schemaName, required(table.schemaHash, "physical_table.schema_hash"),
-                PhysicalTableCreateRequest.SourceConstraintsInput(table.id, emptyList()), required(request.createdBy, "physical_table.created_by"), columns))
+                snapshot.dataSource, table.catalogName, table.schemaName,
+                PhysicalTableCreateRequest.SourceAdoptionInput(table.id, emptyList()), required(request.createdBy, "physical_table.created_by"), columns))
             val registered = table.copy(registeredPhysicalTableId = created.physicalTable.id, status = "REGISTERED")
             registry.saveDiscoveredTable(registered)
             RegisteredPhysicalTable(created, registered)

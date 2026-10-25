@@ -45,7 +45,7 @@ internal class ExecutableDimensionBindings(private val catalog: ExecutableCatalo
             joins, physical, filterOnly, mapping.valueAlignmentKey, mapping.valueAlignmentStatus)
     }
     private fun nativeFunction(source: ExecutablePhysicalExecutionBinding, call: SemanticExpression.NativeCall): NativeScalarFunction {
-        val expected = SourceBindingRef(source.dataSourceId, source.sourceConstraints.sourceIdentityHash)
+        val expected = source.adoption.binding
         return NativeExpressionScope(source.connectorRef, connectors.require(source.connectorRef).compilation) { reference ->
             source.nativeTableDependencies[reference.key()]?.also { it.requireSource(expected, source.connectorRef, source.dialect) }
         }.requireCall(call)

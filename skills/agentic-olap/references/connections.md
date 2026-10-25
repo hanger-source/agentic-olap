@@ -20,7 +20,7 @@ agentic-olap sdk --repository
 
 HTTP 或其他后端由使用方提供匹配其 SQL 后端及实际协议的插件；SQL 协议兼容不证明类型、数值、时间或一致性映射已经成立。业务 Agent 通过正式 MCP 使用已配置的来源。
 
-本仓库源码的连接器 API 为 `agentic-olap-connector/v12-kotlin-native-collection-placement-calcite-1.42`；安装发行物时以实际服务及 `agentic-olap sdk` 披露的 API 为准。`connectorRef` 是 manifest 中实际的 `{id,version,sha256}`，数据源逐项引用该完整对象。服务核验 API 和摘要，驱动只由 JDBC 实现核验。
+本仓库源码的连接器 API 为 `agentic-olap-connector/v13-kotlin-data-contract-source-adoption-calcite-1.42`；安装发行物时以实际服务及 `agentic-olap sdk` 披露的 API 为准。`connectorRef` 是 manifest 中实际的 `{id,version,sha256}`，数据源逐项引用该完整对象。服务核验 API 和摘要，驱动只由 JDBC 实现核验。
 
 产品版本或 SDK Maven 坐标变化本身不要求重新构建既有插件。原插件与目标宿主的连接器 API 相同、所用公共接口的二进制合同及 JVM、Kotlin、Calcite 要求满足时，可原样保留完整插件组。宿主仍逐项核验原 manifest、JAR 摘要、完整 `connectorRef` 和 provider 身份；不因产品升级改写它们。API 字符串相同和装载成功都不能单独证明尚未调用的分支成立，升级须用原精确插件完成实际使用能力的查询验证。原字节和来源身份配置均未改变时，来源绑定也不变，无需仅为产品版本重登记目录或修订资产。
 
@@ -104,20 +104,25 @@ AVG 仍须提供非空数量合同。事实度量的 `aggregationRounding`、完
 
 字段应明确提供类型、顺序与可空性；`autoIncrement/generated` 未知时可以不提供，服务保留未知。`structureProvenance.kind=DECLARED` 表示明确提供的结构，外部目录与数据库观察分别标记来源。声明不等于已经核验的保证；查询实际依赖关系或约束检查时，插件必须兑现检查与计算的一致性。事务快照是实现方式之一；来源也可通过原子 SQL 或不可变数据版本兑现。插件可明确选择安全字面量 SQL 提交，无需假称参数绑定。缺少能力会以 `SOURCE_CAPABILITY_MISSING` 指出来源、操作和能力，只影响实际依赖它的操作。
 
-运行参数调整不改变绑定，重启后使用实际部署策略。服务使用存储格式 `16`，不自动改写旧格式持久根，恢复时使用匹配发行构件及精确插件；所选资产可通过 `read-deployment-availability` 分别核验读取和执行前提。
+运行参数调整不改变绑定，重启后使用实际部署策略。服务不自动改写旧格式持久根，恢复时使用匹配发行构件及精确插件；所选资产可通过 `read-deployment-availability` 分别核验读取和执行前提。
 
 ## 更换插件与显式采用
 
 真正更换插件字节、provider 版本或来源身份参数时，使用实际产物生成的新 manifest 和完整 `connectorRef`；保留原插件组供仍引用它的资产使用。精确插件引用进入 `sourceIdentityHash`，相同连接器 API 不使新旧绑定相等。`list-data-sources` 返回部署后的实际绑定，不能手写旧摘要覆盖新字节。
 
-采用新绑定复用现有治理入口，按当前主体权限执行：
+物理版本 P 的 `PhysicalDataContract` 保存稳定来源、表坐标、精确列版本与类型／NULL、约束、快照唯一规则及 anchor，以及封存集合的完整原声明。P 不钉连接器、方言或某次结构观察。S 是目标绑定下已记录的精确结构快照；兑现采用接受该绑定及 S 的实际证据兑现 P。原结构出处不能冒充 B 的核验，结构登记本身也不产生采用。
 
-1. 用 `olap.governance.discoverSource`（`discover-source`）或 `registerSourceStructure`（`register-source-structure`）为目标 `dataSourceId/sourceIdentityHash` 取得完整结构证据，再用 `olap.semantics.sourceDiscovery/discoveredTables/discoveredColumns` 读取精确快照、表及字段。
-2. 用 `olap.semantics.definition(AssetVersionRequest)`（`read-asset-definition`）读取旧精确版本的类型化定义；`dependencies`（`read-definition-dependencies`）读取其依赖，`impact(DefinitionImpactRequest)`（`read-definition-impact`）读取受影响的依赖方与路径。读取结果不是统一的 CreateRequest，也不执行修订。
-3. 明确构造完整 `PhysicalTableCreateRequest`，以目标调查的 `schemaHash` 和 `sourceConstraints.discoveredTableId` 采用该绑定，调用 `olap.governance.revisePhysicalTable(GovernanceRevisionRequest(objectId, sourceVersion, definition))`（`revise-physical-table`）。同一物理表身份须保留稳定 `dataSourceId`，服务核验目标证据、完整列集及类型；仅登记新目录不会改变已有物理版本。
-4. 按实际依赖路径明确组织 `reviseLogicalTable/reviseTopology/reviseEvent` 等对应修订及其采用请求，使用每次返回的精确版本；用 `olap.semantics.revisionDiff`（`read-definition-revision-diff`）核对版本差异，经 `olap.governance.activate`（`activate`）和 `buildRelease`（`build-release`）明确激活、发布所选闭包。修订不会自动把依赖方改到新版本。
+初次 `olap.governance.createPhysicalTable` 使用 `initialAdoption.discoveredTableId/sourceCollectionIds`，连接器、方言及结构摘要从实际材料取得。P、列与首份采用同事务提交，返回 `sourceAdoptions`；首个发布直接传其 `references`，没有额外登记步骤。
 
-已有版本和发布保留原绑定。只运行新发布时也须明确选择其发布身份；旧发布所需绑定未部署会返回 `SOURCE_BINDING_NOT_DEPLOYED`，不会按同 ID 选择其他绑定。服务没有把一个目标绑定自动传播到全部资产与发布的迁移操作，影响读取也不承诺自动重写业务定义。完成后对所选发布读取部署可用性，并执行实际 Query 确认。
+更换实现、数据合同不变时：
+
+1. 用 `olap.governance.discoverSource` 或 `registerSourceStructure` 为目标精确绑定取得 S。
+2. 用 `olap.governance.registerSourceAdoptions(SourceAdoptionRegistrationRequest(physicalTables, S.snapshotId, olap.caller.subject))` 一次明确接受已有精确 P 的兑现。服务按 P 声明列核对类型／NULL及原约束、声明，不要求 B 没有额外列，也不要求完整观察摘要与原出处相同。
+3. 将返回 `SourceAdoptions.references` 直接交 `buildRelease`。已有采用也可用 `olap.semantics.sourceAdoptions(SourceAdoptionReadRequest(S.snapshotId))` 读取后直接传入。
+
+产品计算实际依赖闭包并取用精确采用，作者不手抄逐表 ID、不查最近记录，也不自行装配闭包。缺少实际 P 的采用或同 P 选择多个不同采用时明确拒绝；未用余项不成为依赖。可直接传递正式返回对象的短例见[数据合同与来源兑现采用](../../../docs/agent-usage.md#数据合同与来源兑现采用)。
+
+新发布冻结所选采用，旧发布仍保留原绑定和证据。按精确 S 读取历史采用只核对元数据权限，不访问来源，不要求该绑定仍部署或来源仍 ACTIVE；执行旧发布时缺少旧绑定则返回 `SOURCE_BINDING_NOT_DEPLOYED`，不会按同 ID 自动切换。同 P、同绑定因技术观察改变可以登记不同采用；旧发布可能因当前技术环境不满足其冻结要求而明确失败。数据合同、业务含义或 `NativeCall(A)` 的真实精确依赖改变时，仍通过正式修订及影响读取处理；实现替换不自动改写它们，也不强迫修订未变主题／场景授权。采用冻结不固定动态分区、数据版本或 `SourceReadBasis`。
 
 ## 使用已声明的原生函数
 

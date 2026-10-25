@@ -3,13 +3,15 @@ package com.olap.prototype.governance.application
 import com.olap.prototype.governance.contract.*
 import com.olap.prototype.governance.contract.GovernanceReadRequests.ReleaseIdentityRequest
 import com.olap.prototype.warehouse.onboarding.SourceDiscoveryReceipt
+import com.olap.prototype.warehouse.contract.SourceAdoptionRef
+import com.olap.prototype.warehouse.contract.SourceAdoptions as WarehouseSourceAdoptions
 
 /** 本次成功写结果的读取坐标；状态是写结果的观察值，不是未来读取时的状态。 */
 sealed interface GovernanceWriteEffect {
     val readOperation: String
     val status: String?
 
-    data class AssetVersion(val reference: DefinitionImpact.Reference, override val status: String?) : GovernanceWriteEffect {
+    data class AssetVersion(val reference: DefinitionImpact.Reference, override val status: String?, val sourceAdoptions: WarehouseSourceAdoptions?) : GovernanceWriteEffect {
         override val readOperation: String = "read-asset-version"
     }
 
@@ -24,13 +26,23 @@ sealed interface GovernanceWriteEffect {
     data class SourceDiscovery(val snapshotId: String, override val status: String?) : GovernanceWriteEffect {
         override val readOperation: String = "read-source-discovery"
     }
+
+    class SourceAdoptions(references: List<SourceAdoptionRef>, discoverySnapshotIds: List<String>) : GovernanceWriteEffect {
+        val references: List<SourceAdoptionRef> = java.util.List.copyOf(references)
+        val discoverySnapshotIds: List<String> = java.util.List.copyOf(discoverySnapshotIds)
+        override val readOperation: String = "read-source-adoptions"
+        override val status: String? = null
+    }
 }
 
 /** 正式写 owner 从实际返回值提炼一条有界引用；完整定义和成员仍走已有读取权限与分页。 */
 object GovernanceWriteReceipts {
     fun project(value: Any): GovernanceWriteEffect = when (value) {
         is SubjectContextRevisionResult -> project(value.subjectArea)
-        is PhysicalTableCreateResult -> with(value.physicalTableVersion) { asset("PHYSICAL_TABLE", physicalTableId, version, versionStatus) }
+        is PhysicalTableCreateResult -> with(value.physicalTableVersion) {
+            GovernanceWriteEffect.AssetVersion(coordinate("PHYSICAL_TABLE", physicalTableId, version), versionStatus, value.sourceAdoptions)
+        }
+        is WarehouseSourceAdoptions -> GovernanceWriteEffect.SourceAdoptions(value.references, value.items.map { it.evidence.discoverySnapshotId }.distinct())
         is PhysicalTableColumnsUpdateResult -> with(value.physicalTableVersion) { asset("PHYSICAL_TABLE", physicalTableId, version, versionStatus) }
         is PhysicalTableMetadataUpdateResult -> with(value.physicalTableVersion) { asset("PHYSICAL_TABLE", physicalTableId, version, versionStatus) }
         is BusinessLineCreateResult -> with(value.businessLineVersion) { asset("BUSINESS_LINE", businessLineId, version, versionStatus) }
@@ -87,7 +99,7 @@ object GovernanceWriteReceipts {
     }
 
     private fun asset(type: String, id: String, version: Long, status: String?) =
-        GovernanceWriteEffect.AssetVersion(coordinate(type, id, version), status)
+        GovernanceWriteEffect.AssetVersion(coordinate(type, id, version), status, null)
 
     private fun member(ownerType: String, ownerId: String, ownerVersion: Long, kind: String, id: String, read: String, status: String?) =
         GovernanceWriteEffect.OwnedMember(coordinate(ownerType, ownerId, ownerVersion), kind, id, read, status)

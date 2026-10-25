@@ -76,7 +76,7 @@ class PublishedNativeCollectionsTest {
                 MemberQueryPermission(listOf("order", "labels", "lines"), listOf("labels"), emptyMap(), false, emptyList()))) }
             f.scenarios.createScenarioMemberSourceRef(ScenarioMemberSourceRefCreateRequest(scenario, 1, adopted.id, 1, MemberQueryPermission(listOf("order", "labels", "lines"), emptyList(), emptyMap(), false, emptyList())))
             f.activate("SUBJECT_AREA", "travel.arrays")
-            f.builder().build(SubjectAreaReleaseBuildRequest("native_collections", "1", "实际源容器发布", "travel.arrays", 1, "golden"))
+            f.builder().build(SubjectAreaReleaseBuildRequest("native_collections", "1", "实际源容器发布", "travel.arrays", 1, "golden", f.sourceAdoptions))
             val coordinate = QueryCapabilityRequest(scenario, 1, "native_collections", "1")
             val online = JdbcPublishedQueryEntryProvider(database).require(coordinate)
             assertTrue(online.capability.memberCandidates.first().outputs["labels"] is MemberCandidate.ContainerProperty)

@@ -62,7 +62,7 @@ class PublishedNestedCustomerTest {
                 assertEquals("DEPRECATED", f.scenarios.scenarioSnapshot("$subject.customers", 1).status)
                 assertEquals("DEPRECATED", f.analysis.analysisDimensionSnapshot("$subject.destination", 1).status)
                 assertThrows(ProducerContractException::class.java) { f.lifecycle.deprecate(GovernanceVersionDeprecationRequest(GovernanceActivationObjectType.SUBJECT_AREA, subject, 1, "governance-owner", "重复停用")) }
-                assertThrows(ProducerContractException::class.java) { f.builder().build(SubjectAreaReleaseBuildRequest("$subject.release", "3", "停用后拒绝", subject, 1, "golden")) }
+                assertThrows(ProducerContractException::class.java) { f.builder().build(SubjectAreaReleaseBuildRequest("$subject.release", "3", "停用后拒绝", subject, 1, "golden", f.sourceAdoptions)) }
                 assertThrows(ProducerContractException::class.java) { f.artifacts.loadArtifact("$subject.release", "3") }
                 assertEquals(identity, f.artifacts.loadArtifact("$subject.release", "1")); assertEquals(bytes, f.mapper.writeValueAsString(n.publication(subject)))
                 val layers = n.execute(n.publication(subject), revised).result.resultFrame.rows

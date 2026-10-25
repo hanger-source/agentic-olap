@@ -31,8 +31,8 @@ object JdbcSourceVerifier {
                 if (observed && (technology.databaseProductName != evidence.databaseProductName || technology.databaseProductVersion != evidence.databaseProductVersion || technology.driverName != evidence.driverName || technology.driverVersion != evidence.driverVersion)) throw SourceGuaranteeException("SOURCE_TECHNOLOGY_DRIFT")
             }
             if (!connection.autoCommit) throw SourceGuaranteeException("SOURCE_TRANSACTION_ALREADY_OPEN")
-            if (sources.any { it.evidence.structureProvenance.kind == StructureProvenance.Kind.DATABASE_CATALOG || it.constraintUses.isNotEmpty() || it.readsRows() && it.evidence.sourceCollections.isNotEmpty() }) jdbc.beginSnapshot(connection, sources, control)
-            val needsAnchor = sources.any { it.readsRows() && it.evidence.sourceCollections.isNotEmpty() || it.constraintUses.any { use -> use.kind in setOf(JdbcSourceRequirement.ConstraintKind.TEMPORAL_KEY, JdbcSourceRequirement.ConstraintKind.SNAPSHOT_UNIQUE_KEY) } }
+            if (sources.any { it.evidence.structureProvenance.kind == StructureProvenance.Kind.DATABASE_CATALOG || it.constraintUses.isNotEmpty() || it.readsRows() && it.sourceCollections.isNotEmpty() }) jdbc.beginSnapshot(connection, sources, control)
+            val needsAnchor = sources.any { it.readsRows() && it.sourceCollections.isNotEmpty() || it.constraintUses.any { use -> use.kind in setOf(JdbcSourceRequirement.ConstraintKind.TEMPORAL_KEY, JdbcSourceRequirement.ConstraintKind.SNAPSHOT_UNIQUE_KEY) } }
             val anchor = if (needsAnchor) jdbc.sourceAnchor(connection, spec, control::checkCancellation) else null
             sources.forEach { control.checkCancellation(); verify(connection, it, anchor, control, jdbc) }
             control.checkCancellation()
@@ -61,7 +61,7 @@ object JdbcSourceVerifier {
             if (!observed) throw SourceGuaranteeException("SOURCE_TABLE_MISSING")
             if (columns != source.columns) throw SourceGuaranteeException("SOURCE_COLUMN_TYPE_DRIFT")
         }
-        if (source.readsRows()) source.evidence.sourceCollections.forEach { control.checkCancellation(); if (it.anchor != anchor) throw SourceGuaranteeException("SOURCE_COVERAGE_ANCHOR_DRIFT") }
+        if (source.readsRows()) source.sourceCollections.forEach { control.checkCancellation(); if (it.anchor != anchor) throw SourceGuaranteeException("SOURCE_COVERAGE_ANCHOR_DRIFT") }
         val nonNull = source.constraintUses.filter { it.kind == JdbcSourceRequirement.ConstraintKind.NOT_NULL }.map { requireNotNull(it.name) }
         if (nonNull.isNotEmpty()) {
             val metadata = connection.metaData
@@ -81,7 +81,7 @@ object JdbcSourceVerifier {
         val catalogConstraints = source.constraintUses.filter { it.kind != JdbcSourceRequirement.ConstraintKind.NOT_NULL }
         if (catalogConstraints.isEmpty()) return
         val actual = jdbc.constraints(connection, table, control)
-        val expected = source.evidence.constraints
+        val expected = source.dataContract.constraints
         catalogConstraints.forEach { use ->
             control.checkCancellation()
             val matches = when (use.kind) {

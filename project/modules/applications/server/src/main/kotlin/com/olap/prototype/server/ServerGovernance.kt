@@ -8,6 +8,7 @@ import com.olap.prototype.governance.application.GovernanceWriteEffect
 import com.olap.prototype.governance.application.GovernanceWriteReceipts
 import com.olap.prototype.protocol.CapabilityEffect
 import com.olap.prototype.protocol.CapabilityOwnedMember
+import com.olap.prototype.protocol.CapabilitySourceAdoptions
 
 /** 接收已经按正式消息解码的请求，作者和来源授权仍由现有领域入口核对。 */
 internal class ServerGovernance(private val governance: GovernanceOperations,
@@ -22,7 +23,7 @@ internal class ServerGovernance(private val governance: GovernanceOperations,
                 .also { result -> request.completedEffects.add(effect(GovernanceWriteReceipts.project(result))) }
         } else {
             require(GovernanceCapabilityCodec.isRead(operation)) { "unregistered governance read" }
-            governance.read(operation,input,request.control)
+            governance.read(operation,input,request.control) { source -> authorization.source(request.principal,permission,source) }
         }
     }
 
@@ -30,11 +31,21 @@ internal class ServerGovernance(private val governance: GovernanceOperations,
         .setReadOperation(value.readOperation).apply {
             value.status?.let(::setStatus)
             when (value) {
-                is GovernanceWriteEffect.AssetVersion -> setAssetVersion(GovernanceProto.toProto(value.reference))
+                is GovernanceWriteEffect.AssetVersion -> {
+                    setAssetVersion(GovernanceProto.toProto(value.reference))
+                    value.sourceAdoptions?.let { adoptions ->
+                        setSourceAdoptions(adoptionReferences(adoptions.references, adoptions.items.map { it.evidence.discoverySnapshotId }.distinct()))
+                    }
+                }
                 is GovernanceWriteEffect.OwnedMember -> setOwnedMember(CapabilityOwnedMember.newBuilder()
                     .setOwner(GovernanceProto.toProto(value.owner)).setKind(value.kind).setId(value.id))
                 is GovernanceWriteEffect.Release -> setRelease(GovernanceProto.toProto(value.reference))
                 is GovernanceWriteEffect.SourceDiscovery -> setSourceDiscovery(value.snapshotId)
+                is GovernanceWriteEffect.SourceAdoptions -> setSourceAdoptions(adoptionReferences(value.references, value.discoverySnapshotIds))
             }
         }.build()
+
+    private fun adoptionReferences(references: List<com.olap.prototype.warehouse.contract.SourceAdoptionRef>, snapshots: List<String>): CapabilitySourceAdoptions =
+        CapabilitySourceAdoptions.newBuilder().addAllReferences(references.map(GovernanceProto::toProto))
+            .addAllDiscoverySnapshotIds(snapshots).build()
 }

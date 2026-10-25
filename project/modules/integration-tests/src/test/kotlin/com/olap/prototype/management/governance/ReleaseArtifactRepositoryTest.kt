@@ -172,13 +172,16 @@ class ReleaseArtifactRepositoryTest {
             }
             val structure = SourceStructureRegistrationRequest.Table(WarehouseTableSummary(WarehouseTableRef(coordinate.catalog, coordinate.schema, coordinate.table), "TABLE", null),
                 listOf(WarehouseColumnMetadata("id", type.jdbcType, type.typeName, 1, type.nullable, type.precision, type.scale, false, false, null, null)), constraints)
-            val evidence = PhysicalSourceConstraints("restart-source-description", ProtoBytes.digest(GovernanceProto.toProto(structure)),
-                spec.sourceIdentityHash(), spec.connectorRef, metadata.databaseProductName, metadata.databaseProductVersion, metadata.driverName, metadata.driverVersion,
-                constraints, mapOf("id" to "orders.id.physical@1"), emptyList(), StructureProvenance(StructureProvenance.Kind.DATABASE_CATALOG, "integration-test-catalog", "fixture-v1"))
+            val contract = PhysicalDataContract(PhysicalTableRef("orders_physical", 1), spec.dataSourceId, coordinate,
+                mapOf("id" to PhysicalDataContract.Column("orders.id.physical@1", type)), constraints, emptyList(), emptyList(), "restart-orders")
+            val evidence = PhysicalSourceEvidence("restart-source-description", "restart-orders", ProtoBytes.digest(GovernanceProto.toProto(structure)),
+                StructureProvenance(StructureProvenance.Kind.DATABASE_CATALOG, "integration-test-catalog", "fixture-v1"),
+                metadata.databaseProductName, metadata.databaseProductVersion, metadata.driverName, metadata.driverVersion,
+                mapOf("id" to type), constraints, emptyList(), emptyList())
             LogicUnitExecutionSnapshot(LogicUnitExecutionSnapshot.FORMAT_VERSION, "orders_binding", "1", "orders.id", 1, "NUMBER", null,
-                "orders", 1, "orders_physical", 1, "source", coordinate.catalog, coordinate.schema, "orders", "h2",
+                "orders", 1, "orders_physical", 1,
                 mapOf("orders.id@1" to SemanticExpression.Reference(SemanticExpression.ReferenceKind.PHYSICAL_COLUMN, "orders.id.physical", 1)),
-                mapOf("orders.id.physical@1" to "id"), mapOf("orders.id.physical@1" to type), emptyMap(), evidence)
+                mapOf("orders.id.physical@1" to "id"), mapOf("orders.id.physical@1" to type), emptyMap(), contract, TestConnectors.adoption(contract, spec.source(), evidence))
         }
         val event = EventExecutionSnapshot("orders", 1, null, null, EventIdentity(listOf(EventIdentity.LogicUnitRef("orders.id", 1)), emptyMap()), emptyMap(), null)
         val topology = TopologyExecutionSnapshot("orders", 1, "orders", "订单记录", "orders", 1, emptyList())

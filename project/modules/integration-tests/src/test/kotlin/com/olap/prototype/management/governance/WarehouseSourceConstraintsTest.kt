@@ -55,9 +55,11 @@ class WarehouseSourceConstraintsTest {
             val table = discovery.tables.first()
             val adopted = onboarding.register(registration(table.id, discovery.columns))
             val id = adopted.physicalTable.physicalTable.id
-            val evidence = assets.physicalTableSourceConstraints(id, 1)
-            val proof = assets.physicalTableUniqueKeys(id, 1).first()
-            val originalBinding = binding(id, "1", "duckdb", table, discovery.columns, evidence, listOf(proof.key))
+            val contract = assets.readPhysicalDataContract(PhysicalTableRef(id, 1))
+            val selected = adopted.physicalTable.sourceAdoptions.items.single()
+            val evidence = selected.evidence
+            val proof = evidence.snapshotUniqueKeys.first()
+            val originalBinding = binding(contract, selected)
             val original = identityPlan(originalBinding)
             val provider = SourceProvider(source, connectors)
             fun execute(plan: SourceSqlRequest) = provider.execute(plan, control, RuntimeDeploymentLimits.result,
@@ -71,15 +73,18 @@ class WarehouseSourceConstraintsTest {
             val dataset = SourceDatasetRegistrationRequest("source", spec.sourceIdentityHash(), declaration)
             val collections = onboarding.registerSourceDataset(dataset, control, inspection)
             assertEquals(collections, onboarding.registerSourceDataset(dataset, control, inspection))
-            assets.revisePhysicalTable(GovernanceRevisionRequest(id, 1, definition("duckdb", table, discovery.columns, collections.map { it.id })))
-            val coveredEvidence = assets.physicalTableSourceConstraints(id, 2)
+            val revision = assets.revisePhysicalTable(GovernanceRevisionRequest(id, 1, definition("duckdb", table, discovery.columns, collections.map { it.id })))
+            val coveredContract = assets.readPhysicalDataContract(PhysicalTableRef(id, 2))
+            val coveredAdoption = revision.sourceAdoptions.items.single()
+            val coveredEvidence = coveredAdoption.evidence
             assertTrue(evidence.sourceCollections.isEmpty())
             assertEquals(collections, coveredEvidence.sourceCollections)
-            val covered = identityPlan(binding(id, "2", "duckdb", table, discovery.columns, coveredEvidence, assets.physicalTableUniqueKeys(id, 2).map { it.key }))
+            val covered = identityPlan(binding(coveredContract, coveredAdoption))
             assertEquals(3, execute(covered).rows.size)
             assets.updatePhysicalTableMetadata(PhysicalTableMetadataUpdateRequest(id, 2, "登记总体", "同一源", "data", "agent"))
-            assertEquals(assets.physicalTableUniqueKeys(id, 1), assets.physicalTableUniqueKeys(id, 2))
-            assertEquals(coveredEvidence, assets.physicalTableSourceConstraints(id, 3))
+            assertEquals(contract.snapshotUniqueKeys, coveredContract.snapshotUniqueKeys)
+            assertEquals(coveredContract.columns, assets.readPhysicalDataContract(PhysicalTableRef(id, 3)).columns)
+            assertEquals(coveredEvidence, assets.sourceAdoption(coveredAdoption.reference).evidence)
 
             TestConnectors.open("duckdb", spec.jdbcUrl).use { connection -> connection.createStatement().use {
                 it.execute("INSERT INTO facts VALUES (3,NULL,'duplicate-null')")
@@ -89,7 +94,7 @@ class WarehouseSourceConstraintsTest {
             val rejected = onboarding.discover(command, control, inspection)
             assertEquals("FAILED", rejected.snapshot.status)
             assertTrue(registry.listDiscoveredTables(rejected.snapshot.id).isEmpty())
-            assertEquals(proof, assets.physicalTableUniqueKeys(id, 1).first())
+            assertEquals(proof, assets.sourceAdoption(selected.reference).evidence.snapshotUniqueKeys.first())
         }
     }
 
@@ -129,16 +134,17 @@ class WarehouseSourceConstraintsTest {
                 val registered = onboarding.register(registration(table.id, columns))
                 val id = registered.physicalTable.physicalTable.id
                 assertEquals(1L, registered.physicalTable.physicalTable.currentVersion)
-                val frozen = assets.physicalTableSourceConstraints(id, 1)
+                val frozen = assets.readPhysicalDataContract(PhysicalTableRef(id, 1))
+                val frozenAdoption = registered.physicalTable.sourceAdoptions.items.single()
                 assertEquals(table.constraints, frozen.constraints)
-                assertEquals(discovery.snapshot.id, frozen.discoverySnapshotId)
-                assertEquals(table.schemaHash, frozen.schemaHash)
-                assertEquals(5, frozen.columnVersionRefs.size)
-                assertTrue(frozen.columnVersionRefs.values.all { it.endsWith("@1") })
+                assertEquals(discovery.snapshot.id, frozenAdoption.evidence.discoverySnapshotId)
+                assertEquals(table.schemaHash, frozenAdoption.evidence.schemaHash)
+                assertEquals(5, frozen.columns.size)
+                assertTrue(frozen.columns.values.all { it.ref.endsWith("@1") })
                 val revised = assets.updatePhysicalTableMetadata(PhysicalTableMetadataUpdateRequest(id, 1, "同一源的业务名称", "完整定义", "data", "agent"))
                 assertEquals(2L, revised.physicalTable.currentVersion)
-                assertEquals(frozen, assets.physicalTableSourceConstraints(id, 1))
-                assertEquals(frozen, assets.physicalTableSourceConstraints(id, 2))
+                assertEquals(frozen, assets.readPhysicalDataContract(PhysicalTableRef(id, 1)))
+                assertEquals(frozen.columns, assets.readPhysicalDataContract(PhysicalTableRef(id, 2)).columns)
                 TestConnectors.open(dialect, spec.jdbcUrl, spec.username, "").use { connection -> connection.createStatement().use {
                     it.execute("ALTER TABLE source_test.facts ADD COLUMN added_value INTEGER")
                 } }
@@ -146,12 +152,12 @@ class WarehouseSourceConstraintsTest {
                 assertEquals("SUCCEEDED", later.snapshot.status, later.snapshot.errorMessage)
                 assertNotEquals(table.schemaHash, later.tables.first().schemaHash)
                 assertEquals(registered.discoverySource, registry.findDiscoveredTable(table.id))
-                assertEquals(frozen, assets.physicalTableSourceConstraints(id, 1))
-                val invalid = definition(dialect, table, columns, emptyList(), schemaHash = "wrong-hash")
+                assertEquals(frozen, assets.readPhysicalDataContract(PhysicalTableRef(id, 1)))
+                val invalid = definition(dialect, table, columns, emptyList(), discoveredTableId = "not-observed")
                 assertThrows(RuntimeException::class.java) { assets.revisePhysicalTable(GovernanceRevisionRequest(id, 2, invalid)) }
                 assertEquals(2L, requireNotNull(assets.findPhysicalTable(id)).currentVersion)
                 assertEquals("DRAFT", assets.physicalTableSnapshot(id, 2).status)
-                assertEquals(frozen, assets.physicalTableSourceConstraints(id, 2))
+                assertEquals(frozen.columns, assets.readPhysicalDataContract(PhysicalTableRef(id, 2)).columns)
                 assertThrows(RuntimeException::class.java) { assets.physicalTableSnapshot(id, 3) }
             }
         }
@@ -163,28 +169,27 @@ class WarehouseSourceConstraintsTest {
     }
 
     private fun onboarding(database: PlatformDatabase, registry: WarehouseRegistryRepository, assets: PhysicalAssetGovernanceService, source: SourceConfiguration) =
-        WarehouseOnboardingService(assets, WarehouseRegistryService(database, registry, assets)) { reference -> source.takeIf { it.bindingRef() == reference } }
+        WarehouseOnboardingService(assets, WarehouseRegistryService(database, registry, assets), { reference -> source.takeIf { it.bindingRef() == reference } }, com.olap.prototype.management.warehouse.PhysicalSourceAdoptionService(registry, assets))
 
     private fun registration(tableId: String, columns: List<WarehouseDiscoveredColumnRecord>) = DiscoveredPhysicalTableRegistrationRequest(tableId,
         "facts", "事实记录", "完整源记录", "业务", "data", "internal", "source", "agent",
         columns.map { DiscoveredPhysicalTableRegistrationRequest.ColumnGovernance(it.columnName, it.columnName, "internal", "调查字段") })
 
     private fun definition(dialect: String, table: WarehouseDiscoveredTableRecord, columns: List<WarehouseDiscoveredColumnRecord>, collections: List<String>,
-        discoveredTableId: String = table.id, schemaHash: String = requireNotNull(table.schemaHash)) = PhysicalTableCreateRequest("facts", table.tableName, "登记记录", "完整源记录",
-        "业务", "data", "internal", "source", "source", dialect, table.catalogName, table.schemaName, schemaHash,
-        PhysicalTableCreateRequest.SourceConstraintsInput(discoveredTableId, collections), "agent", columns.map {
+        discoveredTableId: String = table.id) = PhysicalTableCreateRequest("facts", table.tableName, "登记记录", "完整源记录",
+        "业务", "data", "internal", "source", "source", table.catalogName, table.schemaName,
+        PhysicalTableCreateRequest.SourceAdoptionInput(discoveredTableId, collections), "agent", columns.map {
             PhysicalTableCreateRequest.ColumnInput(it.columnName, it.columnName, it.typeName, "internal", requireNotNull(it.nullable), "源字段", columnType(it))
         })
 
     private fun columnType(column: WarehouseDiscoveredColumnRecord) = JdbcColumnType(column.jdbcType, column.typeName, column.precision, column.scale, column.nullable)
 
-    private fun binding(id: String, version: String, dialect: String, table: WarehouseDiscoveredTableRecord, columns: List<WarehouseDiscoveredColumnRecord>,
-        evidence: PhysicalSourceConstraints, uniqueKeys: List<SnapshotUniqueKey>): ExecutablePhysicalExecutionBinding {
-        val names = columns.associate { evidence.columnVersionRefs.getValue(it.columnName) to it.columnName }
-        val types = columns.associate { evidence.columnVersionRefs.getValue(it.columnName) to columnType(it) }
-        return ExecutablePhysicalExecutionBinding("facts", "1", null, null, null, null, "facts", "1", id, version, "source", evidence.connectorRef,
-            connectors.require(evidence.connectorRef).compilation.tablePath(table.catalogName, table.schemaName, table.tableName), dialect,
-            table.catalogName, table.schemaName, table.tableName, evidence, uniqueKeys, emptyMap(), emptyMap(), names, types)
+    private fun binding(contract: PhysicalDataContract, adoption: PhysicalSourceAdoption): ExecutablePhysicalExecutionBinding {
+        val names = contract.columns.entries.associate { it.value.ref to it.key }
+        val types = contract.columns.values.associate { it.ref to it.type }
+        return ExecutablePhysicalExecutionBinding("facts", "1", null, null, null, null, "facts", "1",
+            connectors.require(adoption.connectorRef).compilation.tablePath(adoption.table.catalog, adoption.table.schema, adoption.table.table),
+            contract, adoption, emptyMap(), emptyMap(), names, types)
     }
 
     private fun identityPlan(binding: ExecutablePhysicalExecutionBinding): SourceSqlRequest {

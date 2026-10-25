@@ -1,7 +1,7 @@
 package com.olap.prototype.management.governance
 
 import com.olap.prototype.connector.ConnectorRegistry
-import com.olap.prototype.contract.NativeTableDependency
+import com.olap.prototype.connector.StandardJdbcTypes
 import com.olap.prototype.contract.ProducerContractException
 import com.olap.prototype.contract.ProducerContracts.requireText
 import com.olap.prototype.contract.ProducerContracts.requireVersion
@@ -9,12 +9,16 @@ import com.olap.prototype.expression.*
 import com.olap.prototype.governance.contract.*
 import com.olap.prototype.query.ScalarValueType
 import com.olap.prototype.storage.PlatformDatabase
+import com.olap.prototype.warehouse.contract.PhysicalDataContract
 import org.apache.calcite.rex.RexNode
+import org.apache.calcite.sql.type.SqlTypeName
 import org.apache.calcite.sql.type.SqlTypeUtil
+import org.apache.calcite.tools.Frameworks
+import org.apache.calcite.tools.RelBuilder
 import java.time.Instant
 import java.util.Collections
 
-/** Owns the complete logical aggregate, exact physical adoption and derived expression closure. */
+/** 逻辑聚合拥有精确物理数据合同与派生表达式闭包，不拥有本次发布的执行采用。 */
 class LogicalModelGovernanceService(
     private val database: PlatformDatabase,
     private val physicalAssets: PhysicalAssetGovernanceService,
@@ -123,11 +127,11 @@ class LogicalModelGovernanceService(
 
     /** A single expansion session retains authored expressions and derives exact physical dependencies. */
     class LogicUnitExpansion(val root: LogicUnitRecord, val logicalTableVersion: Long, val physical: PhysicalLogicalTableRefRecord,
-        units: Map<String, LogicUnitRecord>, expressions: Map<String, SemanticExpression>, columns: Map<String, PhysicalColumnRecord>, nativeTables: Map<String, NativeTableDependency>) {
+        units: Map<String, LogicUnitRecord>, expressions: Map<String, SemanticExpression>, columns: Map<String, PhysicalColumnRecord>, nativeTables: Map<String, PhysicalDataContract>) {
         val units: Map<String, LogicUnitRecord> = Collections.unmodifiableMap(LinkedHashMap(units))
         val expressions: Map<String, SemanticExpression> = Collections.unmodifiableMap(LinkedHashMap(expressions))
         val columns: Map<String, PhysicalColumnRecord> = Collections.unmodifiableMap(LinkedHashMap(columns))
-        val nativeTables: Map<String, NativeTableDependency> = java.util.Map.copyOf(nativeTables)
+        val nativeTables: Map<String, PhysicalDataContract> = java.util.Map.copyOf(nativeTables)
         fun sourceRefs(sourceKind: String): List<LogicalTableCreateRequest.SourceRefInput> {
             val role = if (sourceKind == "COLUMN") LogicUnitSourceRefRole.DIRECT_SOURCE else LogicUnitSourceRefRole.EXPRESSION_DEPENDENCY
             return columns.map { (key, value) -> LogicalTableCreateRequest.SourceRefInput(value.id, key.substringAfterLast('@').toLong(), role) }
@@ -150,8 +154,7 @@ class LogicalModelGovernanceService(
         val units = linkedMapOf<String, LogicUnitRecord>()
         val expressions = linkedMapOf<String, SemanticExpression>()
         val columns = linkedMapOf<String, PhysicalColumnRecord>()
-        val nativeTables = linkedMapOf<String, NativeTableDependency>()
-        val owner = physicalAssets.nativeTable(SemanticExpression.TableArgument(physical.physicalTableId, physical.physicalTableVersion))
+        val nativeTables = linkedMapOf<String, PhysicalDataContract>()
         val visiting = linkedSetOf<String>()
         val allowed = physicalAssets.physicalTableColumnSnapshots(physical.physicalTableId, physical.physicalTableVersion).associateBy { "${it.id}@${it.currentVersion}" }
         fun visit(unit: LogicUnitRecord) {
@@ -188,9 +191,7 @@ class LogicalModelGovernanceService(
             }
             SemanticExpressionInspector.physicalTables(expression).forEach { reference ->
                 val table = physicalAssets.nativeTable(reference)
-                if (!table.matchesSource(owner.bindingRef(), owner.sourceConstraints.connectorRef, owner.dialect))
-                    throw ProducerContractException("LogicUnit native table differs from its exact source binding, connector or dialect")
-                nativeTables.putIfAbsent(table.key(), table)
+                nativeTables.putIfAbsent(reference.key(), table)
             }
             expressions[key] = expression; units[key] = unit; visiting.remove(key)
         }
@@ -202,19 +203,34 @@ class LogicalModelGovernanceService(
         return expansion
     }
     private fun validateTypes(expansion: LogicUnitExpansion) {
-        val evidence = physicalAssets.physicalTableSourceConstraints(expansion.physical.physicalTableId, expansion.physical.physicalTableVersion)
-        val support = connectors.require(evidence.connectorRef).compilation
-        val builder = CalciteCompilation.builder(support)
-        val native = NativeExpressionScope(evidence.connectorRef, support) { expansion.nativeTables[it.key()] }
+        val builder = RelBuilder.create(Frameworks.newConfigBuilder().typeSystem(SemanticCalciteTypeSystem()).build())
+        val native = NativeExpressionBindings(physicalAssets, connectors)
+        val columns = expansion.columns.mapValues { (_, column) -> standardColumnType(builder, column) }
         val types = linkedMapOf<String, RexNode>()
         expansion.expressions.forEach { (key, expression) ->
-            val value = SemanticCalciteRexCompiler(builder, mutableListOf()) { call, operands -> native.compile(builder, call, operands) }.compile(expression, { reference ->
+            SemanticExpressionInspector.nativeCalls(expression).forEach(native::function)
+            // 插件专属物理类型没有中立原生映射；实际采用在发布必经编译中核验，不能用 ANY 冒充已定型。
+            val resolved = SemanticExpressionInspector.references(expression).all { reference ->
+                val dependency = "${reference.id}@${reference.version}"
+                when (reference.referenceKind) {
+                    SemanticExpression.ReferenceKind.LOGIC_UNIT -> dependency in types
+                    SemanticExpression.ReferenceKind.PHYSICAL_COLUMN -> columns[dependency] != null
+                    else -> false
+                }
+            }
+            if (!resolved) return@forEach
+            val value = SemanticCalciteRexCompiler(builder, mutableListOf()) { call, operands ->
+                val declaration = native.function(call)
+                call.arguments.forEachIndexed { index, argument ->
+                    if (argument is SemanticExpression.ScalarArgument)
+                        SemanticNativeTypes.requireScalarType(operands(argument.expression).type, requireNotNull(declaration.parameters[index].scalarType))
+                }
+                // 作者只消费精确函数公开的返回类型；本阶段不产生可执行的来源调用。
+                builder.rexBuilder.makeInputRef(SemanticNativeTypes.resolve(builder.typeFactory, declaration.resultType), 0)
+            }.compile(expression, { reference ->
                 val dependency = "${reference.id}@${reference.version}"
                 if (reference.referenceKind == SemanticExpression.ReferenceKind.LOGIC_UNIT) requireNotNull(types[dependency]) { "exact dependency type is missing" }
-                else {
-                    val column = requireNotNull(expansion.columns[dependency]) { "exact physical type is missing" }
-                    builder.rexBuilder.makeInputRef(support.jdbcType(builder.typeFactory, column.jdbcColumnType), 0)
-                }
+                else builder.rexBuilder.makeInputRef(requireNotNull(columns[dependency]) { "exact physical type is missing" }, 0)
             })
             val unit = requireNotNull(expansion.units[key])
             try {
@@ -224,6 +240,15 @@ class LogicalModelGovernanceService(
             } catch (invalid: IllegalArgumentException) { throw ProducerContractException("LogicUnit declared type differs from its exact expression: $key", invalid) }
             types[key] = value
         }
+    }
+
+    private fun standardColumnType(builder: RelBuilder, column: PhysicalColumnRecord): org.apache.calcite.rel.type.RelDataType? {
+        val declared = column.jdbcColumnType
+        val name = SqlTypeName.getNameForJdbcType(declared.jdbcType)
+        if (name == null || name in setOf(SqlTypeName.ANY, SqlTypeName.OTHER, SqlTypeName.ARRAY, SqlTypeName.STRUCTURED)) return null
+        val precision = declared.precision
+        if (name == SqlTypeName.DECIMAL && precision != null && precision > builder.typeFactory.typeSystem.getMaxPrecision(name)) return null
+        return StandardJdbcTypes.resolve(builder.typeFactory, declared)
     }
 
     internal fun saveLogicalTable(record: LogicalTableRecord) = assets.saveLogicalTable(record)

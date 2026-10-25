@@ -2,7 +2,7 @@
 
 完整 MCP 服务通过来源插件访问数据。使用方提供与其网络、鉴权和查询协议相符的插件，服务负责语义管理、发布、规划、SQL 生成、执行要求检查及结果合同校验。HTTP 查询服务是来源访问实现，不需要数据库端口、JDBC URL、数据库凭据或 catalog 权限。业务公式、资格规则和指标组合仍通过语义定义和 Query 表达。
 
-本文描述源码中的来源访问合同：连接器 API 为 `agentic-olap-connector/v12-kotlin-native-collection-placement-calcite-1.42`，元数据存储格式为 `16`。产品运行构件按同一发行装配；独立插件核对目标宿主的连接器合同与实际运行要求，产品版或 SDK 坐标变化本身不要求重构原插件，具体采用规则见[安装与发布](installation-release.md)。旧存储格式明确拒绝，服务不会自动改写已有持久根。
+本文描述源码中的来源访问合同：连接器 API 为 `agentic-olap-connector/v13-kotlin-data-contract-source-adoption-calcite-1.42`，元数据存储格式为 `17`。产品运行构件按同一发行装配；独立插件核对目标宿主的连接器合同与实际运行要求，产品版或 SDK 坐标变化本身不要求重构原插件，具体采用规则见[安装与发布](installation-release.md)。旧存储格式明确拒绝，服务不会自动改写已有持久根。
 
 ## 配置来源
 
@@ -39,9 +39,15 @@ JDBC 实现的 `identityParameters` 为 `jdbcUrl`、可选 `username` 和 `drive
 
 `olap.governance.registerSourceStructure` 返回 `SourceDiscoveryReceipt`，给出实际保存的 `snapshotId`、状态和表、列计数。用该引用调用 `olap.semantics.sourceDiscovery`、`discoveredTables` 和 `discoveredColumns` 读取已保存结构，再以实际 `discoveredTableId` 构造物理定义，继续建设、采用并发布其他语义。读取已保存结构不触发数据库探测。
 
-同一物理表身份的新版本可以显式采用同一稳定业务来源的另一访问绑定，但必须通过该绑定的结构证据建立，不覆盖旧版本。发布冻结所采用的精确绑定；新部署可以同时保留旧、新绑定。执行旧发布时，旧绑定必须仍在本次部署中；缺失返回 `SOURCE_BINDING_NOT_DEPLOYED`，不自动改用同 ID 的另一绑定。切换当前业务使用的访问绑定，需要明确修订采用及其依赖并发布，再由调用者选择该精确发布。
+精确物理版本 P 拥有 `PhysicalDataContract`，保存稳定来源、表坐标、精确列版本及 SQL 类型／NULL、约束、快照唯一规则及 anchor，以及原精确封存声明。P 不钉连接器、方言或当前观察摘要。`originDiscoveredTableId` 追溯原结构材料，不代表另一绑定已经核验。
 
-每份结构携带 `structureProvenance={kind,authority,revision}`：`DECLARED` 表示使用方显式提供，`EXTERNAL_CATALOG` 表示外部目录，`DATABASE_CATALOG` 表示实际数据库观察。出处随物理版本与发布冻结。显式结构不伪造数据库产品、驱动或只读连接观察。`schemaHash` 标识结构内容，来源出处和版本另行明确保存。
+`PhysicalSourceAdoption` 明确接受目标绑定及具体快照 S 的证据兑现 P，冻结其精确引用、结构出处、技术观察、真实约束证据及该绑定的集合登记。B 可以有额外列，但必须兑现 P 声明的全部列；不比较完整观察列数或要求原 `schemaHash` 相同。同 P、同 B 的另一 S 可产生不同不可变采用，不选择最近记录。
+
+初次 `createPhysicalTable` 通过 `initialAdoption.discoveredTableId/sourceCollectionIds` 指定材料，P 与首份采用同事务建立，返回 `sourceAdoptions`。更换兑现实现时，用 `registerSourceAdoptions` 明确登记已有 P 对目标 S 的采用，或按精确 S 读取已有采用；Kotlin 将正式返回的 `references` 直接传给 `buildRelease`。发布计算实际 P 闭包、核对精确采用并冻结，缺失或同 P 多选明确拒绝，未用余项不进依赖。短例见[数据合同与来源兑现采用](agent-usage.md#数据合同与来源兑现采用)。
+
+数据合同与业务依赖未变时，更换实现不强迫修订语义图或主题／场景授权。旧发布继续冻结原采用，当前部署缺少旧绑定会返回 `SOURCE_BINDING_NOT_DEPLOYED`，不自动切换。读取已保存采用只要求对应元数据读取授权和精确结构观察存在，不要求旧绑定仍部署或来源仍为 ACTIVE；登记新采用和实际执行继续核对各自准入条件。原生函数的精确连接器依赖也不能被采用改写。绑定与证据冻结不保证后端环境一直满足原要求，也不固定动态数据读基础。
+
+每份结构携带 `structureProvenance={kind,authority,revision}`：`DECLARED` 表示使用方显式提供，`EXTERNAL_CATALOG` 表示外部目录，`DATABASE_CATALOG` 表示实际数据库观察。采用冻结所选 S 的出处，执行者按该证据核验；不会拿 P 的原出处伪称 B 做过调查。显式结构不伪造数据库产品、驱动或只读连接观察。`schemaHash` 标识这次观察的结构内容，来源出处和版本另行明确保存。
 
 内置 JDBC 实现的 `revision` 标识精确访问绑定；本次结构观察由保存的 snapshot ID 和表的 `schemaHash` 标识，不把绑定摘要称为数据库原生结构版本或数据快照。
 
@@ -77,7 +83,7 @@ JDBC 实现的 `identityParameters` 为 `jdbcUrl`、可选 `username` 和 `drive
 
 执行请求包含 SQL、无损类型参数、结果别名和输出类型，以及实际依赖的来源证据、约束和关系检查。插件不能丢弃附带检查后只执行主 SQL。存在关系检查或采用约束时，`CONSISTENT_READ` 要求检查与本次计算针对一致的数据状态成立；事务快照、同一原子 statement 内检查或精确绑定的不可变数据版本，都可以兑现该要求。一次 HTTP 请求、一个 SQL 批次或“先检查再查询”本身不能证明一致性。插件不认识或无法兑现的要求应明确拒绝，不改写业务语义。
 
-`sourceRequirements` 已携带 `dataSourceId`、精确 `connectorRef`、`physicalTableId/physicalTableVersion`、实际表坐标、冻结 `evidence`、本次采用的 `columns` 与 `constraintUses`。`NOT_NULL.name` 直接标识列，其他约束项定位冻结证据中的实际键或规则，插件无需解析 SQL 猜测来源列。`relationChecks` 另行给出 SQL、类型参数与违例码。两者都属于执行合同，参数顺序、比较语义与检查范围必须保留。
+`sourceRequirements` 持有稳定 `dataContract`、明确选定的 `adoption`、本次实际使用的 `columns` 与 `constraintUses`。前者给出 P 的精确列和约束要求，后者给出实际绑定、连接器、方言、表坐标及该 S 的冻结证据；不能从 P 的原出处推导执行来源。`NOT_NULL.name` 直接标识列，其他约束项定位 P 的实际键或规则，插件无需解析 SQL 猜测来源列。`relationChecks` 另行给出 SQL、类型参数与违例码。两者都属于执行合同，参数顺序、比较语义与检查范围必须保留。
 
 源端原生强制约束可以免去同一非空条件的数据扫描，但插件必须核验约束确实作用于本次精确来源和列、覆盖已有数据与本次可读数据，而且在主查询期间不会因 DDL、表替换或连接切换失效。仅约束名称相同、目录返回 `nullable=false`、只约束后续写入、一次历史 catalog 观察或 `DECLARED` 结构都不足以证明这些条件。核验与使用之间的 schema 稳定性应由来源实际机制保证，例如同一受保护事务或 statement 的稳定 schema；不能靠先查目录再独立提交查询推断。源端只兑现非空约束时，也不能据此声明可以为优化器兑现所有冻结 PK／UK 等约束。
 
@@ -156,7 +162,7 @@ olap.output(olap.sources.connectorCapabilities(
 
 `compilationCapabilities` 只列出插件明确支持的编译能力。`CORRELATED_DERIVED_PROJECTION` 表示派生关系投影可以引用外层查询值，普通 EXISTS 的条件相关不需要这项能力。若数值求值绑定实际需要这种投影而插件未声明，编译在提交 SQL 前返回 `NATIVE_COMPILATION_CAPABILITY_MISSING`，并指出 `capability=CORRELATED_DERIVED_PROJECTION`、`operation=NUMERIC_EVALUATION_BINDING`。不退回重复内联、移除人口守卫或提前计算未选中分支。
 
-来源表达式使用 `SemanticExpression.NativeCall`，提交精确 `connectorRef`、`function` 和有序 `arguments`。参数使用正式 Scalar 与 PhysicalTable 变体，分别持有来源表达式或精确物理表身份和版本。物理表参数引用已采用的精确版本，必须与调用所在来源的绑定、插件及方言一致，作为真实来源依赖冻结和核验。来源表达式中的内联调用也只允许本次精确发布的表闭包；它不是表名文本，也不接受任意 SQL。技术调查 `profile-relationship` 不提供已采用表解析，不支持此类调用。
+来源表达式使用 `SemanticExpression.NativeCall`，提交精确 `connectorRef`、`function` 和有序 `arguments`。参数使用正式 Scalar 与 PhysicalTable 变体，分别持有来源表达式或精确物理表身份和版本。作者阶段核对精确函数声明和 P 可引用，不从 P 暗选兑现实现；发布／编译核验实际采用与函数的精确连接器一致。`NativeCall(A)` 不会因发布选择 B 而被改写，冲突需明确修订定义。仅作为函数参数的 P 也作为真实来源依赖冻结和授权。来源表达式中的内联调用只允许本次精确发布的表闭包；它不是表名文本，也不接受任意 SQL。技术调查 `profile-relationship` 不提供已采用表解析，不支持此类调用。
 
 完成关系表达式使用 `ResultExpression.ResultNativeCall(connectorRef,function,arguments)`，有序实参均为 `ResultExpression`。它在当前实际来源中变换已有标量值，不另选来源、不引入物理表；函数声明的参数必须均为 SCALAR。发布场景须明确授权 `NATIVE_CALL` 表达式种类，字段及实参继续经过现有表达式授权。已完成关系的 CASE 分支可以持有该节点，所有分支都静态核验，运行调用保留在实际分支位置。原生函数对格式文本、NULL、非法输入和求值的行为由插件及来源兑现，不能用无条件的来源预解析代替条件分支。完整作者构造见[条件原生调用](../examples/agent-client/conditional-native-call.olap.kts)。
 

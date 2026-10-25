@@ -8,7 +8,7 @@ interface OlapConnector {
     val compilation: CompilationSupport
     fun access(verifiedIdentity: ConnectorRef): SourceAccess
 
-    companion object { const val API_VERSION = "agentic-olap-connector/v12-kotlin-native-collection-placement-calcite-1.42" }
+    companion object { const val API_VERSION = "agentic-olap-connector/v13-kotlin-data-contract-source-adoption-calcite-1.42" }
 }
 
 /** 已核验字节的单个实现；生命周期由部署装载者持有。 */

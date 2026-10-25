@@ -10,8 +10,8 @@ import com.olap.prototype.event.EventIdentity
 import com.olap.prototype.event.RelationAccessPath
 import com.olap.prototype.metric.MetricBusinessMeaning
 import com.olap.prototype.query.SetOutputContract
-import com.olap.prototype.warehouse.contract.PhysicalSourceConstraints
-import com.olap.prototype.warehouse.contract.SnapshotUniqueKey
+import com.olap.prototype.warehouse.contract.PhysicalDataContract
+import com.olap.prototype.warehouse.contract.PhysicalSourceAdoption
 import java.util.Collections
 
 class EventExecutionSnapshot(val topologyId: String, val topologyVersion: Long,
@@ -40,8 +40,8 @@ class TopologyExecutionSnapshot(val topologyId: String, val topologyVersion: Lon
 }
 data class MetricExecutionSnapshot(val definition: MetricDefinition, val businessMeaning: MetricBusinessMeaning)
 
-class LogicUnitExecutionSnapshot(val formatVersion: String, val physicalExecutionBindingId: String, val physicalExecutionBindingVersion: String, val logicUnitId: String, val logicUnitVersion: Long, val valueType: String?, val valueShape: SetOutputContract.Container?, val logicalTableId: String, val logicalTableVersion: Long, val physicalTableId: String, val physicalTableVersion: Long, val dataSourceId: String, val catalogName: String?, val schemaName: String?, val tableName: String, val dialect: String, logicUnitBindings: Map<String, SemanticExpression>, physicalColumnBindings: Map<String, String>, physicalColumnTypes: Map<String, JdbcColumnType>, nativeTableDependencies: Map<String, NativeTableDependency>,
-    val sourceConstraints: PhysicalSourceConstraints) {
+class LogicUnitExecutionSnapshot(val formatVersion: String, val physicalExecutionBindingId: String, val physicalExecutionBindingVersion: String, val logicUnitId: String, val logicUnitVersion: Long, val valueType: String?, val valueShape: SetOutputContract.Container?, val logicalTableId: String, val logicalTableVersion: Long, val physicalTableId: String, val physicalTableVersion: Long, logicUnitBindings: Map<String, SemanticExpression>, physicalColumnBindings: Map<String, String>, physicalColumnTypes: Map<String, JdbcColumnType>, nativeTableDependencies: Map<String, NativeTableDependency>,
+    val dataContract: PhysicalDataContract, val adoption: PhysicalSourceAdoption) {
     val logicUnitBindings: Map<String, SemanticExpression> = Collections.unmodifiableMap(LinkedHashMap(logicUnitBindings))
     val physicalColumnBindings: Map<String, String> = java.util.Map.copyOf(physicalColumnBindings)
     val physicalColumnTypes: Map<String, JdbcColumnType> = java.util.Map.copyOf(physicalColumnTypes)
@@ -50,14 +50,12 @@ class LogicUnitExecutionSnapshot(val formatVersion: String, val physicalExecutio
         if (formatVersion != FORMAT_VERSION) throw ProducerContractException("unsupported LogicUnit execution snapshot format: $formatVersion")
         if ((valueType == null) == (valueShape == null)) throw ProducerContractException("LogicUnit snapshot requires one scalar or container type")
         if (valueShape != null) SetOutputContract.requireSourceContainer(valueShape, listOf("valueShape"))
+        adoption.requireContract(dataContract)
+        require(physicalTableId == dataContract.reference.id && physicalTableVersion == dataContract.reference.version) {
+            "LogicUnit snapshot physical reference differs from its exact data contract"
+        }
     }
-    override fun equals(other: Any?): Boolean = other is LogicUnitExecutionSnapshot && formatVersion == other.formatVersion && physicalExecutionBindingId == other.physicalExecutionBindingId && physicalExecutionBindingVersion == other.physicalExecutionBindingVersion && logicUnitId == other.logicUnitId && logicUnitVersion == other.logicUnitVersion && valueType == other.valueType && valueShape == other.valueShape && logicalTableId == other.logicalTableId && logicalTableVersion == other.logicalTableVersion && physicalTableId == other.physicalTableId && physicalTableVersion == other.physicalTableVersion && dataSourceId == other.dataSourceId && catalogName == other.catalogName && schemaName == other.schemaName && tableName == other.tableName && dialect == other.dialect && logicUnitBindings == other.logicUnitBindings && physicalColumnBindings == other.physicalColumnBindings && physicalColumnTypes == other.physicalColumnTypes && nativeTableDependencies == other.nativeTableDependencies && sourceConstraints == other.sourceConstraints
-    override fun hashCode(): Int = listOf(formatVersion, physicalExecutionBindingId, physicalExecutionBindingVersion, logicUnitId, logicUnitVersion, valueType, valueShape, logicalTableId, logicalTableVersion, physicalTableId, physicalTableVersion, dataSourceId, catalogName, schemaName, tableName, dialect, logicUnitBindings, physicalColumnBindings, physicalColumnTypes, nativeTableDependencies, sourceConstraints).hashCode()
-    companion object { const val FORMAT_VERSION = "olap-logic-unit-execution/v6" }
-}
-data class SourceUniqueKeySnapshot(val proofId: String, val physicalTableId: String, val physicalTableVersion: Long, val discoverySnapshotId: String, val schemaHash: String, val sourceIdentityHash: String, val key: SnapshotUniqueKey) {
-    init {
-        require(listOf(proofId, physicalTableId, discoverySnapshotId, schemaHash, sourceIdentityHash).none { it.isBlank() }) { "source unique snapshot requires exact identities" }
-        require(physicalTableVersion > 0) { "exact physical version is required" }
-    }
+    override fun equals(other: Any?): Boolean = other is LogicUnitExecutionSnapshot && formatVersion == other.formatVersion && physicalExecutionBindingId == other.physicalExecutionBindingId && physicalExecutionBindingVersion == other.physicalExecutionBindingVersion && logicUnitId == other.logicUnitId && logicUnitVersion == other.logicUnitVersion && valueType == other.valueType && valueShape == other.valueShape && logicalTableId == other.logicalTableId && logicalTableVersion == other.logicalTableVersion && physicalTableId == other.physicalTableId && physicalTableVersion == other.physicalTableVersion && logicUnitBindings == other.logicUnitBindings && physicalColumnBindings == other.physicalColumnBindings && physicalColumnTypes == other.physicalColumnTypes && nativeTableDependencies == other.nativeTableDependencies && dataContract == other.dataContract && adoption == other.adoption
+    override fun hashCode(): Int = listOf(formatVersion, physicalExecutionBindingId, physicalExecutionBindingVersion, logicUnitId, logicUnitVersion, valueType, valueShape, logicalTableId, logicalTableVersion, physicalTableId, physicalTableVersion, logicUnitBindings, physicalColumnBindings, physicalColumnTypes, nativeTableDependencies, dataContract, adoption).hashCode()
+    companion object { const val FORMAT_VERSION = "olap-logic-unit-execution/v7" }
 }

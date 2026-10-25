@@ -40,7 +40,7 @@ data class ApiOverview(val formatVersion: String, val dslApiVersion: String, val
 
 /** 结构来自真实公开声明；局部语义规则只读取已知模型自身合同，不执行任意 getter 或工厂。 */
 object ApiDiscovery {
-    const val VERSION = "agentic-olap-kotlin-dsl/v3"
+    const val VERSION = "agentic-olap-kotlin-dsl/v4"
     val imports: List<String> = listOf("com.olap.prototype.dsl.*", "com.olap.prototype.governance.contract.*",
         "com.olap.prototype.governance.contract.GovernanceReadRequests.AssetVersionRequest",
         "com.olap.prototype.governance.contract.GovernanceReadRequests.DefinitionDependenciesRequest",
@@ -75,7 +75,10 @@ object ApiDiscovery {
         is java.lang.reflect.ParameterizedType -> (type.rawType as Class<*>).kotlin
         else -> throw IllegalArgumentException("select a concrete registered public type")
     })
-    fun type(name: String): ApiType = describe(types[name] ?: throw IllegalArgumentException("unknown public DSL type: $name"))
+    fun type(name: String): ApiType = describe(types[name] ?: throw com.olap.prototype.contract.InputContractException.violation(
+        com.olap.prototype.contract.InputContractException.Rule.DECODE_INPUT, listOf("type"),
+        "unknown public DSL type: $name; describe an operation and use its exact input or output type",
+        "EXACT_PUBLIC_TYPE_FROM_OPERATION_DISCOVERY", name))
 
     private val types: Map<String, KClass<*>> by lazy {
         val found = linkedMapOf<String, KClass<*>>()
@@ -135,6 +138,12 @@ object ApiDiscovery {
         type.java.enumConstants?.map { (it as Enum<*>).name } ?: emptyList(),
         when (type) {
             Calculation.Call::class -> Calculation.Call.contract()
+            com.olap.prototype.warehouse.contract.SourceAdoptionRegistrationRequest::class ->
+                com.olap.prototype.warehouse.contract.SourceAdoptionRegistrationRequest.contract()
+            com.olap.prototype.warehouse.contract.SourceAdoptions::class ->
+                com.olap.prototype.warehouse.contract.SourceAdoptions.contract()
+            com.olap.prototype.governance.contract.SubjectAreaReleaseBuildRequest::class ->
+                com.olap.prototype.governance.contract.SubjectAreaReleaseBuildRequest.contract()
             com.olap.prototype.governance.contract.ScenarioPipelineRuleCreateRequest::class ->
                 com.olap.prototype.governance.contract.ScenarioPipelineRuleCreateRequest.contract()
             com.olap.prototype.governance.contract.ScenarioPipelineRuleContractRefreshRequest::class ->

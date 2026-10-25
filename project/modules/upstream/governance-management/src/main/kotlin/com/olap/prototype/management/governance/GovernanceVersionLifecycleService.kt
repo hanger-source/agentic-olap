@@ -70,7 +70,7 @@ class GovernanceVersionLifecycleService(private val database: PlatformDatabase, 
                 val table = physicalAssets.physicalTableSnapshot(id, version)
                 val source = warehouseDataSources.findDataSource(table.dataSource) ?: throw ProducerContractException("warehouse_data_source not found: ${table.dataSource}")
                 requireActive(source.status, "WAREHOUSE_DATA_SOURCE", source.id, null)
-                physicalAssets.physicalTableSourceConstraints(id, version)
+                physicalAssets.readPhysicalDataContract(com.olap.prototype.warehouse.contract.PhysicalTableRef(id, version))
                 if (physicalAssets.physicalTableColumnSnapshots(id, version).isEmpty()) throw ProducerContractException("PHYSICAL_TABLE#$id#$version has no exact column versions")
             }
             GovernanceActivationObjectType.LOGICAL_TABLE -> validateLogical(id, version)
@@ -120,7 +120,7 @@ class GovernanceVersionLifecycleService(private val database: PlatformDatabase, 
         refs.forEach {
             val table = physicalAssets.physicalTableSnapshot(it.physicalTableId, it.physicalTableVersion)
             referenceable(table.status, "PHYSICAL_TABLE", table.id, it.physicalTableVersion)
-            physicalAssets.physicalTableSourceConstraints(it.physicalTableId, it.physicalTableVersion)
+            physicalAssets.readPhysicalDataContract(com.olap.prototype.warehouse.contract.PhysicalTableRef(it.physicalTableId, it.physicalTableVersion))
         }
         logicalModel.listLogicalTableLogicUnitRefs(id, version).forEach { ref ->
             val expanded = logicalModel.expandLogicUnit(ref.logicUnitId, ref.logicUnitVersion)

@@ -16,8 +16,8 @@ interface JdbcSupport : AutoCloseable {
     fun openReadOnly(spec: JdbcConnectionSpec, credentials: Properties): Connection
     fun configureMemory(connection: Connection, bytes: Long, control: WarehouseExecutionControl)
     fun beginSnapshot(connection: Connection, sources: List<JdbcSourceRequirement>, control: WarehouseExecutionControl)
-    fun supportsColumnInspection(evidence: PhysicalSourceConstraints): Boolean
-    fun supportsConstraintSnapshot(evidence: PhysicalSourceConstraints): Boolean
+    fun supportsColumnInspection(evidence: PhysicalSourceEvidence): Boolean
+    fun supportsConstraintSnapshot(evidence: PhysicalSourceEvidence): Boolean
     fun constraints(connection: Connection, table: JdbcTableConstraints.Table, control: WarehouseExecutionControl): JdbcTableConstraints
     fun sourceAnchor(connection: Connection, spec: JdbcConnectionSpec, checkCancellation: () -> Unit): JdbcTableConstraints.DataAnchor
     fun readBasis(connection: Connection, spec: JdbcConnectionSpec, expected: SourceReadBasis.Versioned?, control: WarehouseExecutionControl): SourceReadBasis

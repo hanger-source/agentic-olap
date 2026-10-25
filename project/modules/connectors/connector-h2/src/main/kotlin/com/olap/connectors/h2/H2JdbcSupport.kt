@@ -24,9 +24,9 @@ internal class H2JdbcSupport : StandardJdbcSupport("org.h2.Driver") {
         val drivers = DriverManager.getDrivers()
         while (drivers.hasMoreElements()) drivers.nextElement().let { if (it.javaClass.classLoader == javaClass.classLoader) DriverManager.deregisterDriver(it) }
     }
-    override fun supportsColumnInspection(evidence: PhysicalSourceConstraints): Boolean = evidence.databaseProductName == "H2" &&
+    override fun supportsColumnInspection(evidence: PhysicalSourceEvidence): Boolean = evidence.databaseProductName == "H2" &&
         evidence.databaseProductVersion == "2.2.224 (2023-09-17)" && evidence.driverName == "H2 JDBC Driver" && evidence.driverVersion == "2.2.224 (2023-09-17)"
-    override fun supportsConstraintSnapshot(evidence: PhysicalSourceConstraints): Boolean = false
+    override fun supportsConstraintSnapshot(evidence: PhysicalSourceEvidence): Boolean = false
     override fun constraints(connection: Connection, table: JdbcTableConstraints.Table, control: WarehouseExecutionControl): JdbcTableConstraints =
         StandardJdbcConstraints.read(connection, StandardJdbcConstraints.uniqueKeys(connection.metaData, table, control), table, control)
     override fun configureMemory(connection: Connection, bytes: Long, control: WarehouseExecutionControl) {

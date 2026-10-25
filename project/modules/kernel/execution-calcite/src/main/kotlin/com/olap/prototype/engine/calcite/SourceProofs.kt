@@ -12,7 +12,6 @@ internal class SourceProofs(private val sources: FrozenSourceTables) {
         val constraints = if (source.readsRows()) adopted.getValue(sources.connector.compilation.tablePath(source.table.catalog, source.table.schema, source.table.table))
             .filterTo(linkedSetOf()) { it.kind != JdbcSourceRequirement.ConstraintKind.NOT_NULL || it.name in source.columns }
         else emptySet()
-        JdbcSourceRequirement(source.dataSourceId, source.connectorRef, source.dialect, source.physicalTableId, source.physicalTableVersion,
-            source.table, source.evidence, source.columns, source.uses, source.snapshotUniqueKeys, constraints)
+        JdbcSourceRequirement(source.dataContract, source.adoption, source.columns, source.uses, constraints)
     }
 }

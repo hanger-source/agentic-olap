@@ -18,21 +18,12 @@ internal fun NativeValueTypeFromProto(value: com.olap.prototype.wire.governance.
     fields = if (value.hasFields()) value.getFields().getValuesList().map { NativeValueTypeFromProto(it) } else null
 )
 
-internal fun NativeTableDependencyToProto(value: com.olap.prototype.contract.NativeTableDependency): com.olap.prototype.wire.governance.NativeTableDependency = com.olap.prototype.wire.governance.NativeTableDependency.newBuilder().apply {
-    setPhysicalTableId(value.physicalTableId)
-    setPhysicalTableVersion(value.physicalTableVersion)
-    setDataSourceId(value.dataSourceId)
-    setDialect(value.dialect)
-    setTable(JdbcTableConstraintsTableToProto(value.table))
-    setSourceConstraints(PhysicalSourceConstraintsToProto(value.sourceConstraints))
-}.build()
+internal fun NativeTableDependencyToProto(value: com.olap.prototype.contract.NativeTableDependency): com.olap.prototype.wire.governance.NativeTableDependency = com.olap.prototype.wire.governance.NativeTableDependency.newBuilder()
+    .setDataContract(PhysicalDataContractToProto(value.dataContract))
+    .setAdoption(PhysicalSourceAdoptionToProto(value.adoption)).build()
 internal fun NativeTableDependencyFromProto(value: com.olap.prototype.wire.governance.NativeTableDependency): com.olap.prototype.contract.NativeTableDependency = com.olap.prototype.contract.NativeTableDependency(
-    physicalTableId = value.getPhysicalTableId(),
-    physicalTableVersion = value.getPhysicalTableVersion(),
-    dataSourceId = value.getDataSourceId(),
-    dialect = value.getDialect(),
-    table = required(value.hasTable(), "NativeTableDependency.table") { JdbcTableConstraintsTableFromProto(value.getTable()) },
-    sourceConstraints = required(value.hasSourceConstraints(), "NativeTableDependency.sourceConstraints") { PhysicalSourceConstraintsFromProto(value.getSourceConstraints()) }
+    dataContract = required(value.hasDataContract(), "NativeTableDependency.dataContract") { PhysicalDataContractFromProto(value.getDataContract()) },
+    adoption = required(value.hasAdoption(), "NativeTableDependency.adoption") { PhysicalSourceAdoptionFromProto(value.getAdoption()) }
 )
 
 internal fun JdbcColumnTypeToProto(value: com.olap.prototype.contract.JdbcColumnType): com.olap.prototype.wire.governance.JdbcColumnType = com.olap.prototype.wire.governance.JdbcColumnType.newBuilder().apply {

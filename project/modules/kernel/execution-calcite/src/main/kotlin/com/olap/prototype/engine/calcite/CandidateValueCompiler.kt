@@ -23,7 +23,7 @@ object CandidateValueCompiler {
     fun compile(binding: ExecutablePhysicalExecutionBinding, expression: SemanticExpression, offset: Int, limit: Long,
         parameters: MutableList<JdbcParameter>, connectors: ConnectorRegistry): SourceSqlRequest {
         require(offset >= 0 && limit > 0) { "candidate page bounds are invalid" }
-        require(binding.sourceConstraints != null) { "candidate source requires exact frozen investigation evidence" }
+        binding.adoption.requireContract(binding.dataContract)
         val bindings = listOf(binding)
         val refs = SemanticRexCompiler.physicalDependencies(listOf(expression), bindings)
         val inputs = CalciteQueryCompiler.inputs(bindings, refs.columns, refs.tables, connectors)

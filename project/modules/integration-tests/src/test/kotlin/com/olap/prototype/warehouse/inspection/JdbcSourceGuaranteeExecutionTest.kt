@@ -62,9 +62,13 @@ class JdbcSourceGuaranteeExecutionTest {
         val native = observed.constraints
         val constraints = JdbcTableConstraints(native.primaryKeyColumns, native.uniqueKeys, native.importedKeys, verified)
         val technology = observed.source
-        val evidence = PhysicalSourceConstraints("temporal-discovery", hash(observed), spec.sourceIdentityHash(), spec.connectorRef, technology.databaseProductName, technology.databaseProductVersion, technology.driverName, technology.driverVersion, constraints, refs, emptyList(), StructureProvenance(StructureProvenance.Kind.DATABASE_CATALOG, "integration-test-catalog", "fixture-v1"))
-        val authored = JdbcSourceRequirement(spec.dataSourceId, spec.connectorRef, spec.dialectId, "history", "1", physical, evidence, columns, setOf(JdbcSourceRequirement.Use.ROWS), emptyList(), setOf(JdbcSourceRequirement.ConstraintUse(JdbcSourceRequirement.ConstraintKind.TEMPORAL_KEY, rule.name)))
-        val requirement = OlapJsonUtils.mapper().readValue(OlapJsonUtils.mapper().writeValueAsBytes(authored), JdbcSourceRequirement::class.java)
+        val contract = PhysicalDataContract(PhysicalTableRef("history", 1), spec.dataSourceId, physical,
+            refs.mapValues { (name, reference) -> PhysicalDataContract.Column(reference, columns.getValue(name)) }, constraints, emptyList(), emptyList(), "temporal-table")
+        val evidence = PhysicalSourceEvidence("temporal-discovery", "temporal-table", hash(observed),
+            StructureProvenance(StructureProvenance.Kind.DATABASE_CATALOG, "integration-test-catalog", "fixture-v1"), technology.databaseProductName, technology.databaseProductVersion, technology.driverName, technology.driverVersion,
+            columns, constraints, emptyList(), emptyList())
+        val requirement = JdbcSourceRequirement(contract, TestConnectors.adoption(contract, spec.source(), evidence), columns,
+            setOf(JdbcSourceRequirement.Use.ROWS), setOf(JdbcSourceRequirement.ConstraintUse(JdbcSourceRequirement.ConstraintKind.TEMPORAL_KEY, rule.name)))
         val provider = JdbcProvider(spec, connectors)
         val query = "SELECT SUM(amount) total FROM source_test.history WHERE DATE '2026-02-01' >= valid_from AND (valid_to IS NULL OR DATE '2026-02-01' < valid_to)"
         val queryTypes = TestConnectors.sqlOutputTypes(spec, query, mapOf("total" to "total"), mapOf("total" to true))
@@ -134,12 +138,15 @@ class JdbcSourceGuaranteeExecutionTest {
         for (dialect in listOf("h2", "duckdb")) {
             val observed = source(dialect, directory.resolve("declared-non-null-$dialect.duckdb"))
             val binding = observed.binding
-            val frozen = requireNotNull(binding.sourceConstraints)
-            val declared = PhysicalSourceConstraints("declared-not-null", "declared-columns", frozen.sourceIdentityHash,
-                frozen.connectorRef, null, null, null, null, JdbcTableConstraints(emptyList(), emptyList(), emptyList(), emptyList()),
-                frozen.columnVersionRefs, emptyList(), StructureProvenance(StructureProvenance.Kind.DECLARED, "source-owner", "1"))
-            val adopted = binding.copy(sourceConstraints = declared,
-                catalogName = if (dialect == "h2") "" else binding.catalogName,
+            val frozen = binding.dataContract
+            val contract = PhysicalDataContract(frozen.reference, frozen.dataSourceId,
+                frozen.table.copy(catalog = if (dialect == "h2") "" else binding.catalogName),
+                frozen.columns.mapValues { (_, column) -> column.copy(type = column.type.copy(nullable = false)) },
+                JdbcTableConstraints(emptyList(), emptyList(), emptyList(), emptyList()), emptyList(), emptyList(), "declared-not-null-table")
+            val declared = PhysicalSourceEvidence("declared-not-null", "declared-not-null-table", "declared-columns",
+                StructureProvenance(StructureProvenance.Kind.DECLARED, "source-owner", "1"), null, null, null, null,
+                contract.columns.mapValues { it.value.type }, contract.constraints, emptyList(), emptyList())
+            val adopted = binding.copy(dataContract = contract, adoption = TestConnectors.adoption(contract, observed.spec.source(), declared),
                 physicalColumnTypes = binding.physicalColumnTypes.mapValues { (_, type) -> type.copy(nullable = false) })
             val amount = binding.physicalColumnBindings.entries.single { it.value == "amount" }.key
             val inputs = CalciteQueryCompiler.inputs(listOf(adopted), setOf(amount), emptySet(), connectors)
@@ -208,7 +215,7 @@ class JdbcSourceGuaranteeExecutionTest {
                         "not_null" -> { change.execute("ALTER TABLE source_test.records ALTER COLUMN amount SET NOT NULL"); change.execute("INSERT INTO source_test.records VALUES(1,3,900)") }
                     }
                 }
-                assertEquals(source.binding.sourceConstraints.constraints, jdbc(spec).constraints(reader, requirements.first().table, control), action)
+                assertEquals(source.binding.dataContract.constraints, jdbc(spec).constraints(reader, requirements.first().table, control), action)
                 reader.metaData.getColumns(requirements.first().table.catalog, "source_test", "records", "amount").use { columns ->
                     assertTrue(columns.next(), action); assertEquals(22, columns.getInt("COLUMN_SIZE"), action); assertEquals(7, columns.getInt("DECIMAL_DIGITS"), action)
                     assertEquals(DatabaseMetaData.columnNullable, columns.getInt("NULLABLE"), action)
@@ -236,8 +243,13 @@ class JdbcSourceGuaranteeExecutionTest {
         val names = refs.entries.associate { it.value to it.key }
         val types = observed.columns.associate { "column:${it.name}@1" to columnType(it) }
         val technology = observed.source
-        val evidence = PhysicalSourceConstraints("independent-jdbc-discovery", hash(observed), spec.sourceIdentityHash(), spec.connectorRef, technology.databaseProductName, technology.databaseProductVersion, technology.driverName, technology.driverVersion, observed.constraints, refs, emptyList(), StructureProvenance(StructureProvenance.Kind.DATABASE_CATALOG, "integration-test-catalog", "fixture-v1"))
-        val binding = TestConnectors.physical(ExecutablePhysicalExecutionBinding("observed-source", "1", null, null, null, null, "observed-source", "1", "records", "1", "source", spec.connectorRef, emptyList(), dialect, table.catalog, table.schema, table.table, evidence, emptyList(), logicUnitBindings = mapOf("member@1" to SemanticExpression.Reference(SemanticExpression.ReferenceKind.PHYSICAL_COLUMN, "column:id", 1)), physicalColumnBindings = names, physicalColumnTypes = types))
+        val contract = PhysicalDataContract(PhysicalTableRef("records", 1), spec.dataSourceId, JdbcTableConstraints.Table(table.catalog, table.schema, table.table),
+            refs.mapValues { (_, ref) -> PhysicalDataContract.Column(ref, types.getValue(ref)) }, observed.constraints, emptyList(), emptyList(), "independent-records")
+        val evidence = PhysicalSourceEvidence("independent-jdbc-discovery", "independent-records", hash(observed),
+            StructureProvenance(StructureProvenance.Kind.DATABASE_CATALOG, "integration-test-catalog", "fixture-v1"), technology.databaseProductName, technology.databaseProductVersion, technology.driverName, technology.driverVersion,
+            refs.mapValues { (_, ref) -> types.getValue(ref) }, observed.constraints, emptyList(), emptyList())
+        val binding = TestConnectors.physical(ExecutablePhysicalExecutionBinding("observed-source", "1", null, null, null, null, "observed-source", "1", emptyList(),
+            contract, TestConnectors.adoption(contract, spec.source(), evidence), logicUnitBindings = mapOf("member@1" to SemanticExpression.Reference(SemanticExpression.ReferenceKind.PHYSICAL_COLUMN, "column:id", 1)), physicalColumnBindings = names, physicalColumnTypes = types))
         return Source(spec, binding)
     }
     private fun columnType(column: WarehouseColumnMetadata) = JdbcColumnType(requireNotNull(column.jdbcType), requireNotNull(column.typeName), column.precision, column.scale, requireNotNull(column.nullable))

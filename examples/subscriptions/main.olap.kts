@@ -133,6 +133,7 @@ fun calendarInputs(usage: MemberResult, calendar: MemberResult) = linkedMapOf(
 class BusinessExample(val client: OlapClient, val parameters: ScriptArguments, val domain: String) {
     val actor = client.caller.subject
     val governance = client.governance
+    val sourceAdoptions = mutableListOf<SourceAdoptionRef>()
     val source by lazy { client.sources.list(EmptyRequest).items.single { it.binding.dataSourceId == parameters.text("sourceId") } }
     data class Table(val logical: LogicalTableRecord, val units: Map<String, LogicUnitRecord>)
     fun activate(type: String, id: String, version: Long = 1) {
@@ -168,10 +169,11 @@ class BusinessExample(val client: OlapClient, val parameters: ScriptArguments, v
         val columns = client.semantics.discoveredColumns(GovernanceReadRequests.DiscoveredTablePageInput(observed.id, 0, 200)).items
         check(columns.map { it.columnName }.toSet() == types.keys)
         val physical = governance.createPhysicalTable(PhysicalTableCreateRequest("$domain.$name", name, name, "保留原始记录、NULL与历史版本", domain,
-            actor, "PUBLIC", domain, source.binding.dataSourceId, source.dialectId, observed.catalogName, observed.schemaName,
-            requireNotNull(observed.schemaHash), PhysicalTableCreateRequest.SourceConstraintsInput(observed.id, emptyList()), actor,
+            actor, "PUBLIC", domain, source.binding.dataSourceId, observed.catalogName, observed.schemaName,
+            PhysicalTableCreateRequest.SourceAdoptionInput(observed.id, emptyList()), actor,
             columns.map { PhysicalTableCreateRequest.ColumnInput(it.columnName, it.columnName, it.typeName, "PUBLIC", requireNotNull(it.nullable), null,
                 com.olap.prototype.contract.JdbcColumnType(it.jdbcType, it.typeName, it.precision, it.scale, it.nullable)) }))
+        sourceAdoptions.addAll(physical.sourceAdoptions.references)
         activate("PHYSICAL_TABLE", physical.physicalTable.id)
         val logical = governance.createLogicalTable(LogicalTableCreateRequest(physical.physicalTable.id, 1, name, name, LogicalTableRole.FACT,
             "来源保持真实记录粒度", actor, actor, physical.physicalColumns.map { column ->
@@ -209,7 +211,7 @@ class BusinessExample(val client: OlapClient, val parameters: ScriptArguments, v
         metrics.forEachIndexed { index, metric -> governance.createScenarioMetricRef(ScenarioMetricRefCreateRequest(scenario.id, 1, metric.id, 1, true, index + 1)) }
         stages.forEachIndexed { index, type -> governance.createScenarioPipelineRule(ScenarioPipelineRuleCreateRequest(scenario.id, 1, type, index + 1, StageAuthorization.current(type))) }
         activate("SUBJECT_AREA", subject.id)
-        governance.buildRelease(SubjectAreaReleaseBuildRequest("$domain-release", "1", domain, subject.id, 1, actor))
+        governance.buildRelease(SubjectAreaReleaseBuildRequest("$domain-release", "1", domain, subject.id, 1, actor, sourceAdoptions))
         return client.semantics.publication(QueryCapabilityRequest(scenario.id, 1, "$domain-release", "1"))
     }
     data class Saved(val query: QueryReference, val result: QueryResultReference, val page: ResultPage)

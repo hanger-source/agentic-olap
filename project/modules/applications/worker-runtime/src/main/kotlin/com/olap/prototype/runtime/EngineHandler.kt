@@ -101,7 +101,7 @@ internal class EngineHandler(private val connectors: ConnectorRegistry, private 
         val compiled = if (command.mode == InspectionMode.RESOLVE) null else compiler.compile(loaded.publication.catalog, request, context, observer(control))
         val (dataSourceId, sourceIdentityHash, connectorRef) = if (compiled == null) {
             val source = compiler.resolveSource(loaded.publication.catalog, request, context, observer(control))
-            Triple(source.dataSourceId, source.sourceConstraints.sourceIdentityHash, source.connectorRef)
+            Triple(source.dataSourceId, source.adoption.binding.sourceIdentityHash, source.connectorRef)
         } else {
             val lowered = requireNotNull(compiled.executableLoweringResult) { "successful compilation must return its SQL contract" }
             Triple(lowered.dataSourceId, com.olap.prototype.contract.JdbcSourceRequirement.requireSingleBinding(lowered.sourceRequirements).sourceIdentityHash, lowered.connectorRef)

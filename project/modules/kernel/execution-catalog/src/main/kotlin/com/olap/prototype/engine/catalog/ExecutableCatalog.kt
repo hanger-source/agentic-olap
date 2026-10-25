@@ -53,6 +53,13 @@ class ExecutableCatalog(val manifest: ExecutableCatalogManifest,
         ExecutableCatalogManifest.requireSupportedSchema(manifest.schemaVersion)
         MetricDefinition.text(manifest.catalogId, "catalogId")
         physicalExecutionBindings.forEach { (key, binding) -> requireKey(key, binding.bindingId, binding.bindingVersion); binding.requireComplete() }
+        val physicalSources = linkedMapOf<String, com.olap.prototype.contract.NativeTableDependency>()
+        physicalExecutionBindings.values.forEach { binding ->
+            (binding.nativeTableDependencies.values + com.olap.prototype.contract.NativeTableDependency(binding.dataContract, binding.adoption)).forEach { source ->
+                val prior = physicalSources.putIfAbsent(source.key(), source)
+                require(prior == null || prior == source) { "one physical data contract has conflicting selected source adoptions: ${source.key()}" }
+            }
+        }
         requireRelationReferences()
         requireLogicUnits()
         requireEvents()

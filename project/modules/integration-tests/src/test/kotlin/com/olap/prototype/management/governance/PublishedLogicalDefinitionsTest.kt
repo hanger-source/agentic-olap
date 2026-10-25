@@ -82,7 +82,7 @@ class PublishedLogicalDefinitionsTest {
             f.scenarios.createScenario(ScenarioCreateRequest("travel.rules", 1, "amount", "确认净额", "analyst", "组合定义", "golden"))
             f.scenarios.createScenarioMetricRef(ScenarioMetricRefCreateRequest("travel.rules.amount", 1, adoption.id, 1, true, 1))
             f.activate("SUBJECT_AREA", "travel.rules")
-            f.builder().build(SubjectAreaReleaseBuildRequest("logical_rules", "1", "口径发布", "travel.rules", 1, "golden"))
+            f.builder().build(SubjectAreaReleaseBuildRequest("logical_rules", "1", "口径发布", "travel.rules", 1, "golden", f.sourceAdoptions))
             val publication = f.artifacts.loadExecutableCatalog(ReleaseCatalogRequest("travel.rules.amount", 1, "logical_rules", "1"))
             f.physical.updatePhysicalTableMetadata(PhysicalTableMetadataUpdateRequest(f.physicalId, 1, "订单采用修订", "同名源的新采用版本", "trade", "golden"))
             assertThrows(ProducerContractException::class.java) { f.logical.reviseLogicalTable(GovernanceRevisionRequest("recognized", 2,

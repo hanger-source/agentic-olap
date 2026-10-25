@@ -27,6 +27,8 @@ import com.olap.prototype.warehouse.WarehouseExecutionControl
 import com.olap.prototype.warehouse.WarehouseSourceInspection
 import com.olap.prototype.warehouse.contract.SourceBindingRef
 import com.olap.prototype.warehouse.contract.SourceConfiguration
+import com.olap.prototype.warehouse.contract.SourceAdoptionRegistrationRequest
+import com.olap.prototype.warehouse.contract.SourceAdoptionReadRequest
 import com.olap.prototype.warehouse.onboarding.SourceStructureRegistrationRequest
 import com.olap.prototype.warehouse.onboarding.WarehouseDiscoveryCommand
 import com.olap.prototype.warehouse.onboarding.WarehouseOnboardingService
@@ -48,7 +50,9 @@ class GovernanceOperations(
 
     private fun registeredCommands(): Map<String, Command<*>> = with(application) {
         mapOf(
-            command("create-physical-table", physicalAssets::createPhysicalTable, actor { it.createdBy }),
+            "create-physical-table" to Command<PhysicalTableCreateRequest>(
+                PhysicalTableCreateRequest::class.java, { request, _, _ -> physicalAssets.createPhysicalTable(request) },
+                { request, authorize -> authorizeInitialAdoption(request, authorize) }, actor { it.createdBy }),
             command("create-business-line", businessLines::createBusinessLine, actor { it.createdBy }),
             command("create-logical-table", logicalModel::createLogicalTable, actor { it.createdBy }),
             command("create-topology", topologies::createTopology, actor { it.createdBy }),
@@ -76,7 +80,9 @@ class GovernanceOperations(
             command("create-scenario-filter-ref", scenarios::createScenarioFilterRef, noActor),
             command("create-scenario-pipeline-rule", scenarios::createScenarioPipelineRule, noActor),
             command("refresh-scenario-pipeline-rule-contract", scenarios::refreshScenarioPipelineRuleContract, noActor),
-            command("revise-physical-table", physicalAssets::revisePhysicalTable, actor { it.definition.createdBy }),
+            "revise-physical-table" to Command<GovernanceRevisionRequest<PhysicalTableCreateRequest>>(
+                CapabilityRegistry.require("revise-physical-table").inputType, { request, _, _ -> physicalAssets.revisePhysicalTable(request) },
+                { request, authorize -> authorizeInitialAdoption(request.definition, authorize) }, actor { it.definition.createdBy }),
             command("update-physical-table-metadata", physicalAssets::updatePhysicalTableMetadata, actor { it.updatedBy }),
             command("update-physical-table-columns", physicalAssets::updatePhysicalTableColumns, actor { it.updatedBy }),
             command("revise-business-line", businessLines::reviseBusinessLine, actor { it.definition.createdBy }),
@@ -95,7 +101,19 @@ class GovernanceOperations(
             command("revise-scenario", scenarios::reviseScenario, actor { it.definition.createdBy }),
             command("activate", lifecycle::activate, actor { it.activatedBy }),
             command("deprecate", lifecycle::deprecate, actor { it.deprecatedBy }),
-            command("build-release", releases::build, actor { it.createdBy }),
+            "build-release" to Command<SubjectAreaReleaseBuildRequest>(
+                SubjectAreaReleaseBuildRequest::class.java, { request, _, _ -> releases.build(request) },
+                { request, authorize -> request.sourceAdoptions.distinct().forEach { reference ->
+                    val adoption = physicalAssets.sourceAdoption(reference)
+                    authorize(adoption.binding.dataSourceId)
+                    requireAuthorizedBinding(adoption.binding)
+                } }, actor { it.createdBy }),
+            "register-source-adoptions" to Command<SourceAdoptionRegistrationRequest>(
+                SourceAdoptionRegistrationRequest::class.java,
+                { request, _, _ ->
+                    requireAuthorizedSnapshot(request.discoverySnapshotId)
+                    sourceAdoptions.register(request)
+                }, { request, authorize -> authorizeSnapshotSource(request.discoverySnapshotId, authorize) }, actor { it.adoptedBy }),
             "register-source-structure" to Command<SourceStructureRegistrationRequest>(
                 SourceStructureRegistrationRequest::class.java,
                 { request, control, _ ->
@@ -125,8 +143,9 @@ class GovernanceOperations(
         return command.execute(request, control, subject, inspection, authorizeSource)
     }
 
-    fun read(operation: String, payload: Any, control: WarehouseExecutionControl): Any {
+    fun read(operation: String, payload: Any, control: WarehouseExecutionControl, authorizeSource: (String) -> Unit): Any {
         control.checkCancellation()
+        if (payload is SourceAdoptionReadRequest) authorizeSnapshotSource(payload.discoverySnapshotId, authorizeSource)
         val result = reads.read(operation, payload)
         control.checkCancellation()
         return result
@@ -147,9 +166,28 @@ class GovernanceOperations(
 
     private fun requireAuthorizedBinding(reference: SourceBindingRef) {
         val source = discoverySources[reference]
-        if (source == null || reference != source.bindingRef()) throw ProducerContractException("exact source binding is not authorized for discovery: $reference")
+        if (source == null || reference != source.bindingRef()) throw ProducerContractException("exact source binding is not authorized by this deployment: $reference")
         application.warehouseRepository.findSourceBinding(reference)
             ?: throw ProducerContractException("exact authorized source binding has not been registered: $reference")
+    }
+
+    private fun requireAuthorizedSnapshot(id: String) {
+        val snapshot = application.warehouseRepository.findDiscoverySnapshot(id)
+            ?: throw ProducerContractException("exact source adoption snapshot is missing: $id")
+        requireAuthorizedBinding(SourceBindingRef(snapshot.dataSource, snapshot.sourceIdentityHash))
+    }
+
+    private fun authorizeInitialAdoption(request: PhysicalTableCreateRequest, authorize: (String) -> Unit) {
+        val table = application.warehouseRepository.findDiscoveredTable(request.initialAdoption.discoveredTableId)
+            ?: throw ProducerContractException("exact initial adoption table is missing: ${request.initialAdoption.discoveredTableId}")
+        authorizeSnapshotSource(table.discoverySnapshotId, authorize)
+        requireAuthorizedSnapshot(table.discoverySnapshotId)
+    }
+
+    private fun authorizeSnapshotSource(id: String, authorize: (String) -> Unit) {
+        val snapshot = application.warehouseRepository.findDiscoverySnapshot(id)
+            ?: throw ProducerContractException("exact source adoption snapshot is missing: $id")
+        authorize(snapshot.dataSource)
     }
 
     private class Command<T>(

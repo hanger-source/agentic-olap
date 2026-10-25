@@ -136,16 +136,12 @@ internal fun LogicUnitExecutionSnapshotToProto(value: com.olap.prototype.release
     setLogicalTableVersion(value.logicalTableVersion)
     setPhysicalTableId(value.physicalTableId)
     setPhysicalTableVersion(value.physicalTableVersion)
-    setDataSourceId(value.dataSourceId)
-    value.catalogName?.let { setCatalogName(it) }
-    value.schemaName?.let { setSchemaName(it) }
-    setTableName(value.tableName)
-    setDialect(value.dialect)
     addAllLogicUnitBindings(value.logicUnitBindings.entries.sortedBy { it.key.toString() }.map { entry -> com.olap.prototype.wire.governance.LogicUnitExecutionSnapshotLogicUnitBindingsEntry.newBuilder().setKey(entry.key).apply { setValue(SemanticProto.toProto(entry.value)) }.build() })
     addAllPhysicalColumnBindings(value.physicalColumnBindings.entries.sortedBy { it.key.toString() }.map { entry -> com.olap.prototype.wire.governance.LogicUnitExecutionSnapshotPhysicalColumnBindingsEntry.newBuilder().setKey(entry.key).apply { setValue(entry.value) }.build() })
     addAllPhysicalColumnTypes(value.physicalColumnTypes.entries.sortedBy { it.key.toString() }.map { entry -> com.olap.prototype.wire.governance.LogicUnitExecutionSnapshotPhysicalColumnTypesEntry.newBuilder().setKey(entry.key).apply { setValue(JdbcColumnTypeToProto(entry.value)) }.build() })
     addAllNativeTableDependencies(value.nativeTableDependencies.entries.sortedBy { it.key.toString() }.map { entry -> com.olap.prototype.wire.governance.LogicUnitExecutionSnapshotNativeTableDependenciesEntry.newBuilder().setKey(entry.key).apply { setValue(NativeTableDependencyToProto(entry.value)) }.build() })
-    setSourceConstraints(PhysicalSourceConstraintsToProto(value.sourceConstraints))
+    setDataContract(PhysicalDataContractToProto(value.dataContract))
+    setAdoption(PhysicalSourceAdoptionToProto(value.adoption))
 }.build()
 internal fun LogicUnitExecutionSnapshotFromProto(value: com.olap.prototype.wire.governance.LogicUnitExecutionSnapshot): com.olap.prototype.release.contract.LogicUnitExecutionSnapshot = com.olap.prototype.release.contract.LogicUnitExecutionSnapshot(
     formatVersion = value.getFormatVersion(),
@@ -159,35 +155,12 @@ internal fun LogicUnitExecutionSnapshotFromProto(value: com.olap.prototype.wire.
     logicalTableVersion = value.getLogicalTableVersion(),
     physicalTableId = value.getPhysicalTableId(),
     physicalTableVersion = value.getPhysicalTableVersion(),
-    dataSourceId = value.getDataSourceId(),
-    catalogName = if (value.hasCatalogName()) value.getCatalogName() else null,
-    schemaName = if (value.hasSchemaName()) value.getSchemaName() else null,
-    tableName = value.getTableName(),
-    dialect = value.getDialect(),
     logicUnitBindings = strictMap(value.getLogicUnitBindingsList().map { it.getKey() to SemanticProto.fromProto(it.getValue()) as com.olap.prototype.expression.SemanticExpression }),
     physicalColumnBindings = strictMap(value.getPhysicalColumnBindingsList().map { it.getKey() to it.getValue() }),
     physicalColumnTypes = strictMap(value.getPhysicalColumnTypesList().map { it.getKey() to JdbcColumnTypeFromProto(it.getValue()) }),
     nativeTableDependencies = strictMap(value.getNativeTableDependenciesList().map { it.getKey() to NativeTableDependencyFromProto(it.getValue()) }),
-    sourceConstraints = required(value.hasSourceConstraints(), "LogicUnitExecutionSnapshot.sourceConstraints") { PhysicalSourceConstraintsFromProto(value.getSourceConstraints()) }
-)
-
-internal fun SourceUniqueKeySnapshotToProto(value: com.olap.prototype.release.contract.SourceUniqueKeySnapshot): com.olap.prototype.wire.governance.SourceUniqueKeySnapshot = com.olap.prototype.wire.governance.SourceUniqueKeySnapshot.newBuilder().apply {
-    setProofId(value.proofId)
-    setPhysicalTableId(value.physicalTableId)
-    setPhysicalTableVersion(value.physicalTableVersion)
-    setDiscoverySnapshotId(value.discoverySnapshotId)
-    setSchemaHash(value.schemaHash)
-    setSourceIdentityHash(value.sourceIdentityHash)
-    setKey(SnapshotUniqueKeyToProto(value.key))
-}.build()
-internal fun SourceUniqueKeySnapshotFromProto(value: com.olap.prototype.wire.governance.SourceUniqueKeySnapshot): com.olap.prototype.release.contract.SourceUniqueKeySnapshot = com.olap.prototype.release.contract.SourceUniqueKeySnapshot(
-    proofId = value.getProofId(),
-    physicalTableId = value.getPhysicalTableId(),
-    physicalTableVersion = value.getPhysicalTableVersion(),
-    discoverySnapshotId = value.getDiscoverySnapshotId(),
-    schemaHash = value.getSchemaHash(),
-    sourceIdentityHash = value.getSourceIdentityHash(),
-    key = required(value.hasKey(), "SourceUniqueKeySnapshot.key") { SnapshotUniqueKeyFromProto(value.getKey()) }
+    dataContract = required(value.hasDataContract(), "LogicUnitExecutionSnapshot.dataContract") { PhysicalDataContractFromProto(value.getDataContract()) },
+    adoption = required(value.hasAdoption(), "LogicUnitExecutionSnapshot.adoption") { PhysicalSourceAdoptionFromProto(value.getAdoption()) }
 )
 
 internal fun FrozenAnalysisDimensionMeaningToProto(value: com.olap.prototype.release.contract.FrozenAnalysisDimensionMeaning): com.olap.prototype.wire.governance.FrozenAnalysisDimensionMeaning = com.olap.prototype.wire.governance.FrozenAnalysisDimensionMeaning.newBuilder().apply {

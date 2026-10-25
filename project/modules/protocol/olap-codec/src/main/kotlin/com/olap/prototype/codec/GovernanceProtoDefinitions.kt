@@ -149,7 +149,7 @@ internal fun GovernanceDefinitionFromProto(value: com.olap.prototype.wire.govern
 internal fun GovernanceDefinitionPhysicalTableToProto(value: com.olap.prototype.governance.contract.GovernanceDefinition.PhysicalTable): com.olap.prototype.wire.governance.GovernanceDefinitionPhysicalTable = com.olap.prototype.wire.governance.GovernanceDefinitionPhysicalTable.newBuilder().apply {
     setRecord(PhysicalTableRecordToProto(value.record))
     addAllColumnVersionRefs(value.columnVersionRefs.map { GovernanceDefinitionVersionRefToProto(it) })
-    setSourceConstraints(PhysicalSourceConstraintsToProto(value.sourceConstraints))
+    setDataContract(PhysicalDataContractToProto(value.dataContract))
     value.dataDomain?.let { setDataDomain(it) }
     value.sensitivityLevel?.let { setSensitivityLevel(it) }
     value.sourceSystem?.let { setSourceSystem(it) }
@@ -157,7 +157,7 @@ internal fun GovernanceDefinitionPhysicalTableToProto(value: com.olap.prototype.
 internal fun GovernanceDefinitionPhysicalTableFromProto(value: com.olap.prototype.wire.governance.GovernanceDefinitionPhysicalTable): com.olap.prototype.governance.contract.GovernanceDefinition.PhysicalTable = com.olap.prototype.governance.contract.GovernanceDefinition.PhysicalTable(
     record = required(value.hasRecord(), "GovernanceDefinitionPhysicalTable.record") { PhysicalTableRecordFromProto(value.getRecord()) },
     columnVersionRefs = value.getColumnVersionRefsList().map { GovernanceDefinitionVersionRefFromProto(it) },
-    sourceConstraints = required(value.hasSourceConstraints(), "GovernanceDefinitionPhysicalTable.sourceConstraints") { PhysicalSourceConstraintsFromProto(value.getSourceConstraints()) },
+    dataContract = required(value.hasDataContract(), "GovernanceDefinitionPhysicalTable.dataContract") { PhysicalDataContractFromProto(value.getDataContract()) },
     dataDomain = if (value.hasDataDomain()) value.getDataDomain() else null,
     sensitivityLevel = if (value.hasSensitivityLevel()) value.getSensitivityLevel() else null,
     sourceSystem = if (value.hasSourceSystem()) value.getSourceSystem() else null

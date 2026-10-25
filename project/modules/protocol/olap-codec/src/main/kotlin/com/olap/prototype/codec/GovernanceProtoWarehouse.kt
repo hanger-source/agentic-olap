@@ -1,35 +1,6 @@
 package com.olap.prototype.codec
 
 /** 正式Warehouse消息的显式字段转换。 */
-internal fun PhysicalSourceConstraintsToProto(value: com.olap.prototype.warehouse.contract.PhysicalSourceConstraints): com.olap.prototype.wire.governance.PhysicalSourceConstraints = com.olap.prototype.wire.governance.PhysicalSourceConstraints.newBuilder().apply {
-    setDiscoverySnapshotId(value.discoverySnapshotId)
-    setSchemaHash(value.schemaHash)
-    setSourceIdentityHash(value.sourceIdentityHash)
-    setConnectorRef(SemanticProto.toProto(value.connectorRef))
-    value.databaseProductName?.let { setDatabaseProductName(it) }
-    value.databaseProductVersion?.let { setDatabaseProductVersion(it) }
-    value.driverName?.let { setDriverName(it) }
-    value.driverVersion?.let { setDriverVersion(it) }
-    setConstraints(JdbcTableConstraintsToProto(value.constraints))
-    addAllColumnVersionRefs(value.columnVersionRefs.entries.sortedBy { it.key.toString() }.map { entry -> com.olap.prototype.wire.governance.PhysicalSourceConstraintsColumnVersionRefsEntry.newBuilder().setKey(entry.key).apply { setValue(entry.value) }.build() })
-    addAllSourceCollections(value.sourceCollections.map { SourceCollectionRecordToProto(it) })
-    setStructureProvenance(StructureProvenanceToProto(value.structureProvenance))
-}.build()
-internal fun PhysicalSourceConstraintsFromProto(value: com.olap.prototype.wire.governance.PhysicalSourceConstraints): com.olap.prototype.warehouse.contract.PhysicalSourceConstraints = com.olap.prototype.warehouse.contract.PhysicalSourceConstraints(
-    discoverySnapshotId = value.getDiscoverySnapshotId(),
-    schemaHash = value.getSchemaHash(),
-    sourceIdentityHash = value.getSourceIdentityHash(),
-    connectorRef = required(value.hasConnectorRef(), "PhysicalSourceConstraints.connectorRef") { SemanticProto.fromProto(value.getConnectorRef()) as com.olap.prototype.connector.ConnectorRef },
-    databaseProductName = if (value.hasDatabaseProductName()) value.getDatabaseProductName() else null,
-    databaseProductVersion = if (value.hasDatabaseProductVersion()) value.getDatabaseProductVersion() else null,
-    driverName = if (value.hasDriverName()) value.getDriverName() else null,
-    driverVersion = if (value.hasDriverVersion()) value.getDriverVersion() else null,
-    constraints = required(value.hasConstraints(), "PhysicalSourceConstraints.constraints") { JdbcTableConstraintsFromProto(value.getConstraints()) },
-    columnVersionRefs = strictMap(value.getColumnVersionRefsList().map { it.getKey() to it.getValue() }),
-    sourceCollections = value.getSourceCollectionsList().map { SourceCollectionRecordFromProto(it) },
-    structureProvenance = required(value.hasStructureProvenance(), "PhysicalSourceConstraints.structureProvenance") { StructureProvenanceFromProto(value.getStructureProvenance()) }
-)
-
 internal fun JdbcTableConstraintsToProto(value: com.olap.prototype.warehouse.contract.JdbcTableConstraints): com.olap.prototype.wire.governance.JdbcTableConstraints = com.olap.prototype.wire.governance.JdbcTableConstraints.newBuilder().apply {
     addAllPrimaryKeyColumns(value.primaryKeyColumns.map { it })
     addAllUniqueKeys(value.uniqueKeys.map { JdbcTableConstraintsUniqueKeyToProto(it) })

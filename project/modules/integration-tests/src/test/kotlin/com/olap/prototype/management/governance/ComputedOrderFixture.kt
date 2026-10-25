@@ -77,7 +77,7 @@ internal class ComputedOrderFixture(val database: PlatformDatabase, directory: P
             NativeValidator { intent, capability -> QueryNativeValidation.validate(intent, capability, f.connectors) })
     }
 
-    fun publish() { f.activate("SUBJECT_AREA", "travel.trade"); f.activate("SUBJECT_AREA", "travel.shared"); f.build("formed_orders"); f.builder().build(SubjectAreaReleaseBuildRequest("shared_orders", "1", "双口径发布", "travel.shared", 1, "golden")) }
+    fun publish() { f.activate("SUBJECT_AREA", "travel.trade"); f.activate("SUBJECT_AREA", "travel.shared"); f.build("formed_orders"); f.builder().build(SubjectAreaReleaseBuildRequest("shared_orders", "1", "双口径发布", "travel.shared", 1, "golden", f.sourceAdoptions)) }
     fun publication() = f.publication("formed_orders", scenario = "travel.trade.formed")
     fun sharedPublication() = f.publication("shared_orders", scenario = "travel.shared.orders")
     fun member(code: String, definition: MemberSourceDefinition, bindings: CalculationBindings = CalculationBindings.empty(), arguments: Map<String, Calculation.Value> = emptyMap()) =

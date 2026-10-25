@@ -33,10 +33,10 @@ agentic-olap call describe-script-api --payload '{"type":"com.olap.prototype.cal
 
 ## 会话中调用正式能力
 
-`execute-script` 向持续 Kotlin 会话提交一个完整代码片段。DSL 为 `agentic-olap-kotlin-dsl/v3`，实际版本取服务发现结果。省略或留空 `sessionId` 创建会话；后续用实际返回的 `sessionId` 在同一 JVM 中继续。首次调用可以读取来源并保留 Kotlin 对象：
+`execute-script` 向持续 Kotlin 会话提交一个完整代码片段。DSL 为 `agentic-olap-kotlin-dsl/v4`，实际版本取服务发现结果。省略或留空 `sessionId` 创建会话；后续用实际返回的 `sessionId` 在同一 JVM 中继续。首次调用可以读取来源并保留 Kotlin 对象：
 
 ~~~sh
-agentic-olap call execute-script --payload '{"executionId":"sources-001","waitMillis":0,"source":"val sources = olap.sources.list(EmptyRequest)\nolap.output(sources)","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v3","parameters":{}}'
+agentic-olap call execute-script --payload '{"executionId":"sources-001","waitMillis":0,"source":"val sources = olap.sources.list(EmptyRequest)\nolap.output(sources)","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v4","parameters":{}}'
 agentic-olap call wait-script --payload '{"executionId":"sources-001","waitMillis":1000}'
 ~~~
 
@@ -118,6 +118,43 @@ JSON 输入预算拒绝使用 `JSON_INPUT_RESOURCE_LIMIT`；诊断给出 `resour
 `workerOutcome/workerDisposition/recycleReasons` 描述实际进程处理，不替代执行及会话状态。语言历史的类加载器由会话持有，不逐片段关闭。线程差集只供观察，不证明创建者或泄漏；新增线程、归属未知、采样不全或读取失败不会改变执行状态及会话可继续性。关联 request/worker 的线程身份、状态、daemon、上下文类加载器和必要堆栈仅进入有界私有诊断，快照不覆盖虚拟线程，公开报告不携带线程堆栈。后台线程不能借用后续片段的正式能力权限；越界调用、迟到输出和关闭产品标准流的动作被拦截并记诊断，不因此终止会话。同步能力等待中断后保留原调用身份，宿主收齐本次能力任务；同一管道 writer 保证已提交回复先于下一片段请求完整交付，实际写帧失败会结束该通信进程。未知业务结局不等于语言历史不可继续，也不自动重试业务操作。
 
 ## 定义建设与持续复用
+
+### 数据合同与来源兑现采用
+
+物理版本 P 的 `PhysicalDataContract` 保存稳定来源、表坐标、精确列版本及类型／NULL、约束、快照唯一规则及数据 anchor，以及封存集合的原精确声明。连接器、方言、具体结构快照 S 和技术观察属于兑现采用。结构登记或调查只提供 S，不表示已经接受某个实现兑现 P；原结构出处也不代替 B 的核验。
+
+`createPhysicalTable` 的 `initialAdoption.discoveredTableId` 指明首份结构材料，相关集合登记通过 `sourceCollectionIds` 精确提供。连接器、方言和观察摘要由真实材料取得，不重复填写。创建返回的 `sourceAdoptions` 与物理版本同事务提交，首个发布直接使用其 `references`，无需再执行一次采用登记。
+
+更换来源实现、而 P 的数据要求未变时，先为目标绑定取得明确的结构快照，再登记新兑现采用。下例中的 `physical`、`replacementStructure` 和 `subject` 分别是此前正式创建物理表、登记／调查结构、建设主题的类型化返回对象；主题已按其既有流程激活：
+
+~~~kotlin
+import com.olap.prototype.warehouse.contract.*
+
+val adopted = olap.governance.registerSourceAdoptions(
+    SourceAdoptionRegistrationRequest(
+        physicalTables = listOf(PhysicalTableRef(
+            physical.physicalTable.id, physical.physicalTableVersion.version)),
+        discoverySnapshotId = replacementStructure.snapshotId,
+        adoptedBy = olap.caller.subject
+    )
+)
+val released = olap.governance.buildRelease(
+    SubjectAreaReleaseBuildRequest(
+        releaseId = parameters.text("releaseId"),
+        releaseVersion = parameters.text("releaseVersion"),
+        releaseDisplayName = parameters.text("releaseDisplayName"),
+        subjectAreaId = subject.id,
+        subjectAreaVersion = subject.currentVersion,
+        createdBy = olap.caller.subject,
+        sourceAdoptions = adopted.references
+    )
+)
+olap.output(released)
+~~~
+
+登记可以一次接收多个精确物理引用；它按 P 声明的列与类型核对 S，允许 S 有额外未用列。已有采用通过 `olap.semantics.sourceAdoptions(SourceAdoptionReadRequest(snapshotId))` 按精确 S 读取，返回的 `references` 同样可以直接交发布。作者不需要复制引用字符串或遍历发布依赖。Freezer 根据主题与场景的实际 P 闭包取用所给采用，未使用的余项不进入依赖；实际 P 缺少采用或对应多个不同采用时明确拒绝，不选最近、不回退旧绑定。
+
+同一 P、B 的技术观察改变可以产生新的精确采用，旧发布继续冻结旧证据。在原元数据读取权限下，旧绑定未部署或来源停用不妨碍读取已登记采用及其引用；此读取不访问来源。执行仍核对当前部署，没有旧绑定时旧发布明确不可执行，登记新 B 不会自动切换它。`NativeCall(A)` 是定义的真实精确依赖，发布选 B 时不能替作者改写成 B；改变它仍须修订相应定义。列含义、类型／NULL、键或原封存声明改变则属于数据合同修订；仅更换兑现实现不强迫重建未变业务定义或授权上下文。采用冻结也不证明同一数据快照，实际 `SourceReadBasis` 继续单独读取。
 
 治理目录的 `GovernanceReadRequests.PageInput`、`SourceDiscoveriesInput`、`SnapshotPageInput`、`DiscoveredTablePageInput`、`SourcePageInput`、`VersionPageInput` 和 `SubjectPageInput` 共用实际列表分页合同：`offset` 为非负 Int，`limit` 为正 Int，不另设页长额度。两个参数可分别显式传 `null`，对应取偏移量 0、页长 50；`null` 不表示读取全部。Kotlin 构造仍需提供这两个参数，正式协议中缺失的可选字段解码为 `null`。超过末尾返回空页和实际 `total`，`nextOffset` 仅在有后续项目时返回；无需预先使 offset+limit 落在 Int 内。规则可从各类型及治理读取操作的输入形态发现，非法分页以 `INVALID_PAGINATION/CONTRACT_INPUT` 给出具体字段、实际值与允许范围。
 

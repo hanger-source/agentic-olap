@@ -38,11 +38,12 @@ class PublishedAncestorRelationsTest {
             assertEquals("SUCCEEDED", discovery.snapshot.status, discovery.snapshot.errorMessage)
             val table = discovery.tables.single()
             val adopted = f.physical.createPhysicalTable(PhysicalTableCreateRequest("staff.hierarchy", "staff_hierarchy", "人员汇报关系", "独立关联记录", "人事", "data", "internal",
-                "staff", "duckdb", "duckdb", table.catalogName, table.schemaName, requireNotNull(table.schemaHash),
-                PhysicalTableCreateRequest.SourceConstraintsInput(table.id, emptyList()), "golden", discovery.columns.map {
+                "staff", "duckdb", table.catalogName, table.schemaName,
+                PhysicalTableCreateRequest.SourceAdoptionInput(table.id, emptyList()), "golden", discovery.columns.map {
                     PhysicalTableCreateRequest.ColumnInput(it.columnName, it.columnName, it.typeName, "internal", requireNotNull(it.nullable), "源记录字段",
                         com.olap.prototype.contract.JdbcColumnType(it.jdbcType, it.typeName, it.precision, it.scale, it.nullable))
                 }))
+            f.sourceAdoptions += adopted.sourceAdoptions.references
             f.activate("PHYSICAL_TABLE", adopted.physicalTable.id)
             val columns = adopted.physicalColumns.associate { it.columnName to it.id }
             fun unit(code: String, column: String, type: LogicType, primary: Boolean = false) = LogicalTableCreateRequest.LogicUnitInput(code, code, LogicUnitSourceKind.COLUMN,

@@ -1,6 +1,7 @@
 import com.olap.prototype.calculation.*
 import com.olap.prototype.connector.*
 import com.olap.prototype.connector.loader.ConnectorPlugins
+import com.olap.prototype.codec.GovernanceProto
 import com.olap.prototype.contract.JdbcColumnType
 import com.olap.prototype.engine.EngineExecutionException
 import com.olap.prototype.engine.OlapEngine
@@ -121,7 +122,7 @@ object Kernel {
             Files.writeString(output.resolve("source.sql"), "$CREATE;\n$INSERT;\n")
             save(output.resolve("source-description.json"), mapOf(
                 "table" to JdbcTableConstraints.Table(physical.catalogName, physical.schemaName, physical.tableName),
-                "columns" to physical.physicalColumnTypes, "evidence" to physical.sourceConstraints))
+                "columns" to physical.physicalColumnTypes, "dataContract" to physical.dataContract, "adoption" to physical.adoption))
             val catalog = catalog(physical)
             val request = request("kernel-orders-normal", AMOUNT_INSTANCE, COUNT_INSTANCE)
             save(output.resolve("catalog.json"), catalog)
@@ -211,12 +212,20 @@ object Kernel {
         }
         check(refs.keys == setOf("order_id", "customer", "amount")) { "实际订单列与示例声明不同" }
         val hash = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(OlapJsonUtils.mapper().writeValueAsBytes(mapOf("columns" to types, "constraints" to constraints))))
-        val evidence = PhysicalSourceConstraints("jdbc-description-$hash", hash, spec.sourceIdentityHash(), spec.connectorRef,
-            metadata.databaseProductName, metadata.databaseProductVersion, metadata.driverName, metadata.driverVersion, constraints, refs, emptyList(),
-            StructureProvenance(StructureProvenance.Kind.DATABASE_CATALOG, metadata.databaseProductName, hash))
-        return ExecutablePhysicalExecutionBinding(BINDING, "1", EVENT, "1", null, null, "orders-table", "1", "orders-table", "1", SOURCE,
-            spec.connectorRef, registry.require(spec.connectorRef).compilation.tablePath(table.catalog, table.schema, table.table), spec.dialectId,
-            table.catalog, table.schema, table.table, evidence, emptyList(), emptyMap(), expressions, names, types)
+        val physical = PhysicalTableRef("orders-table", 1)
+        val binding = spec.source().bindingRef()
+        val contract = PhysicalDataContract(physical, spec.dataSourceId, table,
+            refs.mapValues { (_, reference) -> PhysicalDataContract.Column(reference, types.getValue(reference)) }, constraints,
+            emptyList(), emptyList(), "jdbc-table-$hash")
+        val evidence = PhysicalSourceEvidence("jdbc-description-$hash", contract.originDiscoveredTableId, hash,
+            StructureProvenance(StructureProvenance.Kind.DATABASE_CATALOG, metadata.databaseProductName, hash),
+            metadata.databaseProductName, metadata.databaseProductVersion, metadata.driverName, metadata.driverVersion,
+            refs.mapValues { (_, reference) -> types.getValue(reference) }, constraints, emptyList(), emptyList())
+        val adoption = PhysicalSourceAdoption(GovernanceProto.sourceAdoptionReference(physical, binding, spec.connectorRef, spec.dialectId, table, evidence),
+            physical, binding, spec.connectorRef, spec.dialectId, table, evidence, "kernel-example", java.time.Instant.now())
+        return ExecutablePhysicalExecutionBinding(BINDING, "1", EVENT, "1", null, null, "orders-table", "1",
+            registry.require(spec.connectorRef).compilation.tablePath(table.catalog, table.schema, table.table), contract, adoption,
+            emptyMap(), expressions, names, types)
     }
 
     private fun catalog(physical: ExecutablePhysicalExecutionBinding): ExecutableCatalog {

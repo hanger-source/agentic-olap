@@ -12,6 +12,7 @@ data class SourceCollectionRecord(
     val scope: SealedSourceDataset.Scope,
     val collection: SealedSourceDataset.Collection,
 ) {
+    fun declaration(): SourceCollectionDeclaration = SourceCollectionDeclaration(declarationSha256, sourceAuthority, ruleDocumentSha256, anchor, scope, collection)
     init {
         require(id.isNotBlank() && dataSourceId.isNotBlank()) { "source collection requires exact deployment identities" }
         require(listOf(sourceIdentityHash, declarationSha256, ruleDocumentSha256).all { it.matches(Regex("[0-9a-f]{64}")) }) { "source collection requires exact SHA-256 identities" }

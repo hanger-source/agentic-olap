@@ -40,9 +40,9 @@ internal class DuckdbJdbcSupport : StandardJdbcSupport("org.duckdb.DuckDBDriver"
         credentials.setProperty("temp_directory", directory.toString())
         return super.openReadOnly(spec, credentials)
     }
-    override fun supportsColumnInspection(evidence: PhysicalSourceConstraints): Boolean = exactDriver(evidence)
-    override fun supportsConstraintSnapshot(evidence: PhysicalSourceConstraints): Boolean = exactDriver(evidence)
-    private fun exactDriver(evidence: PhysicalSourceConstraints): Boolean = evidence.databaseProductName == "DuckDB" && evidence.databaseProductVersion == "v1.5.6" && evidence.driverName == "DuckDBJ" && evidence.driverVersion == "1.0"
+    override fun supportsColumnInspection(evidence: PhysicalSourceEvidence): Boolean = exactDriver(evidence)
+    override fun supportsConstraintSnapshot(evidence: PhysicalSourceEvidence): Boolean = exactDriver(evidence)
+    private fun exactDriver(evidence: PhysicalSourceEvidence): Boolean = evidence.databaseProductName == "DuckDB" && evidence.databaseProductVersion == "v1.5.6" && evidence.driverName == "DuckDBJ" && evidence.driverVersion == "1.0"
     override fun constraints(connection: Connection, table: JdbcTableConstraints.Table, control: WarehouseExecutionControl): JdbcTableConstraints =
         StandardJdbcConstraints.read(connection, DuckdbConstraints.read(connection, table, control), table, control)
     override fun configureMemory(connection: Connection, bytes: Long, control: WarehouseExecutionControl) {

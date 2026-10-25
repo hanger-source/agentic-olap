@@ -16,7 +16,10 @@ import com.olap.prototype.warehouse.onboarding.SourceStructureRegistrationReques
 import com.olap.prototype.util.OlapJsonUtils
 import com.olap.prototype.warehouse.JdbcProvider
 import com.olap.prototype.warehouse.contract.JdbcConnectionSpec
-import com.olap.prototype.warehouse.contract.PhysicalSourceConstraints
+import com.olap.prototype.warehouse.contract.PhysicalDataContract
+import com.olap.prototype.warehouse.contract.PhysicalSourceEvidence
+import com.olap.prototype.warehouse.contract.PhysicalTableRef
+import com.olap.prototype.warehouse.contract.JdbcTableConstraints
 import com.olap.prototype.warehouse.contract.StructureProvenance
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
@@ -142,9 +145,13 @@ class JdbcWarehouseInspectorTest {
         val physical = SemanticExpression.Reference(SemanticExpression.ReferenceKind.PHYSICAL_COLUMN, "column:$column", 1)
         val logical = SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, "value", 1)
         val source = observed.source
-        val binding = TestConnectors.physical(ExecutablePhysicalExecutionBinding("clock-source", "1", null, null, null, null, "clock-source", "1", "records", "1", spec.dataSourceId, spec.connectorRef, emptyList(), spec.dialectId, table.catalog, table.schema, table.table,
-            PhysicalSourceConstraints("clock-investigation", ProtoBytes.digest(GovernanceProto.toProto(SourceStructureRegistrationRequest.Table(observed.table, observed.columns, observed.constraints))), spec.sourceIdentityHash(), spec.connectorRef, source.databaseProductName, source.databaseProductVersion, source.driverName, source.driverVersion, observed.constraints, refs, emptyList(), StructureProvenance(StructureProvenance.Kind.DATABASE_CATALOG, "integration-test-catalog", "fixture-v1")),
-            emptyList(), logicUnitBindings = mapOf("value@1" to physical), physicalColumnBindings = names, physicalColumnTypes = types))
+        val contract = PhysicalDataContract(PhysicalTableRef("records", 1), spec.dataSourceId, JdbcTableConstraints.Table(table.catalog, table.schema, table.table),
+            refs.mapValues { (_, ref) -> PhysicalDataContract.Column(ref, types.getValue(ref)) }, observed.constraints, emptyList(), emptyList(), "clock-table")
+        val evidence = PhysicalSourceEvidence("clock-investigation", "clock-table", ProtoBytes.digest(GovernanceProto.toProto(SourceStructureRegistrationRequest.Table(observed.table, observed.columns, observed.constraints))),
+            StructureProvenance(StructureProvenance.Kind.DATABASE_CATALOG, "integration-test-catalog", "fixture-v1"), source.databaseProductName, source.databaseProductVersion, source.driverName, source.driverVersion,
+            refs.mapValues { (_, ref) -> types.getValue(ref) }, observed.constraints, emptyList(), emptyList())
+        val binding = TestConnectors.physical(ExecutablePhysicalExecutionBinding("clock-source", "1", null, null, null, null, "clock-source", "1", emptyList(),
+            contract, TestConnectors.adoption(contract, spec.source(), evidence), logicUnitBindings = mapOf("value@1" to physical), physicalColumnBindings = names, physicalColumnTypes = types))
         val sql = CandidateValueCompiler.compile(binding, logical, 0, 10, mutableListOf(), connectors)
         return provider.executeFrame(sql, control, RuntimeDeploymentLimits.budget(), RuntimeDeploymentLimits.nativeMemoryBytes) { _, _ -> }.frame.rows.map { it.cells.first().value }.onEach { type.candidate(it) }
     }

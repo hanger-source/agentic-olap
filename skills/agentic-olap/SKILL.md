@@ -31,7 +31,7 @@ agentic-olap call describe-script-api --payload '{}'
 
 首次启动生成本机配置、随机令牌与持久目录，仅监听回环地址。已有远程服务可直接接入 MCP；CLI 使用 `--url https://actual-service/mcp --token-env OLAP_TOKEN`。令牌由实际服务方提供，不写入仓库或日志。模型账号、提示词与会话由外部客户端持有。
 
-配置与认证见[服务使用与部署](references/server.md)；连接业务源时再读[来源接入](references/connections.md)。服务、SDK 与插件须匹配实际服务披露的连接器 API；本仓库源码为 `agentic-olap-connector/v12-kotlin-native-collection-placement-calcite-1.42`，存储格式为 `16`。安装不会自动重启原服务或转换旧持久根。
+配置与认证见[服务使用与部署](references/server.md)；连接业务源时再读[来源接入](references/connections.md)。服务、SDK 与插件须匹配实际服务披露的连接器 API；本仓库源码为 `agentic-olap-connector/v13-kotlin-data-contract-source-adoption-calcite-1.42`，存储格式为 `17`。安装不会自动重启原服务或转换旧持久根。
 
 ## 从服务发现 Kotlin API
 
@@ -46,10 +46,10 @@ agentic-olap call describe-script-api --payload '{"type":"com.olap.prototype.cal
 
 `LogicUnitInput.rules.valueTypeRules` 要求标量 `logicType` 与容器 `valueShape` 恰好选一个：标量的 `valueShape=null`；容器的 `logicType=null`，形状为正式 `SetOutputContract.Container` 的 ARRAY／ROW。普通金额字段使用 `LogicType.NUMBER`，数量合同中的单位、算术和结果容量不填入字段的容器形状。
 
-`execute-script` 向持续 Kotlin 会话提交一个完整片段。DSL 为 `agentic-olap-kotlin-dsl/v3`，以服务发现结果为准。`executionId` 必填；不填 `sessionId` 创建会话，后续使用实际返回的会话 ID：
+`execute-script` 向持续 Kotlin 会话提交一个完整片段。DSL 为 `agentic-olap-kotlin-dsl/v4`，以服务发现结果为准。`executionId` 必填；不填 `sessionId` 创建会话，后续使用实际返回的会话 ID：
 
 ~~~sh
-agentic-olap call execute-script --payload '{"executionId":"sources-001","waitMillis":0,"source":"val sources = olap.sources.list(EmptyRequest)\nolap.output(sources)","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v3","parameters":{}}'
+agentic-olap call execute-script --payload '{"executionId":"sources-001","waitMillis":0,"source":"val sources = olap.sources.list(EmptyRequest)\nolap.output(sources)","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v4","parameters":{}}'
 agentic-olap call wait-script --payload '{"executionId":"sources-001","waitMillis":1000}'
 ~~~
 
@@ -75,7 +75,7 @@ agentic-olap call wait-script --payload '{"executionId":"sources-001","waitMilli
 
 `olap.output(response/reference/ScriptValue)` 是 Unit 动作，可多次调用；每次立即生成正式快照。正式回执只接受真实客户端返回对象；普通值支持精确十进制、布尔、文本、NULL 和不可变数组、对象。末表达式可以是任意对象，不自动展开或输出。`outputs` 按 sequence 保留 VALUE 和 STDOUT／STDERR 的相对顺序；VALUE 的 value 为正式 Protobuf JSON，打印有明确 encoding（合法文本 UTF8，否则 BASE64）与 content。输出后发生异常仍保留前面的输出；私有原生诊断不当作用户打印。整段代码不构成跨所有正式调用的事务。
 
-报告 state 为 RUNNING／COMPLETED／COMPILE_FAILED／RUNTIME_FAILED／CANCELLED／LOST，只有最终 COMPLETED 且 success=true 才成功。sessionUsable 与执行成功分别判断；当前能否提交以 `read-script-session` 的 READY 为准。普通编译失败可以继续，未知活线程或不可恢复语言／进程故障必须显式 reset，不自动重建重放。正常语言历史类加载器保留至会话关闭。线程观察不证明泄漏；必要现场只进入有界私有诊断。
+报告 state 为 RUNNING／COMPLETED／COMPILE_FAILED／RUNTIME_FAILED／CANCELLED／LOST，只有最终 COMPLETED 且 success=true 才成功。sessionUsable 与执行成功分别判断；当前能否提交以 `read-script-session` 的 READY 为准。普通编译失败可以继续；不可恢复语言／进程故障必须显式 reset，不自动重建重放。正常语言历史类加载器保留至会话关闭。线程观察不证明泄漏，新增或未知活线程不因此改变会话可继续性；必要现场只进入有界私有诊断。
 
 普通值模型没有固定的节点、深度、文本、键或十进制容量阈值；目录等结构事实正常放入 `parameters`，脚本据此构造正式模型。用 `describe-script-api` 读取 `ScriptArguments/ScriptValue` 的 `rules.deploymentBudgets`，或读取 `describe-operation` 对 `execute-script` 披露的 `resourceBudgets`，取得实际输入预算与直接响应阈值。JSON 输入遵守 `requestBytes/inputNodes/inputDepth`：根为第 1 层且计节点，容器、标量与 NULL 计节点，键不计，节点与深度在首次越界拒绝。普通值与正式能力回执按正式 Protobuf 和实际返回体编码、读取，不设置独立输出容量或深度门槛。SQL 的 `resultRows/resultValues/resultBytes/resultDepth` 约束业务结果物化。不要为容量而默认展开源码、把目录编码成文本或自动拆分写入。表示、输入预算与交付细节见[普通参数与返回值容量](../../docs/agent-usage.md#普通参数与返回值容量)。
 
@@ -86,6 +86,8 @@ agentic-olap call wait-script --payload '{"executionId":"sources-001","waitMilli
 先读取实际来源、已有口径与精确版本，结合真实业务信息作判断。空库没有业务指标；数据库可访问不代表业务含义已成立。长期含义可沉淀为字段、关系、指标、成员来源或共同计算，再继续组合定义；本次新组合可留在 Query。
 
 已有适用发布时直接查询。不要求先创建 Analysis、任务树、保存查询或执行校验。治理版本、采用与发布按需修订，精确指定延续选择、共享定义版本和完整绑定；不猜 latest、不自动扩大授权。主题、场景的延续与采用更新从正式 API 发现。
+
+物理版本 P 保存稳定数据合同，结构快照 S 只记录具体观察；兑现采用明确接受某份绑定及 S 兑现 P。初次 `createPhysicalTable` 同事务返回 `SourceAdoptions`；后续更换实现用 `olap.governance.registerSourceAdoptions`，已有采用用 `olap.semantics.sourceAdoptions` 按精确 S 读取。将正式返回的 `references` 直接交 `buildRelease`，不手抄逐表引用或自行遍历闭包。发布按实际 P 依赖核对精确采用，缺失、多选明确拒绝，余项不成为依赖。P 未变时不为实现替换重建业务定义；`NativeCall(A)` 的真实依赖不自动改成 B。旧发布不切换，当前部署缺少其绑定会明确不可执行。采用冻结不固定数据读基础。字段、批量用法及完整短例见[数据合同与来源兑现采用](../../docs/agent-usage.md#数据合同与来源兑现采用)。
 
 完整查询使用 `QueryIntent(publication, computation)`；`scope/query/input/stage` 帮助构造现有 `QueryComputation.Scope`、根、输入与有序阶段。成员槽保留对象身份和属性角色；测量槽接收可调用实例；关系槽接收显式 ROOT 完成关系并核对列、维度、数量及完整键。金额和人数不能为了传参伪装为成员属性。
 

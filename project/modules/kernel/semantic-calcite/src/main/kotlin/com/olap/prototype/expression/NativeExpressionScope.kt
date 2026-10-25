@@ -25,7 +25,7 @@ class NativeExpressionScope(val connector: ConnectorRef, val support: Compilatio
     fun requireTable(table: SemanticExpression.TableArgument): NativeTableDependency {
         val dependency = requireNotNull(tables(table)) { "native table argument is outside the exact frozen dependency closure" }
         require(dependency.key() == table.key()) { "native table argument is outside the exact frozen dependency closure" }
-        require(connector == dependency.sourceConstraints.connectorRef) { "native table uses a different exact connector" }
+        require(connector == dependency.adoption.connectorRef) { "native table uses a different exact connector" }
         return dependency
     }
 

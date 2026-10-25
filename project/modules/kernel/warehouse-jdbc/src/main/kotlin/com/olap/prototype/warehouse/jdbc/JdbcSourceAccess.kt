@@ -11,7 +11,10 @@ class JdbcSourceAccess(private val identity: ConnectorRef, compilation: Compilat
     private val registry = ConnectorRegistry(listOf(ResolvedConnector(identity, compilation, this)))
     private val inspector = JdbcWarehouseInspector(registry)
     private val inspection = JdbcSourceInspection(inspector, registry)
-    override fun supportsConstraintVerification(evidence: PhysicalSourceConstraints): Boolean = jdbc.supportsConstraintSnapshot(evidence)
+    override fun supportsConstraintVerification(dataContract: PhysicalDataContract, adoption: PhysicalSourceAdoption): Boolean {
+        adoption.requireContract(dataContract)
+        return jdbc.supportsConstraintSnapshot(adoption.evidence)
+    }
     override fun validateConfiguration(source: SourceConfiguration) {
         configurationParameters.requireConfiguration(source)
         require(identity == source.connectorRef) { "JDBC source differs from exact connector identity" }

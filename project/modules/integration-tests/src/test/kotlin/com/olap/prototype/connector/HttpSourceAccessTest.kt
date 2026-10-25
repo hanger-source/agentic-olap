@@ -70,11 +70,12 @@ class HttpSourceAccessTest {
             val native = NativeExpressionScope(ref, support) { null }
             fun binding(table: String, columns: List<String>): ExecutablePhysicalExecutionBinding {
                 val refs = columns.associateWith { "$table:$it@1" }
-                return ExecutablePhysicalExecutionBinding(table, "1", null, null, null, null, table, "1", table, "1", source.dataSourceId,
-                    ref, listOf("main", table), source.dialectId, null, "main", table, nativeEvidence(source, refs), emptyList(),
+                val types = refs.mapValues { (name, _) -> if (name == "id") JdbcColumnType(java.sql.Types.INTEGER, "INTEGER", 10, 0, true)
+                    else JdbcColumnType(java.sql.Types.VARCHAR, "VARCHAR", 65536, null, true) }
+                val adopted = nativeTable(source, table, refs.mapValues { (name, reference) -> PhysicalDataContract.Column(reference, types.getValue(name)) })
+                return ExecutablePhysicalExecutionBinding(table, "1", null, null, null, null, table, "1", listOf("main", table), adopted.dataContract, adopted.adoption,
                     physicalColumnBindings = refs.entries.associate { it.value to it.key },
-                    physicalColumnTypes = refs.entries.associate { it.value to if (it.key == "id") JdbcColumnType(java.sql.Types.INTEGER, "INTEGER", 10, 0, true)
-                        else JdbcColumnType(java.sql.Types.VARCHAR, "VARCHAR", 65536, null, true) })
+                    physicalColumnTypes = refs.entries.associate { it.value to types.getValue(it.key) })
             }
             val bindings = listOf(binding("facts", listOf("id", "record_key", "qualifier")), binding("details", listOf("record_key", "start_text", "end_text")))
             fun symbol(name: String): ResultExpression = ResultSymbol(name)
@@ -177,15 +178,17 @@ class HttpSourceAccessTest {
             val ref = loaded.registry.references().single()
             val source = SourceConfiguration("remote-http", ref, "duckdb", mapOf("endpoint" to server.endpoint, "consistentChecks" to true), mapOf("timeoutMillis" to 30000), mapOf("authorization" to "OLAP_TEST_HTTP_AUTH"))
             val provider = SourceProvider(source, loaded.registry)
-            val table = NativeTableDependency("orders", 1, source.dataSourceId, source.dialectId, JdbcTableConstraints.Table(null, "main", "orders"), nativeEvidence(source, mapOf("partition_key" to "order_partition@1", "amount" to "order_amount@1")))
+            val table = nativeTable(source, "orders", mapOf(
+                "partition_key" to PhysicalDataContract.Column("order_partition@1", JdbcColumnType(java.sql.Types.VARCHAR, "VARCHAR", 65536, null, true)),
+                "amount" to PhysicalDataContract.Column("order_amount@1", JdbcColumnType(java.sql.Types.DECIMAL, "DECIMAL", 18, 2, true))))
+            val context = nativeTable(source, "request_context", mapOf("state" to PhysicalDataContract.Column("context_state@1", JdbcColumnType(java.sql.Types.VARCHAR, "VARCHAR", 65536, null, false))))
             val definition = SemanticExpression.NativeCall(ref, "latest_declared_partition", listOf(SemanticExpression.TableArgument("orders", 1),
                 SemanticExpression.ScalarArgument(SemanticExpression.Reference(SemanticExpression.ReferenceKind.PHYSICAL_COLUMN, "context_state", 1))))
             val binding = ExecutablePhysicalExecutionBinding(
                 bindingId = "context", bindingVersion = "1", eventId = null, eventVersion = null, logicUnitId = null, logicUnitVersion = null,
-                logicalTableId = "context", logicalTableVersion = "1", physicalTableId = "request_context", physicalTableVersion = "1",
-                dataSourceId = source.dataSourceId, connectorRef = ref, qualifiedTablePath = listOf("main", "request_context"), dialect = source.dialectId,
-                catalogName = null, schemaName = "main", tableName = "request_context", sourceConstraints = nativeEvidence(source, mapOf("state" to "context_state@1")),
-                snapshotUniqueKeys = emptyList(), nativeTableDependencies = mapOf(table.key() to table), logicUnitBindings = mapOf("latest_partition@1" to definition),
+                logicalTableId = "context", logicalTableVersion = "1", qualifiedTablePath = listOf("main", "request_context"),
+                dataContract = context.dataContract, adoption = context.adoption,
+                nativeTableDependencies = mapOf(table.key() to table), logicUnitBindings = mapOf("latest_partition@1" to definition),
                 physicalColumnBindings = mapOf("context_state@1" to "state"), physicalColumnTypes = mapOf("context_state@1" to JdbcColumnType(java.sql.Types.VARCHAR, "VARCHAR", 65536, null, false)))
             val frozen = ProtoBytes.encode(GovernanceProto.toProto(binding))
             val adopted = GovernanceProto.fromProto(ProtoBytes.decode(frozen, com.olap.prototype.wire.governance.ExecutablePhysicalExecutionBinding.getDefaultInstance()))
@@ -214,7 +217,8 @@ class HttpSourceAccessTest {
             val outside = assertThrows(RuntimeException::class.java) { CandidateValueCompiler.compile(unadopted, expression, 0, 10, mutableListOf(), loaded.registry) }
             assertTrue(outside.message!!.contains("orders@2"))
             val wrongSource = SourceConfiguration(source.dataSourceId, ref, source.dialectId, mapOf("endpoint" to server.endpoint, "consistentChecks" to false), source.runtimeParameters, source.credentialEnvironmentVariables)
-            val crossed = adopted.copy(nativeTableDependencies = adopted.nativeTableDependencies + (table.key() to NativeTableDependency(table.physicalTableId, table.physicalTableVersion, table.dataSourceId, table.dialect, table.table, nativeEvidence(wrongSource, table.sourceConstraints.columnVersionRefs))))
+            val crossed = adopted.copy(nativeTableDependencies = adopted.nativeTableDependencies + (table.key() to NativeTableDependency(table.dataContract,
+                TestConnectors.adoption(table.dataContract, wrongSource, table.adoption.evidence))))
             val crossBinding = assertThrows(IllegalArgumentException::class.java) { CandidateValueCompiler.compile(crossed, expression, 0, 10, mutableListOf(), loaded.registry) }
             assertTrue(crossBinding.message!!.contains("source binding"))
             assertEquals(requests, server.queries, "未采用版本和跨binding表必须在HTTP请求前拒绝")
@@ -280,8 +284,10 @@ class HttpSourceAccessTest {
             }
             val missing = assertThrows(SourceCapabilityException::class.java) { loaded.registry.require(ref).access.snapshot(WarehouseSchemaSnapshotRequest(source, null, "main", null, emptyList(), 10), RuntimeDeploymentLimits.CONTROL) }
             assertEquals("remote-http", missing.dataSourceId); assertEquals(SourceCapabilities.Capability.STRUCTURE_INSPECTION, missing.capability)
-            val evidence = PhysicalSourceConstraints("declared-test", "declared-schema", source.sourceIdentityHash(), ref, null, null, null, null, JdbcTableConstraints(listOf("amount"), emptyList(), emptyList(), emptyList()), mapOf("amount" to "amount@1"), emptyList(), StructureProvenance(StructureProvenance.Kind.DECLARED, "fixture-configuration", "v1"))
-            val requirement = JdbcSourceRequirement(source.dataSourceId, ref, source.dialectId, "amounts", "1", JdbcTableConstraints.Table(null, "main", "amounts"), evidence, mapOf("amount" to JdbcColumnType(java.sql.Types.DECIMAL, "DECIMAL", 38, 2, false)), setOf(JdbcSourceRequirement.Use.ROWS), emptyList(), setOf(JdbcSourceRequirement.ConstraintUse(JdbcSourceRequirement.ConstraintKind.PRIMARY_KEY, null)))
+            val declared = nativeTable(source, "amounts", mapOf("amount" to PhysicalDataContract.Column("amount@1", JdbcColumnType(java.sql.Types.DECIMAL, "DECIMAL", 38, 2, false))),
+                JdbcTableConstraints(listOf("amount"), emptyList(), emptyList(), emptyList()))
+            val requirement = JdbcSourceRequirement(declared.dataContract, declared.adoption, declared.dataContract.columns.mapValues { it.value.type },
+                setOf(JdbcSourceRequirement.Use.ROWS), setOf(JdbcSourceRequirement.ConstraintUse(JdbcSourceRequirement.ConstraintKind.PRIMARY_KEY, null)))
             val guarded = SourceSqlRequest(request.operation, request.sql, request.parameters, request.aliasMapping, request.aliasDisplayNames, request.outputTypes, listOf(requirement), emptyList(), null)
             DeadlineExecutionControl(10000).use { control ->
                 val rejected = assertThrows(SourceExecutionException::class.java) { provider.execute(guarded, control, ResultMaterializationLimits(100, 1000, 100000, 16), 1000000) { _, _ -> }.frame }
@@ -385,7 +391,15 @@ class HttpSourceAccessTest {
     }
 
     companion object {
-        private fun nativeEvidence(source: SourceConfiguration, columns: Map<String, String>) = PhysicalSourceConstraints("declared-http-native", "declared-native-schema-v1", source.sourceIdentityHash(), source.connectorRef, null, null, null, null, JdbcTableConstraints(emptyList(), emptyList(), emptyList(), emptyList()), columns, emptyList(), StructureProvenance(StructureProvenance.Kind.DECLARED, "fixture-native-configuration", "v1"))
+        private fun nativeTable(source: SourceConfiguration, table: String, columns: Map<String, PhysicalDataContract.Column>,
+            constraints: JdbcTableConstraints = JdbcTableConstraints(emptyList(), emptyList(), emptyList(), emptyList())): NativeTableDependency {
+            val contract = PhysicalDataContract(PhysicalTableRef(table, 1), source.dataSourceId, JdbcTableConstraints.Table(null, "main", table),
+                columns, constraints, emptyList(), emptyList(), "declared-http-$table")
+            val evidence = PhysicalSourceEvidence("declared-http-native", "declared-http-$table", "declared-native-schema-v1",
+                StructureProvenance(StructureProvenance.Kind.DECLARED, "fixture-native-configuration", "v1"), null, null, null, null,
+                columns.mapValues { it.value.type }, constraints, emptyList(), emptyList())
+            return NativeTableDependency(contract, TestConnectors.adoption(contract, source, evidence))
+        }
 
         @JvmStatic fun main(args: Array<String>) {
             val input = Path.of(args[0]).toRealPath()

@@ -48,7 +48,7 @@ class SourceSqlRequest(
         val constrained = sourceRequirements.any { it.constraintUses.isNotEmpty() }
         if (relationChecks.isNotEmpty() || constrained) add(Capability.CONSISTENT_READ)
         if (constrained) add(Capability.CONSTRAINT_VERIFICATION)
-        if (sourceRequirements.any { it.readsRows() && it.evidence.sourceCollections.isNotEmpty() })
+        if (sourceRequirements.any { it.readsRows() && it.sourceCollections.isNotEmpty() })
             add(Capability.SEALED_DATASET_VERIFICATION)
     }
 

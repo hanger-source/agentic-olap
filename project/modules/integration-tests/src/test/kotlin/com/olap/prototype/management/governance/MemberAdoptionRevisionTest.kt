@@ -41,7 +41,7 @@ class MemberAdoptionRevisionTest {
             val conflict = assertThrows(MemberAdoptionConflictException::class.java) { run("revise-member-adoption", request) }
             assertEquals(MemberDefinitionRef(c.sharedRule.id, 2), conflict.actualDefinition)
             f.activate("SUBJECT_AREA", "travel.trade", 2)
-            f.builder().build(SubjectAreaReleaseBuildRequest("formed_orders", "2", "显式更新订单规则", "travel.trade", 2, "golden"))
+            f.builder().build(SubjectAreaReleaseBuildRequest("formed_orders", "2", "显式更新订单规则", "travel.trade", 2, "golden", f.sourceAdoptions))
             val current = f.artifacts.loadExecutableCatalog(ReleaseCatalogRequest("travel.trade.formed", 2, "formed_orders", "2"))
             val newRoot = QueryComputation.Members("formed", MemberRef(c.publicRows.id, 2), mapOf("window" to c.july),
                 listOf(QueryComputation.Slot("order", "order"), QueryComputation.Slot("amount", "amount")), null, emptyMap(),
@@ -88,7 +88,7 @@ class MemberAdoptionRevisionTest {
                 }
             } }
             f.activate("SUBJECT_AREA", "travel.shared", 2)
-            f.builder().build(SubjectAreaReleaseBuildRequest("shared_orders", "2", "拒绝修订后的原规则", "travel.shared", 2, "golden"))
+            f.builder().build(SubjectAreaReleaseBuildRequest("shared_orders", "2", "拒绝修订后的原规则", "travel.shared", 2, "golden", f.sourceAdoptions))
             val publication = f.artifacts.loadExecutableCatalog(ReleaseCatalogRequest("travel.shared.orders", 2, "shared_orders", "2"))
             val root = QueryComputation.Members("shared", MemberRef(old.id, 2), mapOf("window" to c.july),
                 listOf(QueryComputation.Slot("order", "order")), null, emptyMap(), MemberCondition.Unrestricted(), emptyMap(), emptyMap())

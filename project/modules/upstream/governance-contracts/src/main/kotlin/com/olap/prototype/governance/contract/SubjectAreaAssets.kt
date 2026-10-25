@@ -27,7 +27,22 @@ data class SubjectAreaMetricRefRecord(val id: String, val subjectAreaId: String,
 
     val instance: MetricInstanceRef get() = MetricAdoption.instance(id, subjectAreaVersion)
 }
-data class SubjectAreaReleaseBuildRequest(val releaseId: String, val releaseVersion: String, val releaseDisplayName: String, val subjectAreaId: String, val subjectAreaVersion: Long, val createdBy: String)
+class SubjectAreaReleaseBuildRequest(val releaseId: String, val releaseVersion: String, val releaseDisplayName: String, val subjectAreaId: String, val subjectAreaVersion: Long, val createdBy: String, sourceAdoptions: List<com.olap.prototype.warehouse.contract.SourceAdoptionRef>) {
+    val sourceAdoptions: List<com.olap.prototype.warehouse.contract.SourceAdoptionRef> = java.util.List.copyOf(sourceAdoptions)
+    override fun equals(other: Any?): Boolean = other is SubjectAreaReleaseBuildRequest && releaseId == other.releaseId && releaseVersion == other.releaseVersion && releaseDisplayName == other.releaseDisplayName && subjectAreaId == other.subjectAreaId && subjectAreaVersion == other.subjectAreaVersion && createdBy == other.createdBy && sourceAdoptions == other.sourceAdoptions
+    override fun hashCode(): Int = listOf(releaseId, releaseVersion, releaseDisplayName, subjectAreaId, subjectAreaVersion, createdBy, sourceAdoptions).hashCode()
+    companion object {
+        fun contract(): Map<String, Any> = mapOf(
+            "sourceAdoptions" to "EXACT_REGISTERED_REFERENCES_FROM_SOURCE_ADOPTIONS_REFERENCES",
+            "selection" to "ONE_DISTINCT_ADOPTION_PER_REQUIRED_EXACT_PHYSICAL_DATA_CONTRACT",
+            "closure" to "ACTUAL_PHYSICAL_DEPENDENCIES_INCLUDING_NATIVE_TABLE_ARGUMENTS",
+            "extraReferences" to "AUTHORIZED_WHEN_READ_NOT_FROZEN_UNLESS_REQUIRED",
+            "failure" to "MISSING_OR_CONFLICTING_ADOPTION_OR_UNFULFILLED_DATA_CONTRACT_IS_REJECTED",
+            "nativeCalls" to "EXACT_CONNECTOR_DEPENDENCY_IS_NOT_REWRITTEN",
+            "publication" to "FREEZES_SELECTED_ADOPTIONS_WITHOUT_REVISING_UNCHANGED_SEMANTIC_DEFINITIONS",
+        )
+    }
+}
 data class SubjectAreaReleaseBuildResult(val releaseId: String, val releaseVersion: String, val subjectAreaId: String, val subjectAreaVersion: Long, val buildStatus: String, val releasesWritten: Int, val releaseObjectRefsWritten: Int, val metricsFrozen: Int, val analysisDimensionsFrozen: Int, val scenariosFrozen: Int, val eventsFrozen: Int, val topologiesFrozen: Int, val joinPathsFrozen: Int, val logicUnitsFrozen: Int, val dimensionsFrozen: Int, val dimensionEventBindingsFrozen: Int, val metricDimensionCapabilitiesWritten: Int, val unavailableReasonsWritten: Int)
 
 data class BusinessLineIndexItem(val id: String, val code: String, val displayName: String, val description: String?, val owner: String, val status: String, val currentVersion: Long, val createdBy: String, val createdAt: Instant, val updatedBy: String?, val updatedAt: Instant?, val subjectAreaCount: Long, val publishedSubjectAreaCount: Long, val blockingIssueCount: Long, val currentPublishedReleaseVersion: String?, val indexStatus: String, val indexStatusDisplayName: String, val readinessState: String, val readinessLabel: String, val readinessDetail: String?, val lastChangedAt: Instant)

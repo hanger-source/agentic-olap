@@ -66,7 +66,8 @@ internal class ServerApplication private constructor(private val plugins: Connec
         results.retainHistory()
         val warehouse = WarehouseRegistryRepository(database)
         val physical = PhysicalAssetGovernanceService(database, warehouse)
-        val onboarding = WarehouseOnboardingService(physical, WarehouseRegistryService(database, warehouse, physical), deployed::requireConfiguration)
+        val onboarding = WarehouseOnboardingService(physical, WarehouseRegistryService(database, warehouse, physical), deployed::requireConfiguration,
+            PhysicalSourceAdoptionService(warehouse, physical))
         sources = ServerSources(deployed, plugins.registry, authorization, publicationRepository, workers, onboarding)
         governance = ServerGovernance(GovernanceOperations(GovernanceApplication(database, plugins.registry), deployed.bindings(), onboarding), authorization, workers)
         operations = registeredOperations()

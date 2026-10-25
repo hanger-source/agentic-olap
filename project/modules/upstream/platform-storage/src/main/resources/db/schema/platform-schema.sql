@@ -169,6 +169,21 @@ CREATE TABLE physical_column_profile (
   unique(physical_column_id, physical_column_version)
 );
 
+CREATE TABLE warehouse_source_adoption (
+  id varchar PRIMARY KEY,
+  physical_table_id varchar NOT NULL,
+  physical_table_version bigint NOT NULL,
+  data_source_id varchar NOT NULL,
+  source_identity_hash varchar NOT NULL,
+  discovery_snapshot_id varchar NOT NULL REFERENCES warehouse_discovery_snapshot(id),
+  discovered_table_id varchar NOT NULL REFERENCES warehouse_discovered_table(id),
+  record_proto text NOT NULL,
+  FOREIGN KEY(physical_table_id, physical_table_version) REFERENCES physical_table_version(physical_table_id, version),
+  FOREIGN KEY(data_source_id, source_identity_hash) REFERENCES warehouse_source_binding(data_source_id, source_identity_hash)
+);
+
+CREATE INDEX ix_source_adoption_snapshot ON warehouse_source_adoption(discovery_snapshot_id, physical_table_id, physical_table_version);
+
 CREATE TABLE logical_table (
   id varchar primary key,
   code varchar not null,
@@ -1852,4 +1867,4 @@ CREATE TABLE platform_storage_format (
 );
 
 -- 完整结构初始化完成后才写入格式身份。
-INSERT INTO platform_storage_format(singleton_id, format_version) VALUES (1, 16);
+INSERT INTO platform_storage_format(singleton_id, format_version) VALUES (1, 17);

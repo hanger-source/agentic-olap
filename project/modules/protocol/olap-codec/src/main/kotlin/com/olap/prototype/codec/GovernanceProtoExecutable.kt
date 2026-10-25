@@ -352,17 +352,9 @@ internal fun ExecutablePhysicalExecutionBindingToProto(value: com.olap.prototype
     value.logicUnitVersion?.let { setLogicUnitVersion(it) }
     setLogicalTableId(value.logicalTableId)
     setLogicalTableVersion(value.logicalTableVersion)
-    setPhysicalTableId(value.physicalTableId)
-    setPhysicalTableVersion(value.physicalTableVersion)
-    setDataSourceId(value.dataSourceId)
-    setConnectorRef(SemanticProto.toProto(value.connectorRef))
     addAllQualifiedTablePath(value.qualifiedTablePath.map { it })
-    setDialect(value.dialect)
-    value.catalogName?.let { setCatalogName(it) }
-    value.schemaName?.let { setSchemaName(it) }
-    setTableName(value.tableName)
-    setSourceConstraints(PhysicalSourceConstraintsToProto(value.sourceConstraints))
-    addAllSnapshotUniqueKeys(value.snapshotUniqueKeys.map { SnapshotUniqueKeyToProto(it) })
+    setDataContract(PhysicalDataContractToProto(value.dataContract))
+    setAdoption(PhysicalSourceAdoptionToProto(value.adoption))
     addAllNativeTableDependencies(value.nativeTableDependencies.entries.sortedBy { it.key.toString() }.map { entry -> com.olap.prototype.wire.governance.ExecutablePhysicalExecutionBindingNativeTableDependenciesEntry.newBuilder().setKey(entry.key).apply { setValue(NativeTableDependencyToProto(entry.value)) }.build() })
     addAllLogicUnitBindings(value.logicUnitBindings.entries.sortedBy { it.key.toString() }.map { entry -> com.olap.prototype.wire.governance.ExecutablePhysicalExecutionBindingLogicUnitBindingsEntry.newBuilder().setKey(entry.key).apply { setValue(SemanticProto.toProto(entry.value)) }.build() })
     addAllPhysicalColumnBindings(value.physicalColumnBindings.entries.sortedBy { it.key.toString() }.map { entry -> com.olap.prototype.wire.governance.ExecutablePhysicalExecutionBindingPhysicalColumnBindingsEntry.newBuilder().setKey(entry.key).apply { setValue(entry.value) }.build() })
@@ -377,17 +369,9 @@ internal fun ExecutablePhysicalExecutionBindingFromProto(value: com.olap.prototy
     logicUnitVersion = if (value.hasLogicUnitVersion()) value.getLogicUnitVersion() else null,
     logicalTableId = value.getLogicalTableId(),
     logicalTableVersion = value.getLogicalTableVersion(),
-    physicalTableId = value.getPhysicalTableId(),
-    physicalTableVersion = value.getPhysicalTableVersion(),
-    dataSourceId = value.getDataSourceId(),
-    connectorRef = required(value.hasConnectorRef(), "ExecutablePhysicalExecutionBinding.connectorRef") { SemanticProto.fromProto(value.getConnectorRef()) as com.olap.prototype.connector.ConnectorRef },
     qualifiedTablePath = value.getQualifiedTablePathList().map { it },
-    dialect = value.getDialect(),
-    catalogName = if (value.hasCatalogName()) value.getCatalogName() else null,
-    schemaName = if (value.hasSchemaName()) value.getSchemaName() else null,
-    tableName = value.getTableName(),
-    sourceConstraints = required(value.hasSourceConstraints(), "ExecutablePhysicalExecutionBinding.sourceConstraints") { PhysicalSourceConstraintsFromProto(value.getSourceConstraints()) },
-    snapshotUniqueKeys = value.getSnapshotUniqueKeysList().map { SnapshotUniqueKeyFromProto(it) },
+    dataContract = required(value.hasDataContract(), "ExecutablePhysicalExecutionBinding.dataContract") { PhysicalDataContractFromProto(value.getDataContract()) },
+    adoption = required(value.hasAdoption(), "ExecutablePhysicalExecutionBinding.adoption") { PhysicalSourceAdoptionFromProto(value.getAdoption()) },
     nativeTableDependencies = strictMap(value.getNativeTableDependenciesList().map { it.getKey() to NativeTableDependencyFromProto(it.getValue()) }),
     logicUnitBindings = strictMap(value.getLogicUnitBindingsList().map { it.getKey() to SemanticProto.fromProto(it.getValue()) as com.olap.prototype.expression.SemanticExpression }),
     physicalColumnBindings = strictMap(value.getPhysicalColumnBindingsList().map { it.getKey() to it.getValue() }),

@@ -6,15 +6,13 @@ import com.olap.prototype.expression.NativeScalarFunction
 import com.olap.prototype.expression.SemanticExpression
 import com.olap.prototype.expression.SemanticExpressionInspector
 
-/** 原生调用只采用作者指定插件的声明，以及同一插件绑定的物理表。 */
+/** 作者阶段核精确函数声明与可引用数据合同；执行采用在发布时选择并核验。 */
 class NativeExpressionBindings(private val physicalAssets: PhysicalAssetGovernanceService, private val connectors: ConnectorRegistry) {
     fun function(call: SemanticExpression.NativeCall): NativeScalarFunction {
         val declaration = connectors.require(call.connectorRef).compilation.requireNativeScalarFunction(call.function)
         try { declaration.requireCall(call) }
         catch (failure: IllegalArgumentException) { throw ProducerContractException(requireNotNull(failure.message), failure) }
-        SemanticExpressionInspector.physicalTables(call).forEach { reference ->
-            if (physicalAssets.nativeTable(reference).sourceConstraints.connectorRef != call.connectorRef) throw ProducerContractException("native call table differs from its exact declared connector")
-        }
+        SemanticExpressionInspector.physicalTables(call).forEach(physicalAssets::nativeTable)
         return declaration
     }
 }

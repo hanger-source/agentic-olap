@@ -94,6 +94,9 @@ class SemanticClient internal constructor(private val calls: CapabilityCalls) {
     fun sourceDiscoveries(request: SourceDiscoveriesInput): Page<WarehouseDiscoverySnapshotRecord> = calls.call(SemanticClient::class.java, "sourceDiscoveries", request)
     @Capability("read-source-discovery", "read-governance", "READ")
     fun sourceDiscovery(request: SnapshotInput): WarehouseDiscoverySnapshotRecord = calls.call(SemanticClient::class.java, "sourceDiscovery", request)
+    @Capability("read-source-adoptions", "read-governance", "READ")
+    fun sourceAdoptions(request: com.olap.prototype.warehouse.contract.SourceAdoptionReadRequest): com.olap.prototype.warehouse.contract.SourceAdoptions =
+        calls.call(SemanticClient::class.java, "sourceAdoptions", request)
     @Capability("read-source-discovery-tables", "read-governance", "READ")
     fun discoveredTables(request: SnapshotPageInput): Page<SourceDiscoveryTable> = calls.call(SemanticClient::class.java, "discoveredTables", request)
     @Capability("read-source-discovery-columns", "read-governance", "READ")

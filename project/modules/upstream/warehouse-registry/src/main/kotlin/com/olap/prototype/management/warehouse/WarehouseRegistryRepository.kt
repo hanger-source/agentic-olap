@@ -12,14 +12,18 @@ import com.olap.prototype.warehouse.contract.SourceBindingRef
 import com.olap.prototype.warehouse.contract.SourceCollectionRecord
 import com.olap.prototype.warehouse.contract.SourceConfiguration
 import com.olap.prototype.warehouse.contract.StructureProvenance
+import com.olap.prototype.warehouse.contract.PhysicalSourceAdoption
+import com.olap.prototype.warehouse.contract.SourceAdoptionRef
 import java.sql.PreparedStatement
 import java.sql.ResultSet
 import java.sql.Timestamp
 import java.time.Instant
 
 /** 数据库资源与字段映射归登记存储；模型构造拥有单个事实的不变量。 */
-class WarehouseRegistryRepository(private val database: PlatformDatabase) : WarehouseDiscoveryReader {
+class WarehouseRegistryRepository(private val database: PlatformDatabase) : SourceAdoptionRegistry {
     private val json = OlapJsonUtils.mapper()
+
+    override fun <T> inTransaction(work: () -> T): T = database.inTransaction(work)
 
     fun insertDataSource(record: WarehouseDataSourceRecord) = insert("warehouse_data_source registration rejected",
         "INSERT INTO warehouse_data_source(id,display_name,status,created_by,created_at) VALUES (?,?,?,?,?)",
@@ -106,11 +110,55 @@ class WarehouseRegistryRepository(private val database: PlatformDatabase) : Ware
             GovernanceProto.fromProto(ProtoBytes.decode(ProtoBytes.stored(it.text("record_proto")), com.olap.prototype.wire.governance.SourceCollectionRecord.getDefaultInstance()))
         }.firstOrNull()
     }
-    fun listSourceCollections(dataSourceId: String): List<SourceCollectionRecord> {
+    override fun listSourceCollections(dataSourceId: String): List<SourceCollectionRecord> {
         requireText(dataSourceId, "source collection datasource")
         return query("SELECT record_proto FROM warehouse_source_collection WHERE data_source_id=? ORDER BY id", listOf(dataSourceId)) {
             GovernanceProto.fromProto(ProtoBytes.decode(ProtoBytes.stored(it.text("record_proto")), com.olap.prototype.wire.governance.SourceCollectionRecord.getDefaultInstance()))
         }
+    }
+    override fun insertSourceAdoption(record: PhysicalSourceAdoption): PhysicalSourceAdoption {
+        fun same(existing: PhysicalSourceAdoption): PhysicalSourceAdoption {
+            if (record.copy(adoptedBy = existing.adoptedBy, adoptedAt = existing.adoptedAt) != existing)
+                throw ProducerContractException("immutable source adoption identity conflict: ${record.reference.id}")
+            return existing
+        }
+        findSourceAdoption(record.reference)?.let { return same(it) }
+        try {
+            database.connection().use { connection -> connection.prepareStatement(
+                "INSERT INTO warehouse_source_adoption(id,physical_table_id,physical_table_version,data_source_id,source_identity_hash,discovery_snapshot_id,discovered_table_id,record_proto) VALUES (?,?,?,?,?,?,?,?)"
+            ).use { statement ->
+                statement.bind(listOf(record.reference.id, record.physicalTable.id, record.physicalTable.version,
+                    record.binding.dataSourceId, record.binding.sourceIdentityHash, record.evidence.discoverySnapshotId,
+                    record.evidence.discoveredTableId, ProtoBytes.storage(GovernanceProto.toProto(record))))
+                statement.executeUpdate()
+            } }
+        } catch (failure: java.sql.SQLException) {
+            if (failure.sqlState == "23505") {
+                val existing = findSourceAdoption(record.reference)
+                if (existing != null) return same(existing)
+            }
+            throw ProducerContractException("immutable source adoption registration rejected", failure)
+        }
+        return record
+    }
+    override fun findSourceAdoption(reference: SourceAdoptionRef): PhysicalSourceAdoption? = query(
+        "SELECT * FROM warehouse_source_adoption WHERE id=?", listOf(reference.id), ::sourceAdoption).singleOrNull()
+
+    override fun listSourceAdoptions(discoverySnapshotId: String): List<PhysicalSourceAdoption> {
+        requireText(discoverySnapshotId, "source adoption discovery snapshot")
+        return query("SELECT * FROM warehouse_source_adoption WHERE discovery_snapshot_id=? ORDER BY physical_table_id,physical_table_version,id",
+            listOf(discoverySnapshotId), ::sourceAdoption)
+    }
+
+    private fun sourceAdoption(row: ResultSet): PhysicalSourceAdoption {
+        val adoption = GovernanceProto.fromProto(ProtoBytes.decode(ProtoBytes.stored(row.text("record_proto")),
+            com.olap.prototype.wire.governance.PhysicalSourceAdoption.getDefaultInstance()))
+        val expected = GovernanceProto.sourceAdoptionReference(adoption.physicalTable, adoption.binding, adoption.connectorRef, adoption.dialect, adoption.table, adoption.evidence)
+        if (adoption.reference != expected || adoption.reference.id != row.text("id") || adoption.physicalTable.id != row.text("physical_table_id") ||
+            adoption.physicalTable.version != row.getLong("physical_table_version") || adoption.binding.dataSourceId != row.text("data_source_id") ||
+            adoption.binding.sourceIdentityHash != row.text("source_identity_hash") || adoption.evidence.discoverySnapshotId != row.text("discovery_snapshot_id") ||
+            adoption.evidence.discoveredTableId != row.text("discovered_table_id")) throw ProducerContractException("persisted source adoption differs from its content identity or exact indexes")
+        return adoption
     }
     fun savePhysicalColumnProfile(record: PhysicalColumnProfileRecord) = save("physical_column_profile", record.id,
         "physical_column_id" to record.physicalColumnId, "physical_column_version" to record.physicalColumnVersion, "profile_json" to record.profileJson,

@@ -66,11 +66,15 @@ class TemporalInputExecutionTest {
             val rule = JdbcTableConstraints.TemporalRule("history_rectangles", listOf("entity"), listOf(JdbcTableConstraints.TemporalInterval("valid_from", "valid_to", true, false, true), JdbcTableConstraints.TemporalInterval("known_from", "known_to", true, false, true)))
             val proofs = JdbcTemporalVerifier.verify(warehouse.connection, warehouse.spec, table, columns, listOf(rule), RuntimeDeploymentLimits.CONTROL,
                 (TestConnectors.registry.require(warehouse.spec.connectorRef).access as JdbcAccess).jdbc)
-            val evidence = history.sourceConstraints; val native = evidence.constraints
+            val evidence = history.adoption.evidence; val native = history.dataContract.constraints
             val constraints = JdbcTableConstraints(native.primaryKeyColumns, native.uniqueKeys, native.importedKeys, proofs)
             val hash = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(OlapJsonUtils.mapper().writeValueAsBytes(mapOf("columns" to columns, "constraints" to constraints))))
-            history = history.copy(sourceConstraints = PhysicalSourceConstraints(evidence.discoverySnapshotId, hash, evidence.sourceIdentityHash, evidence.connectorRef, evidence.databaseProductName, evidence.databaseProductVersion,
-                evidence.driverName, evidence.driverVersion, constraints, evidence.columnVersionRefs, evidence.sourceCollections, StructureProvenance(StructureProvenance.Kind.DATABASE_CATALOG, "integration-test-catalog", "fixture-v1")))
+            val old = history.dataContract
+            val contract = PhysicalDataContract(old.reference, old.dataSourceId, old.table, old.columns, constraints, old.snapshotUniqueKeys, old.sourceCollections, old.originDiscoveredTableId)
+            val observed = PhysicalSourceEvidence(evidence.discoverySnapshotId, evidence.discoveredTableId, hash,
+                StructureProvenance(StructureProvenance.Kind.DATABASE_CATALOG, "integration-test-catalog", "fixture-v1"), evidence.databaseProductName, evidence.databaseProductVersion,
+                evidence.driverName, evidence.driverVersion, evidence.columns, constraints, evidence.snapshotUniqueKeys, evidence.sourceCollections)
+            history = history.copy(dataContract = contract, adoption = TestConnectors.adoption(contract, warehouse.spec.source(), observed))
         }
         val temporal = TemporalJoinContract.Constraint(listOf(TemporalJoinContract.Interval(TemporalJoinContract.LogicUnitClock("facts.occurred", 1, emptyList()), "history.valid_from", 1, "history.valid_to", 1, true, false, true),
             TemporalJoinContract.Interval(TemporalJoinContract.QueryClock(TemporalWindow.ValueType.LOCAL_TIMESTAMP, "知识截止"), "history.known_from", 1, "history.known_to", 1, true, false, true)))

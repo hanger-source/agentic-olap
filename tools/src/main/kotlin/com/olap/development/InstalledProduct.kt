@@ -80,6 +80,7 @@ internal class InstalledProduct(private val tarballs: Path, private val root: Pa
             val numeric = divisionResult(numericReference)
             authorContracts(query, result)
             val serialCalls = serialCapabilities(built)
+            val sourceAdoption = sourceAdoptionContracts(built)
             val approvals = stageApprovalContracts(businessLineId, built.objectAt("scenarioId").string("text"))
             stop(); start("analysis-reopened"); initializeClient()
             salesResult(result)
@@ -97,7 +98,7 @@ internal class InstalledProduct(private val tarballs: Path, private val root: Pa
                 "analysisPersistentRead" to bool(true), "sourceIdentityHash" to text(sourceIdentityHash), "queryReference" to query,
                 "runIds" to JsonArray(listOf(result.getValue("runId"), continued.getValue("runId"), repeated.getValue("runId"))),
                 "expected" to objectOf("sales_amount" to text("175.00"), "order_count" to text("4")), "integerDivision" to numeric,
-                "serialCapabilities" to serialCalls, "stageAuthorization" to approvals, "usagePagination" to usagePagination,
+                "serialCapabilities" to serialCalls, "sourceAdoption" to sourceAdoption, "stageAuthorization" to approvals, "usagePagination" to usagePagination,
                 "completeResponseDelivery" to complete))
         } catch (failure: Throwable) {
             write(root.resolve("report.json"), objectOf("status" to text("FAILED"), "message" to text(failure.message ?: failure.javaClass.name)))
@@ -282,7 +283,43 @@ internal class InstalledProduct(private val tarballs: Path, private val root: Pa
             session?.let { check(client.call("close-script-session", objectOf("sessionId" to text(it))).jsonObject.string("state") == "CLOSED") }
         }
     }
+    private fun sourceAdoptionContracts(built: JsonObject): JsonObject {
+        val registered = client.script("""
+            val logical = olap.semantics.definition(GovernanceReadRequests.AssetVersionRequest("LOGICAL_TABLE", parameters.text("logicalTableId"), 1)) as GovernanceDefinition.LogicalTable
+            val physical = PhysicalTableRef(logical.physicalTableId, logical.physicalTableVersion)
+            val definition = olap.semantics.definition(GovernanceReadRequests.AssetVersionRequest("PHYSICAL_TABLE", physical.id, physical.version)) as GovernanceDefinition.PhysicalTable
+            val snapshots = olap.semantics.sourceDiscoveries(GovernanceReadRequests.SourceDiscoveriesInput(definition.dataContract.dataSourceId, null, null, 0, Int.MAX_VALUE)).items
+            val existing = snapshots.flatMap { snapshot ->
+                olap.semantics.sourceAdoptions(SourceAdoptionReadRequest(snapshot.id)).items
+            }.single { it.physicalTable == physical }
+            existing.requireContract(definition.dataContract)
+            val adopted = olap.governance.registerSourceAdoptions(SourceAdoptionRegistrationRequest(listOf(physical), existing.evidence.discoverySnapshotId, olap.caller.subject))
+            check(adopted.references == listOf(existing.reference) && adopted.items == listOf(existing))
+            val recovered = olap.semantics.sourceAdoptions(SourceAdoptionReadRequest(existing.evidence.discoverySnapshotId))
+            check(recovered.items.single { it.reference == existing.reference } == existing)
+            olap.output(ScriptValue.Text(adopted.references.single().id))
+        """.trimIndent(), objectOf("logicalTableId" to built.objectAt("logicalTableId").getValue("text")), dslVersion).succeeded()
+        val calls = registered.report.array("calls").map { it.jsonObject }
+        val write = calls.single { it["operationId"] == text("register-source-adoptions") }
+        check(calls.all { it.getValue("success").jsonPrimitive.boolean })
+        val effect = write.array("effects").single().jsonObject
+        val references = effect.objectAt("sourceAdoptions").array("references")
+        check(effect["readOperation"] == text("read-source-adoptions") && references.single().jsonObject["id"] == registered.value()["text"])
+        check(effect.objectAt("sourceAdoptions").array("discoverySnapshotIds").size == 1)
+        check(calls.filter { it !== write }.all { it.array("effects").isEmpty() })
+        return objectOf("reference" to references.single(), "repeatedRegistration" to bool(true), "persistentRead" to bool(true), "effect" to effect)
+    }
     private fun authorContracts(query: JsonObject, result: JsonObject) {
+        val unknownType = "com.olap.prototype.query.QueryExplanationRequest"
+        val unknown = client.delivered(client.rpc("describe-script-api", objectOf("type" to text(unknownType))))
+        check(!unknown.getValue("success").jsonPrimitive.boolean)
+        val error = unknown.objectAt("error")
+        check(error["stage"] == text("DECODE_INPUT") && error["code"] == text("INVALID_REQUEST"))
+        check(error.objectAt("details")["fieldPath"] == JsonArray(listOf(text("type")))
+            && error.objectAt("details")["actualKind"] == text(unknownType))
+        val operation = client.call("describe-script-api", objectOf("operation" to text("explain-query"))).jsonObject
+        val discovered = client.call("describe-script-api", objectOf("type" to operation.getValue("input"))).jsonObject
+        check(discovered["name"] == operation["input"])
         val invalid = client.script("Calculation.Scalar(ScalarValueType.BOOLEAN, true)", JsonObject(emptyMap()), dslVersion)
         check(!invalid.envelope.getValue("success").jsonPrimitive.boolean && invalid.report.array("calls").isEmpty())
         check(invalid.report.array("diagnostics").any { it.jsonObject["stage"] == text("COMPILE") })

@@ -39,13 +39,13 @@ class PublishedNativeTypes(mappings: List<ReleaseDimensionMapping>, private val 
     private val connectorsByGroup = sortedMapOf<String, ResolvedConnector>()
     init {
         assets.physicalExecutionBindings.values.sortedWith(compareBy<ExecutablePhysicalExecutionBinding> { it.dataSourceId }
-            .thenBy { it.sourceConstraints.sourceIdentityHash }.thenBy { it.bindingId }.thenBy { it.bindingVersion }).forEach { physical ->
+            .thenBy { it.adoption.binding.sourceIdentityHash }.thenBy { it.bindingId }.thenBy { it.bindingVersion }).forEach { physical ->
             val source = bindingRef(physical)
             val connector = connectors.require(physical.connectorRef)
             val group = contexts[source]?.executionGroup ?: "source-group-${contexts.size}"
             val priorConnector = connectorsByGroup.putIfAbsent(group, connector)
             if (priorConnector != null && priorConnector.ref != connector.ref) throw ProducerContractException("one frozen execution group has conflicting connector identities")
-            val context = QueryExecutionTypes.Context(group, physical.dialect, connector.access.supportsConstraintVerification(physical.sourceConstraints))
+            val context = QueryExecutionTypes.Context(group, physical.dialect, connector.access.supportsConstraintVerification(physical.dataContract, physical.adoption))
             val previous = contexts.putIfAbsent(source, context)
             if (previous != null && previous != context) throw ProducerContractException("one frozen source has conflicting native execution conditions")
         }
@@ -185,6 +185,6 @@ class PublishedNativeTypes(mappings: List<ReleaseDimensionMapping>, private val 
     private fun requirePredicate(predicate: RexNode) { if (predicate.type.sqlTypeName != SqlTypeName.BOOLEAN) throw ProducerContractException("frozen source predicate requires a native BOOLEAN value") }
     private fun key(id: String, version: Long): String = "$id@$version"
     private fun builder(context: QueryExecutionTypes.Context): RelBuilder = CalciteCompilation.builder(compilation(context))
-    private fun bindingRef(physical: ExecutablePhysicalExecutionBinding): SourceBindingRef = SourceBindingRef(physical.dataSourceId, physical.sourceConstraints.sourceIdentityHash)
+    private fun bindingRef(physical: ExecutablePhysicalExecutionBinding): SourceBindingRef = physical.adoption.binding
     private fun compilation(context: QueryExecutionTypes.Context): CompilationSupport = requireNotNull(connectorsByGroup[context.executionGroup]) { "exact connector for execution group is unavailable" }.compilation
 }

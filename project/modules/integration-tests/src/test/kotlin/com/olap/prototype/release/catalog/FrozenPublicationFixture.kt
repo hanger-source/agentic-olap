@@ -108,12 +108,16 @@ internal class FrozenPublicationFixture(directory: Path, dialect: String, unique
         }.toMap()
         val refs = names.map { (id, name) -> name to "$id.physical@1" }.toMap()
         val source = observed.source
-        val evidence = PhysicalSourceConstraints("actual_frozen_source", ProtoBytes.digest(GovernanceProto.toProto(com.olap.prototype.warehouse.onboarding.SourceStructureRegistrationRequest.Table(observed.table, observed.columns, observed.constraints))), spec.sourceIdentityHash(), spec.connectorRef,
-            source.databaseProductName, source.databaseProductVersion, source.driverName, source.driverVersion, observed.constraints, refs, emptyList(),
-            StructureProvenance(StructureProvenance.Kind.DATABASE_CATALOG, "integration-test-catalog", "fixture-v1"))
+        val coordinate = JdbcTableConstraints.Table(observed.table.ref.catalog, observed.table.ref.schema, table)
+        val contract = PhysicalDataContract(PhysicalTableRef("${table}_physical", 1), spec.dataSourceId, coordinate,
+            refs.mapValues { (_, reference) -> PhysicalDataContract.Column(reference, types.getValue(reference)) }, observed.constraints, emptyList(), emptyList(), "actual_frozen_$table")
+        val evidence = PhysicalSourceEvidence("actual_frozen_source", "actual_frozen_$table", ProtoBytes.digest(GovernanceProto.toProto(com.olap.prototype.warehouse.onboarding.SourceStructureRegistrationRequest.Table(observed.table, observed.columns, observed.constraints))),
+            StructureProvenance(StructureProvenance.Kind.DATABASE_CATALOG, "integration-test-catalog", "fixture-v1"),
+            source.databaseProductName, source.databaseProductVersion, source.driverName, source.driverVersion,
+            observed.columns.associate { it.name to JdbcColumnType(requireNotNull(it.jdbcType), requireNotNull(it.typeName), it.precision, it.scale, it.nullable) }, observed.constraints, emptyList(), emptyList())
         return LogicUnitExecutionSnapshot(LogicUnitExecutionSnapshot.FORMAT_VERSION, "${table}_binding", "1", unit, 1,
             when (unit) { "orders.time" -> "DATE"; "destination.name" -> "TEXT"; else -> "NUMBER" }, null, table, 1, "${table}_physical", 1,
-            "source", observed.table.ref.catalog, observed.table.ref.schema, table, spec.dialectId, logic, columns, types, emptyMap(), evidence)
+            logic, columns, types, emptyMap(), contract, TestConnectors.adoption(contract, spec.source(), evidence))
     }
 
     fun objectRef(kind: String, id: String, value: com.google.protobuf.Message, displayName: String = id) = ReleaseObjectRef("${kind}_$id", "release", "1", kind, id, 1, id, displayName,

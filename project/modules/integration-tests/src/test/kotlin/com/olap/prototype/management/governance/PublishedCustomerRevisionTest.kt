@@ -41,7 +41,7 @@ class PublishedCustomerRevisionTest {
             assertEquals(n.measured.id, adopted.definition.id)
             assertNotEquals(n.fixed.getValue("travel.trade").instance, adopted.instance)
             f.activate("SUBJECT_AREA", "travel.trade", 2)
-            f.builder().build(SubjectAreaReleaseBuildRequest("travel.trade.release", "2", "延续原有客户分析", "travel.trade", 2, "golden"))
+            f.builder().build(SubjectAreaReleaseBuildRequest("travel.trade.release", "2", "延续原有客户分析", "travel.trade", 2, "golden", f.sourceAdoptions))
             val publication = n.publication("travel.trade", "2", 2)
             val grouping = ScopedInputContract.DimensionRef(oldGrouping.id, "2", "destination")
             val current = n.save(publication, "after_context_revision", GovernanceOrderFixture.measurementScope(adopted.instance,
@@ -102,8 +102,8 @@ class PublishedCustomerRevisionTest {
             val grouping = adopted.getValue("destination").reference
             f.scenarios.createScenarioAnalysisDimensionRef(ScenarioAnalysisDimensionRefCreateRequest(scenario.id, 2, grouping.id, 2, grouping.levelCode, true, 1))
             f.activate("SUBJECT_AREA", subject.id, 2)
-            f.builder().build(SubjectAreaReleaseBuildRequest("travel.trade.release", "2", "交易采用v2", subject.id, 2, "golden"))
-            f.builder().build(SubjectAreaReleaseBuildRequest("travel.finance.release", "2", "财务仍采用v1", "travel.finance", 1, "golden"))
+            f.builder().build(SubjectAreaReleaseBuildRequest("travel.trade.release", "2", "交易采用v2", subject.id, 2, "golden", f.sourceAdoptions))
+            f.builder().build(SubjectAreaReleaseBuildRequest("travel.finance.release", "2", "财务仍采用v1", "travel.finance", 1, "golden", f.sourceAdoptions))
             for (coordinate in listOf(ReleaseCatalogRequest("travel.trade.customers", 2, "travel.trade.release", "2"),
                 ReleaseCatalogRequest("travel.finance.customers", 1, "travel.finance.release", "2"), ReleaseCatalogRequest("travel.finance.customers", 1, "travel.finance.release", "1"))) {
                 val changed = coordinate.scenarioId == "travel.trade.customers"

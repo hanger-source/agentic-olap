@@ -61,12 +61,15 @@ internal class NativeWarehouse(directory: Path, dialect: String, statements: Lis
         }.toMap()
         val hash = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(
             OlapJsonUtils.mapper().writeValueAsBytes(mapOf("columns" to types, "constraints" to constraints))))
-        val evidence = PhysicalSourceConstraints("native-complete-description", hash, spec.sourceIdentityHash(), spec.connectorRef,
-            metadata.databaseProductName, metadata.databaseProductVersion, metadata.driverName, metadata.driverVersion, constraints, refs,
-            emptyList(), StructureProvenance(StructureProvenance.Kind.DATABASE_CATALOG, "integration-test-catalog", "fixture-v1"))
-        return ExecutablePhysicalExecutionBinding(table, "1", null, null, null, null, table, "1", table, "1", spec.dataSourceId,
-            spec.connectorRef, TestConnectors.registry.require(spec.connectorRef).compilation.tablePath(coordinate.catalog, coordinate.schema, table),
-            spec.dialectId, coordinate.catalog, coordinate.schema, table, evidence, emptyList(),
+        val contract = PhysicalDataContract(PhysicalTableRef(table, 1), spec.dataSourceId, coordinate,
+            refs.mapValues { (name, ref) -> PhysicalDataContract.Column(ref, types.getValue(ref)) }, constraints, emptyList(), emptyList(), "native-complete-table")
+        val evidence = PhysicalSourceEvidence("native-complete-description", "native-complete-table", hash,
+            StructureProvenance(StructureProvenance.Kind.DATABASE_CATALOG, "integration-test-catalog", "fixture-v1"),
+            metadata.databaseProductName, metadata.databaseProductVersion, metadata.driverName, metadata.driverVersion,
+            refs.mapValues { (_, ref) -> types.getValue(ref) }, constraints, emptyList(), emptyList())
+        return ExecutablePhysicalExecutionBinding(table, "1", null, null, null, null, table, "1",
+            TestConnectors.registry.require(spec.connectorRef).compilation.tablePath(coordinate.catalog, coordinate.schema, table),
+            contract, TestConnectors.adoption(contract, spec.source(), evidence),
             logicUnitBindings = expressions, physicalColumnBindings = names, physicalColumnTypes = types)
     }
     fun finishSetup() {

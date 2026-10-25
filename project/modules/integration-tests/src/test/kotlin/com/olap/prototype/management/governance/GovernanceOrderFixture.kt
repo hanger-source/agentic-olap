@@ -69,14 +69,15 @@ internal class GovernanceOrderFixture(val database: PlatformDatabase, val direct
     val capabilities = ReleaseQueryCapabilityRepository(database)
     private val inspector = JdbcWarehouseInspector(connectors)
     private val inspection = JdbcSourceInspection(inspector, connectors)
-    val onboarding = WarehouseOnboardingService(physical, WarehouseRegistryService(database, warehouse, physical)) { reference -> source.takeIf { it.bindingRef() == reference } }
+    val onboarding = WarehouseOnboardingService(physical, WarehouseRegistryService(database, warehouse, physical),
+        { reference -> source.takeIf { it.bindingRef() == reference } }, PhysicalSourceAdoptionService(warehouse, physical))
+    var sourceAdoptions: List<SourceAdoptionRef> = emptyList()
     lateinit var physicalId: String
         private set
     lateinit var paymentId: String
         private set
     lateinit var sourceSnapshot: WarehouseTableMetadata
         private set
-    val sourceEvidence: PhysicalSourceConstraints get() = physical.physicalTableSourceConstraints(physicalId, 1)
     private var physicalColumns = emptyMap<String, String>()
 
     fun seedDefinitions() {
@@ -122,13 +123,14 @@ internal class GovernanceOrderFixture(val database: PlatformDatabase, val direct
             val dataset = declaration(anchor)
             onboarding.registerSourceDataset(SourceDatasetRegistrationRequest("duckdb", spec.sourceIdentityHash(), dataset), RuntimeDeploymentLimits.CONTROL, inspection)
         } ?: emptyList()
-        val input = PhysicalTableCreateRequest("warehouse.orders", "orders", "交易订单物理表", "黄金场景订单", "交易", "data", "internal", "warehouse", source.dataSourceId, source.dialectId,
-            table.catalogName, table.schemaName, requireNotNull(table.schemaHash), PhysicalTableCreateRequest.SourceConstraintsInput(table.id, collections.map { it.id }), "golden", discovered.columns.map {
+        val input = PhysicalTableCreateRequest("warehouse.orders", "orders", "交易订单物理表", "黄金场景订单", "交易", "data", "internal", "warehouse", source.dataSourceId,
+            table.catalogName, table.schemaName, PhysicalTableCreateRequest.SourceAdoptionInput(table.id, collections.map { it.id }), "golden", discovered.columns.map {
                 PhysicalTableCreateRequest.ColumnInput(it.columnName, it.columnName, it.typeName, "internal", requireNotNull(it.nullable), "真实订单字段",
                     com.olap.prototype.contract.JdbcColumnType(it.jdbcType, it.typeName, it.precision, it.scale, it.nullable))
             })
         val registered = physical.createPhysicalTable(input)
         physicalId = registered.physicalTable.id
+        sourceAdoptions = registered.sourceAdoptions.references
         physicalColumns = registered.physicalColumns.associate { it.columnName to it.id }
         activate("PHYSICAL_TABLE", physicalId)
     }
@@ -188,7 +190,7 @@ internal class GovernanceOrderFixture(val database: PlatformDatabase, val direct
             analysis, members, scenarios, JdbcReleaseCatalogRepository(database::connection)), artifactWriter, ReleaseExecutableCatalogAssembler(connectors),
         PublishedSemanticCatalogProducer(), QueryCapabilityProducer(ExecutablePostOperationCapabilities::supports, connectors), capabilityWriter)
 
-    fun build(id: String = "release_trade", version: String = "1") = builder().build(SubjectAreaReleaseBuildRequest(id, version, "交易发布", SUBJECT, 1, "golden"))
+    fun build(id: String = "release_trade", version: String = "1") = builder().build(SubjectAreaReleaseBuildRequest(id, version, "交易发布", SUBJECT, 1, "golden", sourceAdoptions))
 
     fun amountAdoption(): CalculationBindings = CalculationBindings(mapOf(
         "destination" to CalculationBindings.Dimension(ScopedInputContract.DimensionRef("$SUBJECT.destination", "1", "destination"), "destination",

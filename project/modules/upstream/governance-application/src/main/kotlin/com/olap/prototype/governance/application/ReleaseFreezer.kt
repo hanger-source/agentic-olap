@@ -20,6 +20,7 @@ import com.olap.prototype.query.ScalarValueType
 import com.olap.prototype.query.contract.*
 import com.olap.prototype.release.contract.*
 import com.olap.prototype.util.OlapJsonUtils
+import com.olap.prototype.warehouse.contract.*
 import java.time.Instant
 
 /** 解析本次发布的精确依赖；缓存和待封存行都只属于这一次调用。 */
@@ -38,6 +39,9 @@ class ReleaseFreezer(private val physicalAssets: PhysicalAssetGovernanceService,
         private val subjectAreaVersion = ProducerContracts.requireVersion(request.subjectAreaVersion, "subject_area_release.subject_area_version")
         private val createdBy = required(request.createdBy, "subject_area_release.created_by")
         private val createdAt = Instant.now()
+        private val sourceAdoptionRefs = request.sourceAdoptions
+        private val sourceAdoptionCandidates = sourceAdoptionRefs.distinct().map(physicalAssets::sourceAdoption).groupBy { it.physicalTable }
+        private val frozenSourceAdoptions = linkedMapOf<PhysicalTableRef, PhysicalSourceAdoption>()
         private val release = SubjectAreaReleaseRecord(releaseObjectId("sar", releaseId, releaseVersion), releaseId, releaseDisplayName, subjectAreaId, releaseVersion, subjectAreaVersion, "BUILT", createdBy, createdAt)
         private val subject = subjectAreas.subjectAreaSnapshot(subjectAreaId, subjectAreaVersion)
         private val subjectMetrics = adoptions.listSubjectAreaMetricRefs(subjectAreaId, subjectAreaVersion)
@@ -322,11 +326,6 @@ class ReleaseFreezer(private val physicalAssets: PhysicalAssetGovernanceService,
             expanded.units.values.filter { it.id != unit.id || it.currentVersion != version }.forEach { freezeLogicUnit(it.id, it.currentVersion) }
             val execution = logicUnitExecution(expanded)
             execution.nativeTableDependencies.values.forEach(::freezeNativeTable)
-            physicalAssets.physicalTableUniqueKeys(execution.physicalTableId, execution.physicalTableVersion).forEach { proof ->
-                val constraints = execution.sourceConstraints
-                val snapshot = SourceUniqueKeySnapshot(proof.id, execution.physicalTableId, execution.physicalTableVersion, constraints.discoverySnapshotId, constraints.schemaHash, constraints.sourceIdentityHash, proof.key)
-                references.freezeObject("SOURCE_UNIQUE_KEY", proof.id, 1, proof.key.rule.name, proof.key.rule.name, "SOURCE_UNIQUE_KEY", encodeSnapshot(snapshot, "source key proof snapshot"))
-            }
             references.freezeObject("LOGIC_UNIT", unit.id, version, unit.code, unit.displayName, "LOGIC_UNIT", encodeSnapshot(execution, "logic_unit.snapshot_proto"))
             frozenUnits[key] = unit
             return unit
@@ -363,17 +362,59 @@ class ReleaseFreezer(private val physicalAssets: PhysicalAssetGovernanceService,
             val physical = physicalAssets.physicalTableSnapshot(ref.physicalTableId, ref.physicalTableVersion)
             referenceable(physical.status, "PHYSICAL_TABLE", physical.id, ref.physicalTableVersion)
             expansion.columns.values.forEach { referenceable(it.status, "PHYSICAL_COLUMN", it.id, it.currentVersion) }
+            val contract = physicalAssets.readPhysicalDataContract(PhysicalTableRef(physical.id, ref.physicalTableVersion))
+            val adoption = sourceAdoption(contract)
+            val nativeTables = expansion.nativeTables.mapValues { (_, table) -> nativeTable(table) }
+            nativeTables.values.forEach { dependency ->
+                if (!dependency.matchesSource(adoption.binding, adoption.connectorRef, adoption.dialect))
+                    throw ReleaseClosureConflictException("NATIVE_TABLE_SOURCE_ADOPTION_CONFLICT",
+                        mapOf("physicalTableId" to contract.reference.id, "physicalTableVersion" to contract.reference.version,
+                            "sourceAdoption" to adoption.reference.id, "nativePhysicalTableId" to dependency.physicalTableId,
+                            "nativePhysicalTableVersion" to dependency.physicalTableVersion, "nativeSourceAdoption" to dependency.adoption.reference.id), currentPaths)
+            }
+            expansion.expressions.values.forEach { expression ->
+                SemanticExpressionInspector.nativeCalls(expression).forEach { call ->
+                    nativeExpressions.function(call)
+                    if (call.connectorRef != adoption.connectorRef) throw ReleaseClosureConflictException("NATIVE_CALL_SOURCE_ADOPTION_CONFLICT",
+                        mapOf("physicalTableId" to contract.reference.id, "physicalTableVersion" to contract.reference.version,
+                            "sourceAdoption" to adoption.reference.id, "function" to call.function,
+                            "declaredConnector" to call.connectorRef.toString(), "adoptedConnector" to adoption.connectorRef.toString()), currentPaths)
+                }
+            }
             return LogicUnitExecutionSnapshot(LogicUnitExecutionSnapshot.FORMAT_VERSION,
-                releaseObjectId("peb", logical.id, expansion.logicalTableVersion, physical.id, ref.physicalTableVersion), "${expansion.logicalTableVersion}.${ref.physicalTableVersion}",
+                releaseObjectId("peb", logical.id, expansion.logicalTableVersion, physical.id, ref.physicalTableVersion, adoption.reference.id), "${expansion.logicalTableVersion}.${ref.physicalTableVersion}",
                 unit.id, unit.currentVersion, unit.logicType?.let { ScalarValueType.fromLogicType(it).name }, unit.valueShape, logical.id, expansion.logicalTableVersion,
-                physical.id, ref.physicalTableVersion, physical.dataSource, physical.catalogName, physical.schemaName, physical.tableName, physical.dialectId,
+                physical.id, ref.physicalTableVersion,
                 expansion.expressions, expansion.columns.mapValues { it.value.columnName },
-                expansion.columns.mapValues { it.value.jdbcColumnType }, expansion.nativeTables, physicalAssets.physicalTableSourceConstraints(physical.id, ref.physicalTableVersion))
+                expansion.columns.mapValues { it.value.jdbcColumnType }, nativeTables, contract, adoption)
         }
         private fun freezeNativeTables(expression: SemanticExpression) {
-            SemanticExpressionInspector.nativeCalls(expression).forEach(nativeExpressions::function)
-            SemanticExpressionInspector.physicalTables(expression).forEach { freezeNativeTable(physicalAssets.nativeTable(it)) }
+            SemanticExpressionInspector.nativeCalls(expression).forEach { call ->
+                nativeExpressions.function(call)
+                SemanticExpressionInspector.physicalTables(call).forEach { reference ->
+                    val dependency = nativeTable(physicalAssets.nativeTable(reference))
+                    if (dependency.adoption.connectorRef != call.connectorRef) throw ReleaseClosureConflictException("NATIVE_CALL_SOURCE_ADOPTION_CONFLICT",
+                        mapOf("physicalTableId" to reference.physicalTableId, "physicalTableVersion" to reference.physicalTableVersion,
+                            "sourceAdoption" to dependency.adoption.reference.id, "function" to call.function,
+                            "declaredConnector" to call.connectorRef.toString(), "adoptedConnector" to dependency.adoption.connectorRef.toString()), currentPaths)
+                    freezeNativeTable(dependency)
+                }
+            }
         }
+        private fun sourceAdoption(contract: PhysicalDataContract): PhysicalSourceAdoption = frozenSourceAdoptions.getOrPut(contract.reference) {
+            val candidates = sourceAdoptionCandidates[contract.reference].orEmpty()
+            if (candidates.size != 1) throw ReleaseClosureConflictException(
+                if (candidates.isEmpty()) "SOURCE_ADOPTION_MISSING" else "SOURCE_ADOPTION_AMBIGUOUS",
+                mapOf("physicalTableId" to contract.reference.id, "physicalTableVersion" to contract.reference.version,
+                    "sourceAdoptions" to candidates.map { it.reference.id }), currentPaths)
+            candidates.single().also { adoption ->
+                try { adoption.requireContract(contract) }
+                catch (invalid: IllegalArgumentException) { throw ReleaseClosureConflictException("SOURCE_ADOPTION_CONTRACT_MISMATCH",
+                    mapOf("physicalTableId" to contract.reference.id, "physicalTableVersion" to contract.reference.version,
+                        "sourceAdoption" to adoption.reference.id, "reason" to requireNotNull(invalid.message)), currentPaths) }
+            }
+        }
+        private fun nativeTable(contract: PhysicalDataContract): NativeTableDependency = NativeTableDependency(contract, sourceAdoption(contract))
         private fun freezeNativeTable(dependency: NativeTableDependency) {
             val table = physicalAssets.physicalTableSnapshot(dependency.physicalTableId, dependency.physicalTableVersion)
             references.freezeObject("PHYSICAL_TABLE", table.id, dependency.physicalTableVersion, table.code, table.displayName, "PHYSICAL_TABLE", encodeSnapshot(dependency, "native table dependency"))
@@ -441,7 +482,7 @@ class ReleaseFreezer(private val physicalAssets: PhysicalAssetGovernanceService,
             private val mappingPositions = linkedMapOf<List<Any>, ReleaseDimensionMappingRecord>()
             private val mappingPaths = linkedMapOf<String, List<List<String>>>()
             fun freezeMapping(mapping: AnalysisDimensionEventMappingRecord) {
-                val request = SubjectAreaReleaseBuildRequest(releaseId, releaseVersion, releaseDisplayName, subjectAreaId, subjectAreaVersion, createdBy)
+                val request = SubjectAreaReleaseBuildRequest(releaseId, releaseVersion, releaseDisplayName, subjectAreaId, subjectAreaVersion, createdBy, sourceAdoptionRefs)
                 val frozen = dimensionMappings.freeze(request, mapping, createdAt)
                 val paths = currentPaths.map { it + "ANALYSIS_DIMENSION:${mapping.analysisDimensionId}@${mapping.analysisDimensionVersion}" + "ANALYSIS_DIMENSION_MAPPING:${mapping.id}" }
                 val priorId = mappingIds.putIfAbsent(mapping.id, frozen)
@@ -493,7 +534,6 @@ class ReleaseFreezer(private val physicalAssets: PhysicalAssetGovernanceService,
     private fun encodeSnapshot(value: com.olap.prototype.release.contract.EventExecutionSnapshot, label: String): String = com.olap.prototype.codec.ProtoBytes.storage(com.olap.prototype.codec.GovernanceProto.toProto(value))
     private fun encodeSnapshot(value: com.olap.prototype.release.contract.TopologyExecutionSnapshot, label: String): String = com.olap.prototype.codec.ProtoBytes.storage(com.olap.prototype.codec.GovernanceProto.toProto(value))
     private fun encodeSnapshot(value: com.olap.prototype.release.contract.ReleaseJoinPathSnapshot, label: String): String = com.olap.prototype.codec.ProtoBytes.storage(com.olap.prototype.codec.GovernanceProto.toProto(value))
-    private fun encodeSnapshot(value: com.olap.prototype.release.contract.SourceUniqueKeySnapshot, label: String): String = com.olap.prototype.codec.ProtoBytes.storage(com.olap.prototype.codec.GovernanceProto.toProto(value))
     private fun encodeSnapshot(value: com.olap.prototype.release.contract.LogicUnitExecutionSnapshot, label: String): String = com.olap.prototype.codec.ProtoBytes.storage(com.olap.prototype.codec.GovernanceProto.toProto(value))
     private fun encodeSnapshot(value: com.olap.prototype.event.PublishedDimensionBinding, label: String): String = com.olap.prototype.codec.ProtoBytes.storage(com.olap.prototype.codec.GovernanceProto.toProto(value))
     private fun encodeSnapshot(value: com.olap.prototype.contract.NativeTableDependency, label: String): String = com.olap.prototype.codec.ProtoBytes.storage(com.olap.prototype.codec.GovernanceProto.toProto(value))

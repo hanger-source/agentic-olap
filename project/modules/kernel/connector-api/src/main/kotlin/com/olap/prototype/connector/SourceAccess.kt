@@ -3,7 +3,8 @@ package com.olap.prototype.connector
 import com.olap.prototype.warehouse.ResultMaterializationBudget
 import com.olap.prototype.warehouse.WarehouseExecutionControl
 import com.olap.prototype.warehouse.WarehouseSourceInspection
-import com.olap.prototype.warehouse.contract.PhysicalSourceConstraints
+import com.olap.prototype.warehouse.contract.PhysicalDataContract
+import com.olap.prototype.warehouse.contract.PhysicalSourceAdoption
 import com.olap.prototype.warehouse.contract.SealedSourceDataset
 import com.olap.prototype.warehouse.contract.SourceConfiguration
 import com.olap.prototype.warehouse.inspection.*
@@ -19,7 +20,7 @@ interface SourceAccess : WarehouseSourceInspection, AutoCloseable {
      * execute 可使用同读基础的数据见证，或在稳定 schema 下核验源端真实强制的约束；
      * 声明、历史 catalog 观察与能力标志本身都不是本次执行的约束证明。
      */
-    fun supportsConstraintVerification(evidence: PhysicalSourceConstraints): Boolean = false
+    fun supportsConstraintVerification(dataContract: PhysicalDataContract, adoption: PhysicalSourceAdoption): Boolean = false
     /**
      * 兑现 request 中全部精确来源保证和关系检查后才交付结果。
      * 原子 statement 内核验必须保证必要检查不因主结果为空、优化器裁剪或结果预算而跳过；

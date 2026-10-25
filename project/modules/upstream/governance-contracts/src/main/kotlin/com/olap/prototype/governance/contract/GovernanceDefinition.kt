@@ -3,16 +3,16 @@ package com.olap.prototype.governance.contract
 import com.olap.prototype.event.EventIdentity
 import com.olap.prototype.event.RelationAccessPath
 import com.olap.prototype.metric.MetricBusinessMeaning
-import com.olap.prototype.warehouse.contract.PhysicalSourceConstraints
+import com.olap.prototype.warehouse.contract.PhysicalDataContract
 
 /** 一个版本的完整定义正文；生命周期状态由版本行拥有，引用索引按正文核对。 */
 sealed interface GovernanceDefinition {
     data class VersionRef(val id: String, val version: Long)
     class PhysicalTable(val record: PhysicalTableRecord, columnVersionRefs: List<VersionRef>,
-        val sourceConstraints: PhysicalSourceConstraints, val dataDomain: String?, val sensitivityLevel: String?, val sourceSystem: String?) : GovernanceDefinition {
+        val dataContract: PhysicalDataContract, val dataDomain: String?, val sensitivityLevel: String?, val sourceSystem: String?) : GovernanceDefinition {
         val columnVersionRefs: List<VersionRef> = java.util.List.copyOf(columnVersionRefs)
-        override fun equals(other: Any?): Boolean = other is PhysicalTable && record == other.record && columnVersionRefs == other.columnVersionRefs && sourceConstraints == other.sourceConstraints && dataDomain == other.dataDomain && sensitivityLevel == other.sensitivityLevel && sourceSystem == other.sourceSystem
-        override fun hashCode(): Int = listOf(record, columnVersionRefs, sourceConstraints, dataDomain, sensitivityLevel, sourceSystem).hashCode()
+        override fun equals(other: Any?): Boolean = other is PhysicalTable && record == other.record && columnVersionRefs == other.columnVersionRefs && dataContract == other.dataContract && dataDomain == other.dataDomain && sensitivityLevel == other.sensitivityLevel && sourceSystem == other.sourceSystem
+        override fun hashCode(): Int = listOf(record, columnVersionRefs, dataContract, dataDomain, sensitivityLevel, sourceSystem).hashCode()
     }
     data class PhysicalColumn(val record: PhysicalColumnRecord, val sensitivityLevel: String?) : GovernanceDefinition
     data class LogicalTable(val record: LogicalTableRecord, val physicalTableId: String, val physicalTableVersion: Long, val logicUnitCount: Int) : GovernanceDefinition

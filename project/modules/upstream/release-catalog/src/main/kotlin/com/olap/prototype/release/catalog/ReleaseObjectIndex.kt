@@ -93,7 +93,6 @@ class ReleaseObjectIndex(objects: List<ReleaseObjectRef>) {
             ReleaseJoinPathSnapshot::class.java -> GovernanceProto.fromProto(ProtoBytes.decode(bytes, com.olap.prototype.wire.governance.ReleaseJoinPathSnapshot.getDefaultInstance()))
             FrozenAnalysisDimensionMeaning::class.java -> GovernanceProto.fromProto(ProtoBytes.decode(bytes, com.olap.prototype.wire.governance.FrozenAnalysisDimensionMeaning.getDefaultInstance()))
             PublishedRelationFilter::class.java -> GovernanceProto.fromProto(ProtoBytes.decode(bytes, com.olap.prototype.wire.governance.PublishedRelationFilter.getDefaultInstance()))
-            SourceUniqueKeySnapshot::class.java -> GovernanceProto.fromProto(ProtoBytes.decode(bytes, com.olap.prototype.wire.governance.SourceUniqueKeySnapshot.getDefaultInstance()))
             NativeTableDependency::class.java -> GovernanceProto.fromProto(ProtoBytes.decode(bytes, com.olap.prototype.wire.governance.NativeTableDependency.getDefaultInstance()))
             else -> throw ProducerContractException("unsupported frozen representation: ${representation.simpleName}")
         }
