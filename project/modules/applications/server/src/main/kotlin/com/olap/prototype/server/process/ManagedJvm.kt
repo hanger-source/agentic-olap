@@ -14,6 +14,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.UUID
 
 /** Owns one protocol pipe and its OS process; dispatch is correlated before completing callers. */
 internal class ManagedJvm(private val process: DarwinProcess, private val transfer: Path, private val maximum: Int,
@@ -74,9 +75,9 @@ internal class ManagedJvm(private val process: DarwinProcess, private val transf
     fun beginLogs(maximumBytes: Long) { require(maximumBytes > 0); synchronized(this) { nativeLogBytes = 0; nativeLogLimit = maximumBytes } }
     fun idleLogs() { synchronized(this) { nativeLogLimit = Long.MAX_VALUE } }
     fun start(bootstrap: Bootstrap, remainingMillis: Long) {
-        val expiry = expiry(remainingMillis)
         val future = CompletableFuture<Response>()
         pending["bootstrap"] = future
+        val expiry = expiry(remainingMillis, pending, "bootstrap", future)
         reader.start()
         logReader = Thread.ofPlatform().daemon(true).name("jvm-stderr-${process.pid}").unstarted {
             try {
@@ -112,21 +113,28 @@ internal class ManagedJvm(private val process: DarwinProcess, private val transf
         finally { expiry.interrupt() }
     }
     fun exchange(request: Request, sourceCompleted: ((com.olap.prototype.wire.query.SourceReadEvidence) -> Unit)? = null): Response {
-        val expiry = expiry(request.remainingMillis)
+        // 一个业务调用可以连续 LOOKUP/LOAD/INSPECT；管道身份只属于这一次交换。
+        val wire = request.toBuilder().setRequestId(UUID.randomUUID().toString()).build()
         val response = CompletableFuture<Response>()
-        check(pending.putIfAbsent(request.requestId, response) == null) { "duplicate worker request identity" }
-        sourceCompleted?.let { check(sourceCompletions.putIfAbsent(request.requestId, it) == null) { "duplicate source completion listener" } }
+        check(pending.putIfAbsent(wire.requestId, response) == null) { "duplicate worker request identity" }
+        sourceCompleted?.let { check(sourceCompletions.putIfAbsent(wire.requestId, it) == null) { "duplicate source completion listener" } }
+        val expiry = expiry(request.remainingMillis, pending, wire.requestId, response)
         try {
-            send(Frame.newBuilder().setRequest(request).build())
+            log.debug("JVM worker exchange: pid={} requestId={} wireRequestId={}", process.pid, request.requestId, wire.requestId)
+            send(Frame.newBuilder().setRequest(wire).build())
             return response.get(request.remainingMillis, TimeUnit.MILLISECONDS)
         } catch (failure: Throwable) { closeAfterFailure(failure); throw failure }
-        finally { expiry.interrupt(); pending.remove(request.requestId, response); sourceCompletions.remove(request.requestId) }
+        finally {
+            expiry.interrupt()
+            pending.remove(wire.requestId, response)
+            sourceCompleted?.let { sourceCompletions.remove(wire.requestId, it) }
+        }
     }
     fun script(request: ScriptRequest): ScriptResponse {
         // Also bounds a producer blocked in native pipe write. The caller first has a cooperative grace.
-        val expiry = expiry(Math.addExact(request.remainingMillis, 1000))
         val response = CompletableFuture<ScriptResponse>()
         check(scripts.putIfAbsent(request.requestId, response) == null) { "duplicate script request identity" }
+        val expiry = expiry(Math.addExact(request.remainingMillis, 1000), scripts, request.requestId, response)
         try {
             send(Frame.newBuilder().setScriptRequest(request).build())
             return response.get(request.remainingMillis, TimeUnit.MILLISECONDS)
@@ -174,8 +182,16 @@ internal class ManagedJvm(private val process: DarwinProcess, private val transf
             log.warn("JVM protocol stopped: pid={}", process.pid, failure)
         }
     }
-    private fun expiry(millis: Long): Thread = Thread.ofVirtual().name("jvm-deadline-${process.pid}").start {
-        try { Thread.sleep(millis); close() }
+    private fun <T> expiry(millis: Long, requests: ConcurrentHashMap<String, CompletableFuture<T>>,
+        id: String, response: CompletableFuture<T>): Thread = Thread.ofVirtual().name("jvm-deadline-${process.pid}").start {
+        try {
+            Thread.sleep(millis)
+            // 回执分派已经摘除该 Future 时，旧截止线程不再拥有进程退役权。
+            if (requests.remove(id, response)) {
+                response.completeExceptionally(java.util.concurrent.TimeoutException("JVM exchange deadline exceeded"))
+                close()
+            }
+        }
         catch (_: InterruptedException) { }
         catch (failure: Throwable) { log.error("JVM deadline retirement failed: pid={}", process.pid, failure) }
     }

@@ -1,5 +1,13 @@
 package com.olap.development
 
+import com.olap.prototype.codec.ProtoBytes
+import com.olap.prototype.protocol.Request
+import com.olap.prototype.protocol.WorkerKind
+import com.olap.prototype.runtime.EngineWorkerCommand
+import com.olap.prototype.runtime.EngineWorkerResult
+import com.olap.prototype.runtime.QueryWorkerProto
+import com.olap.prototype.server.process.ManagedProcesses
+import com.olap.prototype.util.OlapJsonUtils
 import kotlinx.serialization.json.*
 import java.io.ByteArrayInputStream
 import java.net.ServerSocket
@@ -11,6 +19,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Duration
 import java.util.UUID
+import java.util.concurrent.TimeUnit
 
 /** 真实服务、真实 REPL 和操作系统边界；不模拟进程、授权或能力回调。 */
 internal class RuntimeTrial(private val distribution: Path, private val root: Path, private val workspace: Path) {
@@ -37,6 +46,7 @@ internal class RuntimeTrial(private val distribution: Path, private val root: Pa
                 "pendingOutputBytes" to number(131072)))
         val configFile = root.resolve("server.json")
         write(configFile, config)
+        val workerExchanges = workerExchangeBoundaries(config)
         val endpoint = "http://127.0.0.1:$port/mcp"
         val client = McpClient(endpoint, { token }, root.resolve("mcp.jsonl"))
         client.responseLimit = 65536
@@ -200,8 +210,52 @@ internal class RuntimeTrial(private val distribution: Path, private val root: Pa
         write(root.resolve("report.json"), objectOf("passed" to bool(true), "persistentLanguageHistory" to bool(true),
             "independentSessions" to bool(true), "identityIsolation" to bool(true), "singleAdmissionCallback" to bool(true), "sandbox" to bool(true),
             "executionIdentity" to bool(true), "completeOrderedOutput" to bool(true), "committedEffectsRecovered" to bool(true),
-            "resourceReuse" to resourceReuse, "identifierAuthoring" to identifierAuthoring,
+            "resourceReuse" to resourceReuse, "identifierAuthoring" to identifierAuthoring, "workerExchanges" to workerExchanges,
             "forcedCancellation" to bool(true), "processesReaped" to bool(true), "chunkedInputLimit" to bool(true)))
+    }
+
+    private fun workerExchangeBoundaries(configuration: JsonObject): JsonObject {
+        val before = ProcessHandle.current().children().use { children -> children.map { it.pid() }.toList().toSet() }
+        fun childPid(): Long = ProcessHandle.current().children().use { children ->
+            children.filter { it.pid() !in before }.map { it.pid() }.toList().single()
+        }
+        val configured = configuration.with("dataRoot" to text(root.resolve("worker-exchanges").toString()),
+            "limits" to configuration.objectAt("limits").with("workerCount" to number(1)))
+        val budget = configuration.objectAt("limits").getValue("requestSeconds").jsonPrimitive.content.toBigDecimal().movePointRight(3).longValueExact()
+        val correlation = "runtime-reused-worker-correlation"
+        val command = ProtoBytes.pack(QueryWorkerProto.toProto(EngineWorkerCommand.Lookup("runtime-absent-catalog", "0".repeat(64))))
+        val wireIds = linkedSetOf<String>()
+        fun exchange(lease: ManagedProcesses.Lease, remainingMillis: Long) {
+            val response = lease.exchange(Request.newBuilder().setRequestId(correlation).setRemainingMillis(remainingMillis)
+                .setOperation("worker-command").setWorkerModel(command).build())
+            check(response.success) { "连续实际工作交换失败：${response.errorJson.toStringUtf8()}" }
+            check(response.requestId != correlation && wireIds.add(response.requestId)) { "每次管道交换必须独占传输身份" }
+            val result = QueryWorkerProto.fromProto(ProtoBytes.unpackResponse(response.model, com.olap.prototype.wire.query.EngineWorkerResult.getDefaultInstance()))
+            check(result == EngineWorkerResult.Present(false))
+        }
+        var pid: Long
+        lateinit var reacquisition: String
+        ManagedProcesses(OlapJsonUtils.mapper().readTree(configured.toString()), distribution).use { processes ->
+            processes.acquire(WorkerKind.ENGINE, emptyList(), correlation, budget).use { lease ->
+                pid = childPid()
+                val shortDeadline = minOf(5000L, budget)
+                val firstDeadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(shortDeadline)
+                repeat(256) { exchange(lease, shortDeadline) }
+                check(childPid() == pid)
+                // 已完成交换的截止时刻过去后，同一租约和业务关联仍可继续工作。
+                Thread.sleep(maxOf(0L, TimeUnit.NANOSECONDS.toMillis(firstDeadline - System.nanoTime()) + 50))
+                exchange(lease, shortDeadline)
+                check(childPid() == pid)
+            }
+            processes.acquire(WorkerKind.ENGINE, emptyList(), correlation, budget).use { lease ->
+                reacquisition = lease.observation.outcome
+                check(reacquisition == "REUSED" && childPid() == pid)
+                exchange(lease, budget)
+            }
+        }
+        check(ProcessHandle.of(pid).isEmpty || !ProcessHandle.of(pid).get().isAlive)
+        return objectOf("businessCorrelation" to text(correlation), "exchanges" to number(wireIds.size),
+            "workerPid" to text(pid.toString()), "reacquisition" to text(reacquisition), "completedDeadlinePassed" to bool(true))
     }
 
     private fun identifierBoundaries(client: McpClient, version: String): JsonObject {

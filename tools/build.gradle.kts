@@ -3,6 +3,7 @@ application { mainClass.set("com.olap.development.DevelopmentMainKt") }
 dependencies {
     implementation(project(":examples"))
     implementation(project(":server"))
+    implementation(project(":worker-runtime"))
     implementation(project(":json-io"))
     implementation(libs.kotlinx.serialization.json)
 }

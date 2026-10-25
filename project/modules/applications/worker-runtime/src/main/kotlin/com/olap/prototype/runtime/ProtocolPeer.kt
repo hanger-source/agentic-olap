@@ -63,6 +63,8 @@ class ProtocolPeer(
                             } finally {
                                 // 取消与线程摘除互斥；已取得的线程引用不能在回执交付阶段再次中断它。
                                 running.finish()
+                                // 终结回执可见前归还登记；后续交换不能撞到已完成请求的 owner。
+                                active.remove(request.requestId, running)
                             }
                             // 不在领域提交后再次核取消并伪造未执行结果。
                             send(Frame.newBuilder().setResponse(response).build())
