@@ -15,7 +15,7 @@ internal object QueryExplanation {
     fun describe(query: CompiledQuery): View {
         val analyses = query.stageAnalyses.associateBy { it.scope }
         val coreScopes = query.coreFinalizationPlan?.scopes.orEmpty()
-        val sourceOutputScope = coreScopes.firstOrNull() ?: QueryStageAnalysis.ScopeId.root()
+        val sourceOutputScope = query.coreFinalizationPlan?.sourceScope ?: QueryStageAnalysis.ScopeId.root()
         val scopes = query.scopes.map { scope ->
             val analysis = analyses.getValue(scope.scope)
             val root = root(scope.root)

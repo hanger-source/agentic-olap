@@ -147,13 +147,21 @@ internal class ManagedJvm(private val process: DarwinProcess, private val transf
     fun send(frame: Frame) {
         check(!stopping.get()) { "JVM process is stopping" }
         val sent = writer.submit {
-            synchronized(writeLock) {
-                check(!stopping.get()) { "JVM process is stopping" }
-                val outgoing = files.outbound(frame, maximum)
-                require(!frame.hasBootstrap() || !outgoing.hasFile()) { "bootstrap must fit the initial inline handshake" }
-                require(outgoing.serializedSize <= maximum) { "protocol file reference exceeds pipe budget" }
-                outgoing.writeDelimitedTo(output)
-                output.flush()
+            try {
+                synchronized(writeLock) {
+                    check(!stopping.get()) { "JVM process is stopping" }
+                    val outgoing = files.outbound(frame, maximum)
+                    require(!frame.hasBootstrap() || !outgoing.hasFile()) { "bootstrap must fit the initial inline handshake" }
+                    require(outgoing.serializedSize <= maximum) { "protocol file reference exceeds pipe budget" }
+                    outgoing.writeDelimitedTo(output)
+                    output.flush()
+                }
+            } catch (failure: Throwable) {
+                // 等待发送的能力线程可能已被取消，不能依赖它再读取 Future 才发现实际写帧失败。
+                // 未完整交付的帧可能已部分写入管道；此 owner 失败当前等待并结束该通信进程。
+                fail(failure)
+                if (!stopping.get()) Thread.ofVirtual().name("jvm-write-retire-${process.pid}").start { close() }
+                throw failure
             }
         }
         try { sent.get() } catch (failure: ExecutionException) { throw requireNotNull(failure.cause) }

@@ -3,12 +3,15 @@ package com.olap.prototype.dsl
 import com.olap.prototype.dsl.transport.CapabilityRegistry
 import com.olap.prototype.dsl.transport.CapabilityContract
 import com.olap.prototype.query.QueryComputation
+import com.olap.prototype.query.GroupingLevels
+import com.olap.prototype.query.PostOperationContract
 import com.olap.prototype.calculation.Calculation
 import com.olap.prototype.member.MemberResult
 import com.olap.prototype.governance.contract.LogicUnitRecord
 import com.olap.prototype.governance.contract.LogicalTableCreateRequest
 import com.olap.prototype.query.SetOutputContract
 import com.olap.prototype.query.ResultExpression
+import com.olap.prototype.query.QueryValueSemantics
 import java.lang.reflect.Type
 import kotlin.reflect.KClass
 import kotlin.reflect.KFunction
@@ -37,7 +40,7 @@ data class ApiOverview(val formatVersion: String, val dslApiVersion: String, val
 
 /** 结构来自真实公开声明；局部语义规则只读取已知模型自身合同，不执行任意 getter 或工厂。 */
 object ApiDiscovery {
-    const val VERSION = "agentic-olap-kotlin-dsl/v2"
+    const val VERSION = "agentic-olap-kotlin-dsl/v3"
     val imports: List<String> = listOf("com.olap.prototype.dsl.*", "com.olap.prototype.governance.contract.*",
         "com.olap.prototype.governance.contract.GovernanceReadRequests.AssetVersionRequest",
         "com.olap.prototype.governance.contract.GovernanceReadRequests.DefinitionDependenciesRequest",
@@ -132,15 +135,23 @@ object ApiDiscovery {
         type.java.enumConstants?.map { (it as Enum<*>).name } ?: emptyList(),
         when (type) {
             Calculation.Call::class -> Calculation.Call.contract()
+            com.olap.prototype.governance.contract.ScenarioPipelineRuleCreateRequest::class ->
+                com.olap.prototype.governance.contract.ScenarioPipelineRuleCreateRequest.contract()
             com.olap.prototype.governance.contract.ScenarioPipelineRuleContractRefreshRequest::class ->
                 com.olap.prototype.governance.contract.ScenarioPipelineRuleContractRefreshRequest.contract()
             com.olap.prototype.query.contract.StageAuthorization::class -> com.olap.prototype.query.contract.StageAuthorization.contract()
             com.olap.prototype.query.contract.ExpressionAuthorization::class -> com.olap.prototype.query.contract.ExpressionAuthorization.contract()
+            PostOperationContract.TopN::class -> PostOperationContract.TopN.contract()
+            GroupingLevels::class, QueryComputation.Levels::class -> GroupingLevels.contract()
+            QueryRunRequest::class -> QueryRunRequest.contract()
+            QueryRunListRequest::class -> QueryRunListRequest.contract()
             MemberResult::class -> MemberResult.contract()
             LogicUnitRecord::class -> LogicUnitRecord.contract()
             LogicalTableCreateRequest.LogicUnitInput::class -> LogicalTableCreateRequest.LogicUnitInput.contract()
             SetOutputContract.Container::class, SetOutputContract.Array::class, SetOutputContract.Row::class -> SetOutputContract.Container.contract()
             ResultExpression.ResultNumeric::class -> ResultExpression.ResultNumeric.contract()
+            ResultExpression.ResultCaseWhen::class -> QueryValueSemantics.alternativeContract()
+            ResultExpression.ResultCall::class -> mapOf("coalesceAlternatives" to QueryValueSemantics.alternativeContract())
             ResultExpression.ResultRound::class -> ResultExpression.ResultRound.contract()
             ResultExpression.ResultOperation::class -> ResultExpression.ResultOperation.contract()
             com.olap.prototype.query.QueryExecutionMode::class -> com.olap.prototype.query.QueryExecutionMode.contract()

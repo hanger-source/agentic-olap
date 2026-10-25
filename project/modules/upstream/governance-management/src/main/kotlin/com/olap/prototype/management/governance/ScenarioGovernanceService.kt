@@ -210,7 +210,8 @@ class ScenarioGovernanceService(private val database: PlatformDatabase, private 
         val version = positive(request.scenarioVersion, "scenario_pipeline_rule.scenario_version")
         val type = ScenarioPipelineRulePolicy.requireRuleType(request.ruleType, "scenario_pipeline_rule.rule_type")
         val candidate = stageCandidates().firstOrNull { it.ruleType == type } ?: throw ProducerContractException("scenario_pipeline_rule candidate not found: $type")
-        val rule = ScenarioPipelineRuleRecord("$id:v$version:pipeline:$type", id, version, type, candidate.displayName, candidate.authorization, "DRAFT", order(request.sortOrder, "scenario_pipeline_rule.sort_order"), Instant.now())
+        requireStageSelection(id, version, type, "authorization", request.authorization, candidate.authorization)
+        val rule = ScenarioPipelineRuleRecord("$id:v$version:pipeline:$type", id, version, type, candidate.displayName, request.authorization, "DRAFT", order(request.sortOrder, "scenario_pipeline_rule.sort_order"), Instant.now())
         saveScenarioPipelineRule(rule)
         ScenarioPipelineRuleCreateResult(rule)
     }
@@ -228,9 +229,14 @@ class ScenarioGovernanceService(private val database: PlatformDatabase, private 
         val existing = listScenarioPipelineRules(id, version).filter { it.ruleType == type }
         if (existing.size != 1) throw ScenarioPipelineRuleRefreshTargetException(id, version, type, existing.size)
         val candidate = stageCandidates().first { it.ruleType == type }
-        if (request.approvedAuthorization != candidate.authorization)
-            throw StageAuthorizationApprovalException(id, version, type, request.approvedAuthorization, candidate.authorization)
-        existing.single().copy(authorization = candidate.authorization).also(repository::updateScenarioPipelineRuleContract)
+        requireStageSelection(id, version, type, "approvedAuthorization", request.approvedAuthorization, candidate.authorization)
+        existing.single().copy(authorization = request.approvedAuthorization).also(repository::updateScenarioPipelineRuleContract)
+    }
+
+    private fun requireStageSelection(id: String, version: Long, type: String, field: String,
+        selected: StageAuthorization, supported: StageAuthorization) {
+        if (selected.unsupportedBy(supported).isNotEmpty())
+            throw StageAuthorizationSelectionException(id, version, type, field, selected, supported)
     }
 
     fun scenarioConfigurationCandidates(id: String, version: Long): ScenarioConfigurationCandidatesView {

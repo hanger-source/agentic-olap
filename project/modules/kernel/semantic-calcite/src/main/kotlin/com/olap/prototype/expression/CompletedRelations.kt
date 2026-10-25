@@ -99,8 +99,7 @@ object CompletedRelations {
         require(operands.size >= 2) { "set combination requires at least two completed inputs" }
         slots.indices.forEach { column ->
             val types = operands.map { it.rowType.fieldList[column].type }
-            val result = builder.typeFactory.leastRestrictive(types)
-            require(result != null && types.all { SemanticNativeTypes.preservesCapacity(it, result) }) { "set slot requires explicit lossless CAST of its inputs: ${slots[column]}" }
+            SemanticNativeTypes.commonType(builder.typeFactory, types, "set slot ${slots[column]}")
         }
         operands.forEach(builder::push)
         when (operation) {
@@ -114,9 +113,7 @@ object CompletedRelations {
     fun combineLevels(builder: RelBuilder, variants: List<RelNode>, levels: List<GroupingLevels.BoundLevel>, dimensions: List<String>, levelAlias: String, measures: List<String>): RelNode {
         val types = dimensions.associateWith { dimension ->
             val candidates = variants.filter { dimension in it.rowType.fieldNames }.map { requireNotNull(it.rowType.getField(dimension, true, false)).type }
-            val common = builder.typeFactory.leastRestrictive(candidates)
-            require(common != null && candidates.all { SemanticNativeTypes.preservesCapacity(it, common) }) { "layer dimension has no lossless common native type" }
-            common
+            SemanticNativeTypes.commonType(builder.typeFactory, candidates, "layer dimension")
         }
         val completed = variants.mapIndexed { index, variant ->
             builder.push(variant)

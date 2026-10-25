@@ -66,5 +66,5 @@ data class QueryRunView(val runId: String, val subject: String, val publication:
     val receipt: QueryExecutionReceipt?, val serviceObservation: QueryServiceObservation?)
 data class QueryUsageNote(val id: String, val runId: String, val subject: String, val text: String, val createdAt: Instant)
 data class QuerySemanticReference(val assetType: String, val id: String, val version: String)
-data class QueryUsageView(val run: QueryRunView, val notes: List<QueryUsageNote>, val nextNoteOffset: Int?, val references: List<QuerySemanticReference>)
-data class QueryUsagePage(val items: List<QueryRunView>, val nextOffset: Int?)
+data class QueryUsageView(val run: QueryRunView, val notes: List<QueryUsageNote>, val nextNoteOffset: Long?, val references: List<QuerySemanticReference>)
+data class QueryUsagePage(val items: List<QueryRunView>, val nextOffset: Long?)

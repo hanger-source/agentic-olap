@@ -76,6 +76,7 @@ internal class InstalledProduct(private val tarballs: Path, private val root: Pa
             val numericReference = built.objectAt("numericResult").objectAt("reference").objectAt("result")
             orderColumnVersion = built.objectAt("orderColumnVersion").string("text")
             salesResult(result); salesResult(continued)
+            val usagePagination = usagePagination(result)
             val numeric = divisionResult(numericReference)
             authorContracts()
             val serialCalls = serialCapabilities(built)
@@ -96,7 +97,8 @@ internal class InstalledProduct(private val tarballs: Path, private val root: Pa
                 "analysisPersistentRead" to bool(true), "sourceIdentityHash" to text(sourceIdentityHash), "queryReference" to query,
                 "runIds" to JsonArray(listOf(result.getValue("runId"), continued.getValue("runId"), repeated.getValue("runId"))),
                 "expected" to objectOf("sales_amount" to text("175.00"), "order_count" to text("4")), "integerDivision" to numeric,
-                "serialCapabilities" to serialCalls, "stageAuthorization" to approvals, "completeResponseDelivery" to complete))
+                "serialCapabilities" to serialCalls, "stageAuthorization" to approvals, "usagePagination" to usagePagination,
+                "completeResponseDelivery" to complete))
         } catch (failure: Throwable) {
             write(root.resolve("report.json"), objectOf("status" to text("FAILED"), "message" to text(failure.message ?: failure.javaClass.name)))
             throw failure
@@ -129,6 +131,39 @@ internal class InstalledProduct(private val tarballs: Path, private val root: Pa
         check(execution.report.array("calls").size > 1)
         return execution.references()
     }
+    private fun usagePagination(reference: JsonObject): JsonObject {
+        val runId = reference.getValue("runId")
+        val expectedNotes = (1..3).map { "正式保存结果的分页说明 $it" }
+        expectedNotes.forEach { client.call("append-query-usage-note", objectOf("runId" to runId, "text" to text(it))) }
+        val first = client.call("read-query-usage", objectOf("runId" to runId, "offset" to number(0), "limit" to number(2))).jsonObject
+        check(first.array("notes").size == 2)
+        val next = first.getValue("nextNoteOffset")
+        check(next.jsonPrimitive.isString && next.jsonPrimitive.long == 2L)
+        val second = client.call("read-query-usage", objectOf("runId" to runId, "offset" to next, "limit" to number(1000))).jsonObject
+        check(second.array("notes").size == 1 && !second.containsKey("nextNoteOffset"))
+        val actualNotes = first.array("notes") + second.array("notes")
+        check(actualNotes.map { it.jsonObject.string("text") }.toSet() == expectedNotes.toSet())
+        check(actualNotes.map { it.jsonObject.string("id") }.distinct().size == 3)
+        val maximumPage = client.call("read-query-usage", objectOf("runId" to runId, "offset" to number(0), "limit" to number(Int.MAX_VALUE))).jsonObject
+        check(maximumPage.array("notes").size == 3 && !maximumPage.containsKey("nextNoteOffset"))
+        val pastEnd = client.call("read-query-usage", objectOf("runId" to runId, "offset" to text("2147483648"), "limit" to number(Int.MAX_VALUE))).jsonObject
+        check((pastEnd["notes"] as? JsonArray).orEmpty().isEmpty() && !pastEnd.containsKey("nextNoteOffset"))
+        for ((field, actual, minimum) in listOf(Triple("limit", 0, 1L), Triple("offset", -1, 0L))) {
+            val envelope = client.delivered(client.rpc("read-query-usage", objectOf("runId" to runId, field to number(actual))))
+            check(!envelope.getValue("success").jsonPrimitive.boolean)
+            val error = envelope.objectAt("error")
+            check(error.string("code") == "INVALID_PAGINATION" && error.string("stage") == "CONTRACT_INPUT")
+            val details = error.objectAt("details")
+            check(details.array("fieldPath") == JsonArray(listOf(text(field))))
+            check(details.getValue("actual").jsonPrimitive.long == actual.toLong())
+            check(details.objectAt("expected").getValue("minimum").jsonPrimitive.long == minimum)
+        }
+        val persisted = maximumPage.objectAt("run")
+        check(persisted.getValue("runId") == runId && persisted.objectAt("result").getValue("sha256") == reference.getValue("sha256"))
+        return objectOf("largeTypedAndJsonPagesRead" to bool(true), "nextOffsetReused" to bool(true),
+            "longOffsetRead" to bool(true), "invalidFieldsExplained" to bool(true))
+    }
+
     private fun salesResult(reference: JsonObject) {
         val page = client.call("read-query-result", objectOf("resultReference" to reference, "offset" to number(0), "limit" to number(10))).jsonObject
         check(page.getValue("totalRows").jsonPrimitive.long == 1L && page.array("rows").size == 1)
@@ -263,22 +298,29 @@ internal class InstalledProduct(private val tarballs: Path, private val root: Pa
             val subject = olap.governance.createSubjectArea(SubjectAreaCreateRequest(parameters.text("businessLineId"), 1,
               parameters.text("code"), "阶段批准", actor, "安装后的授权拒绝与续行", actor)).subjectArea
             val scenario = olap.governance.createScenario(ScenarioCreateRequest(subject.id, 1, "calculation", "计算", actor, null, actor)).scenario
-            olap.governance.createScenarioPipelineRule(ScenarioPipelineRuleCreateRequest(scenario.id, 1, "DERIVE", 1))
-            olap.output(ScriptValue.Text(scenario.id))
             val full = StageAuthorization.current("DERIVE")
             val e = full.expressions
             val subset = StageAuthorization("DERIVE", full.joinTypes, full.aggregations, ExpressionAuthorization(e.kinds,
               e.operators - ResultExpression.ResultOperator.MULTIPLY, e.functions, e.castTypes, e.literalTypes))
-            olap.governance.refreshScenarioPipelineRuleContract(ScenarioPipelineRuleContractRefreshRequest(scenario.id, 1, "DERIVE", subset))
+            val created = olap.governance.createScenarioPipelineRule(ScenarioPipelineRuleCreateRequest(scenario.id, 1, "DERIVE", 1, subset)).rule
+            check(created.authorization == subset)
+            val reduced = StageAuthorization("DERIVE", subset.joinTypes, subset.aggregations, ExpressionAuthorization(e.kinds,
+              subset.expressions.operators - ResultExpression.ResultOperator.DIVIDE, e.functions, e.castTypes, e.literalTypes))
+            olap.governance.refreshScenarioPipelineRuleContract(ScenarioPipelineRuleContractRefreshRequest(scenario.id, 1, "DERIVE", reduced))
+            val selected = olap.semantics.scenarioStages(VersionPageInput(scenario.id, 1, 0, 20)).items.single()
+            check(selected.id == created.id && selected.authorization == reduced)
+            olap.output(ScriptValue.Text(scenario.id))
+            val unsupported = StageAuthorization("DERIVE", setOf(StageAuthorization.JoinType.LEFT), reduced.aggregations, reduced.expressions)
+            olap.governance.refreshScenarioPipelineRuleContract(ScenarioPipelineRuleContractRefreshRequest(scenario.id, 1, "DERIVE", unsupported))
         """.trimIndent(), objectOf("businessLineId" to text(businessLineId),
             "code" to text("approval_${UUID.randomUUID().toString().replace("-", "")}")), dslVersion, "stage-approval.olap.kts")
         check(!rejected.envelope.getValue("success").jsonPrimitive.boolean)
         val diagnostic = rejected.report.array("diagnostics").map { it.jsonObject }
-            .single { it["code"] == text("STAGE_AUTHORIZATION_APPROVAL_MISMATCH") }.objectAt("capabilityFailure")
+            .single { it["code"] == text("STAGE_AUTHORIZATION_UNSUPPORTED") }.objectAt("capabilityFailure")
         val failedCall = rejected.report.array("calls").map { it.jsonObject }
-            .single { it["operationId"] == text("refresh-scenario-pipeline-rule-contract") }
+            .single { it["operationId"] == text("refresh-scenario-pipeline-rule-contract") && it["success"] == bool(false) }
         check(diagnostic["fieldPath"] == JsonArray(listOf(text("approvedAuthorization"))))
-        check(diagnostic.objectAt("details").objectAt("differences").objectAt("expressions.operators").array("missing") == JsonArray(listOf(text("MULTIPLY"))))
+        check(diagnostic.objectAt("details").objectAt("unsupported").array("joinTypes") == JsonArray(listOf(text("LEFT"))))
         check(diagnostic["diagnosticId"] == failedCall["requestId"] && failedCall.array("effects").isEmpty())
         check(diagnostic.objectAt("details").objectAt("serviceDiagnostic")["requestId"] == failedCall["requestId"])
         val scenarioId = rejected.value().string("text")
@@ -286,7 +328,10 @@ internal class InstalledProduct(private val tarballs: Path, private val root: Pa
             val id = parameters.text("scenarioId")
             val before = olap.semantics.scenarioStages(VersionPageInput(id, 1, 0, 20)).items.single()
             val full = StageAuthorization.current("DERIVE")
-            check(before.authorization == full)
+            val e = full.expressions
+            val reduced = StageAuthorization("DERIVE", full.joinTypes, full.aggregations, ExpressionAuthorization(e.kinds,
+              e.operators - setOf(ResultExpression.ResultOperator.MULTIPLY, ResultExpression.ResultOperator.DIVIDE), e.functions, e.castTypes, e.literalTypes))
+            check(before.authorization == reduced)
             olap.governance.refreshScenarioPipelineRuleContract(ScenarioPipelineRuleContractRefreshRequest(id, 1, "DERIVE", full))
             val after = olap.semantics.scenarioStages(VersionPageInput(id, 1, 0, 20)).items.single()
             check(before.id == after.id && after.authorization == full)
@@ -302,7 +347,8 @@ internal class InstalledProduct(private val tarballs: Path, private val root: Pa
             .single { it["code"] == text("GOVERNANCE_DRAFT_REQUIRED") }.objectAt("capabilityFailure").objectAt("details")
         check(state["actualStatus"] == text("ACTIVE") && state.objectAt("objectReference")["id"] == text(activeScenarioId))
         check(active.report.array("calls").single().jsonObject.array("effects").isEmpty())
-        return objectOf("subsetRejected" to bool(true), "unchangedAfterRejection" to bool(true),
+        return objectOf("explicitSubsetCreated" to bool(true), "approvalReduced" to bool(true),
+            "unsupportedSelectionRejected" to bool(true), "unchangedAfterRejection" to bool(true),
             "explicitApprovalSucceeded" to bool(true), "activeVersionRejected" to bool(true), "diagnosticsDelivered" to bool(true))
     }
 

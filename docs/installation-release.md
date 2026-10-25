@@ -27,7 +27,7 @@ repositories {
     }
 }
 dependencies {
-    compileOnly("com.github.hanger-source.agentic-olap:connector-api:v0.17.2")
+    compileOnly("com.github.hanger-source.agentic-olap:connector-api:v0.19.0")
 }
 ```
 
@@ -46,6 +46,10 @@ dependencies {
 `project/cli/package.json` 拥有产品版本、命令入口及平台限制。自有 JVM 构件的 group 为 `com.github.hanger-source.agentic-olap`，版本为 `v` 加产品版本；npm 版本不带 `v`。连接器 API、DSL API、存储格式、Query 格式和语义资产版本分别管理。独立 `kotlin-repl` 与 OLAP 运行入口由同一产品装配，使用者不另装服务或包。正式作者使用 Kotlin 类型，内部 Protobuf schema 与显式转换器承载通信与持久字节，不要求业务代码维护协议消息。
 
 一次语言会话固定产品构建、Kotlin 版本、DSL、classpath、默认 imports 与 JVM 目标，不在存活会话里替换 JAR。升级沿明确停止服务、安装并启动的现有入口进行；旧语言内存结束，持久业务资产按各自格式和授权继续读取，不承诺跨版本搬运 JVM 对象。
+
+产品 0.19.0 的公开作者环境为 `agentic-olap-kotlin-dsl/v3`，内部进程合同为 `agentic-olap-runtime/v6`。创建场景阶段规则必须提供作者显式选择的 `authorization`；历史分页使用 `Long` 坐标和正 `Int` 页长，准确类型与选择规则通过服务发现。提交源码使用目标服务披露的 DSL，不自动改用旧作者合同。连接器 API 仍为 v12，元数据库格式为 16、Query intent 为 v7；查询定义制品 v11、结果封套／记录 v5 和发行清单 v4 各自保持原格式职责。
+
+保存查询中的 `QuerySource.dslApiVersion` 是原源码的真实溯源信息，不改写成当前 DSL。读取保存查询或通过其精确引用执行使用正式保存模型，不重新编译该源码；把源码再次交给 `execute-script` 时，须显式采用当前作者合同并调整相应调用。DSL 与内部进程版本不代替持久格式核验，也不触发资产转换。
 
 1. 完成代码、文档和相称验证后提交，推送精确发行标签 `vX.Y.Z`。源码、skill 和构建均采用该标签。
 2. 手动运行 **构建 JitPack JVM 构件**，工作流引用与输入都指定该标签。JitPack 使用 JDK 21 执行 `publishProductToMavenLocal`，发布主服务、脚本入口、工作运行入口、内置连接器、SDK 及其模块依赖。测试、示例、研发客户端和安装引导不向 JitPack 发布。隔离连接器 JAR 使用 `plugin` classifier。

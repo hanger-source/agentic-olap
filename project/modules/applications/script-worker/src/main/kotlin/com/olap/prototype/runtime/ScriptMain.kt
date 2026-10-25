@@ -23,7 +23,7 @@ fun main(args: Array<String>) {
     System.setOut(privateDiagnostics)
     require(args.contentEquals(arrayOf("--mode", "script"))) { "runtime --mode script" }
     val frame = ScriptProtocolPeer.readFrame(protocolInput, 64 * 1024 * 1024) ?: error("session bootstrap is required")
-    require(frame.hasBootstrap() && frame.bootstrap.protocol == "agentic-olap-runtime/v5" && frame.bootstrap.hasScripting()) {
+    require(frame.hasBootstrap() && frame.bootstrap.protocol == "agentic-olap-runtime/v6" && frame.bootstrap.hasScripting()) {
         "unsupported session protocol bootstrap"
     }
     val configuration = frame.bootstrap.scripting
@@ -36,7 +36,7 @@ fun main(args: Array<String>) {
         positiveInt(configuration.maximumInputNodes, "input nodes"))
     val workerDirectory = Path.of("").toAbsolutePath().toRealPath()
     ScriptProtocolPeer(protocolInput, protocolOutput, positiveInt(configuration.maximumFrameBytes, "maximum frame bytes"), requestBytes, depth,
-        Path.of(frame.bootstrap.transferDirectory)).use { peer ->
+        Path.of(frame.bootstrap.transferDirectory), privateDiagnostics).use { peer ->
         val environment = OlapSessionEnvironment(peer, CapabilityProtos(requestBytes, depth), workerDirectory)
         val language = ReplConfiguration(configuration.compilationClasspathList.map { Path.of(it) }, ApiDiscovery.imports,
             "21", OlapEnvironment::class.java.classLoader)
@@ -107,7 +107,7 @@ private class OlapReplSession(private val repl: KotlinRepl, private val environm
                 resources?.let { observed ->
                     observed.close()
                     val issues = observed.resourceIssues
-                    if (issues.isNotEmpty()) response.setSessionUsable(false)
+                    if (!observed.evaluationContextRestored) response.setSessionUsable(false)
                     response.addAllResourceIssues(issues.map { issue -> com.olap.prototype.protocol.ScriptResourceIssue.newBuilder()
                         .setCode(issue.code).setMessage(issue.message).setObservedCount(issue.observedCount).setTruncated(issue.truncated)
                         .addAllThreads(issue.threads.map { thread -> com.olap.prototype.protocol.ScriptThreadObservation.newBuilder()

@@ -1,6 +1,7 @@
 package com.olap.prototype.server
 
 import com.fasterxml.jackson.databind.JsonNode
+import com.olap.prototype.contract.InputContractException
 import com.olap.prototype.contract.ProducerContractException
 import com.olap.prototype.dsl.*
 import com.olap.prototype.dsl.transport.CapabilityRegistry
@@ -12,7 +13,6 @@ import com.olap.prototype.query.usage.QueryUsageRepository
 import com.olap.prototype.release.catalog.JdbcPublishedQueryEntryProvider
 import com.olap.prototype.runtime.RuntimeResourceLimitException
 import com.olap.prototype.server.ServerInputs.fields
-import com.olap.prototype.server.ServerInputs.integer
 import com.olap.prototype.server.ServerInputs.optionalText
 import com.olap.prototype.server.ServerInputs.text
 import com.olap.prototype.util.OlapJsonUtils
@@ -68,8 +68,8 @@ internal class ServerResults(private val usage: QueryUsageRepository,
             "read-query-usage" -> {
                 val r = input as QueryRunRequest
                 val run = authorizedRun(r.runId, request.principal, operation)
-                val notes = usage.notes(run.runId, r.offset, r.limit + 1)
-                QueryUsageView(view(run), notes.take(r.limit).map(::note), if (notes.size > r.limit) r.offset + r.limit else null,
+                val notes = usage.notes(run.runId, r.offset, r.limit)
+                QueryUsageView(view(run), notes.items.map(::note), notes.nextOffset,
                     usage.references(run.runId).map { QuerySemanticReference(it.assetType,it.id,it.version) })
             }
             "search-query-usage" -> {
@@ -100,11 +100,33 @@ internal class ServerResults(private val usage: QueryUsageRepository,
         fields(payload,setOf("coordinate","text","offset","limit"))
         val coordinate = mapper.treeToValue(payload.required("coordinate"),QueryCapabilityRequest::class.java)
         return invoke("search-query-usage",request,QueryRunListRequest(coordinate,optionalText(payload,"text"),
-            integer(payload,"offset",0,0,Int.MAX_VALUE),integer(payload,"limit",50,1,200)))
+            historyOffset(payload),historyLimit(payload)))
     }
     fun read(request: ServerRequest, payload: JsonNode): Any {
         fields(payload,setOf("runId","offset","limit"))
-        return invoke("read-query-usage",request,QueryRunRequest(text(payload,"runId"),integer(payload,"offset",0,0,Int.MAX_VALUE),integer(payload,"limit",50,1,200)))
+        return invoke("read-query-usage",request,QueryRunRequest(text(payload,"runId"),historyOffset(payload),historyLimit(payload)))
+    }
+
+    /** INT64 的 JSON 十进制文本可直接承接正式 nextOffset；整数 token 也保留其精确值。 */
+    private fun historyOffset(payload: JsonNode): Long {
+        val value = payload.get("offset") ?: return QueryUsagePagination.DEFAULT_OFFSET
+        val actual = when {
+            value.isIntegralNumber -> value.bigIntegerValue()
+            value.isTextual && value.textValue().matches(Regex("-?(0|[1-9][0-9]*)")) -> java.math.BigInteger(value.textValue())
+            else -> throw InputContractException.violation(InputContractException.Rule.DECODE_INPUT, listOf("offset"),
+                "offset must be an INT64 decimal string or an integer JSON token", "INT64_DECIMAL_OR_INTEGER", value.nodeType.name)
+        }
+        if (actual < java.math.BigInteger.ZERO || actual > java.math.BigInteger.valueOf(Long.MAX_VALUE))
+            throw InputContractException.pagination("offset", actual, 0, Long.MAX_VALUE)
+        return actual.toLong()
+    }
+
+    private fun historyLimit(payload: JsonNode): Int {
+        val value = payload.get("limit") ?: return QueryUsagePagination.DEFAULT_LIMIT
+        if (!value.isIntegralNumber) throw InputContractException.violation(InputContractException.Rule.DECODE_INPUT, listOf("limit"),
+            "limit must be an integer JSON token", "INT32_INTEGER", value.nodeType.name)
+        if (!value.canConvertToInt()) throw InputContractException.pagination("limit", value.bigIntegerValue(), 1, Int.MAX_VALUE.toLong())
+        return value.intValue()
     }
     fun appendNote(request: ServerRequest, payload: JsonNode): Any {
         fields(payload,setOf("runId","text")); return invoke("append-query-usage-note",request,QueryUsageNoteRequest(text(payload,"runId"),text(payload,"text")))

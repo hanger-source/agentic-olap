@@ -46,10 +46,10 @@ agentic-olap call describe-script-api --payload '{"type":"com.olap.prototype.cal
 
 `LogicUnitInput.rules.valueTypeRules` 要求标量 `logicType` 与容器 `valueShape` 恰好选一个：标量的 `valueShape=null`；容器的 `logicType=null`，形状为正式 `SetOutputContract.Container` 的 ARRAY／ROW。普通金额字段使用 `LogicType.NUMBER`，数量合同中的单位、算术和结果容量不填入字段的容器形状。
 
-`execute-script` 向持续 Kotlin 会话提交一个完整片段。DSL 为 `agentic-olap-kotlin-dsl/v2`，以服务发现结果为准。`executionId` 必填；不填 `sessionId` 创建会话，后续使用实际返回的会话 ID：
+`execute-script` 向持续 Kotlin 会话提交一个完整片段。DSL 为 `agentic-olap-kotlin-dsl/v3`，以服务发现结果为准。`executionId` 必填；不填 `sessionId` 创建会话，后续使用实际返回的会话 ID：
 
 ~~~sh
-agentic-olap call execute-script --payload '{"executionId":"sources-001","waitMillis":0,"source":"val sources = olap.sources.list(EmptyRequest)\nolap.output(sources)","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v2","parameters":{}}'
+agentic-olap call execute-script --payload '{"executionId":"sources-001","waitMillis":0,"source":"val sources = olap.sources.list(EmptyRequest)\nolap.output(sources)","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v3","parameters":{}}'
 agentic-olap call wait-script --payload '{"executionId":"sources-001","waitMillis":1000}'
 ~~~
 

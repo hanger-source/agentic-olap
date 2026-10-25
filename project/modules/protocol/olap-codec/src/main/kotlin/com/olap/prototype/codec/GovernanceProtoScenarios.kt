@@ -325,12 +325,14 @@ internal fun ScenarioPipelineRuleCreateRequestToProto(value: com.olap.prototype.
     setScenarioVersion(value.scenarioVersion)
     setRuleType(value.ruleType)
     value.sortOrder?.let { setSortOrder(it) }
+    setAuthorization(StageAuthorizationToProto(value.authorization))
 }.build()
 internal fun ScenarioPipelineRuleCreateRequestFromProto(value: com.olap.prototype.wire.governance.ScenarioPipelineRuleCreateRequest): com.olap.prototype.governance.contract.ScenarioPipelineRuleCreateRequest = com.olap.prototype.governance.contract.ScenarioPipelineRuleCreateRequest(
     scenarioId = value.getScenarioId(),
     scenarioVersion = value.getScenarioVersion(),
     ruleType = value.getRuleType(),
-    sortOrder = if (value.hasSortOrder()) value.getSortOrder() else null
+    sortOrder = if (value.hasSortOrder()) value.getSortOrder() else null,
+    authorization = required(value.hasAuthorization(), "ScenarioPipelineRuleCreateRequest.authorization") { StageAuthorizationFromProto(value.getAuthorization()) }
 )
 
 internal fun ScenarioPipelineRuleCreateResultToProto(value: com.olap.prototype.governance.contract.ScenarioPipelineRuleCreateResult): com.olap.prototype.wire.governance.ScenarioPipelineRuleCreateResult = com.olap.prototype.wire.governance.ScenarioPipelineRuleCreateResult.newBuilder().apply {

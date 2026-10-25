@@ -53,7 +53,7 @@ class QueryUsageRepository(private val database: PlatformDatabase, private val l
     }
     data class Note(val id: String, val runId: String, val subject: String, val text: String, val createdAt: Instant)
     data class SemanticReference(val assetType: String, val id: String, val version: String)
-    class Page(items: List<Run>, val nextOffset: Int?) { val items: List<Run> = Collections.unmodifiableList(ArrayList(items)) }
+    class Page<T>(items: List<T>, val nextOffset: Long?) { val items: List<T> = Collections.unmodifiableList(ArrayList(items)) }
 
     fun accept(runId: String, subject: String, entry: PublishedQueryEntry, intent: QueryIntent,
         definition: QueryReference?, historyEnabled: Boolean, saveResult: Boolean, question: String?): Run {
@@ -201,11 +201,13 @@ class QueryUsageRepository(private val database: PlatformDatabase, private val l
         return saved
     }
 
-    fun notes(runId: String, offset: Int, limit: Int): List<Note> {
-        page(offset, limit)
+    fun notes(runId: String, offset: Long, limit: Int): Page<Note> {
+        QueryUsagePagination.requirePage(offset, limit)
         require(runId)
-        return query("cannot read usage notes", "SELECT * FROM query_usage_note WHERE run_id=? ORDER BY created_at,id LIMIT ? OFFSET ?", listOf(runId, limit, offset)) { rows ->
-            buildList { while (rows.next()) add(Note(rows.getString("id"), runId, rows.getString("subject"), rows.getString("note_text"), rows.getTimestamp("created_at").toInstant())) }
+        return query("cannot read usage notes", "SELECT * FROM query_usage_note WHERE run_id=? ORDER BY created_at,id LIMIT ? OFFSET ?", listOf(runId, limit.toLong() + 1L, offset)) { rows ->
+            val notes = buildList { while (rows.next()) add(Note(rows.getString("id"), runId, rows.getString("subject"), rows.getString("note_text"), rows.getTimestamp("created_at").toInstant())) }
+            val items = notes.take(limit)
+            Page(items, QueryUsagePagination.nextOffset(offset, items.size, notes.size > limit))
         }
     }
 
@@ -216,18 +218,19 @@ class QueryUsageRepository(private val database: PlatformDatabase, private val l
         }
     }
 
-    fun search(subject: String, publication: QueryCapabilityRequest, text: String?, offset: Int, limit: Int): Page {
-        page(offset, limit)
+    fun search(subject: String, publication: QueryCapabilityRequest, text: String?, offset: Long, limit: Int): Page<Run> {
+        QueryUsagePagination.requirePage(offset, limit)
         text(subject)
         return database.inReadSnapshot {
             val runs = query("cannot search usage history", """
                 $RUN_SELECT WHERE r.history_enabled=TRUE AND r.subject=? AND r.scenario_id=? AND r.scenario_version=? AND r.release_id=? AND r.release_version=?
                 AND (? IS NULL OR LOCATE(LOWER(?),LOWER(COALESCE(r.question,'')))>0 OR EXISTS(SELECT 1 FROM query_usage_note n WHERE n.run_id=r.run_id AND LOCATE(LOWER(?),LOWER(n.note_text))>0))
                 ORDER BY r.accepted_at DESC,r.run_id LIMIT ? OFFSET ?
-            """.trimIndent(), listOf(subject, publication.scenarioId, publication.scenarioVersion, publication.releaseId, publication.releaseVersion, text, text, text, limit + 1, offset)) { rows ->
+            """.trimIndent(), listOf(subject, publication.scenarioId, publication.scenarioVersion, publication.releaseId, publication.releaseVersion, text, text, text, limit.toLong() + 1L, offset)) { rows ->
                 buildList { while (rows.next()) add(readRun(rows)) }
             }
-            Page(runs.take(limit), if (runs.size > limit) Math.addExact(offset, limit) else null)
+            val items = runs.take(limit)
+            Page(items, QueryUsagePagination.nextOffset(offset, items.size, runs.size > limit))
         }
     }
 
@@ -288,6 +291,5 @@ class QueryUsageRepository(private val database: PlatformDatabase, private val l
         private const val RUN_SELECT = "SELECT r.*,m.sha256,m.byte_count,m.row_count,m.saved_at FROM query_run r LEFT JOIN query_result_manifest m ON m.run_id=r.run_id"
         private fun requireRun(id: String) { require(RUN.matches(id)) { "exact run identity is required" } }
         private fun text(value: String) { require(value.isNotBlank()) { "explicit nonempty text is required" } }
-        private fun page(offset: Int, limit: Int) { require(offset >= 0 && limit in 1..1000) { "invalid history page" } }
     }
 }

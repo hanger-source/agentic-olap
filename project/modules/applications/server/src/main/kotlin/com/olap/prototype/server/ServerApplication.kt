@@ -176,8 +176,10 @@ internal class ServerApplication private constructor(private val plugins: Connec
             })
         add("list-publications", "分页发现获准发布。", handler = publications::list)
         add("read-deployment-availability", "核对精确资产在本部署的可用性，不执行来源查询。", handler = ::availability)
-        add("search-query-usage", "检索本人实际用法。", handler = results::search)
-        add("read-query-usage", "读取本人运行与交付事实。", handler = results::read)
+        add("search-query-usage", "检索本人实际用法。",
+            com.olap.prototype.query.contract.QueryUsagePagination.jsonFields() + mapOf("coordinate" to "exact publication coordinate", "text" to "optional search text"), handler = results::search)
+        add("read-query-usage", "读取本人运行与交付事实；offset/limit 只分页注记，不重跑来源。",
+            com.olap.prototype.query.contract.QueryUsagePagination.jsonFields() + mapOf("runId" to "exact owned run identity"), handler = results::read)
         add("append-query-usage-note", "为已有用法追加明确说明。", readOnly = false, handler = results::appendNote)
         resultReaders.forEach { add(it, "读取本人已保存结果；不重新执行来源查询。", permission = CapabilityRegistry.require(it).permission) }
     }

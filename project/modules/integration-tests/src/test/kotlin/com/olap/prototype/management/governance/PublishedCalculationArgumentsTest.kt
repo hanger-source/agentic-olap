@@ -20,6 +20,8 @@ import com.olap.prototype.metric.MetricBusinessMeaning
 import com.olap.prototype.metric.MetricValueContract
 import com.olap.prototype.query.*
 import com.olap.prototype.query.contract.MetricAdoption
+import com.olap.prototype.query.contract.StageAuthorization
+import com.olap.prototype.query.contract.ExpressionAuthorization
 import com.olap.prototype.query.contract.FilterLeafOperator
 import com.olap.prototype.storage.PlatformDatabase
 import com.olap.prototype.warehouse.contract.JdbcConnectionSpec
@@ -72,7 +74,10 @@ class PublishedCalculationArgumentsTest {
                     f.activate("METRIC", calculation.id)
                     f.adopt(calculation.id, bindings = CalculationBindings(emptyMap(), emptyMap(), emptyMap(), emptyMap(), mapOf("completed" to CalculationBindings.RelationParameter())))
                     f.grantMetric(calculation.id, order = 4)
-                    f.scenarios.createScenarioPipelineRule(ScenarioPipelineRuleCreateRequest(GovernanceOrderFixture.SCENARIO, 1, "DERIVE", 1))
+                    val selected = StageAuthorization("DERIVE", emptySet(), emptySet(), ExpressionAuthorization(
+                        setOf(ExpressionAuthorization.Kind.NUMERIC, ExpressionAuthorization.Kind.OPERATION, ExpressionAuthorization.Kind.SYMBOL),
+                        setOf(ResultExpression.ResultOperator.ADD), emptySet(), emptySet(), emptySet()))
+                    f.scenarios.createScenarioPipelineRule(ScenarioPipelineRuleCreateRequest(GovernanceOrderFixture.SCENARIO, 1, "DERIVE", 1, selected))
                     val restricted = f.scenarios.createScenario(ScenarioCreateRequest(GovernanceOrderFixture.SUBJECT, 1, "native_restricted", "不授权查询内变换", "analyst", "仅允许采用后的计数", "golden")).scenario
                     val count = f.metrics.listMetrics().first { it.code == "native_amount_records" }
                     f.grantMetric(count.id, scenario = restricted.id)
@@ -94,6 +99,19 @@ class PublishedCalculationArgumentsTest {
                     val row = f.execute(publication, decoded.computation).result.resultFrame.rows.single()
                     assertEquals(4.0, (row["records"] as Number).toDouble())
                     assertEquals(3.0, (row["distinct_amounts"] as Number).toDouble())
+                    val completed = complete("native_amount_records")
+                    fun publicArithmetic(operator: ResultExpression.ResultOperator) = QueryComputation.Scope(completed.root, completed.inputs,
+                        listOf(PostOperationContract.Derive(ResultExpression.ResultNumeric(ResultExpression.ResultOperation(operator,
+                            listOf(ResultExpression.ResultSymbol("quantity"), ResultExpression.ResultSymbol("quantity"))),
+                            GovernanceOrderFixture.records(), null), "selected_arithmetic", "明确批准的数量运算")))
+                    number("8", f.execute(publication, publicArithmetic(ResultExpression.ResultOperator.ADD)).result.resultFrame.rows.single()["selected_arithmetic"])
+                    val beforeUnselected = server.queries
+                    val unselected = assertThrows(EngineExecutionException::class.java) {
+                        f.execute(publication, publicArithmetic(ResultExpression.ResultOperator.SUBTRACT))
+                    }
+                    assertEquals("AUTHORIZE_INPUT", unselected.stage)
+                    assertEquals("EXECUTABLE_QUERY_NOT_PUBLISHED", unselected.code)
+                    assertEquals(beforeUnselected, server.queries, "同一发布未选SUBTRACT，应在调用实际HTTP来源前拒绝")
                     val restricted = f.publication("published_native_scalar", scenario = "${GovernanceOrderFixture.SUBJECT}.native_restricted")
                     val input = complete("native_amount_records")
                     val denied = QueryComputation.Scope(input.root, input.inputs, listOf(PostOperationContract.Derive(
@@ -139,7 +157,7 @@ class PublishedCalculationArgumentsTest {
             f.adopt(average.id, bindings = CalculationBindings(emptyMap(), emptyMap(), emptyMap(), emptyMap(),
                 mapOf("completed" to CalculationBindings.RelationParameter())))
             f.grantMetric(average.id, order = 3)
-            f.scenarios.createScenarioPipelineRule(ScenarioPipelineRuleCreateRequest(GovernanceOrderFixture.SCENARIO, 1, "DERIVE", 1))
+            f.scenarios.createScenarioPipelineRule(ScenarioPipelineRuleCreateRequest(GovernanceOrderFixture.SCENARIO, 1, "DERIVE", 1, StageAuthorization.current("DERIVE")))
             f.activateSubjectGraph()
         }
 

@@ -18,9 +18,11 @@ object ExecutableStageAnalysis {
     fun analyze(graph: ExecutableInputGraph, connectors: ConnectorRegistry): Map<ScopeId, Analysis> = Session(graph, connectors).analyze()
 
     /** 保留同一绑定图和已经完成的子计算，只重分析物理切点上的来源前缀。 */
-    fun sourcePrefix(graph: ExecutableInputGraph, fullAnalyses: Map<ScopeId, Analysis>, sourceScope: ScopeId,
+    fun sourcePrefix(graph: ExecutableInputGraph, fullAnalyses: Map<ScopeId, Analysis>, cut: CoreFinalizationGraph.SourceCut,
         connectors: ConnectorRegistry): Map<ScopeId, Analysis> {
+        val sourceScope = cut.scope
         check(sourceScope in fullAnalyses && graph.scope(sourceScope) != null) { "core source cut must identify an actual analyzed scope" }
+        if (cut.completed) return fullAnalyses
         return Session(graph, connectors, fullAnalyses - sourceScope, setOf(sourceScope)).analyze(sourceScope)
     }
 

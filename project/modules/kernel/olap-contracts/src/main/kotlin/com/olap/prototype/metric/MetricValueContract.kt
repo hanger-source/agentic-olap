@@ -196,8 +196,34 @@ class MetricValueContract(val unit: Unit, val arithmetic: Arithmetic, val result
             actual is Integer && expected is Integer -> actual.bits <= expected.bits
             actual is BinaryFloat && expected is BinaryFloat -> actual.bits <= expected.bits
             actual is Decimal && expected is Decimal -> actual.scale <= expected.scale && actual.precision - actual.scale <= expected.precision - expected.scale
-            actual is Integer && expected is Decimal -> when (actual.bits) { 8 -> 3; 16 -> 5; 32 -> 10; 64 -> 19; 128 -> 39; else -> error("invalid integer capacity") } <= expected.precision - expected.scale
+            actual is Integer && expected is Decimal -> integerDigits(actual.bits) <= expected.precision - expected.scale
             else -> false
+        }
+
+        /** 分支选择只统一已有值的表示，不执行舍入，也不补充输入的算术保证。 */
+        fun commonResult(results: List<Result>): Result {
+            require(results.isNotEmpty()) { "common numeric capacity requires at least one input" }
+            return when {
+                results.all { it is Integer } -> Integer(results.maxOf { (it as Integer).bits })
+                results.all { it is BinaryFloat } -> BinaryFloat(results.maxOf { (it as BinaryFloat).bits })
+                results.all { it is Integer || it is Decimal } -> {
+                    val scale = results.maxOf { (it as? Decimal)?.scale ?: 0 }
+                    val integer = results.maxOf { result ->
+                        when (result) {
+                            is Decimal -> result.precision - result.scale
+                            is Integer -> integerDigits(result.bits)
+                            is BinaryFloat -> error("floating capacity has no exact decimal common representation")
+                        }
+                    }
+                    Decimal(Math.addExact(integer, scale), scale, Rounding.NONE)
+                }
+                else -> throw IllegalArgumentException("numeric branches require an explicit lossless common representation for exact and floating inputs")
+            }
+        }
+
+        private fun integerDigits(bits: Int): Int = when (bits) {
+            8 -> 3; 16 -> 5; 32 -> 10; 64 -> 19; 128 -> 39
+            else -> error("invalid integer capacity")
         }
     }
 }

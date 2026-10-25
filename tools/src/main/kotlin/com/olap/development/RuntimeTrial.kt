@@ -42,6 +42,7 @@ internal class RuntimeTrial(private val distribution: Path, private val root: Pa
         client.responseLimit = 65536
         val processes = linkedSetOf<Long>()
         val sessions = linkedSetOf<String>()
+        lateinit var resourceReuse: JsonObject
         ManagedProcess(listOf(distribution.resolve("runtime/agentic-olap").toString(), "start", "--config", configFile.toString()),
             workspace, root.resolve("service.log"), mapOf("AGENTIC_OLAP_TEST_SECRET" to "must-not-reach-the-author",
                 "SSL_CERT_FILE" to issuer.ca.toString(), "NO_PROXY" to "127.0.0.1,localhost")).use { service ->
@@ -105,6 +106,8 @@ internal class RuntimeTrial(private val distribution: Path, private val root: Pa
                 """.trimIndent(), "changed", firstSession).succeeded()
                 check(continued.report["workerId"] == first.report["workerId"])
                 check(continued.value()["text"] == text("first/changed/first"))
+                resourceReuse = resourceBoundaries(::submit, firstSession, first.report.getValue("workerId"),
+                    firstIdentity.objectAt("pid").string("text"))
                 val secondContinued = submit("olap.output(ScriptValue.Text(productModel.code))", "changed", secondSession).succeeded()
                 check(secondContinued.value()["text"] == text("second"))
 
@@ -195,6 +198,107 @@ internal class RuntimeTrial(private val distribution: Path, private val root: Pa
         write(root.resolve("report.json"), objectOf("passed" to bool(true), "persistentLanguageHistory" to bool(true),
             "independentSessions" to bool(true), "identityIsolation" to bool(true), "singleAdmissionCallback" to bool(true), "sandbox" to bool(true),
             "executionIdentity" to bool(true), "completeOrderedOutput" to bool(true), "committedEffectsRecovered" to bool(true),
+            "resourceReuse" to resourceReuse,
             "forcedCancellation" to bool(true), "processesReaped" to bool(true), "chunkedInputLimit" to bool(true)))
+    }
+
+    private fun resourceBoundaries(submit: (String, String, String?) -> ScriptResult,
+        session: String, worker: JsonElement, pid: String): JsonObject {
+        fun retained(source: String, label: String): ScriptResult {
+            val result = submit(source.trimIndent(), label, session).succeeded()
+            check(result.report.getValue("sessionUsable").jsonPrimitive.boolean && result.report["workerDisposition"] == text("RETAINED"))
+            check(result.report["workerId"] == worker)
+            check(result.value()["text"] == text("$pid/$label/first")) { "同一 JVM 应继续使用原语言历史：${result.report}" }
+            return result
+        }
+        retained("""
+            fun resourceReport(label: String, model: BusinessLineCreateRequest) = olap.output(ScriptValue.Text(
+                ProcessHandle.current().pid().toString() + "/" + label + "/" + model.code))
+            val resourceClient = olap
+            val resourceOutput = System.out
+            val resourceStarted = java.util.concurrent.CountDownLatch(20)
+            val resourceAttempt = java.util.concurrent.CountDownLatch(1)
+            val resourceAttemptDone = java.util.concurrent.CountDownLatch(1)
+            val resourceHold = java.util.concurrent.CountDownLatch(1)
+            val resourceFailure = java.util.concurrent.atomic.AtomicReference<Throwable>()
+            val resourceThreads = List(20) { index ->
+                Thread.ofPlatform().daemon(true).name("retained-author-" + index).start {
+                    resourceStarted.countDown()
+                    if (index == 0) {
+                        resourceAttempt.await()
+                        try {
+                            resourceClient.sources.list(EmptyRequest)
+                        } catch (failure: Throwable) {
+                            resourceFailure.set(failure)
+                        } finally {
+                            resourceOutput.print("old-fragment-background-output")
+                            resourceAttemptDone.countDown()
+                        }
+                    }
+                    resourceHold.await()
+                }
+            }
+            check(resourceThreads.size == 20 && resourceThreads.all { it.isAlive && !it.isVirtual })
+            resourceReport("platform-threads", productModel)
+        """, "platform-threads")
+        val continued = retained("""
+            resourceStarted.await()
+            check(resourceThreads.all { it.isAlive })
+            resourceAttempt.countDown()
+            resourceAttemptDone.await()
+            check(resourceFailure.get() is IllegalStateException)
+            check(olap.sources.list(EmptyRequest).items.isEmpty())
+            println("current-fragment-output")
+            resourceReport("background-rejected", productModel)
+        """, "background-rejected")
+        check(continued.report.array("calls").map { it.jsonObject.string("operationId") } == listOf("list-data-sources"))
+        val continuedOutput = printed(continued, "STDOUT")
+        check("current-fragment-output" in continuedOutput && "old-fragment-background-output" !in continuedOutput)
+        val replaced = retained("""
+            resourceHold.countDown()
+            resourceThreads.forEach { it.join() }
+            check(resourceThreads.none { it.isAlive })
+            val resourceOriginalInput = System.`in`
+            val resourceOriginalOutput = System.out
+            val resourceOriginalError = System.err
+            val resourceReplacementInput = java.io.ByteArrayInputStream(byteArrayOf(1, 2, 3))
+            val resourceReplacementOutput = java.io.PrintStream(java.io.ByteArrayOutputStream())
+            val resourceReplacementError = java.io.PrintStream(java.io.ByteArrayOutputStream())
+            val resourceReplacementLoader = java.net.URLClassLoader(emptyArray<java.net.URL>(), Thread.currentThread().contextClassLoader)
+            System.out.close()
+            System.err.close()
+            println("stdout-after-close")
+            System.err.println("stderr-after-close")
+            resourceReport("context-replaced", productModel)
+            System.setIn(resourceReplacementInput)
+            System.setOut(resourceReplacementOutput)
+            System.setErr(resourceReplacementError)
+            Thread.currentThread().contextClassLoader = resourceReplacementLoader
+        """, "context-replaced")
+        check("stdout-after-close" in printed(replaced, "STDOUT") && "stderr-after-close" in printed(replaced, "STDERR"))
+        val restored = retained("""
+            check(System.`in` === resourceOriginalInput)
+            check(System.out === resourceOriginalOutput && System.err === resourceOriginalError)
+            check(Thread.currentThread().contextClassLoader !== resourceReplacementLoader)
+            check(resourceThreads.none { it.isAlive })
+            check(olap.sources.list(EmptyRequest).items.isEmpty())
+            resourceReplacementInput.close()
+            resourceReplacementOutput.close()
+            resourceReplacementError.close()
+            resourceReplacementLoader.close()
+            println("stdout-after-restoration")
+            resourceReport("context-restored", productModel)
+        """, "context-restored")
+        check("stdout-after-restoration" in printed(restored, "STDOUT"))
+        return objectOf("platformThreads" to number(20), "sameWorker" to worker, "pid" to text(pid),
+            "historyContinued" to bool(true), "backgroundCapabilityRejected" to bool(true), "lateOutputIsolated" to bool(true),
+            "standardStreamCloseRejected" to bool(true), "standardStreamsRestored" to bool(true), "contextClassLoaderRestored" to bool(true))
+    }
+
+    private fun printed(result: ScriptResult, stream: String): String = buildString {
+        result.report.array("outputs").map { it.jsonObject }.filter { it["kind"] == text(stream) }.forEach { output ->
+            append(if (output["encoding"] == text("UTF8")) output.string("content")
+                else String(java.util.Base64.getDecoder().decode(output.string("content")), Charsets.UTF_8))
+        }
     }
 }

@@ -1,47 +1,75 @@
 package com.olap.prototype.runtime
 
 import java.lang.management.ManagementFactory
+import java.lang.management.ThreadMXBean
 import java.nio.file.Files
 import java.nio.file.Path
 
-/** 观察本次求值资源，不关闭会话语言历史；未知平台线程仍阻止继续使用，快照不覆盖虚拟线程。 */
+/** 线程快照只提供观察；会话只因本类实际拥有的求值上下文无法恢复而失去可继续性。 */
 internal class ScriptExecutionResources(directory: Path) : AutoCloseable {
     private val thread = Thread.currentThread()
     private val previousLoader = thread.contextClassLoader
     private val previousInput = System.`in`
     private val previousOutput = System.out
     private val previousError = System.err
-    private val threadBean = ManagementFactory.getThreadMXBean()
+    private var threadBean: ThreadMXBean? = null
     private var threadsBeforeEvaluation: Set<Long>? = null
+    private var prepared = false
     private val issues = mutableListOf<ScriptResourceIssue>()
     val resourceIssues: List<ScriptResourceIssue> get() = java.util.List.copyOf(issues)
+    var evaluationContextRestored = true
+        private set
 
     init {
         require(Files.isDirectory(directory)) { "script execution requires its actual temporary directory" }
     }
 
     fun prepareEvaluation() {
-        check(threadsBeforeEvaluation == null) { "script evaluation resources were already used" }
+        check(!prepared) { "script evaluation resources were already used" }
+        prepared = true
         // 已存在的编译环境线程进入基线；差集只说明新增观察，不证明由脚本创建。
-        threadsBeforeEvaluation = try { threadBean.allThreadIds.toSet() }
+        try {
+            val bean = ManagementFactory.getThreadMXBean()
+            threadsBeforeEvaluation = bean.allThreadIds.toSet()
+            threadBean = bean
+        }
         catch (failure: Exception) {
             inspectionFailure("platform thread baseline could not be inspected", failure)
-            throw failure
         }
     }
 
     override fun close() {
         val changedStreams = listOf(System.`in` !== previousInput, System.out !== previousOutput, System.err !== previousError).count { it }
-        if (changedStreams != 0) issues += ScriptResourceIssue("STREAMS_CHANGED", "script worker standard streams changed during evaluation", changedStreams)
+        if (changedStreams != 0) {
+            issues += ScriptResourceIssue("STREAMS_CHANGED", "script worker standard streams changed during evaluation", changedStreams)
+            try {
+                System.setIn(previousInput)
+                System.setOut(previousOutput)
+                System.setErr(previousError)
+                check(System.`in` === previousInput && System.out === previousOutput && System.err === previousError) {
+                    "script worker standard streams differ after restoration"
+                }
+            } catch (failure: Exception) {
+                evaluationContextRestored = false
+                issues += ScriptResourceIssue("STANDARD_STREAM_RESTORE_FAILED",
+                    "script worker standard streams could not be restored (${failure.javaClass.name.take(MAXIMUM_TEXT)})")
+            }
+        }
         try { threadsBeforeEvaluation?.let(::inspectThreads) }
         catch (failure: Exception) { inspectionFailure("platform thread state could not be inspected", failure) }
-        try { thread.contextClassLoader = previousLoader }
-        catch (failure: Exception) { issues += ScriptResourceIssue("CONTEXT_CLASSLOADER_RESTORE_FAILED",
-            "script evaluation context classloader could not be restored (${failure.javaClass.name.take(MAXIMUM_TEXT)})") }
+        try {
+            thread.contextClassLoader = previousLoader
+            check(thread.contextClassLoader === previousLoader) { "script evaluation context classloader differs after restoration" }
+        } catch (failure: Exception) {
+            evaluationContextRestored = false
+            issues += ScriptResourceIssue("CONTEXT_CLASSLOADER_RESTORE_FAILED",
+                "script evaluation context classloader could not be restored (${failure.javaClass.name.take(MAXIMUM_TEXT)})")
+        }
     }
 
     private fun inspectThreads(before: Set<Long>) {
-        val observed = threadBean.allThreadIds.filter { it != thread.threadId() && it !in before }.sorted()
+        val bean = checkNotNull(threadBean)
+        val observed = bean.allThreadIds.filter { it != thread.threadId() && it !in before }.sorted()
         if (observed.isEmpty()) return
         var remainingCount = observed.size
         var truncated = observed.size > MAXIMUM_THREADS
@@ -54,10 +82,10 @@ internal class ScriptExecutionResources(directory: Path) : AutoCloseable {
         try {
             // ThreadInfo 可限栈深度；ThreadGroup 枚举仅用于补充它未提供的 TCCL。
             val references = platformThreads(selected.toSet())
-            val information = threadBean.getThreadInfo(selected.toLongArray(), MAXIMUM_STACK_FRAMES + 1)
+            val information = bean.getThreadInfo(selected.toLongArray(), MAXIMUM_STACK_FRAMES + 1)
             information.forEach { info ->
                 // allThreadIds 返回时线程可能已结束；正式 ThreadInfo=null 确认该平台线程已不再存活。
-                // 未取样或读取失败的候选没有这项证明，仍留在 remainingCount 中。
+                // 未取样或读取失败只保留观察的不确定性，不决定会话生命周期。
                 if (info == null) { remainingCount--; return@forEach }
                 val candidate = references[info.threadId]
                 val loader = if (candidate == null) {

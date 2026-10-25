@@ -81,7 +81,7 @@ class PublishedQueryHistoryTest {
             val reopenedUsage = QueryUsageRepository(database, RuntimeDeploymentLimits.io)
             assertEquals(QueryUsageRepository.Execution.SUCCEEDED, reopenedUsage.require(run).execution)
             assertEquals(QueryUsageRepository.Delivery.FAILED, reopenedUsage.require(run).delivery)
-            assertEquals(listOf(note), reopenedUsage.notes(run, 0, 10))
+            assertEquals(listOf(note), reopenedUsage.notes(run, 0, 10).items)
             assertEquals(run, reopenedUsage.search("analyst", coordinate, "支付日期", 0, 10).items.single().runId)
             assertTrue(reopenedUsage.search("another-subject", coordinate, null, 0, 10).items.isEmpty())
             assertFalse(reopenedUsage.references(run).isEmpty())

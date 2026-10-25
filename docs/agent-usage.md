@@ -33,10 +33,10 @@ agentic-olap call describe-script-api --payload '{"type":"com.olap.prototype.cal
 
 ## 会话中调用正式能力
 
-`execute-script` 向持续 Kotlin 会话提交一个完整代码片段。DSL 为 `agentic-olap-kotlin-dsl/v2`，实际版本取服务发现结果。省略或留空 `sessionId` 创建会话；后续用实际返回的 `sessionId` 在同一 JVM 中继续。首次调用可以读取来源并保留 Kotlin 对象：
+`execute-script` 向持续 Kotlin 会话提交一个完整代码片段。DSL 为 `agentic-olap-kotlin-dsl/v3`，实际版本取服务发现结果。省略或留空 `sessionId` 创建会话；后续用实际返回的 `sessionId` 在同一 JVM 中继续。首次调用可以读取来源并保留 Kotlin 对象：
 
 ~~~sh
-agentic-olap call execute-script --payload '{"executionId":"sources-001","waitMillis":0,"source":"val sources = olap.sources.list(EmptyRequest)\nolap.output(sources)","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v2","parameters":{}}'
+agentic-olap call execute-script --payload '{"executionId":"sources-001","waitMillis":0,"source":"val sources = olap.sources.list(EmptyRequest)\nolap.output(sources)","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v3","parameters":{}}'
 agentic-olap call wait-script --payload '{"executionId":"sources-001","waitMillis":1000}'
 ~~~
 
@@ -53,7 +53,7 @@ agentic-olap call wait-script --payload '{"executionId":"sources-001","waitMilli
 | `reset-script-session` | `sessionId` | 停止当前代码并确认旧 JVM 退出，清理会话目录后建立空语言环境 |
 | `close-script-session` | `sessionId` | 停止当前代码并确认旧 JVM 退出，清理目录并释放会话资源 |
 
-会话状态为 `STARTING/READY/BUSY/RESETTING/CLOSING/LOST/CLOSED`。`READY` 才可提交下一片段；控制操作期间明确拒绝新提交。普通编译失败可以继续使用会话；不可恢复的语言故障、未知活线程或进程故障会使会话不可用，必须显式 reset，不自动重建后重放历史。服务重启不恢复源码变量、函数、对象或执行记录；正式语义资产、保存结果和完整响应存档各按自己的持久合同读取。
+会话状态为 `STARTING/READY/BUSY/RESETTING/CLOSING/LOST/CLOSED`。`READY` 才可提交下一片段；控制操作期间明确拒绝新提交。普通编译失败及官方求值历史仍可继续的运行错误可以保留会话；不可恢复的语言故障、求值上下文恢复失败、进程／协议故障或强制终止需要显式 reset，不自动重建后重放历史。线程数量、未知归属或线程观察失败不决定会话可继续性。服务重启不恢复源码变量、函数、对象或执行记录；正式语义资产、保存结果和完整响应存档各按自己的持久合同读取。
 
 ### 稳定环境与参数快照
 
@@ -115,7 +115,7 @@ JSON 输入预算拒绝使用 `JSON_INPUT_RESOURCE_LIMIT`；诊断给出 `resour
 
 引用只帮助在本次响应内定位已完成效果，读取仍须经过原有权限。嵌套列和成员从精确根版本的正式读取入口分页取得，不复制完整结果模型，不选择 latest。空 `effects` 不证明没有副作用：例如来源集合登记和查询使用备注仍会写入各自记录。查询历史不能代替治理写入追溯。本合同不提供断线或进程退出后的持久恢复；失败不自动重试、回滚或重放整段程序。
 
-`workerOutcome/workerDisposition/recycleReasons` 描述实际进程处理，不替代执行及会话状态。语言历史的类加载器由会话持有，不逐片段关闭。求值基线以外、未确认结束且归属未知的平台线程会使会话不可继续；JVM 已确认结束的候选不计作残留，未取样或读取失败不当作已结束。该观察不证明线程泄漏，不覆盖虚拟线程。关联 request/worker 的线程身份、状态、daemon、上下文类加载器和必要堆栈仅进入有界私有诊断，公开报告不携带线程堆栈。
+`workerOutcome/workerDisposition/recycleReasons` 描述实际进程处理，不替代执行及会话状态。语言历史的类加载器由会话持有，不逐片段关闭。线程差集只供观察，不证明创建者或泄漏；新增线程、归属未知、采样不全或读取失败不会改变执行状态及会话可继续性。关联 request/worker 的线程身份、状态、daemon、上下文类加载器和必要堆栈仅进入有界私有诊断，快照不覆盖虚拟线程，公开报告不携带线程堆栈。后台线程不能借用后续片段的正式能力权限；越界调用、迟到输出和关闭产品标准流的动作被拦截并记诊断，不因此终止会话。同步能力等待中断后保留原调用身份，宿主收齐本次能力任务；同一管道 writer 保证已提交回复先于下一片段请求完整交付，实际写帧失败会结束该通信进程。未知业务结局不等于语言历史不可继续，也不自动重试业务操作。
 
 ## 定义建设与持续复用
 
@@ -139,7 +139,28 @@ olap.output(result)
 
 主题、场景和采用的读取、延续、修订及依赖影响均在 `olap.semantics`、`olap.governance` 中发现。延续旧上下文时读取精确源版本的选择，再显式提交 `carry`；四类选择及其依赖一起核验，不自动扩大授权或切到 latest。共享成员或指标采用的更新指定精确定义版本及完整绑定，历史发布保持冻结。
 
-场景阶段授权的刷新使用 `refreshScenarioPipelineRuleContract`。场景精确版本必须处于 DRAFT，并已有且仅有一条指定 `ruleType` 的规则。作者提交的 `approvedAuthorization` 必须与本部署 `StageAuthorization.current(ruleType)` 完整相等：操作类型、JOIN 类型、聚合类型，以及表达式的节点、操作、函数、CAST 类型、字面量类型五组集合分别相等，集合顺序无关。手工构造可以表达冻结合同，但刷新接口不接受其子集或超集，也不按本次 Query 使用了哪些节点推导批准范围。读取上述三个公开类型的 `rules` 后，作者决定是否明确批准当前完整候选；服务不会自动改用工厂值。刷新只改本场景已有规则的授权合同，历史发布保持冻结；激活和构建发布仍是另外的明确调用。
+场景阶段授权由作者显式选择。`createScenarioPipelineRule` 必须提供 `authorization`；`refreshScenarioPipelineRuleContract` 必须提供 `approvedAuthorization`，并要求精确 DRAFT 场景中已有且仅有一条指定 `ruleType` 的规则。两个入口都要求授权的操作身份与 `ruleType` 一致，所选 JOIN、聚合及表达式节点、操作、函数、CAST 类型和字面量类型均属于该操作当前支持域；允许只选择其中一部分。`StageAuthorization.current(ruleType)` 是作者可选的全选便利工厂，不是必经批准范围。刷新完整替换本规则的显式选择，可以缩减既有授权，不自动保留旧选择、补全表达式依赖或从本次 Query 推导授权。实际查询逐项检查所使用的节点及参数是否获准。候选支持域与创建、刷新合同可通过上述类型的 `rules` 读取；历史发布保持冻结，激活和构建发布仍是另外的明确调用。
+
+例如，对已明确选定的 DRAFT 场景，可以只批准基于符号的加减数量表达式，不批准乘除、函数或其他节点。下面的参数指定该场景的精确身份和版本：
+
+~~~kotlin
+val expressions = ExpressionAuthorization(
+    kinds = setOf(ExpressionAuthorization.Kind.NUMERIC, ExpressionAuthorization.Kind.SYMBOL, ExpressionAuthorization.Kind.OPERATION),
+    operators = setOf(ResultExpression.ResultOperator.ADD, ResultExpression.ResultOperator.SUBTRACT),
+    functions = emptySet(), castTypes = emptySet(), literalTypes = emptySet()
+)
+val selected = StageAuthorization("DERIVE", emptySet(), emptySet(), expressions)
+val rule = olap.governance.createScenarioPipelineRule(ScenarioPipelineRuleCreateRequest(
+    scenarioId = parameters.text("scenarioId"),
+    scenarioVersion = parameters.text("scenarioVersion").toLong(),
+    ruleType = "DERIVE", sortOrder = 1, authorization = selected
+))
+olap.output(rule)
+~~~
+
+这一选择不会补入 MULTIPLY 或字面量节点。后续查询若确实需要它们，作者先审阅需要改变的授权，再对 DRAFT 精确规则提交完整的新选择；既有业务示例显式使用 `current` 表示它们主动批准当前完整支持域。
+
+`TopN.limit` 接受非负 `Int`，`0` 明确返回保留输出列结构的空结果。分组层级要求非空、层级身份与分组集合各自唯一，不另外限制层级数量；分组代码使用非负 `Long` 位掩码，因此至多包含 63 个不同维度。来源的实际执行限制和运行资源预算仍分别由来源与部署负责。
 
 每个正式写操作保有自己的事务与失败责任。整段脚本不是覆盖所有调用的一个数据库事务：后续报错不会撤销之前已完成的写入、发布或来源查询。先读真实状态再决定继续，不盲目重放有副作用的脚本。
 
@@ -195,6 +216,10 @@ val dayStatistics = Calculation.Scope(
 结果算术的局部规则从 `ResultExpression.ResultNumeric`、`ResultRound`、`ResultOperation` 和 `ResultOperator` 的 `rules` 读取。`ResultNumeric` 提供当前位置可见的数量声明；声明可以传给 CASE 的结果分支、ROUND、CAST 或算术操作数，内层 NUMERIC 则使用自己的声明。单位方程的作用域更窄：`unitEquation` 只供这个 NUMERIC **直接包住的算术节点**使用，不穿透 ROUND、CASE、CAST、函数或操作数。乘除双方均为单位 ONE 时可省略方程，其他乘除必须在实际算术位置显式声明。
 
 ROUND 在分析子表达式之前，就需要当前位置可见的数量合同。因此 `ResultRound(ResultNumeric(...), scale, rounding)` 中的内层 NUMERIC 不能给外层 ROUND 补合同；外层已有 NUMERIC 声明时，也可以经 CASE 的结果分支传给 ROUND，不要求所有 ROUND 都紧贴一个 NUMERIC。
+
+CASE 与 COALESCE 分别检查单位、算术保证和结果表示。同一单位、同一算术保证的数量分支可以采用不同容量：例如 Exact DECIMAL(12,2) 与 DECIMAL(18,2) 直接形成无损的 DECIMAL(18,2)，无需在每个分支重复包装合同。不同尺度使用足以容纳全部整数位与小数位的共同容量，分支选择本身不舍入；外层 NUMERIC、ROUND 或 CAST 才承担所声明的量化。已有分支丢失的数位不会恢复，单位不同或算术保证不一致仍需作者明确处理，不能把原生浮点提升为 Exact。ROW 与 ARRAY 内的数量按相同规则递归检查。SET 继续使用作者声明的共同槽位合同，并验证每一分支的数量保证和无损容量；关系参数同样检查实际完成数量是否满足目标槽位。
+
+来源执行还要核对原生共同类型确实能够容纳每个分支。后端精度上限导致的缩减会在编译时拒绝，不把 SQL 的隐式类型合并当作精度保证。
 
 例如，已经按同一贡献人口完成 `day_sum` 与 `valid_count` 后，可以这样明确声明有单位的商及其量化。下面的天数单位由业务明确采用；两个符号必须来自前序阶段，分母为单位 ONE 的精确 Integer64 计数。
 
@@ -391,7 +416,11 @@ olap.output(receipt)
 
 这里 SAFE_DIVIDE 明确选择零分母为 NULL；使用普通 DIVIDE 不会隐式改变其除零政策。查询可以直接执行，不要求先校验；若需要解释或校验同一个计划，其请求也应显式选择相同 `executionMode`。解释的摘要给出实际 `sourceOutputScope`，每个根及阶段分别给出 `rootExecutionLocation` 与 `executionLocation=SOURCE/CORE`；SQL 及原生计划只代表来源部分，保存回执保留实际执行模式。
 
-共同计算仍可沉淀为定义：定义以正式关系形参接收完成数量，根使用该关系，阶段表达共同的 DERIVE／PROJECT；查询用根 Compute 调用它并明确绑定 ROOT 输入，选择 CORE_FINALIZATION。根上的单一精确计算调用可以继续引用另一层保存定义；被调用定义的阶段、调用输出的别名投影和数量合同、调用者后续阶段均保留真实作用域并在核心执行，来源子输入继续在来源完成。多调用对齐、分组层次、额外人口及调用根过滤需要关系装配，不会被隐式提升为本地运算；应明确组织为来源 ROOT 输入。调用者无需复制定义内部公式，也不能通过该模式绕过采用与发布授权。
+共同计算可以沉淀为定义：定义以正式关系形参接收完成数量，根使用该关系，阶段表达共同的 DERIVE／PROJECT；查询用根 Compute 调用它并明确绑定 ROOT 输入，选择 CORE_FINALIZATION。多个获准计算可以引用同一份精确完成关系，各自映射关系形参的列。例如，一份按对象完成的 ROOT 同时提供六组 SUM／各字段非 NULL COUNT，六个已发布均值分别将自己的两列映射为 numerator／denominator；来源只交付一次这份完成关系，核心在每一行上执行六份原定义及各自的数量、舍入与 NULL 合同，再投影宽结果。调用者无需复制定义内部公式，也不能绕过采用与发布授权。
+
+切点沿实际依赖确定：关系形参指向的 ROOT 保留全部完成阶段，关系根的列映射、嵌套调用、调用出口的数量合同及后续 DERIVE／PROJECT 在核心按作用域依赖执行。每个分支必须保持同一份来源人口，完整键逐列来自同一来源身份；CALLS 选择其中一个或多个调用时，保留的仍是这份共同人口。空完成关系不会被补成一行，存在对象但分量全 NULL 时仍由各定义的 CASE 与数量合同决定值。
+
+这条路径不在本地按键关联结果。不同完成位置即使来自相同数据源、保留相同维度，也不会被推断为共同输入；分组层次、额外人口、调用根过滤及其他改变行关系的阶段须在来源 ROOT 中先明确完成。切点之后不支持的运算在来源提交前拒绝，不自动改执行位置或再发来源请求。直接在原生根后执行本次 DERIVE／PROJECT 时，切点位于该根的阶段之前；解释中的 sourceOutputScope 及每个根、阶段的执行位置反映实际选择。
 
 核心以精确有理数保存量化前的数值中间结果，在实际 NUMERIC、ROUND 或 CAST 节点按各自合同量化、检查容量；外层声明继承不等于把每次内层除法提前舍入。例如仅在最后量化的 `(1/3)*3` 仍为 1；明确对内层 `1/3` 量化为两位后再乘 3，则保留 0.99。NONE 遇到必须丢弃的数位时拒绝，不伪装成精确结果。DECIMAL(38,18) 只有 20 位整数容量，超出仍按 FAIL 处理。
 
@@ -408,6 +437,8 @@ olap.output(receipt)
 实时 `explain` 核对本次发布及来源授权。已保存结果中的解释属于原运行的冻结技术上下文，沿结果元数据的主体、发布及读取授权交付，不要求重新连接来源或装载当年的插件，也不证明读取者目前仍有执行该来源的权限。
 
 保存查询与保存结果独立。需要复用查询时使用 `olap.queries.save/revise`，其正式 `QueryDefinitionResult` 包含 `definition` 和实际制品摘要生成的 `reference`。后续用 `QuerySelection.Saved(saved.reference)` 执行精确保存版本；不要用 intentHash、名称或最新版本代替引用。保存冻结模型，不保存或重跑原脚本。
+
+可选 `QuerySource` 保留原源码与当时的 `dslApiVersion` 作为溯源信息；读取和执行保存模型不会把该值改成当前 DSL，也不重新编译原源码。重新提交源码是新的明确作者操作，使用服务当前披露的 DSL 与构造器合同。
 
 不可变定义和发布不冻结动态数据。普通重跑读取届时数据；只有来源声明并兑现固定读基础时，才可提交明确的版本化 `readBasis`。历史保存结果按原字节读取，不重跑来源，也不要求重新装载当年的执行插件。
 
@@ -441,11 +472,15 @@ SQL 结果的历史保存由执行请求显式选择 `saveResult=true`，与上�
 
 历史只反映实际保存的运行、引用、问题和明确说明。Agent 据此判断哪些含义值得沉淀；服务不自动知道某模式出现了几次，也不补造会话上下文。
 
+`olap.results.run(QueryRunRequest(runId, offset, limit))` 读取本人的运行与交付事实，`offset/limit` 只分页附加注记；`olap.results.history(QueryRunListRequest(...))` 分页检索本人在精确发布下的历史。两个入口共用分页规则：`offset` 是非负 `Long`，`limit` 是正 `Int`，表示本页最多读取多少项，不额外限定为 200 或 1000，也不要求数据库实际存在这么多项。`nextNoteOffset/nextOffset` 仅在确有更多项时按实际返回数量给出，沿用 `Long` 坐标。JSON 入口省略分页字段时使用 `offset=0/limit=50`；INT64 坐标可以使用十进制字符串或整数 token，正式 Protobuf JSON 返回的下一页坐标是十进制字符串，可以直接作为下一次 JSON 请求的 `offset`。Kotlin 直接使用返回的 `Long`。
+
+上述两个请求类型的 `rules` 和 JSON 操作说明公开实际表示范围。非法分页返回 `INVALID_PAGINATION / CONTRACT_INPUT`，给出 `offset` 或 `limit` 路径、实际数值和允许的闭区间；JSON 字段形态不符返回 `INVALID_REQUEST / DECODE_INPUT`。较大的用法返回仍按最终消息交付规则完整返回或保存，不截断、不重新执行业务操作。
+
 ## 修正失败
 
 Kotlin 语法、类型和构造器错误保留唯一 `snippetId`、显示 `sourceName` 及源码位置；后续片段调用历史函数时可以定位到原声明片段。诊断使用正式 Protobuf JSON 字段名，例如 `location.startLine` 和 `fieldPath`。已声明的构造器合同拒绝保留稳定错误码、合同阶段及 `fieldPath/expected/actual`；路径相对于该构造器输入，例如 `MemberResult` 的 `outputs/total/valueContract/unitEquations`，不伪装成尚未提交的治理请求路径。`expected/actual` 表达要求与实际形态，例如 `EMPTY_MAP/NONEMPTY_MAP`，不回显映射值。正式能力错误保留操作、稳定错误码、字段路径、调用标识和可公开诊断。区分编译拒绝、运行失败、取消、会话不可用、语义不成立、未授权、插件未实现、来源失败、来源结局未知与交付失败。
 
-阶段授权批准不匹配使用 `STAGE_AUTHORIZATION_APPROVAL_MISMATCH`，给出 `approvedAuthorization` 路径和各集合的 `missing/unexpected` 差异；缺少待刷新的规则使用 `SCENARIO_STAGE_RULE_REQUIRED`。精确治理版本不是 DRAFT 时使用 `GOVERNANCE_DRAFT_REQUIRED`，返回对象、版本、要求和实际状态。这些拒绝不提交本次写入，也不回滚脚本之前已经完成的正式调用。
+阶段授权选择超出支持域或操作身份不符时使用 `STAGE_AUTHORIZATION_UNSUPPORTED`，给出 `authorization` 或 `approvedAuthorization` 路径、期望与实际操作身份，以及各集合中实际不支持的 `unsupported` 项；未选择某项能力本身不会导致创建或刷新失败。缺少待刷新的规则使用 `SCENARIO_STAGE_RULE_REQUIRED`。精确治理版本不是 DRAFT 时使用 `GOVERNANCE_DRAFT_REQUIRED`，返回对象、版本、要求和实际状态。这些拒绝不提交本次写入，也不回滚脚本之前已经完成的正式调用。
 
 能力失败的受控扩展信息在 `diagnostics[].capabilityFailure.details` 中作为 JSON 对象交付，包含上述差异或服务日志坐标；内部协议的 `detailsJson` 字节不要求业务 Agent 自行解码。`capabilityFailure.fieldPath`、`diagnosticId`、`operationId` 和 `callId` 保持各自正式归属。
 

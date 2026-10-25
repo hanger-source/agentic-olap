@@ -16,8 +16,20 @@ object QueryValueSemantics {
         "unitEquation" to "OPTIONAL_NAME_IN_THIS_VALUE_CONTRACT_APPLIED_ONLY_TO_THE_DIRECTLY_WRAPPED_ARITHMETIC_NODE",
         "equationPropagation" to "DOES_NOT_CROSS_ROUND_CAST_CASE_FUNCTION_ARGUMENTS_OR_OPERATION_OPERANDS",
         "precision" to "CANNOT_RECOVER_PRECISION_ALREADY_LOST_BY_AN_INPUT_OR_NATIVE_OPERATION",
+        "alternatives" to alternativeContract(),
         "violationCodes" to listOf(InputContractException.Rule.RESULT_NUMERIC_CONTRACT_REQUIRED.code,
             InputContractException.Rule.RESULT_UNIT_EQUATION_REQUIRED.code),
+    )
+    fun alternativeContract(): Map<String, Any> = mapOf(
+        "operations" to listOf("CASE", "COALESCE"),
+        "meaning" to "MATCH_MEASUREMENT_UNIT_AND_RECURSIVE_VALUE_SHAPE",
+        "arithmetic" to "SAME_DECLARED_GUARANTEE_NO_IMPLICIT_UPGRADE_OR_INVENTED_ERROR_BOUND",
+        "representation" to "LOSSLESS_COMMON_CAPACITY_OF_EVERY_NON_NULL_ALTERNATIVE",
+        "exactCapacity" to "MAXIMUM_INTEGER_DIGITS_PLUS_MAXIMUM_SCALE_OR_WIDEST_INTEGER",
+        "floatingCapacity" to "WIDEST_DECLARED_BINARY_FLOAT_NO_IMPLICIT_EXACT_FLOATING_CONVERSION",
+        "rounding" to "NO_NEW_QUANTIZATION_AT_SELECTION_EXPLICIT_NUMERIC_ROUND_AND_CAST_REMAIN_EFFECTIVE",
+        "provenance" to "RETAINS_ALL_ALTERNATIVE_QUANTITY_ORIGINS_WITHOUT_CREATING_ADDITIVITY",
+        "source" to "NATIVE_COMMON_TYPE_MUST_PRESERVE_EACH_INPUT_CAPACITY_OR_COMPILATION_REJECTS",
     )
     fun roundContract(): Map<String, Any> = mapOf(
         "scale" to mapOf("minimum" to ResultRound.MINIMUM_SCALE, "maximum" to ResultRound.MAXIMUM_SCALE),
@@ -252,7 +264,7 @@ object QueryValueSemantics {
     }
     fun requireSameMeaning(left: QueryValue, right: QueryValue) {
         when {
-            left is QueryValue.Measure && right is QueryValue.Measure -> require(QueryQuantity.sameUnit(left.quantity.unit, right.quantity.unit) && left.quantity.declaration.arithmetic == right.quantity.declaration.arithmetic && left.quantity.declaration.result == right.quantity.declaration.result) { "branches or set positions have different quantity meanings" }
+            left is QueryValue.Measure && right is QueryValue.Measure -> require(QueryQuantity.sameUnit(left.quantity.unit, right.quantity.unit)) { "branches or set positions have different measurement units" }
             left is QueryValue.Row && right is QueryValue.Row && left.fields.size == right.fields.size -> left.fields.zip(right.fields).forEach { (first, second) -> requireSameMeaning(first, second) }
             left is QueryValue.Array && right is QueryValue.Array -> requireSameMeaning(left.element, right.element)
             left is QueryValue.Plain && right is QueryValue.Plain -> Unit
@@ -325,7 +337,16 @@ object QueryValueSemantics {
         val first = values.first()
         values.forEach { requireSameMeaning(first, it) }
         return when (first) {
-            is QueryValue.Measure -> QueryValue.Measure(QueryQuantity(first.quantity.declaration, first.quantity.unit, QueryQuantity.alternatives(values.map { measure(it).provenance })))
+            is QueryValue.Measure -> {
+                val quantities = values.map(::measure)
+                val declaration = first.quantity.declaration
+                require(quantities.all { it.declaration.arithmetic == declaration.arithmetic }) {
+                    "numeric branches require an explicit common arithmetic guarantee; alternative selection cannot upgrade or invent input guarantees"
+                }
+                val common = MetricValueContract(declaration.unit, declaration.arithmetic,
+                    MetricValueContract.commonResult(quantities.map { it.declaration.result }), declaration.unitEquations, declaration.overflow)
+                QueryValue.Measure(QueryQuantity(common, first.quantity.unit, QueryQuantity.alternatives(quantities.map { it.provenance })))
+            }
             is QueryValue.Row -> QueryValue.Row(first.fields.indices.map { index -> alternatives(values.map { (it as QueryValue.Row).fields[index] }) })
             is QueryValue.Array -> QueryValue.Array(alternatives(values.map { (it as QueryValue.Array).element }))
             is QueryValue.Plain -> QueryValue.anonymous()

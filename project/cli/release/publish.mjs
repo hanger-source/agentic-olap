@@ -130,7 +130,7 @@ async function checkPackage(file, name, version) {
   }
   const distribution = members.get('package/distribution.json')?.json;
   require(distribution?.formatVersion === 'agentic-olap-distribution/v4' && distribution.version === version, '缺少精确服务发行清单');
-  require(distribution.scripting?.dslApiVersion === 'agentic-olap-kotlin-dsl/v2', '缺少本版脚本 DSL 身份');
+  require(distribution.scripting?.dslApiVersion === 'agentic-olap-kotlin-dsl/v3', '缺少本版脚本 DSL 身份');
   const classpaths = [distribution.server?.classpath, distribution.worker?.classpath, distribution.scripting.runtime?.classpath, distribution.scripting.dsl];
   require(classpaths.every(group => Array.isArray(group) && group.length > 0), '服务、脚本运行及 DSL 类路径必须完整');
   const required = new Map();

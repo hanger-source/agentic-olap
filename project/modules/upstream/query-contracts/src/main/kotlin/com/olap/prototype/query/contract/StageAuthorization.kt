@@ -11,6 +11,21 @@ class StageAuthorization(val operationType: String, joinTypes: Set<JoinType>, ag
     val joinTypes: Set<JoinType> = java.util.Set.copyOf(joinTypes)
     val aggregations: Set<ResultAggregation.Kind> = java.util.Set.copyOf(aggregations)
     init { PostOperationContract.requireType(operationType, "stage authorization operation") }
+    /** 仅报告超出支持域的显式选择；未选择的能力不构成错误，也不自动补齐。 */
+    fun unsupportedBy(supported: StageAuthorization): Map<String, List<String>> = buildMap {
+        if (operationType != supported.operationType) put("operationType", listOf(operationType))
+        fun <T : Enum<T>> selected(field: String, actual: Set<T>, available: Set<T>) {
+            val unsupported = (actual - available).map { it.name }.sorted()
+            if (unsupported.isNotEmpty()) put(field, unsupported)
+        }
+        selected("joinTypes", joinTypes, supported.joinTypes)
+        selected("aggregations", aggregations, supported.aggregations)
+        selected("expressions.kinds", expressions.kinds, supported.expressions.kinds)
+        selected("expressions.operators", expressions.operators, supported.expressions.operators)
+        selected("expressions.functions", expressions.functions, supported.expressions.functions)
+        selected("expressions.castTypes", expressions.castTypes, supported.expressions.castTypes)
+        selected("expressions.literalTypes", expressions.literalTypes, supported.expressions.literalTypes)
+    }
     override fun equals(other: Any?): Boolean = other is StageAuthorization && operationType == other.operationType && joinTypes == other.joinTypes && aggregations == other.aggregations && expressions == other.expressions
     override fun hashCode(): Int = listOf(operationType, joinTypes, aggregations, expressions).hashCode()
     companion object {
@@ -22,7 +37,9 @@ class StageAuthorization(val operationType: String, joinTypes: Set<JoinType>, ag
             "currentJoinTypes" to "ALL_JOIN_TYPES_FOR_JOIN_INPUT_OTHERWISE_EMPTY",
             "currentAggregations" to "ALL_RESULT_AGGREGATION_KINDS_FOR_PARTITION_AGGREGATE_REGROUP_WINDOW_AGGREGATE_OBSERVE_WINDOW_OTHERWISE_EMPTY",
             "currentExpressions" to "ExpressionAuthorization.current()",
-            "scenarioRefresh" to "EXACT_MATCH_WITH_StageAuthorization.current(ruleType)_REQUIRED_NO_SUBSET_OR_SUPERSET",
+            "scenarioSelection" to "CREATE_AND_REFRESH_REQUIRE_EXPLICIT_SAME_OPERATION_SELECTION_WITHIN_CURRENT_SUPPORTED_SETS",
+            "reduction" to "REFRESH_MAY_REMOVE_PREVIOUSLY_APPROVED_CAPABILITIES_WITHOUT_CHANGING_EXISTING_RELEASES",
+            "dependencies" to "NO_IMPLICIT_EXPRESSION_CLOSURE_EACH_ACTUALLY_USED_NODE_AND_ARGUMENT_MUST_BE_SELECTED",
             "publishedAuthorization" to "EXACT_FROZEN_SETS_CHECK_EACH_NODE_AND_ARGUMENT_RECURSIVELY_NO_AUTOMATIC_UPGRADE",
         )
         fun current(operationType: String): StageAuthorization = StageAuthorization(operationType,
@@ -47,14 +64,15 @@ class ExpressionAuthorization(kinds: Set<Kind>, operators: Set<ResultExpression.
     companion object {
         fun contract(): Map<String, Any> = mapOf(
             "collections" to "EXPLICIT_IMMUTABLE_SETS",
-            "equality" to "ALL_FIVE_SETS_MUST_MATCH_ORDER_INDEPENDENT",
+            "equality" to "VALUE_EQUALITY_COMPARES_ALL_FIVE_SETS_ORDER_INDEPENDENT",
             "currentKinds" to Kind.entries.map { it.name },
             "currentOperators" to ResultExpression.ResultOperator.entries.map { it.name },
             "currentFunctions" to ScalarFunction.entries.map { it.name },
             "currentCastTypes" to SemanticExpression.ValueType.entries.map { it.name },
             "currentLiteralTypes" to current().literalTypes.map { it.name }.sorted(),
-            "approval" to "MANUAL_CONSTRUCTION_DOES_NOT_CHANGE_THE_OPERATION_ACCEPTANCE_POLICY",
-            "scenarioRefresh" to "FULL_CURRENT_CANDIDATE_REQUIRED_NOT_ONLY_NODES_USED_BY_THIS_QUERY",
+            "approval" to "CREATE_AND_REFRESH_ACCEPT_EXPLICIT_SUBSETS_OF_THE_SUPPORTED_SETS",
+            "currentFactory" to "OPTIONAL_AUTHOR_FACTORY_SELECTING_ALL_CURRENT_EXPRESSION_CAPABILITIES",
+            "selection" to "NO_IMPLICIT_CLOSURE_OR_EXPANSION_FROM_THE_QUERY_OR_PREVIOUS_AUTHORIZATION",
         )
         fun current(): ExpressionAuthorization = ExpressionAuthorization(Kind.entries.toSet(), ResultExpression.ResultOperator.entries.toSet(),
             ScalarFunction.entries.toSet(), SemanticExpression.ValueType.entries.toSet(),

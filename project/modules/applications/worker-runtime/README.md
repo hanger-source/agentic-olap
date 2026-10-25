@@ -1,6 +1,6 @@
 # 来源工作进程
 
-构件通过 `ApplicationMainKt --mode worker` 运行，由 Kotlin 主服务创建、借用、取消和关闭，实际进程边界使用 `agentic-olap-runtime/v5` 的正式 Protobuf 消息。来源返回后，工作进程先交出与本次请求关联的读取事实，再继续核心求值及最终结果交付。
+构件通过 `ApplicationMainKt --mode worker` 运行，由 Kotlin 主服务创建、借用、取消和关闭，实际进程边界使用 `agentic-olap-runtime/v6` 的正式 Protobuf 消息。来源返回后，工作进程先交出与本次请求关联的读取事实，再继续核心求值及最终结果交付。
 
 主服务持有 H2、语义定义、采用、发布、查询版本、使用记录与结果授权。工作进程不拥有元数据库、HTTP 服务或 REPL 编译器。
 

@@ -57,9 +57,38 @@ object SemanticNativeTypes {
         return factory.createTypeWithNullability(value, type.nullable)
     }
 
+    /** 原生类型合并必须容纳所有已有值；后端精度上限不能悄悄截短公共类型。 */
+    fun commonType(factory: RelDataTypeFactory, inputs: List<RelDataType>, context: String): RelDataType {
+        val common = factory.leastRestrictive(inputs)
+        require(common != null && inputs.filter { it.sqlTypeName != SqlTypeName.NULL }.all { preservesCapacity(it, common) }) {
+            "$context has no lossless common native type: $inputs"
+        }
+        return common
+    }
+
+    /** CASE/COALESCE 的分类标量遵循原生定型；数值叶子不得因共同定型缩减容量。 */
+    fun commonAlternativeType(factory: RelDataTypeFactory, inputs: List<RelDataType>, context: String): RelDataType {
+        val common = factory.leastRestrictive(inputs)
+        require(common != null && inputs.all { preservesAlternativeCapacity(it, common) }) {
+            "$context has no lossless common numeric representation: $inputs"
+        }
+        return common
+    }
+
+    private fun preservesAlternativeCapacity(input: RelDataType, output: RelDataType): Boolean = when {
+        input.sqlTypeName == SqlTypeName.NULL -> true
+        SqlTypeUtil.isNumeric(input) -> preservesCapacity(input, output)
+        input.isStruct -> output.isStruct && input.fieldCount == output.fieldCount &&
+            input.fieldList.indices.all { preservesAlternativeCapacity(input.fieldList[it].type, output.fieldList[it].type) }
+        input.componentType != null -> output.componentType?.let { preservesAlternativeCapacity(requireNotNull(input.componentType), it) } == true
+        else -> true
+    }
+
     fun preservesCapacity(input: RelDataType, output: RelDataType): Boolean {
         if (SqlTypeUtil.isExactNumeric(input) && SqlTypeUtil.isExactNumeric(output))
             return output.scale >= input.scale && output.precision - output.scale >= input.precision - input.scale
+        if (SqlTypeUtil.isApproximateNumeric(input) && SqlTypeUtil.isApproximateNumeric(output))
+            return output.precision >= input.precision
         if (input.sqlTypeName != output.sqlTypeName) return false
         if (SqlTypeUtil.isCharacter(input) || SqlTypeUtil.isBinary(input))
             return output.precision < 0 || input.precision >= 0 && output.precision >= input.precision

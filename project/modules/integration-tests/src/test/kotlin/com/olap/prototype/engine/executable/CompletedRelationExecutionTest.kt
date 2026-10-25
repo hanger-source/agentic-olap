@@ -308,6 +308,68 @@ class CompletedRelationExecutionTest {
             assertTrue(rows.all { (it[1] as Number).toInt() == 4 && (it[3] as Number).toLong() == 1L })
         }
     }
+
+    @Test fun selectsEmptyAndLargeOrderedPopulationsWithoutChangingAmounts(@TempDir directory: Path) {
+        val records = (1..10007).joinToString(",") { "($it,'A',$it,$it,$it)" }
+        for (dialect in listOf("h2", "duckdb")) warehouse(directory, dialect, records).use { warehouse ->
+            val catalog = catalog(warehouse); warehouse.finishSetup()
+            val measured = measures(catalog, "population", listOf("hour"))
+            val empty = warehouse.business(compile(catalog, stages(measured, listOf(TopN(listOf(order("value", "DESC")), 0)))))
+            assertTrue(empty.rows.isEmpty(), dialect)
+            assertEquals(listOf("hour", "value"), empty.columns.map { it.symbol.name })
+            val selected = warehouse.execute(compile(catalog, stages(measured, listOf(TopN(listOf(order("value", "DESC")), 10003)))))
+            assertEquals(10003, selected.size, dialect)
+            assertEquals((10007 downTo 5).toList(), selected.map { (it[0] as Number).toInt() }, dialect)
+            selected.forEach { row -> assertEquals(0, BigDecimal(row[0].toString()).compareTo(BigDecimal(row[1].toString())), dialect) }
+        }
+    }
+
+    @Test fun preservesAlternativeQuantitiesAndAppliesOnlyExplicitOutputQuantization(@TempDir directory: Path) {
+        val small = MetricValueContract(money.unit, MetricValueContract.Exact(), MetricValueContract.Decimal(6, 2, MetricValueContract.Rounding.NONE), emptyMap(), money.overflow)
+        val large = MetricValueContract(money.unit, MetricValueContract.Exact(), MetricValueContract.Decimal(24, 4, MetricValueContract.Rounding.NONE), emptyMap(), money.overflow)
+        val rounded = MetricValueContract(money.unit, MetricValueContract.Exact(), MetricValueContract.Decimal(22, 2, MetricValueContract.Rounding.HALF_UP), emptyMap(), money.overflow)
+        fun literal(value: String, contract: MetricValueContract) = ResultQuantityLiteral(BigDecimal(value), contract)
+        fun choose(first: ResultExpression, second: ResultExpression) = ResultCaseWhen(listOf(ResultCaseBranch(ResultLiteral(true), first)), second)
+        val selected = choose(literal("12345678901234567890.1250", large), literal("12.34", small))
+        val coalesced = ResultCall(ScalarFunction.COALESCE, listOf(ResultLiteral(null), literal("12345678901234567890.1250", large), literal("12.34", small)))
+        for (dialect in listOf("h2", "duckdb")) NativeWarehouse(directory, dialect, listOf(
+            "CREATE TABLE orders(id INTEGER PRIMARY KEY, region CHAR(2), event_hour INTEGER, customer INTEGER, amount DECIMAL(18,2))",
+            "INSERT INTO orders VALUES (1,'AB',1,1,10)"
+        )).use { warehouse ->
+            val catalog = catalog(warehouse); warehouse.finishSetup()
+            val measured = measures(catalog, "alternatives", listOf("region"))
+            val values = warehouse.execute(compile(catalog, stages(measured, listOf(
+                Derive(selected, "selected", "选择大容量金额"),
+                Derive(coalesced, "coalesced", "忽略NULL后选择大容量金额"),
+                Derive(numeric(ResultRound(symbol("selected"), 2, MetricValueContract.Rounding.HALF_UP), rounded), "rounded", "明确量化两位小数"),
+                Derive(choose(ResultTypedLiteral(ScalarValueType.TEXT, "longer"), symbol("region")), "text_case", "字符与文本分支"),
+                Derive(ResultCall(ScalarFunction.COALESCE, listOf(symbol("region"), ResultTypedLiteral(ScalarValueType.TEXT, "longer"))), "text_coalesce", "保留原字符值"),
+                Project(listOf("selected", "coalesced", "rounded", "text_case", "text_coalesce"))
+            )))).single()
+            assertEquals(listOf("12345678901234567890.125", "12345678901234567890.125", "12345678901234567890.13"),
+                values.take(3).map { BigDecimal(it.toString()).stripTrailingZeros().toPlainString() }, dialect)
+            assertEquals(listOf("longer", "AB"), values.drop(3), dialect)
+
+            val otherUnit = MetricValueContract(MetricValueContract.Fixed(MetricValueContract.UnitIdentity("trial", "distance", 1)),
+                MetricValueContract.Exact(), large.result, emptyMap(), money.overflow)
+            val nativeFloat = MetricValueContract(money.unit, MetricValueContract.NativeFloating(), MetricValueContract.BinaryFloat(64), emptyMap(), money.overflow)
+            val floatingChoice = choose(literal("0.1", nativeFloat), literal("0.2", nativeFloat))
+            for (invalid in listOf(choose(literal("1", large), literal("1", otherUnit)),
+                    choose(literal("1", large), literal("0.1", nativeFloat)), numeric(floatingChoice, large))) {
+                assertThrows(IllegalArgumentException::class.java, {
+                    compile(catalog, stages(measured, listOf(Derive(invalid, "invalid", "不允许改变单位或算术保证"))))
+                }, dialect)
+            }
+            if (dialect == "duckdb") {
+                val whole = MetricValueContract(money.unit, MetricValueContract.Exact(), MetricValueContract.Decimal(38, 0, MetricValueContract.Rounding.NONE), emptyMap(), money.overflow)
+                val fraction = MetricValueContract(money.unit, MetricValueContract.Exact(), MetricValueContract.Decimal(38, 18, MetricValueContract.Rounding.NONE), emptyMap(), money.overflow)
+                val incompatible = choose(literal("1", whole), literal("0.1", fraction))
+                assertThrows(IllegalArgumentException::class.java) {
+                    compile(catalog, stages(measured, listOf(Derive(incompatible, "invalid", "后端不能容纳共同容量"))))
+                }
+            }
+        }
+    }
     @Test fun composesDependentWindowsAndDerivedQuantitiesWithoutExplicitRelationBoundaries(@TempDir directory: Path) {
         for (dialect in listOf("h2", "duckdb")) warehouse(directory, dialect,
             "(1,'A',1,1,10),(2,'A',2,2,NULL),(3,'A',3,3,30),(4,'B',1,4,7),(5,'B',2,5,2)").use { warehouse ->

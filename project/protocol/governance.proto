@@ -779,7 +779,7 @@ message ScenarioFilterRefCreateResult { ScenarioFilterRefRecord ref = 1; }
 
 message ScenarioFilterRefRecord { string id = 1; string scenario_id = 2; int64 scenario_version = 3; string filter_target_type = 4; string target_id = 5; int64 target_version = 6; repeated string operators = 7; optional string value_provider_id = 8; bool required_by_default = 9; int32 sort_order = 10; string created_at = 11; }
 
-message ScenarioPipelineRuleCreateRequest { string scenario_id = 1; int64 scenario_version = 2; string rule_type = 3; optional int32 sort_order = 4; }
+message ScenarioPipelineRuleCreateRequest { string scenario_id = 1; int64 scenario_version = 2; string rule_type = 3; optional int32 sort_order = 4; StageAuthorization authorization = 5; }
 
 message ScenarioPipelineRuleCreateResult { ScenarioPipelineRuleRecord rule = 1; }
 

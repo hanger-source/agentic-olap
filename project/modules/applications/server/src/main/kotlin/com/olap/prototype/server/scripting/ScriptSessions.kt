@@ -254,8 +254,8 @@ class ScriptSessions(private val processes: ManagedProcesses) : AutoCloseable {
                 execution.diagnostics.addAll(response.diagnosticsList)
                 execution.timings.putAll(response.timingNanosMap)
                 if (!response.sessionUsable) {
-                    execution.reasons.addAll(response.resourceIssuesList.map { it.code })
-                    if (execution.reasons.isEmpty()) execution.reasons.add("SCRIPT_SESSION_UNUSABLE")
+                    // 资源观察不是退役原因；可继续性由语言、通道和实际上下文恢复结果决定。
+                    execution.reasons.add("SCRIPT_SESSION_UNUSABLE")
                 }
             }
         } catch (failure: Throwable) {
@@ -271,7 +271,9 @@ class ScriptSessions(private val processes: ManagedProcesses) : AutoCloseable {
             }
             log.warn("script execution did not complete: sessionId={} executionId={} requestId={}", session.id, execution.executionId, execution.id, failure)
         } finally {
-            // Completed business calls retain actual effects even when the language worker terminates.
+            // 先收齐旧调用任务，再解除可信闭包；受管管道的单一 writer 保证已提交回复先于下个请求。
+            // 发送等待即使被取消，实际写帧仍由该 writer 完成；写失败由管道 owner 结束进程。
+            // 即使语言 worker 退出，已经完成的业务调用也保留实际 effects。
             while (execution.callTasks.isNotEmpty()) execution.callTasks.values.toList().forEach { it.join() }
             worker?.current = null
             if (directory != null) try { PrivateDirectories.remove(directory) } catch (failure: Throwable) {

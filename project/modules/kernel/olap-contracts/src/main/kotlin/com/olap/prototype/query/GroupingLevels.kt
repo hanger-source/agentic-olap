@@ -5,7 +5,7 @@ class GroupingLevels(val outputAlias: String, levels: List<Level>) {
     val levels: List<Level> = java.util.List.copyOf(levels)
     init {
         PostOperationContract.requireAlias(outputAlias)
-        require(this.levels.size in 1..32 && this.levels.map { it.id }.distinct().size == this.levels.size && this.levels.map { it.groupBy.toSet() }.distinct().size == this.levels.size) { "grouping levels require 1..32 distinct identities and grouping sets" }
+        require(this.levels.isNotEmpty() && this.levels.map { it.id }.distinct().size == this.levels.size && this.levels.map { it.groupBy.toSet() }.distinct().size == this.levels.size) { "grouping levels require nonempty distinct identities and grouping sets" }
     }
     class Level(val id: String, groupBy: List<String>) {
         val groupBy: List<String> = java.util.List.copyOf(groupBy)
@@ -41,4 +41,12 @@ class GroupingLevels(val outputAlias: String, levels: List<Level>) {
     }
     override fun equals(other: Any?): Boolean = other is GroupingLevels && outputAlias == other.outputAlias && levels == other.levels
     override fun hashCode(): Int = listOf(outputAlias, levels).hashCode()
+    companion object {
+        fun contract(): Map<String, Any> = mapOf(
+            "levels" to "NONEMPTY_DISTINCT_IDENTITIES_AND_DISTINCT_GROUPING_SETS_NO_FIXED_LEVEL_COUNT_CAP",
+            "symbols" to "EACH_LEVEL_USES_AVAILABLE_DISTINCT_DIMENSIONS_AND_EVERY_DECLARED_DIMENSION_OCCURS_IN_SOME_LEVEL",
+            "groupingCode" to "NONNEGATIVE_LONG_BITMASK_WITH_AT_MOST_63_DIMENSIONS",
+            "outputAlias" to "DISTINCT_FROM_DIMENSION_ALIASES",
+        )
+    }
 }

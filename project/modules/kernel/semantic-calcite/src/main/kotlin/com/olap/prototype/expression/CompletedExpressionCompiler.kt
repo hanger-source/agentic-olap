@@ -129,8 +129,8 @@ internal class CompletedExpressionCompiler private constructor(private val b: Re
         }.toMutableList()
         val otherwise = emit(conditional.otherwise)
         operands.add(otherwise); resultTypes.add(otherwise.type)
-        require(b.typeFactory.leastRestrictive(resultTypes) != null) { "result CASE branches have no common Calcite type: $resultTypes" }
-        return b.call(Ops.CASE, operands)
+        val common = SemanticNativeTypes.commonAlternativeType(b.typeFactory, resultTypes, "result CASE")
+        return b.rexBuilder.makeCall(common, Ops.CASE, operands)
     }
 
     private fun operation(operation: ResultExpression.ResultOperation): RexNode {

@@ -37,7 +37,8 @@ class SemanticCalciteRexCompiler(private val builder: RelBuilder, private val pa
             is SemanticExpression.CaseWhen -> {
                 val args = expression.branches.flatMap { listOf(recurse(it.`when`), recurse(it.then)) }.toMutableList()
                 args.add(expression.otherwise?.let(::recurse) ?: builder.rexBuilder.makeNullLiteral(args[1].type))
-                builder.call(Ops.CASE, args)
+                val values = args.filterIndexed { index, _ -> index % 2 == 1 || index == args.lastIndex }
+                builder.rexBuilder.makeCall(SemanticNativeTypes.commonAlternativeType(builder.typeFactory, values.map { it.type }, "source CASE"), Ops.CASE, args)
             }
             is SemanticExpression.Round -> SemanticNumericRex.round(builder, recurse(expression.expression), expression.scale, expression.rounding)
             is SemanticExpression.Cast -> cast(recurse(expression.expression), expression.targetType, expression.precision, expression.scale, expression.rounding)

@@ -154,7 +154,7 @@ class BusinessExample(val client: OlapClient, val parameters: ScriptArguments, v
         governance.createSubjectAreaMetricRef(SubjectAreaMetricRefCreateRequest(subject.id, 1, code, code, meaning(code), metric.id, metric.currentVersion, bindings, arguments, actor)).subjectAreaMetricRef
     fun publish(subject: SubjectAreaRecord, scenario: ScenarioRecord, metrics: List<SubjectAreaMetricRefRecord>, stages: List<String>): PublishedQueryEntry {
         metrics.forEachIndexed { index, metric -> governance.createScenarioMetricRef(ScenarioMetricRefCreateRequest(scenario.id, 1, metric.id, 1, true, index + 1)) }
-        stages.forEachIndexed { index, type -> governance.createScenarioPipelineRule(ScenarioPipelineRuleCreateRequest(scenario.id, 1, type, index + 1)) }
+        stages.forEachIndexed { index, type -> governance.createScenarioPipelineRule(ScenarioPipelineRuleCreateRequest(scenario.id, 1, type, index + 1, StageAuthorization.current(type))) }
         activate("SUBJECT_AREA", subject.id)
         governance.buildRelease(SubjectAreaReleaseBuildRequest("$domain-release", "1", domain, subject.id, 1, actor))
         return client.semantics.publication(QueryCapabilityRequest(scenario.id, 1, "$domain-release", "1"))

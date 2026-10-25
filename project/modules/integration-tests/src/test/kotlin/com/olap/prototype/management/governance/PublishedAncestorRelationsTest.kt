@@ -64,7 +64,7 @@ class PublishedAncestorRelationsTest {
             val scenario = f.scenarios.createScenario(ScenarioCreateRequest(GovernanceOrderFixture.SUBJECT, 1, "staff_ancestors", "人员祖先关系", "analyst", "显式选择自身", "golden")).scenario
             f.scenarios.createScenarioMemberSourceRef(ScenarioMemberSourceRefCreateRequest(scenario.id, 1, member.id, 1,
                 MemberQueryPermission(listOf("record", "employee", "manager"), emptyList(), emptyMap(), false, emptyList())))
-            f.scenarios.createScenarioPipelineRule(ScenarioPipelineRuleCreateRequest(scenario.id, 1, PostOperationContract.ANCESTOR_CLOSURE, 1))
+            f.scenarios.createScenarioPipelineRule(ScenarioPipelineRuleCreateRequest(scenario.id, 1, PostOperationContract.ANCESTOR_CLOSURE, 1, StageAuthorization.current(PostOperationContract.ANCESTOR_CLOSURE)))
             f.activate("LOGICAL_TABLE", "staff_reporting"); f.activate("TOPOLOGY", topology.id); f.activate("EVENT", event.id)
             f.activateSubjectGraph(); f.build("staff_ancestor_release")
             val publication = f.publication("staff_ancestor_release", scenario = scenario.id)

@@ -53,7 +53,7 @@ class ImmutableGovernancePublicationTest {
                 provider.id, listOf(FilterLeafOperator.BETWEEN, FilterLeafOperator.GTE), false, 1)).ref
             val cityFilter = f.scenarios.createScenarioFilterRef(ScenarioFilterRefCreateRequest(GovernanceOrderFixture.SCENARIO, 1, "ANALYSIS_DIMENSION", "travel.trade.destination", 1,
                 null, listOf(FilterLeafOperator.EQ), false, 2)).ref
-            f.scenarios.createScenarioPipelineRule(ScenarioPipelineRuleCreateRequest(GovernanceOrderFixture.SCENARIO, 1, "DERIVE", 1))
+            f.scenarios.createScenarioPipelineRule(ScenarioPipelineRuleCreateRequest(GovernanceOrderFixture.SCENARIO, 1, "DERIVE", 1, StageAuthorization.current("DERIVE")))
             f.activateSubjectGraph(); introduceDrafts(f)
             val interrupted = object : ReleaseArtifactWriter {
                 override fun saveCatalog(catalog: ReleaseCatalogView, executable: PublishedExecutableCatalog, at: Instant): ReleaseCatalogSnapshot = f.artifacts.saveCatalog(catalog, executable, at)

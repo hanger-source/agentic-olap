@@ -55,11 +55,11 @@ internal object ServerFailures {
             when (cause) {
                 is QueryResultFormatException -> return Projection("RESULT_READ", cause.code, requireNotNull(cause.message), cause.details)
                 is InputContractException -> return Projection(cause.rule.stage, cause.rule.code, cause.message, cause.details)
-                is com.olap.prototype.governance.contract.StageAuthorizationApprovalException -> return Projection("GOVERNANCE_CONTRACT", "STAGE_AUTHORIZATION_APPROVAL_MISMATCH",
-                    requireNotNull(cause.message), mapOf("fieldPath" to listOf("approvedAuthorization"), "scenarioId" to cause.scenarioId,
+                is com.olap.prototype.governance.contract.StageAuthorizationSelectionException -> return Projection("GOVERNANCE_CONTRACT", "STAGE_AUTHORIZATION_UNSUPPORTED",
+                    requireNotNull(cause.message), mapOf("fieldPath" to listOf(cause.field), "scenarioId" to cause.scenarioId,
                         "scenarioVersion" to cause.scenarioVersion, "ruleType" to cause.ruleType,
-                        "requiredFactory" to "StageAuthorization.current(ruleType)", "comparison" to "EXACT_ALL_SETS_ORDER_INDEPENDENT",
-                        "differences" to cause.differences, "readOperation" to "read-scenario-pipeline-rules"))
+                        "expectedOperationType" to cause.supported.operationType, "actualOperationType" to cause.selected.operationType,
+                        "unsupported" to cause.unsupported, "readOperation" to "read-scenario-pipeline-rules"))
                 is com.olap.prototype.governance.contract.ScenarioPipelineRuleRefreshTargetException -> return Projection("GOVERNANCE_CONTRACT", "SCENARIO_STAGE_RULE_REQUIRED",
                     requireNotNull(cause.message), mapOf("fieldPath" to listOf("ruleType"), "scenarioId" to cause.scenarioId,
                         "scenarioVersion" to cause.scenarioVersion, "ruleType" to cause.ruleType, "expectedCount" to 1,

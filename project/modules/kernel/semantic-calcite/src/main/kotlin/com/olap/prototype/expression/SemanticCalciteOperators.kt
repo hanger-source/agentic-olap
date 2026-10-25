@@ -185,6 +185,9 @@ object SemanticCalciteOperators {
 
     fun rexCall(builder: RelBuilder, function: ScalarFunction, arguments: List<RexNode>, temporalUnit: String? = null): RexNode {
         function.requireArity(arguments.size + if (function.temporal) 1 else 0)
+        // COALESCE 的签名由全部实际实参的共同类型决定；裸 NULL 不应进入丢失此上下文的占位 SQL 验证。
+        if (function == ScalarFunction.COALESCE) return builder.rexBuilder.makeCall(
+            SemanticNativeTypes.commonAlternativeType(builder.typeFactory, arguments.map { it.type }, "COALESCE"), Ops.COALESCE, arguments)
         if (!function.temporal) SemanticExpressionValueType.requireFunction(function, arguments.map { it.type }, builder.typeFactory)
         return when (function) {
             ScalarFunction.TIMESTAMPDIFF -> timestampDifference(builder, requireNotNull(temporalUnit), arguments[0], arguments[1])

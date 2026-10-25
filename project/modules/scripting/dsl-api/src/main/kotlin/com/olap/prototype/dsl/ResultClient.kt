@@ -31,6 +31,12 @@ data class ResultMetadataRequest(val resultReference: QueryResultReference, val 
 }
 data class ResultValueRequest(val resultReference: QueryResultReference, val valueReference: ResultValueReference, val offset: Int, val limit: Int)
 data class ResultProfileRequest(val resultReference: QueryResultReference, val columnIds: List<String>)
-data class QueryRunRequest(val runId: String, val offset: Int, val limit: Int)
-data class QueryRunListRequest(val coordinate: QueryCapabilityRequest, val text: String?, val offset: Int, val limit: Int)
+data class QueryRunRequest(val runId: String, val offset: Long, val limit: Int) {
+    init { QueryUsagePagination.requirePage(offset, limit) }
+    companion object { fun contract(): Map<String, Any> = QueryUsagePagination.contract() }
+}
+data class QueryRunListRequest(val coordinate: QueryCapabilityRequest, val text: String?, val offset: Long, val limit: Int) {
+    init { QueryUsagePagination.requirePage(offset, limit) }
+    companion object { fun contract(): Map<String, Any> = QueryUsagePagination.contract() }
+}
 data class QueryUsageNoteRequest(val runId: String, val text: String)

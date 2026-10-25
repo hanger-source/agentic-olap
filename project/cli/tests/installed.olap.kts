@@ -147,7 +147,7 @@ olap.output(when (parameters.text("phase")) {
         adoptions.forEachIndexed { index, adoption ->
             olap.governance.createScenarioMetricRef(ScenarioMetricRefCreateRequest(scenario.id, 1, adoption.id, 1, true, index + 1))
         }
-        olap.governance.createScenarioPipelineRule(ScenarioPipelineRuleCreateRequest(scenario.id, 1, "DERIVE", 1))
+        olap.governance.createScenarioPipelineRule(ScenarioPipelineRuleCreateRequest(scenario.id, 1, "DERIVE", 1, StageAuthorization.current("DERIVE")))
         activate(GovernanceActivationObjectType.SUBJECT_AREA, subject.id)
         olap.governance.buildRelease(SubjectAreaReleaseBuildRequest("installed-sales", "1", "安装后销售口径", subject.id, 1, actor))
         val coordinate = QueryCapabilityRequest(scenario.id, 1, "installed-sales", "1")
@@ -169,7 +169,7 @@ olap.output(when (parameters.text("phase")) {
         val saved = olap.queries.save(QueryDefinitionCommand("installed-sales-summary", null, requireNotNull(publication.capability.capabilityHash),
             "销售额与订单数", intent, null))
         val execution = execute(intent, "全部已登记订单销售额和订单数是多少？")
-        val observedRun = olap.results.run(QueryRunRequest(execution.runId, 0, 20)).run
+        val observedRun = olap.results.run(QueryRunRequest(execution.runId, 0, 1000)).run
         check(observedRun.receipt?.resultReference == execution.resultReference)
         check(requireNotNull(observedRun.serviceObservation).workers.isNotEmpty())
         val mean = MetricValueContract(MetricValueContract.Fixed(day), MetricValueContract.Exact(),

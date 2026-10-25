@@ -6,7 +6,7 @@
 
 本仓库源码的连接器 API 为 `agentic-olap-connector/v12-kotlin-native-collection-placement-calcite-1.42`，存储格式为 `16`。服务、连接器和 SDK 使用同轮交付构件；安装发行物时以实际服务及 `agentic-olap sdk` 披露的 API 为准。独立插件须使用对应正式 Maven SDK 重新构建，集合展开实现与精确绑定要求见[连接说明](connections.md)。
 
-代码会话使用 `agentic-olap-kotlin-dsl/v2`，实际跨进程通信为 `agentic-olap-runtime/v4`。Kotlin 主服务直接持有正式应用、权威元数据和运行管理；语言会话在固定 REPL JVM 中保留真实 Kotlin 历史，来源工作进程承担调查、规划与执行。模型对话与账号由外部客户端持有。
+代码会话使用 `agentic-olap-kotlin-dsl/v3`，实际跨进程通信为 `agentic-olap-runtime/v6`。Kotlin 主服务直接持有正式应用、权威元数据和运行管理；语言会话在固定 REPL JVM 中保留真实 Kotlin 历史，来源工作进程承担调查、规划与执行。模型对话与账号由外部客户端持有。
 
 需要 Node.js 20 或更高版本。macOS arm64 产品通过一个 npm 包交付 JRE、自包含安装引导与命令入口；npm 安装脚本用包内 JRE 从 JitPack 取得自有 Kotlin 运行构件和内置连接器，从 Maven Central 取得第三方 JVM 库和 H2／DuckDB 驱动，全部按发行清单锁定，完成摘要校验及本地安装。需要允许该安装脚本，下载失败会使安装失败。安装完成后启动只使用本地文件，不再下载依赖。SDK 的正式 Maven 坐标和文档由 `agentic-olap sdk` 读取。使用者无需安装编译工具或自行编译产品源码：
 
@@ -22,7 +22,7 @@ agentic-olap info
 agentic-olap tools
 agentic-olap call list-data-sources --payload '{}'
 agentic-olap call describe-script-api --payload '{}'
-agentic-olap call execute-script --payload '{"executionId":"sources-001","waitMillis":0,"source":"val sources = olap.sources.list(EmptyRequest)\nolap.output(sources)","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v2","parameters":{}}'
+agentic-olap call execute-script --payload '{"executionId":"sources-001","waitMillis":0,"source":"val sources = olap.sources.list(EmptyRequest)\nolap.output(sources)","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v3","parameters":{}}'
 agentic-olap call wait-script --payload '{"executionId":"sources-001","waitMillis":1000}'
 ~~~
 
@@ -44,7 +44,7 @@ agentic-olap call wait-script --payload '{"executionId":"sources-001","waitMilli
 | `reset-script-session` | sessionId | 停止当前代码，确认旧 JVM 退出，清理目录并建立空语言环境 |
 | `close-script-session` | sessionId | 停止当前代码，确认退出并清理目录，释放会话资源 |
 
-一个会话固定一个 JVM，一次执行一个片段，只有 READY 能接收新片段；RESETTING／CLOSING 不接受代码。普通编译失败保留可用会话；不可恢复语言状态、未知活线程及进程故障使会话不可用，需要明确 reset。控制操作不撤销已完成的治理或来源执行。无需继续时显式 close；服务重启不恢复语言历史、执行记录或去重，不自动重放源码。正式定义、发布和保存结果各自保持持久合同。
+一个会话固定一个 JVM，一次执行一个片段，只有 READY 能接收新片段；RESETTING／CLOSING 不接受代码。普通编译失败及官方求值历史仍可继续的运行错误保留会话；不可恢复语言状态、求值上下文恢复失败、进程／协议故障或强制终止需要明确 reset。新增线程、未知归属和线程观察失败只提供诊断，不因此使会话不可用。控制操作不撤销已完成的治理或来源执行。无需继续时显式 close；服务重启不恢复语言历史、执行记录或去重，不自动重放源码。正式定义、发布和保存结果各自保持持久合同。
 
 `olap` 和 `parameters` 是正式 DSL 的顶层属性，由应用在真正求值期间绑定到当前线程；环境不向后台线程继承。片段共用稳定 OlapClient，parameters getter 读取当前不可变快照，`val original = parameters` 保留当时的对象；旧函数读取 getter 或调用稳定客户端时使用当前执行绑定。正式调用和显式输出继续核对精确活跃求值线程。变量和函数的重新声明遵循 Kotlin 语义，不保证旧函数内部自动改绑。`olap.temporaryDirectory` 为跨片段的会话私有根；内部请求子目录不向作者暴露，交接结束后清理。
 
@@ -101,7 +101,7 @@ agentic-olap call wait-script --payload '{"executionId":"sources-001","waitMilli
 
 ~~~sh
 agentic-olap call describe-script-api --payload '{"operation":"inspect-warehouse"}'
-agentic-olap call execute-script --payload '{"executionId":"sources-after-config","waitMillis":0,"source":"olap.output(olap.sources.list(EmptyRequest))","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v2","parameters":{}}'
+agentic-olap call execute-script --payload '{"executionId":"sources-after-config","waitMillis":0,"source":"olap.output(olap.sources.list(EmptyRequest))","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v3","parameters":{}}'
 agentic-olap call wait-script --payload '{"executionId":"sources-after-config","waitMillis":1000}'
 ~~~
 
@@ -166,7 +166,7 @@ agentic-olap call list-publications --payload '{"subjectAreaId":"实际主题域
 
 `scripting` 声明会话 JVM 容量、堆预算、每次执行的正式能力调用上限，以及 nativeLogBytes 原生诊断预算，准确字段与值使用完整模板。会话语言状态与根目录持续存在，内部请求资源按执行释放；普通 System.out/err 进入当前执行的有序输出，原生 FD2 留在进程生命周期的私有诊断，不混作用户打印。服务不承诺任意 JVM 全局副作用自动恢复为新进程。
 
-workerOutcome／workerDisposition／recycleReasons 描述实际进程处理，执行和会话状态分别读取。正常语言历史类加载器不逐片段关闭。新增、未确认结束且归属未知的平台线程仍使会话不可继续；JVM 已确认结束的候选不计作残留，未取样或读取失败按未知处理。这不认定线程泄漏；线程身份、状态、daemon、上下文类加载器及必要堆栈仅进入关联 request/worker 的有界私有诊断。
+workerOutcome／workerDisposition／recycleReasons 描述实际进程处理，执行和会话状态分别读取。正常语言历史类加载器不逐片段关闭。线程差集不证明创建者或泄漏；新增、未取样、归属未知或读取失败的线程观察不影响执行状态及会话可继续性，身份、状态、daemon、上下文类加载器及必要堆栈仅进入关联 request/worker 的有界私有诊断。后台线程不能使用当前求值线程的正式权限；越界调用、迟到输出及关闭产品标准流的动作被拦截并记诊断，不因此终止会话。同步能力等待结束后，迟到回复按原精确调用身份处理；宿主收齐本次能力任务，同一管道 writer 保证已提交回复先于下一片段请求完整交付，旧回调不借用新请求绑定。真实写帧失败会结束该通信进程，来源结局未知与语言历史不可继续分别表达。
 
 `limits` 分别声明输入预算、直接响应阈值、并发、背压、来源工作进程、原生内存和 SQL 结果预算：
 

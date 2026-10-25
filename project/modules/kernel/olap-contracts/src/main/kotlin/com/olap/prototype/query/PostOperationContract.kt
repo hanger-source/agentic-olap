@@ -27,7 +27,6 @@ object PostOperationContract {
     const val ANCESTOR_CLOSURE = "ANCESTOR_CLOSURE"
     const val SELECT_VERSIONS = "SELECT_VERSIONS"
     const val OBSERVE_WINDOW = "OBSERVE_WINDOW"
-    internal const val MAX_TOP_N_LIMIT = 10_000
     private val aliasPattern = Regex("[A-Za-z_][A-Za-z0-9_]*")
     private val operationNames = linkedMapOf(
         DERIVE to "派生计算", CUMULATIVE to "累计", RANK to "排名", TOP_N to "TopN", POST_FILTER to "后置过滤",
@@ -123,9 +122,17 @@ object PostOperationContract {
     class TopN(orderKeys: List<OrderKey>, val limit: Int) : ValidatedOperation {
         val orderKeys = checkedOrderKeys(orderKeys)
         override val operationType: String get() = TOP_N
-        init { require(limit in 1..MAX_TOP_N_LIMIT) { "top limit is outside the declared bound" } }
+        init { require(limit >= 0) { "top limit must be nonnegative" } }
         override fun equals(other: Any?): Boolean = other is TopN && orderKeys == other.orderKeys && limit == other.limit
         override fun hashCode(): Int = listOf(orderKeys, limit).hashCode()
+        companion object {
+            fun contract(): Map<String, Any> = mapOf(
+                "limit" to "NONNEGATIVE_INT32",
+                "zero" to "EMPTY_RESULT_WITH_DECLARED_OUTPUT_COLUMNS",
+                "orderKeys" to "NONEMPTY_DISTINCT_SYMBOLS_WITH_EXPLICIT_DIRECTION_AND_NULL_ORDER",
+                "execution" to "SOURCE_LIMIT_WITHOUT_AN_ADDITIONAL_SEMANTIC_ROW_CAP",
+            )
+        }
     }
     data class Derive(val expression: ResultExpression, override val outputAlias: String, override val outputDisplayName: String) : OutputOperation {
         override val operationType: String get() = DERIVE

@@ -222,7 +222,7 @@ data class SetOutputContract(val name: String, val shape: Shape) {
             shape is Quantity -> {
                 val value = QueryValueSemantics.measure(actual)
                 QueryValueSemantics.requireDeclaration(shape.valueContract, value)
-                require(MetricValueContract.resultFits(value.declaration.result, shape.valueContract.result)) { "set quantity capacity must losslessly contain every branch" }
+                MetricValueContract.requireNumericValue(shape.valueContract, value.declaration)
                 QueryValue.Measure(QueryQuantity(shape.valueContract, value.unit, value.provenance))
             }
             shape is Row && actual is QueryValue.Row && shape.fields.size == actual.fields.size -> QueryValue.Row(shape.fields.zip(actual.fields).map { (field, value) -> bind(field, value) })

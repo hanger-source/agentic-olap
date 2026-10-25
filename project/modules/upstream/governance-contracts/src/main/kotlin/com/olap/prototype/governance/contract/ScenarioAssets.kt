@@ -37,17 +37,30 @@ data class ScenarioRelationFilterCreateRequest(val scenarioId: String, val scena
 data class ScenarioRelationFilterRecord(val scenarioId: String, val scenarioVersion: Long, val code: String, val definition: PublishedRelationFilter) {
     init { require(definition.relation.version == scenarioVersion) { "relation filter belongs to its exact scenario version" } }
 }
-data class ScenarioPipelineRuleCreateRequest(val scenarioId: String, val scenarioVersion: Long, val ruleType: String, val sortOrder: Int?)
+data class ScenarioPipelineRuleCreateRequest(val scenarioId: String, val scenarioVersion: Long, val ruleType: String,
+    val sortOrder: Int?, val authorization: StageAuthorization) {
+    companion object {
+        fun contract(): Map<String, Any> = mapOf(
+            "identity" to "EXACT_SCENARIO_VERSION_AND_RULE_TYPE",
+            "scenarioState" to "DRAFT_REQUIRED_UNDER_PARENT_SUBJECT_AREA_TRANSACTION_LOCK",
+            "authorization" to "EXPLICIT_SAME_OPERATION_SELECTION_WITHIN_StageAuthorization.current(ruleType)_SUPPORTED_SETS",
+            "selection" to "SUBSETS_ACCEPTED_NO_DEFAULT_OR_IMPLICIT_EXPRESSION_CLOSURE",
+            "currentFactory" to "OPTIONAL_AUTHOR_CONVENIENCE_NOT_REQUIRED_APPROVAL",
+            "effect" to "CREATE_ONE_RULE_WITH_EXACTLY_THE_SELECTED_AUTHORIZATION",
+        )
+    }
+}
 data class ScenarioPipelineRuleContractRefreshRequest(val scenarioId: String, val scenarioVersion: Long, val ruleType: String, val approvedAuthorization: StageAuthorization) {
     companion object {
         fun contract(): Map<String, Any> = mapOf(
             "identity" to "EXACT_EXISTING_SCENARIO_VERSION_AND_RULE_TYPE",
             "scenarioState" to "DRAFT_REQUIRED_UNDER_PARENT_SUBJECT_AREA_TRANSACTION_LOCK",
             "existingRule" to "EXACTLY_ONE_EXISTING_RULE_OF_RULE_TYPE_REQUIRED_CREATE_IS_A_SEPARATE_OPERATION",
-            "approvedAuthorization" to "MUST_EQUAL_StageAuthorization.current(ruleType)_IN_FULL",
-            "comparison" to "OPERATION_TYPE_JOIN_TYPES_AGGREGATIONS_AND_ALL_FIVE_EXPRESSION_SETS_ORDER_INDEPENDENT",
-            "subsetOrSuperset" to "REJECTED_EVEN_IF_IT_COVERS_THIS_QUERY_OR_RETAINS_ALL_PREVIOUS_APPROVALS",
-            "previousAuthorization" to "MAY_BE_OLDER_FROZEN_CANDIDATE_NOT_THE_NEW_APPROVAL_BASELINE",
+            "approvedAuthorization" to "EXPLICIT_SAME_OPERATION_SELECTION_WITHIN_StageAuthorization.current(ruleType)_SUPPORTED_SETS",
+            "comparison" to "SAME_OPERATION_AND_NO_SELECTED_JOIN_AGGREGATION_OR_EXPRESSION_ITEM_OUTSIDE_SUPPORTED_SETS",
+            "reduction" to "SUBSETS_AND_REMOVAL_OF_PREVIOUS_APPROVALS_ACCEPTED",
+            "previousAuthorization" to "NOT_AN_IMPLICIT_BASELINE_NEW_SELECTION_REPLACES_IT_EXACTLY",
+            "selection" to "NO_DEFAULT_NO_AUTOMATIC_FULL_APPROVAL_NO_IMPLICIT_EXPRESSION_CLOSURE",
             "effect" to "ONLY_THIS_EXISTING_DRAFT_RULE_AUTHORIZATION_REPLACED_IDENTITY_STATUS_SORT_ORDER_AND_OTHER_SCENARIOS_UNCHANGED",
             "publication" to "EXISTING_RELEASES_IMMUTABLE_ACTIVATION_AND_NEW_RELEASE_ARE_SEPARATE_EXPLICIT_OPERATIONS",
         )

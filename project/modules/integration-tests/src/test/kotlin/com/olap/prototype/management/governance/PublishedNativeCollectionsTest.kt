@@ -17,6 +17,7 @@ import com.olap.prototype.query.ResultExpression.*
 import com.olap.prototype.query.contract.MemberCandidate
 import com.olap.prototype.query.contract.MemberQueryPermission
 import com.olap.prototype.query.contract.QueryCapabilityRequest
+import com.olap.prototype.query.contract.StageAuthorization
 import com.olap.prototype.release.catalog.JdbcPublishedQueryEntryProvider
 import com.olap.prototype.release.contract.ReleaseCatalogRequest
 import com.olap.prototype.storage.PlatformDatabase
@@ -70,7 +71,7 @@ class PublishedNativeCollectionsTest {
                 CalculationBindings(emptyMap(), mapOf("rows" to CalculationBindings.SourceCall(MemberRef(projected.id, 1), emptyMap(), mapOf("order" to "order", "labels" to "labels", "lines" to "lines"), emptyMap(), emptyMap())), emptyMap(), emptyMap(), emptyMap()), emptyMap(), "golden"))
             val scenario = "travel.arrays.collections"
             f.scenarios.createScenario(ScenarioCreateRequest("travel.arrays", 1, "collections", "订单容器查询", "analyst", "按需展开", "golden"))
-            listOf("EXPAND_COLLECTION", "DERIVE", "PROJECT").forEachIndexed { index, operation -> f.scenarios.createScenarioPipelineRule(ScenarioPipelineRuleCreateRequest(scenario, 1, operation, index + 1)) }
+            listOf("EXPAND_COLLECTION", "DERIVE", "PROJECT").forEachIndexed { index, operation -> f.scenarios.createScenarioPipelineRule(ScenarioPipelineRuleCreateRequest(scenario, 1, operation, index + 1, StageAuthorization.current(operation))) }
             assertThrows(ProducerContractException::class.java) { f.scenarios.createScenarioMemberSourceRef(ScenarioMemberSourceRefCreateRequest(scenario, 1, adopted.id, 1,
                 MemberQueryPermission(listOf("order", "labels", "lines"), listOf("labels"), emptyMap(), false, emptyList()))) }
             f.scenarios.createScenarioMemberSourceRef(ScenarioMemberSourceRefCreateRequest(scenario, 1, adopted.id, 1, MemberQueryPermission(listOf("order", "labels", "lines"), emptyList(), emptyMap(), false, emptyList())))

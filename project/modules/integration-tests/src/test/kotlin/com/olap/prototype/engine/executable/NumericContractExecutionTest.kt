@@ -11,6 +11,8 @@ import com.olap.prototype.expression.*
 import com.olap.prototype.integration.TestConnectors
 import com.olap.prototype.metric.MetricValueContract
 import com.olap.prototype.query.ResultAggregation
+import com.olap.prototype.query.QueryComputation
+import com.olap.prototype.query.ScopedInputContract
 import org.apache.calcite.rel.RelNode
 import org.apache.calcite.rel.type.DelegatingTypeSystem
 import org.apache.calcite.rel.type.RelDataType
@@ -95,6 +97,32 @@ class NumericContractExecutionTest {
             ordered.forEachIndexed { index, parameter -> parameter.bind(query, index + 1) }
             query.executeQuery().use { rows ->
                 buildList { while (rows.next()) add((1..rows.metaData.columnCount).map { (connector.access as JdbcAccess).jdbc.scalar(rows, it) }) }
+            }
+        }
+    }
+
+    @Test fun executesEveryExplicitGroupingSetWithItsOwnLevelAndAmount(@TempDir directory: Path) {
+        NativeWarehouse(directory, "duckdb", listOf(
+            "CREATE TABLE numbers(d0 VARCHAR,d1 VARCHAR,d2 VARCHAR,d3 VARCHAR,d4 VARCHAR,d5 VARCHAR,n DECIMAL(18,2))",
+            "INSERT INTO numbers VALUES ('a','b','c','d','e','f',11.25)"
+        )).use { source ->
+            val dimensions = (0..5).map { "d$it" }
+            val references = dimensions.associateWith { ScopedInputContract.DimensionRef(it, "1", "value") }
+            val levels = QueryComputation.Levels("level", (0L..63L).map { mask ->
+                QueryComputation.DimensionLevel("level_$mask", dimensions.filterIndexed { index, _ -> mask and (1L shl (5 - index)) == 0L }.map(references::getValue))
+            }).bind(references)
+            val b = builder(source)
+            b.aggregate(RelationalAggregates.groupKey(b, dimensions, levels), b.sum(false, "total", b.field("n")),
+                b.aggregateCall(Ops.GROUPING, dimensions.map(b::field)).`as`("level"))
+            val rows = execute(source, b.build())
+            assertEquals(64, rows.size)
+            assertEquals((0L..63L).toSet(), rows.map { (it.last() as Number).toLong() }.toSet())
+            rows.forEach { row ->
+                val mask = (row.last() as Number).toLong()
+                assertEquals(listOf("a", "b", "c", "d", "e", "f").mapIndexed { index, value ->
+                    if (mask and (1L shl (5 - index)) == 0L) value else null
+                }, row.take(6), "level=$mask")
+                assertEquals(0, BigDecimal("11.25").compareTo(BigDecimal(row[6].toString())), "level=$mask")
             }
         }
     }

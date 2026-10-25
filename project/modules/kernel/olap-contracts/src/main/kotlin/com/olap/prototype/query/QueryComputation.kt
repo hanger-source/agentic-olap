@@ -43,7 +43,7 @@ object QueryComputation {
     }
     class Levels(val outputAlias: String, levels: List<DimensionLevel>) {
         val levels: List<DimensionLevel> = java.util.List.copyOf(levels)
-        init { PostOperationContract.requireAlias(outputAlias); require(this.levels.size in 1..32) { "grouping levels must be bounded and explicit" } }
+        init { PostOperationContract.requireAlias(outputAlias); require(this.levels.isNotEmpty()) { "grouping levels must be nonempty and explicit" } }
         fun bind(grouping: Map<String, ScopedInputContract.DimensionRef>): GroupingLevels.Bound {
             val syntax = GroupingLevels(outputAlias, levels.map { level -> GroupingLevels.Level(level.id, level.dimensions.map { dimension ->
                 grouping.entries.firstOrNull { it.value == dimension }?.key ?: throw IllegalArgumentException("grouping level references a dimension outside its declared root grouping")

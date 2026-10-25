@@ -7,6 +7,7 @@ import com.olap.prototype.dsl.transport.CapabilityFailureException
 import com.olap.prototype.dsl.transport.CapabilityRegistry
 import com.olap.prototype.dsl.transport.CapabilityTransport
 import com.olap.prototype.protocol.*
+import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 import java.io.PrintStream
@@ -26,6 +27,7 @@ internal class ScriptProtocolPeer(
     private val maximumRequestBytes: Int,
     private val maximumDepth: Int,
     transferRoot: Path,
+    private val privateDiagnostics: PrintStream,
 ) : AutoCloseable {
     private val files = ProtocolFiles(transferRoot)
     private sealed interface Inbound {
@@ -60,15 +62,16 @@ internal class ScriptProtocolPeer(
             if (it <= 0 || cancelled) throw java.util.concurrent.CancellationException("script request deadline ended or request was cancelled")
         }
     }
-    private class Pending(val requestId: String, val callId: String, val operationId: String) {
+    private data class CallIdentity(val requestId: String, val callId: String)
+    private class Pending(val identity: CallIdentity, val operationId: String) {
         val response = CompletableFuture<CapabilityResponse>()
     }
-    private data class AbandonedCall(val requestId: String, val callId: String)
     private class OutputScope(val requestId: String) { var open = true }
     private val inbound = LinkedBlockingQueue<Inbound>(1)
     private val active = AtomicReference<Running?>()
-    private val pending = AtomicReference<Pending?>()
-    private val abandoned = AtomicReference<AbandonedCall?>()
+    private val callsLock = Any()
+    private var pending: Pending? = null
+    private val abandoned = HashSet<CallIdentity>()
     private val closed = AtomicBoolean()
     private val retiring = AtomicBoolean()
     private val writeLock = Any()
@@ -98,7 +101,7 @@ internal class ScriptProtocolPeer(
     private fun evaluation(): Running {
         val running = active.get()
         if (running == null || !running.evaluating || !running.ownsCurrentThread()) {
-            workerFault(outputScope.get()?.requestId.orEmpty(), "SCRIPT_CAPABILITY_OUTSIDE_ACTIVE_EXECUTION")
+            rejected(outputScope.get()?.requestId.orEmpty(), "SCRIPT_CAPABILITY_OUTSIDE_ACTIVE_EXECUTION")
             throw IllegalStateException("formal calls and explicit output require the active session evaluation thread")
         }
         running.remainingMillis()
@@ -121,7 +124,7 @@ internal class ScriptProtocolPeer(
         override fun write(value: Int) = write(byteArrayOf(value.toByte()), 0, 1)
         override fun write(value: ByteArray, offset: Int, length: Int) = writeOutput(stream, value, offset, length)
     }, true, Charsets.UTF_8) {
-        override fun close() { workerFault(outputScope.get()?.requestId.orEmpty(), "SCRIPT_STANDARD_STREAM_CLOSED") }
+        override fun close() { rejected(outputScope.get()?.requestId.orEmpty(), "SCRIPT_STANDARD_STREAM_CLOSE_REJECTED") }
     }
 
     private fun writeOutput(stream: ScriptOutput.Stream, value: ByteArray, offset: Int, length: Int) {
@@ -130,7 +133,7 @@ internal class ScriptProtocolPeer(
         val scope = outputScope.get()
         synchronized(writeLock) {
             if (scope == null || !scope.open || active.get()?.requestId != scope.requestId) {
-                workerFault(scope?.requestId.orEmpty(), "SCRIPT_OUTPUT_OUTSIDE_ACTIVE_REQUEST")
+                rejected(scope?.requestId.orEmpty(), "SCRIPT_OUTPUT_OUTSIDE_ACTIVE_REQUEST")
                 return
             }
             val output = ScriptOutput.newBuilder().setRequestId(scope.requestId).setStream(stream)
@@ -154,15 +157,19 @@ internal class ScriptProtocolPeer(
         synchronized(writeLock) {
             val outgoing = files.outbound(frame, maximumFrameBytes)
             require(outgoing.serializedSize <= maximumFrameBytes) { "protocol transfer reference exceeds pipe frame budget" }
-            outgoing.writeDelimitedTo(output)
-            output.flush()
+            try {
+                outgoing.writeDelimitedTo(output)
+                output.flush()
+            } catch (failure: IOException) {
+                retiring.set(true)
+                throw failure
+            }
         }
     }
 
     fun serve(handler: (ScriptRequest, () -> Unit) -> ScriptResponse) {
         check(reader == null) { "script protocol can only serve once" }
         // 每个串行 worker 只有一个长期阻塞的协议读取器，由进程生命周期直接拥有。
-        // 不让共享虚拟线程调度器的惰性载体扩容混入单次脚本资源差集。
         reader = Thread.ofPlatform().daemon(true).name("script-protocol-reader").start { readLoop() }
         while (!closed.get()) {
             when (val next = inbound.take()) {
@@ -201,31 +208,34 @@ internal class ScriptProtocolPeer(
         val running = evaluation()
         CapabilityRegistry.require(operation)
         require(bytes.size <= maximumRequestBytes) { "capability input exceeds request byte budget" }
-        val call = Pending(running.requestId, "call-${UUID.randomUUID()}", operation)
-        check(pending.compareAndSet(null, call)) { "only one synchronous capability call may be pending" }
+        val model = ProtoBytes.decode(bytes, com.google.protobuf.Any.getDefaultInstance(), maximumRequestBytes, maximumDepth)
+        val call = Pending(CallIdentity(running.requestId, "call-${UUID.randomUUID()}"), operation)
+        synchronized(callsLock) {
+            check(pending == null) { "only one synchronous capability call may be pending" }
+            pending = call
+        }
+        var submitted = false
         try {
-            val model = ProtoBytes.decode(bytes, com.google.protobuf.Any.getDefaultInstance(), maximumRequestBytes, maximumDepth)
             send(Frame.newBuilder().setCapabilityRequest(CapabilityRequest.newBuilder()
-                .setRequestId(running.requestId).setCallId(call.callId)
+                .setRequestId(running.requestId).setCallId(call.identity.callId)
                 .setInvocation(CapabilityInvocation.newBuilder().setOperationId(operation).setInput(model))).build())
+            submitted = true
             val response = call.response.get(running.remainingMillis(), TimeUnit.MILLISECONDS)
             if (!response.success) {
-                require(response.hasFailure()) { "failed capability response has no failure contract" }
                 val failure = response.failure
-                require(failure.operationId == operation && failure.callId == call.callId) {
-                    "capability failure identity differs from its invocation"
-                }
-                throw CapabilityFailureException(CapabilityFailure(operation, call.callId, failure.code,
+                throw CapabilityFailureException(CapabilityFailure(operation, call.identity.callId, failure.code,
                     failure.stage, failure.message, failure.fieldPathList.toList(), failure.diagnosticId.takeIf(String::isNotBlank), failure.detailsJson.toByteArray()))
             }
-            require(response.hasResult() && !response.hasFailure()) { "successful capability response requires exactly one result" }
             return ProtoBytes.encode(response.result)
         } finally {
-            if (!call.response.isDone) {
-                abandoned.set(AbandonedCall(call.requestId, call.callId))
-                retiring.set(true)
+            synchronized(callsLock) {
+                if (pending === call) {
+                    // 等待被中断不代表语言或通道损坏；精确登记已提交、尚未收到回复的调用。
+                    // 与读线程使用同一锁交接，回复不会落入 pending/abandoned 之间的空隙。
+                    if (submitted && !call.response.isDone) abandoned.add(call.identity)
+                    pending = null
+                }
             }
-            pending.compareAndSet(call, null)
         }
     }
 
@@ -243,24 +253,19 @@ internal class ScriptProtocolPeer(
                         require(sessionId == null || sessionId == request.sessionId) { "session process cannot change its exact session identity" }
                         sessionId = request.sessionId
                         if (retiring.get()) { workerFault(request.requestId, "SCRIPT_WORKER_NOT_REUSABLE"); continue }
+                        synchronized(callsLock) {
+                            // 宿主收齐旧能力任务，单一 writer 将已提交回复排在下个请求之前；写失败关闭管道。
+                            // 因此读到下个请求时，旧回执必须已经交付或被精确消化。
+                            check(pending == null && abandoned.isEmpty()) {
+                                "supervisor accepted another script before completing its previous capability responses"
+                            }
+                        }
                         val running = Running(request.requestId, request.remainingMillis)
                         check(active.compareAndSet(null, running)) { "script process already has an active request" }
                         check(inbound.offer(Inbound.Call(request, running))) { "script request queue is full" }
                     }
                     Frame.BodyCase.CAPABILITY_RESPONSE -> {
-                        val response = frame.capabilityResponse
-                        val call = pending.get()
-                        if (call == null) {
-                            val old = abandoned.get()
-                            if (old != null && response.requestId == old.requestId && response.callId == old.callId) {
-                                abandoned.compareAndSet(old, null)
-                                continue
-                            }
-                            workerFault(response.requestId, "SCRIPT_UNMATCHED_CAPABILITY_RESPONSE")
-                            continue
-                        }
-                        require(response.requestId == call.requestId && response.callId == call.callId) { "capability response identity differs" }
-                        check(call.response.complete(response)) { "capability response was repeated" }
+                        receive(frame.capabilityResponse)
                     }
                     Frame.BodyCase.CANCEL -> active.get()?.takeIf { it.requestId == frame.cancel.requestId }?.cancel()
                     Frame.BodyCase.SHUTDOWN -> break
@@ -269,11 +274,39 @@ internal class ScriptProtocolPeer(
             }
         } catch (error: Throwable) { failure = error }
         finally {
+            retiring.set(true)
             active.get()?.cancel()
-            pending.get()?.response?.completeExceptionally(failure ?: IllegalStateException("script supervisor channel closed"))
+            synchronized(callsLock) {
+                pending?.response?.completeExceptionally(failure ?: IllegalStateException("script supervisor channel closed"))
+            }
             inbound.clear()
             inbound.offer(Inbound.End(failure))
         }
+    }
+
+    private fun receive(response: CapabilityResponse) {
+        val identity = CallIdentity(response.requestId, response.callId)
+        synchronized(callsLock) {
+            if (abandoned.remove(identity)) {
+                privateDiagnostics.println("script capability response completed after local wait: sessionId=$sessionId requestId=${identity.requestId} callId=${identity.callId}")
+                return
+            }
+            val call = checkNotNull(pending) { "capability response has no matching invocation" }
+            require(identity == call.identity) { "capability response identity differs" }
+            if (response.success) {
+                require(response.hasResult() && !response.hasFailure()) { "successful capability response requires exactly one result" }
+            } else {
+                require(response.hasFailure() && !response.hasResult()) { "failed capability response requires exactly one failure contract" }
+                require(response.failure.operationId == call.operationId && response.failure.callId == identity.callId) {
+                    "capability failure identity differs from its invocation"
+                }
+            }
+            check(call.response.complete(response)) { "capability response was repeated" }
+        }
+    }
+
+    private fun rejected(requestId: String, code: String) {
+        privateDiagnostics.println("script action rejected: sessionId=$sessionId requestId=$requestId code=$code")
     }
 
     private fun workerFault(requestId: String, code: String) {
@@ -284,7 +317,11 @@ internal class ScriptProtocolPeer(
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
         active.get()?.cancel()
-        pending.getAndSet(null)?.response?.completeExceptionally(IllegalStateException("script protocol closed"))
+        synchronized(callsLock) {
+            pending?.response?.completeExceptionally(IllegalStateException("script protocol closed"))
+            pending = null
+            abandoned.clear()
+        }
         reader?.interrupt()
         input.close()
         if (reader !== Thread.currentThread()) reader?.join()

@@ -36,12 +36,12 @@ agentic-olap info
 agentic-olap tools
 agentic-olap call list-data-sources --payload '{}'
 agentic-olap call describe-script-api --payload '{}'
-agentic-olap call execute-script --payload '{"executionId":"sources-1","waitMillis":1000,"source":"olap.output(olap.sources.list(EmptyRequest))","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v2","parameters":{}}'
+agentic-olap call execute-script --payload '{"executionId":"sources-1","waitMillis":1000,"source":"olap.output(olap.sources.list(EmptyRequest))","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v3","parameters":{}}'
 ```
 
 `execute-script` 首次可建立持续 Kotlin 会话，回执给出 `sessionId` 与 `executionId`。`waitMillis` 只控制本次等待：`RUNNING` 时用 `wait-script` 读取同一执行，不重复提交源码；后续片段明确传同一 `sessionId` 和新的 `executionId`。通过 `cancel-script` 取消执行，`read-script-session` 读取会话，`reset-script-session` 清空语言上下文，`close-script-session` 结束自己建立的会话。重置和关闭会停止当前执行，核对旧进程退出后才确认；服务重启不恢复语言对象，也不重放历史源码。
 
-同一个执行身份和相同源码、参数及会话选择只执行一次；相同身份却改变输入会被拒绝。这个去重记录属于当前服务生命周期，不承诺跨服务重启去重。语言会话与持久定义、发布、查询结果分别管理。`info` 的连接器读取也使用这条链，并关闭自己创建的会话。
+同一个执行身份和相同源码、参数及会话选择只执行一次；相同身份却改变输入会被拒绝。这个去重记录属于当前服务生命周期，不承诺跨服务重启去重。语言会话与持久定义、发布、查询结果分别管理。`info` 直接读取安装、服务及获准来源声明，不创建语言会话，也不执行来源查询。
 
 显式 `olap.output` 与普通打印按发生顺序进入本次执行的 `outputs`；最后表达式不会被隐式输出。最终 JSON/MCP 消息过大时自动完整保存并返回 `read-response` 入口，原执行结局不变。
 
