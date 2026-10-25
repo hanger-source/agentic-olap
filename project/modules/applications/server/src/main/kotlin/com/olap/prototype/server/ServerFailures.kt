@@ -179,8 +179,11 @@ internal object ServerFailures {
                 }
                 Projection(actualStage, code, error.required("message").textValue(), details)
             }
-            code == "NATIVE_AGGREGATE_MAPPING_UNAVAILABLE" -> Projection(actualStage, code,
-                "native aggregate mapping is unavailable for the declared input type", select(facts, "aggregate", "inputType"))
+            code == "NATIVE_AGGREGATE_MAPPING_UNAVAILABLE" -> {
+                val reason = NativeAggregateMappingException.Reason.valueOf(facts.required("reason").textValue())
+                Projection(actualStage, code, "native aggregate mapping is unavailable for the declared input type: ${reason.name}",
+                    select(facts, "aggregate", "inputType", "reason"))
+            }
             code == "NATIVE_ARITHMETIC_MAPPING_UNAVAILABLE" -> Projection(actualStage, code,
                 "native arithmetic mapping is unavailable for the declared input types", select(error.path("evidenceContext"), "operation", "inputTypes", "reason"))
             code == "NATIVE_COMPILATION_CAPABILITY_MISSING" -> Projection(actualStage, code,

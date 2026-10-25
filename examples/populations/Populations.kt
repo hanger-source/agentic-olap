@@ -129,6 +129,61 @@ object Populations {
           ('rB','20000101',TRUE,TRUE,8,NULL,NULL,NULL,NULL,NULL,NULL,5,NULL,NULL,NULL,NULL,NULL),
           ('rC','20000101',TRUE,TRUE,5,1,2,3,4,5,4,2,3,4,1,2,3),
           ('rD','20000101',NULL,FALSE,9,9,9,9,9,9,5,9,9,9,9,9,9)
+        """.trimIndent(),
+        // 两组独立关系场景；不改变上方九表的袋、资格、金额或原预期。
+        "CREATE TABLE label_facts(subject VARCHAR,object_ref VARCHAR,partition_key VARCHAR,activity_day VARCHAR,record_id VARCHAR)",
+        """
+        INSERT INTO label_facts VALUES
+          ('A','object-1','20010101','20010103','label-fact-1'),
+          ('A','object-1','20010101','20010103','label-fact-2'),
+          ('A','object-2','20010101','20010103','label-fact-3'),
+          ('A',NULL,'20010101','20010103','label-fact-4'),
+          ('B','object-3','20010101','20010103','label-fact-5'),
+          ('C','object-4','20010101','20010103','label-fact-6')
+        """.trimIndent(),
+        "CREATE TABLE labels(object_ref VARCHAR,label_kind VARCHAR,label_id VARCHAR,label_display VARCHAR,partition_key VARCHAR)",
+        """
+        INSERT INTO labels VALUES
+          ('object-1','CATEGORY_A','label-1','Same','20010107'),
+          ('object-1','CATEGORY_A','label-1','Same','20010107'),
+          ('object-1','CATEGORY_A','label-2','Same','20010107'),
+          ('object-1','CATEGORY_B','label-3','Other','20010107'),
+          ('object-3','CATEGORY_A','label-4','Alpha','20010107'),
+          (NULL,'CATEGORY_A','label-null-object','Unattached','20010107'),
+          ('object-4','CATEGORY_A','old-label','Old','20010106')
+        """.trimIndent(),
+        "CREATE TABLE ledger_activity(subject VARCHAR,reference_key VARCHAR,activity_day VARCHAR,partition_key VARCHAR)",
+        """
+        INSERT INTO ledger_activity VALUES
+          ('A','101','20010103','20010101'),
+          ('A','101','20010103','20010102'),
+          ('B','102','20010103','20010101'),
+          ('C','102','20010103','20010102'),
+          ('D','103','20010103','20010101'),
+          ('E','104','20010103','20010101'),
+          ('F','105','20010103','20010101')
+        """.trimIndent(),
+        "CREATE TABLE fee_ledger(reference_number BIGINT,ledger_day VARCHAR,partition_key VARCHAR)",
+        """
+        INSERT INTO fee_ledger VALUES
+          (101,'20010103','20010107'),
+          (101,'20010103','20010107'),
+          (101,'20010103','20010107'),
+          (102,'20010103','20010107'),
+          (104,'20010103','20010107'),
+          (NULL,'20010103','20010107'),
+          (103,'20010103','20010106')
+        """.trimIndent(),
+        "CREATE TABLE adjustment_ledger(reference_key VARCHAR,ledger_day VARCHAR,partition_key VARCHAR)",
+        """
+        INSERT INTO adjustment_ledger VALUES
+          ('101','20010103','20010108'),
+          ('101','20010103','20010108'),
+          ('102','20010103','20010108'),
+          ('105','20010103','20010108'),
+          ('105','20010103','20010108'),
+          (NULL,'20010103','20010108'),
+          ('104','20010103','20010107')
         """.trimIndent()
     )
 }

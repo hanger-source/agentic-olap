@@ -333,6 +333,8 @@ Unit
 
 事实 AVG 使用 `FactMeasure.meanTarget`，完成关系、partition／window 与观察窗口使用 `ResultAggregation.Average(valueContract, nullPolicy, meanTarget)`，快照 MEAN 使用 `MetricSnapshotRule.meanTarget`。快照的 `meanValueContract` 在每个实体的时间均值处量化，随后外层聚合是另一项计算；不能把两步压成一次全总体均值。非 AVG／MEAN 不携带均值目标。
 
+当前 CORE_FINALIZATION 的本地执行范围是完成关系之后的标量计算；REGROUP 和窗口中的 AVG 仍在来源关系前缀执行。声明 MATHEMATICAL 不会自动将 AVG 拆为统计量，也不意味着来源可以省略原生均值的类型及保证映射。原生映射拒绝的回执保留受控原因，区分类型／行为不可用、输入保证升级与数学量化尚未证明；来源未提交不表示数据库已执行失败。显式组织统计量和核心除法属于另一份明确计算，仍须具有相应运算授权，不能用它绕过原 AVG 的语义或场景权限。
+
 真实输入的算术保证在投影前保留；选择数学算法、扩大容量或显式转成 DECIMAL 都不将 NativeFloating 提升为 Exact 或已知误差界。当前没有为非零 Approximate 误差建立通用均值传播规则，不能仅凭相同容差继续承诺。作者可保留诚实的数量声明；执行器无法满足组合时返回受控原因，不自动改变声明。已完成数值继续可以参与 CASE、SET、求和及后续定义，数量来历保留均值目标、NULL 政策与实际量化，不把未证明等价当作计算非法。
 
 以下程序完整构造一项记录计数和一项金额求和，不写入元数据。事件与逻辑字段引用由参数提供，必须先从实际定义读取精确身份。金额例子假设来源是精确 DECIMAL、业务单位已确认为人民币元；结果声明 `DECIMAL(24,2)`，超出容量时失败，不额外舍入。来源为浮点或业务单位尚未确认时，应根据真实来源及业务含义选择合同。
@@ -448,6 +450,8 @@ else olap.output(olap.results.read(ResultReadRequest(result, 0, 100, null)))
 将计算沉淀为可复用定义时，`Calculation` 声明可替换输入的正式合同与参数，共同计算体中的运算保持相同。成员、测量和关系形参分别拥有独立接受条件；调用时才提供实际输入并核验。`Computations.compute` 用于确实需要实例化参数化计算的场合，普通集合、资格或对齐不需要绕经它。固定成员来源引用保留其精确采用上下文，不能当成无上下文的共享定义身份；共享定义和跨上下文复用继续使用正式形参及明确采用。
 
 本地模板无需先保存才能被另一个模板使用。查询使用 `Computations.compute(template, bindings, arguments, members, relations)` 提供明确的实际绑定；定义内部使用 `Calculation.ParentSlots` 映射内层所需的父形参，参数用 `Calculation.Argument` 显式转发。内层的参数名与父参数名可以不同，映射按各自词法作用域解析。嵌套后的计算仍能作为同一 Query 的输入，或按实际出口保存为指标及计算成员；保存不会替作者补期间、人口或输入保证。
+
+正式计算的参数引用、槽位与具名输入使用其类型发现中 `identifierFields` 指明的标识规则：`[a-z][a-z0-9_]{0,47}`，禁止双下划线。非法标识在实际构造字段返回 `INVALID_IDENTIFIER`；普通 `ScriptArguments` 对象键不受该规则限制，例如可以读取 `parameters.text("periodStart")`，再显式传给名为 `period_start` 的正式计算参数。不是所有 Map 键都属于这类标识，具体受限位置以对应类型发现为准。
 
 逻辑字段使用 `SemanticExpression` 引用精确来源字段，完成阶段使用 `ResultExpression` 引用当前计算输出；两者保留各自的引用域与规则。它们不决定计算执行位置，不能通过转换表达式绕过身份、数量或来源权限。
 

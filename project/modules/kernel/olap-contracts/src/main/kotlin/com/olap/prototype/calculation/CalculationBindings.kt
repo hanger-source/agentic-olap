@@ -12,13 +12,16 @@ class CalculationBindings(dimensions: Map<String, Dimension>, members: Map<Strin
     val relations: Map<String, Relation> = java.util.Map.copyOf(relations)
     val groupingCandidates: Map<String, List<Dimension>> = java.util.Collections.unmodifiableMap(linkedMapOf<String, List<Dimension>>().apply {
         groupingCandidates.forEach { (name, values) ->
-            ScopedInputContract.requireId(name)
+            ScopedInputContract.requireId(name, listOf("CalculationBindings", "groupingCandidates", name))
             require(values.distinct().size == values.size) { "grouping candidates repeat a binding" }
             require(values.map { it.reference }.distinct().size == values.size) { "grouping candidates contain an ambiguous semantic reference" }
             put(name, java.util.List.copyOf(values))
         }
     })
-    init { this.measurements.keys.forEach { ScopedInputContract.requireId(it) }; this.relations.keys.forEach { ScopedInputContract.requireId(it) } }
+    init {
+        this.measurements.keys.forEach { ScopedInputContract.requireId(it, listOf("CalculationBindings", "measurements", it)) }
+        this.relations.keys.forEach { ScopedInputContract.requireId(it, listOf("CalculationBindings", "relations", it)) }
+    }
 
     class Dimension(val reference: ScopedInputContract.DimensionRef, val role: String, mappingIds: List<String>) {
         val mappingIds: List<String> = java.util.List.copyOf(mappingIds)
@@ -40,13 +43,13 @@ class CalculationBindings(dimensions: Map<String, Dimension>, members: Map<Strin
         val outputSlots: Map<String, String> = java.util.Map.copyOf(outputSlots)
         val members: Map<String, Member> = java.util.Map.copyOf(members)
         val relations: Map<String, Relation> = java.util.Map.copyOf(relations)
-        init { this.arguments.keys.forEach { ScopedInputContract.requireId(it) } }
+        init { this.arguments.keys.forEach { ScopedInputContract.requireId(it, listOf("CalculationBindings.SourceCall", "arguments", it)) } }
         override fun equals(other: Any?): Boolean = other is SourceCall && source == other.source && arguments == other.arguments && outputSlots == other.outputSlots && members == other.members && relations == other.relations
         override fun hashCode(): Int = listOf(source, arguments, outputSlots, members, relations).hashCode()
     }
     class LocalRef(val inputId: String, outputSlots: Map<String, String>) : Member {
         val outputSlots: Map<String, String> = java.util.Map.copyOf(outputSlots)
-        init { ScopedInputContract.requireId(inputId) }
+        init { ScopedInputContract.requireId(inputId, listOf("CalculationBindings.LocalRef", "inputId")) }
         override fun equals(other: Any?): Boolean = other is LocalRef && inputId == other.inputId && outputSlots == other.outputSlots
         override fun hashCode(): Int = listOf(inputId, outputSlots).hashCode()
     }
@@ -56,7 +59,7 @@ class CalculationBindings(dimensions: Map<String, Dimension>, members: Map<Strin
     class LocalRelation(val inputId: String, outputSlots: Map<String, String>) : Relation {
         val outputSlots: Map<String, String> = java.util.Map.copyOf(outputSlots)
         init {
-            ScopedInputContract.requireId(inputId)
+            ScopedInputContract.requireId(inputId, listOf("CalculationBindings.LocalRelation", "inputId"))
             this.outputSlots.forEach { (slot, symbol) -> com.olap.prototype.query.PostOperationContract.requireAlias(slot); com.olap.prototype.query.PostOperationContract.requireAlias(symbol) }
         }
         override fun equals(other: Any?): Boolean = other is LocalRelation && inputId == other.inputId && outputSlots == other.outputSlots

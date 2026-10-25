@@ -28,7 +28,7 @@ sealed interface ResultExpression {
         override fun hashCode(): Int = listOf(function, arguments).hashCode()
     }
     data class ResultArgument(val name: String, val valueType: ScalarValueType) : ResultExpression {
-        init { ScopedInputContract.requireId(name) }
+        init { ScopedInputContract.requireId(name, listOf("ResultExpression.ResultArgument", "name")) }
     }
     data class ResultSymbol(val symbol: String) : ResultExpression {
         init { ScopedInputContract.requireInputSymbol(symbol, "expression.symbol") }

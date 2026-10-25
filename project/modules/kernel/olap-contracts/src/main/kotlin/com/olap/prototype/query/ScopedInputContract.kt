@@ -1,5 +1,7 @@
 package com.olap.prototype.query
 
+import com.olap.prototype.contract.InputContractException
+
 /** 具名输入共享发布坐标，完成各自阶段后按精确语义键组合。 */
 object ScopedInputContract {
     const val MAX_DEPTH = 16
@@ -18,9 +20,23 @@ object ScopedInputContract {
             "SCOPED_UNION contributing inputs require the exact full non-scalar primary grain"
         }
     }
-    fun requireId(id: String?): String {
-        require(id != null && id.matches(Regex("[a-z][a-z0-9_]{0,47}")) && !id.contains("__")) { "additional input id must be a lowercase identifier without double underscores" }
-        return id
+    private val identifier = Regex("[a-z][a-z0-9_]{0,47}")
+    fun identifierContract(vararg fields: String): Map<String, Any> = mapOf(
+        "identifierFields" to fields.toList(),
+        "identifier" to mapOf("pattern" to identifier.pattern, "minimumLength" to 1, "maximumLength" to 48,
+            "case" to "LOWERCASE_ASCII", "forbiddenSubstrings" to listOf("__"), "violationCode" to InputContractException.Rule.IDENTIFIER.code))
+
+    fun requireId(id: String?, fieldPath: List<Any> = listOf("identifier")): String {
+        if (id != null && id.matches(identifier) && !id.contains("__")) return id
+        val actual = when {
+            id == null -> "NULL"
+            id.length !in 1..48 -> "IDENTIFIER_LENGTH_OUT_OF_RANGE"
+            id.contains("__") -> "RESERVED_DOUBLE_UNDERSCORE"
+            else -> "INVALID_IDENTIFIER_SHAPE"
+        }
+        throw InputContractException.violation(InputContractException.Rule.IDENTIFIER, fieldPath,
+            "${fieldPath.joinToString(".")} must match ${identifier.pattern} and must not contain double underscores",
+            "LOWERCASE_ASCII_IDENTIFIER[1,48]_WITHOUT_DOUBLE_UNDERSCORE", actual)
     }
     fun requireSymbol(value: String?, field: String): String = value?.takeIf { it.isNotBlank() } ?: throw IllegalArgumentException("$field is required")
     fun requireInputSymbol(value: Any?, field: String): String = requireSymbol(value as? String ?: throw IllegalArgumentException("$field is required"), field)

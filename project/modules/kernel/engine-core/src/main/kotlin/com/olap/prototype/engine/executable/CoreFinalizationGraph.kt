@@ -112,7 +112,7 @@ class CoreFinalizationGraph private constructor(val source: SourceCut, nodes: Li
                             Root.Relation(root.input)
                         }
                     }
-                    is ExecutableInputRoot.Measures -> if (root.calls.any { it !is ExecutableMetricCall.Fact }) {
+                    is ExecutableInputRoot.Measures -> if (!nativeRoot(scope, input)) {
                         if (prefix > 0)
                             CoreFinalizationExpressions.unsupported(stagePath(scope, prefix - 1), "a source relational prefix cannot consume CORE calculation outputs or their output quantization; finish relational composition before the core cut")
                         requireTransparent(input, scope)
@@ -197,7 +197,7 @@ class CoreFinalizationGraph private constructor(val source: SourceCut, nodes: Li
 
         private fun nativeRoot(scope: ScopeId, input: ExecutableInputScope): Boolean = when (val root = input.root) {
             is ExecutableInputRoot.Input -> canCompleteNatively(scope.child(root.inputId))
-            is ExecutableInputRoot.Measures -> root.calls.all { it is ExecutableMetricCall.Fact }
+            is ExecutableInputRoot.Measures -> input.metricCalls.all { call -> call.calculationScopes(scope).keys.all(::canCompleteNatively) }
             is ExecutableInputRoot.AlignMeasurements -> root.keys.keys.all { canCompleteNatively(scope.child(it)) }
             is ExecutableInputRoot.Members -> when (val member = root.input) {
                 is ExecutableMemberInput.Computed -> canCompleteNatively(member.computationScope)

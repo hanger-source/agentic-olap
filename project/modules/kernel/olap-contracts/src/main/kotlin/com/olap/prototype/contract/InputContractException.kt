@@ -6,6 +6,7 @@ class InputContractException private constructor(val rule: Rule, message: String
     ProducerContractException(message, cause) {
     enum class Rule(val code: String, val stage: String) {
         DECODE_INPUT("INVALID_REQUEST", "DECODE_INPUT"),
+        IDENTIFIER("INVALID_IDENTIFIER", "CONTRACT_INPUT"),
         PAGINATION("INVALID_PAGINATION", "CONTRACT_INPUT"),
         DIMENSION_SLOT_REQUIRED("CALCULATION_DIMENSION_SLOT_REQUIRED", "CONTRACT_INPUT"),
         MEASUREMENT_BINDING_OVERRIDE("MEASUREMENT_BINDING_OVERRIDE", "CONTRACT_INPUT"),

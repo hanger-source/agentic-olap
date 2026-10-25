@@ -201,7 +201,8 @@ internal class GovernanceOrderFixture(val database: PlatformDatabase, val direct
 
     fun publication(id: String = "release_trade", version: String = "1", scenario: String = SCENARIO) = artifacts.loadExecutableCatalog(ReleaseCatalogRequest(scenario, 1, id, version))
 
-    fun execute(publication: PublishedExecutableCatalog, computation: Calculation.Scope): ExecutableExecutionResult {
+    fun execute(publication: PublishedExecutableCatalog, computation: Calculation.Scope,
+        executionMode: QueryExecutionMode = QueryExecutionMode.SOURCE): ExecutableExecutionResult {
         val provider = SourceProvider(source, connectors)
         val engine = OlapEngine(OlapSemanticCompiler(CalciteRelCompiler(connectors)), SourceExecutableSqlExecutor({ reference -> provider.takeIf { it.bindingRef == reference } },
             RuntimeDeploymentLimits.result, RuntimeDeploymentLimits.nativeMemoryBytes, null), RuntimeDeploymentLimits.result)
@@ -211,7 +212,7 @@ internal class GovernanceOrderFixture(val database: PlatformDatabase, val direct
             override fun sourceResolutionCompleted(sources: List<com.olap.prototype.engine.compiler.CompiledQuery.SourceEvidence>) { }
             override fun loweringCompleted(loweringResult: ExecutableLoweringResult) { }
         }
-        val request = kernelRequest(publication, computation)
+        val request = kernelRequest(publication, computation).copy(executionMode = executionMode)
         return engine.execute(publication.catalog, request, observer, RuntimeDeploymentLimits.CONTROL)
     }
 

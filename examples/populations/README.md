@@ -1,8 +1,8 @@
 # Agentic OLAP · 对象人口、独立测量与完成关系复用
 
-本用法用公开合成数据，通过完整服务的正式 MCP 建设来源与定义、冻结发布、保存查询、执行计算并读取结果。完整问题覆盖对象集合、日去重、独立事实、名义数量转换、属性袋贡献及结果恢复；目录同时展示 Unicode 逻辑出口和 BOOLEAN 三值，属性贡献展示零 Metric 内联 guard 和六个保存算法两种责任形态。共享资格、归属和完成量再由独立消费者继续组合。输入和独立预期由示例作者给出，客户端只提交 Kotlin 作者程序、读取正式回执并核对结果，不在外围实现 OLAP 计算。
+本用法用公开合成数据，通过完整服务的正式 MCP 建设来源与定义、冻结发布、保存查询、执行计算并读取结果。完整问题覆盖对象集合、日去重、独立事实、名义数量转换、属性袋贡献、多值标签完整身份、账本完成关系及结果恢复；目录同时展示 Unicode 逻辑出口和 BOOLEAN 三值，属性贡献展示零 Metric 内联 guard 和六个保存算法两种责任形态。共享资格、归属和完成量再由独立消费者继续组合。输入和独立预期由示例作者给出，客户端只提交 Kotlin 作者程序、读取正式回执并核对结果，不在外围实现 OLAP 计算。
 
-[Populations.kt](Populations.kt) 只准备原始 DuckDB 数据；[main.olap.kts](main.olap.kts) 构造正式模型并完成业务操作；[consume.olap.kts](consume.olap.kts) 在独立会话中发现并消费已发布定义。全部九张表、58 列均可空，无 PK、UNIQUE 或记录唯一性声明，共 55 条原始记录。重复行、空串、NULL 和历史分区保留，不把样本中的单次匹配推断为一对一。
+[Populations.kt](Populations.kt) 只准备原始 DuckDB 数据；[main.olap.kts](main.olap.kts) 构造正式模型并完成业务操作；[consume.olap.kts](consume.olap.kts) 在独立会话中发现并消费已发布定义。全部十四张表、78 个物理列均可空，无 PK、UNIQUE 或记录唯一性声明，共 89 条原始记录。对象／数量场景使用九表、58 列、55 行；标签与账本使用独立五表、20 列、34 行，两组输入互不改写。重复行、空串、NULL 和历史分区保留，不把样本中的单次匹配推断为一对一。
 
 ## 运行与交付
 
@@ -11,6 +11,8 @@
 Unicode 逻辑出口已通过本用法的正式建模、发布、查询及完整保存结果读取。外部来源变化后，新旧文本结果分别保存，并在服务重启且移除来源配置后完整读回；下方预期由合成原始数据独立推得，不能代替其他后端或真实业务数据的验收。
 
 正式共享定义、Q1／Q2／Q3 消费和目录资格显式修订已通过完整用法验收。五次消费者调用使用各自独立会话，从获准精确发布发现定义并完整读取保存结果；修订后再消费原发布，保留其原有口径。下述预期由原始数据独立给出，不代表其他后端或私有业务已完成同样采用。
+
+多值标签与账本关系的三个 SOURCE 查询通过同一建模、保存及完整分页入口核对独立预期，完整标签元组、引用日归属和两侧缺组事实均保留。它们不证明其他后端的实际业务已验收，也不涵盖不同 CORE 完成出口的汇合或 CORE 输出继续关系消费。
 
 在仓库根使用 JDK 21，显式执行本用法；输出目录必须不存在。
 
@@ -324,7 +326,7 @@ B 的 ratio_f 分母 amount_a=8 合法，分子 amount_c=NULL，因此保留 NUL
 
 初次 `createPhysicalTable` 与 initialAdoption 同事务完成，作者直接把返回的 `SourceAdoptions.references` 交给发布；再按精确结构观察 S 读取采用，核对与初次返回一致，不猜最近来源或自行拼引用。
 
-主题版本 1 冻结零 Metric 的 inline 发布，供集合、Unicode 目录三值、独立事实、Scale、十三贡献／六个内联 guard，以及本地日均模板的直接使用和嵌套比较使用。随后读取其 `contextSelection`，用显式 carry 修订同一主题到版本 2，读取延续后的成员和维度映射精确版本，新增一个日均和六个比率算法的采用，以及多量输出的日均比较成员，再建立场景及 saved 发布。物理合同 P、结构观察 S 和原始定义不因此重建；原 inline 发布与已保存查询仍保持原精确引用。
+主题版本 1 冻结零 Metric 的 inline 发布，供集合、Unicode 目录三值、独立事实、Scale、十三贡献／六个内联 guard、多值标签、账本归属／交集，以及本地日均模板的直接使用和嵌套比较使用。随后读取其 `contextSelection`，用显式 carry 修订同一主题到版本 2，读取延续后的成员和维度映射精确版本，新增一个日均和六个比率算法的采用，以及多量输出的日均比较成员，再建立场景及 saved 发布。物理合同 P、结构观察 S 和原始定义不因此重建；原 inline 发布与已保存查询仍保持原精确引用。
 
 独立客户端还观察以下完整边界：
 
@@ -395,5 +397,95 @@ Q3 通过正式 `validate-query`、保存、执行和完整读取，核对两个
 在来源尚未 advance 时，新发布 Q1 的 A qualified_items 为 1（原发布为 2），B 为 0（原发布为 1）；空串仍为 1、C 仍为 0，items、人口、活动量和计数不变。独立新会话依次消费原发布 Q1/Q2/Q3、新发布 Q1，再读原发布 Q1，核对两个精确发布各自含义。所有查询都正式保存、明确 SOURCE 执行，并以 limit=1 完整读回；规则修订先于外部来源变化，两个责任分别观察。
 
 build 回执中的 `reuseOriginalPublication`、`reuseRevisedPublication` 只投影正式发布的可追溯坐标；独立消费不接收建设过程中成员 ID、轴 map 或本机私有路径。正式定义负责持久语义，保存 Query 固定本次选择和组合，保存结果保留实际执行内容；这些资产分别拥有自己的生命周期。
+
+## 八、多值标签：完整身份与存在未匹配对象的事实
+
+`label_facts` 的六条原始记录具有独立 record_id；全部 partition_key 为 `20010101`、activity_day 为 `20010103`。本次明确选择活动日 `20010101` 至 `20010107`、事实物理分区下界 `20000101`，排 NULL subject，不清洗 object_ref：
+
+| subject | object_ref | 原事实袋行数 |
+| --- | --- | ---: |
+| A | object-1 | 2 |
+| A | object-2 | 1 |
+| A | NULL | 1 |
+| B | object-3 | 1 |
+| C | object-4 | 1 |
+
+`labels` 的当前数据记录如下，另一条旧记录为 object-4／CATEGORY_A／old-label／Old／`20010106`：
+
+| object_ref | label_kind | label_id | label_display | partition_key | 原标签袋行数 |
+| --- | --- | --- | --- | --- | ---: |
+| object-1 | CATEGORY_A | label-1 | Same | 20010107 | 2 |
+| object-1 | CATEGORY_A | label-2 | Same | 20010107 | 1 |
+| object-1 | CATEGORY_B | label-3 | Other | 20010107 | 1 |
+| object-3 | CATEGORY_A | label-4 | Alpha | 20010107 | 1 |
+| NULL | CATEGORY_A | label-null-object | Unattached | 20010107 | 1 |
+
+`latestPartitionRows` 对标签自己的完整数据记录计算 `MAX(partition_key)`，再以正式关系关联和筛选保留该分区；最大值的输入不继承事实期间或类别过滤。两类标签再共同按 `(object_ref,label_kind,label_id,label_display)` 形成完整值集合，事实按 `(subject,object_ref)` 形成涉及对象集合，两者仅做一次标签 LEFT，最后按下面完整五列归约：
+
+| subject | label_kind | label_id | label_display | has_label_match |
+| --- | --- | --- | --- | --- |
+| A | CATEGORY_A | label-1 | Same | true |
+| A | CATEGORY_A | label-2 | Same | true |
+| A | CATEGORY_B | label-3 | Other | true |
+| A | NULL | NULL | NULL | false |
+| B | CATEGORY_A | label-4 | Alpha | true |
+| C | NULL | NULL | NULL | false |
+
+这六行独立来自原袋：重复完整值归约，同名不同 ID 保留，两个类别不做双 LEFT 乘积。A 的 false 行表示至少一个事实对象未匹配，不表示 A 的所有对象无标签；object-2 与 NULL 对象在移除对象粒度后归约为这一行。NULL 对象不与 NULL 标签键匹配，C 的旧分区标签不进入当前集合。匹配由已限制为两个非 NULL 常量的类别判定，不以可空 ID 或显示文本判定；本输入没有覆盖匹配标签 ID／display 为 NULL 或空串的域。
+
+本例的动态最新语义是**有数据记录的 partition_key 最大值**。DuckDB 没有在此例声明独立物理分区目录，不能据此推断空预建分区是否存在，也不宣称该运算与 Hologres `MAX_PT` 的空分区规则等价。执行仍读取实际来源，读基础为 UNKNOWN，不称为不可变快照。
+
+查询显式 SOURCE 保存、执行并用 `readAll` 逐页读取，以完整五列元组和六行数量核对，不按 subject 建 map 折叠 A 的四行。build 返回 `labelRelationsQuery`／`labelRelationsResult` 的实际正式引用；没有创建空壳 Metric、拼接 CSV 或将标签集合 JOIN 回金额袋。
+
+## 九、先完成再关联：归属与两账本缺侧
+
+`ledger_activity` 的七条原袋记录均为业务日 `20010103`，活动期间和分区下界与上节相同：
+
+| reference_key（TEXT） | subject | partition_key |
+| --- | --- | --- |
+| 101 | A | 20010101 |
+| 101 | A | 20010102 |
+| 102 | B | 20010101 |
+| 102 | C | 20010102 |
+| 103 | D | 20010101 |
+| 104 | E | 20010101 |
+| 105 | F | 20010101 |
+
+引用日不是事先宣布的唯一对象。101 同引用日有两行但只有一个账户，102 同引用日有两行且有两个账户，不用 MAX 任取账户，也不把七条原袋行称为五笔订单。`OWNERSHIP` 先按 `(reference_key,activity_day)` 完成原袋 COUNT 与非 NULL subject 的 COUNT DISTINCT，再输出调查组直方图：
+
+| raw_activity_rows | account_count | activity_reference_is_null | activity_reference_is_empty | activity_coordinate_groups |
+| ---: | ---: | --- | --- | ---: |
+| 2 | 1 | false | false | 1 |
+| 2 | 2 | false | false | 1 |
+| 1 | 1 | false | false | 3 |
+
+`fee_ledger` 的引用原列为 nullable BIGINT，正式逻辑列 `reference_text` 将其原意义转为 TEXT；`adjustment_ledger` 的引用原本就是 TEXT。活动 TEXT 不转数值，不 trim、补零或认为前导零等价。本输入均为上述简单数字文本，前导零差异没有计作已覆盖。
+
+各账本通过自己的数据记录 MAX 独立选择分区：fee 为 `20010107`，adjustment 为 `20010108`，不共用一个来源日期或继承活动 floor。所有账本业务日为 `20010103`，当前分区原袋如下：
+
+| 引用 | fee 当前原袋行数 | adjustment 当前原袋行数 |
+| --- | ---: | ---: |
+| 101 | 3 | 2 |
+| 102 | 1 | 1 |
+| 103 | 无组 | 无组 |
+| 104 | 1 | 无组 |
+| 105 | 无组 | 2 |
+| NULL | 1 | 1 |
+
+fee 另有一条 103／`20010106` 的旧分区行，adjustment 另有一条 104／`20010107` 的旧分区行；各自最大分区存在时它们均不进入本问题。两表均没有记录唯一性声明，重复原行不删除。每侧先按引用日完成一行正 COUNT，然后对活动的五个完成坐标分别 LEFT，普通 EQ 不让 NULL 引用跨键匹配。只有完成组的 COUNT 为 NULL 才表示本侧缺组；缺侧不补 0。
+
+`LEDGER_INTERSECTION` 的完整九列预期如下。`activity_reference_is_null` 和 `activity_reference_is_empty` 在此五行均为 false，其余七列为：
+
+| raw_activity_rows | account_count | fee_ledger_is_missing | adjustment_ledger_is_missing | fee_ledger_raw_rows | adjustment_ledger_raw_rows | activity_coordinate_groups |
+| ---: | ---: | --- | --- | ---: | ---: | ---: |
+| 2 | 1 | false | false | 3 | 2 | 1 |
+| 2 | 2 | false | false | 1 | 1 | 1 |
+| 1 | 1 | true | true | NULL | NULL | 1 |
+| 1 | 1 | false | true | 1 | NULL | 1 |
+| 1 | 1 | true | false | NULL | 2 | 1 |
+
+两份问题分别显式 SOURCE 保存、执行及全页读取，按完整五列／九列元组比较；保存后的袋行数、账户数与调查组数另核对 ONE／Exact／INTEGER64／FAIL 数量合同。最终调查人口仍为五个活动坐标，COUNT 前直接双 LEFT 原袋会制造另一种权重，不能得到本预期。build 返回 `ledgerOwnershipQuery`／`ledgerOwnershipResult` 和 `ledgerIntersectionQuery`／`ledgerIntersectionResult` 的正式引用。
+
+这是关系调查，不计算财务金额，不宣布重复袋行有误，也不从本次分布推出跨期间账户唯一性。三个关系查询不增加独立 runner；最新分区内容变化、空预建分区、所有 NULL／空串域及不同核心完成出口组合均不在这些有限输入的验收范围内。
 
 正常使用方式见[作者使用指引](../../docs/agent-usage.md)，部署、认证和预算见[服务说明](../../skills/agentic-olap/references/server.md)。本用法不要求业务项目读服务器私有文件、放宽合同、改写生成 SQL 或维护外围计算器。

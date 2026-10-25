@@ -107,7 +107,8 @@ class PopulationExample {
     lateinit var axis: CalculationBindings.Dimension
     val slot = Calculation.DimensionSlot("subject", dimension.id, 1, "subject")
     fun activate(type: String, id: String, version: Long = 1) { governance.activate(GovernanceVersionActivationRequest(GovernanceActivationObjectType.valueOf(type), id, version, actor, "示例采用精确版本")) }
-    fun install(name: String, types: Map<String, ScalarValueType>, quantities: Map<String, MetricValueContract> = emptyMap(), castAdjustment: Boolean = false, captionPredicate: Boolean = false) {
+    fun install(name: String, types: Map<String, ScalarValueType>, quantities: Map<String, MetricValueContract> = emptyMap(), castAdjustment: Boolean = false, captionPredicate: Boolean = false,
+        castReference: Boolean = false, filterOperators: Map<String, List<MemberCondition.Operator>> = emptyMap()) {
         val discovered = governance.discoverSource(WarehouseDiscoveryCommand(source.binding.dataSourceId, source.binding.sourceIdentityHash, null, "main", name, listOf("TABLE"), 10, emptyMap(), emptyMap(), actor))
         check(discovered.status == "SUCCEEDED" && !discovered.truncated)
         val table = olap.semantics.discoveredTables(GovernanceReadRequests.SnapshotPageInput(discovered.snapshotId, 0, 10)).items.single()
@@ -136,6 +137,12 @@ class PopulationExample {
                     SemanticExpression.Reference(SemanticExpression.ReferenceKind.PHYSICAL_COLUMN, caption.id, caption.currentVersion, null),
                     SemanticExpression.Literal("%样本%"))))), LogicType.BOOLEAN, null, false, false, false, true, false, emptyList())
         }
+        if (castReference) {
+            val column = physical.physicalColumns.single { it.columnName == "reference_number" }
+            units += LogicalTableCreateRequest.LogicUnitInput("reference_text", "账本原I64引用的TEXT出口", LogicUnitSourceKind.EXPRESSION,
+                SemanticExpression.Cast(SemanticExpression.Reference(SemanticExpression.ReferenceKind.PHYSICAL_COLUMN, column.id, column.currentVersion), SemanticExpression.ValueType.STRING, null, null, MetricValueContract.Rounding.NONE),
+                LogicType.STRING, null, false, false, false, true, false, emptyList())
+        }
         val logical = governance.createLogicalTable(LogicalTableCreateRequest(physical.physicalTable.id, 1, name, name, LogicalTableRole.FACT, "保原袋与NULL，不造PK", actor, actor, units))
         activate("LOGICAL_TABLE", logical.logicalTable.id)
         val topology = governance.createTopology(TopologyCreateRequest(name, name, "example.populations", "独立来源时钟", logical.logicalTable.id, 1, actor, "完整记录边界", actor)).topology
@@ -145,10 +152,12 @@ class PopulationExample {
         activate("EVENT", event.id)
         val bound = if ("subject" in types) governance.createDimensionEventBinding(DimensionEventBindingCreateRequest(dimension.id, 1, event.id, 1, logical.logicUnits.single { it.code == "subject" }.id, 1, null, RelationAccessPath(emptyList()), emptyMap(), actor)).binding.also { activate("DIMENSION_EVENT_BINDING", it.id); bindings += it } else null
         val effective = types + (if (castAdjustment) mapOf("adjustment" to ScalarValueType.NUMBER) else emptyMap()) +
-            (if (captionPredicate) mapOf("caption_accepted" to ScalarValueType.BOOLEAN) else emptyMap())
+            (if (captionPredicate) mapOf("caption_accepted" to ScalarValueType.BOOLEAN) else emptyMap()) +
+            (if (castReference) mapOf("reference_text" to ScalarValueType.TEXT) else emptyMap())
         val declared: Map<String, MemberSourceDefinition.Output> = effective.mapValues { (code, type) -> if (code == "subject") MemberSourceDefinition.DimensionOutput(code, "subject", type, dimension.id, 1, requireNotNull(bound).id, 1, null)
             else MemberSourceDefinition.PropertyOutput(code, code, type, logical.logicUnits.single { it.code == code }.id, 1, RelationAccessPath(emptyList()), quantities[code]) }
-        val allowed = effective.mapValues { (_, type) -> if (type == ScalarValueType.TEXT) listOf(MemberCondition.Operator.EQ, MemberCondition.Operator.BETWEEN) else listOf(MemberCondition.Operator.EQ) }
+        require(effective.keys.containsAll(filterOperators.keys))
+        val allowed = effective.mapValues { (_, type) -> if (type == ScalarValueType.TEXT) listOf(MemberCondition.Operator.EQ, MemberCondition.Operator.BETWEEN) else listOf(MemberCondition.Operator.EQ) } + filterOperators
         outputs[name] = declared; filters[name] = allowed
         val definition = MemberSourceDefinition.Projection(EventRef(event.id, 1), MemberResult(name, "records", MemberShape.RAW_BAG, emptyList(), declared, allowed, null, emptyMap(), null))
         members[name] = governance.createMemberSource(MemberSourceCreateRequest(subject.id, 1, name, name, definition, CalculationBindings.empty(), emptyMap(), actor))
@@ -239,6 +248,120 @@ fun cohortQuery(e: PopulationExample): Calculation.Scope {
         "catalog" to Computations.aligned(completedCatalog, key, listOf("items", "qualified_items").map { Calculation.AlignedValue(it, it, Calculation.NoMatch.PRESERVE_NULL) }),
         "amount" to Computations.aligned(completedAmount, key, listOf(Calculation.AlignedValue("measured_amount", "amount", Calculation.NoMatch.PRESERVE_NULL)) +
             listOf("records", "known").map { Calculation.AlignedValue(it, it, Calculation.NoMatch.PRESERVE_NULL) })), listOf("subject"), Calculation.AlignmentPopulation(Calculation.PopulationKind.BASE, listOf("population")))
+}
+
+// 在各来源自己的完整partition_key关系上取MAX，不把fixture布尔值或其他来源日期当最新分区。
+fun latestPartitionRows(e: PopulationExample, source: String, columns: List<String>, condition: MemberCondition = MemberCondition.Unrestricted()): Calculation.Scope {
+    val maximum = Computations.stages(e.raw(source, listOf("partition_key")), listOf(regroup(emptyList(),
+        ResultAggregate("partition_key", ResultAggregation.Maximum(ResultAggregation.NullPolicy.IGNORE), "latest_partition", "本来源执行时最大分区"))))
+    val rows = e.raw(source, (columns + "partition_key").distinct(), condition)
+    return Calculation.Scope(rows.root, rows.inputs + ("latest" to Calculation.InputScope("RELATION", maximum)), rows.stages + listOf(
+        JoinInput("latest", "partition", "LEFT", op(ResultOperator.EQ, sym("partition_key"), sym("partition__latest_partition"))),
+        PostFilter(nonnull("partition__latest_partition")), Project(columns)))
+}
+
+val labelRelationColumns = listOf("subject", "label_kind", "label_id", "label_display", "has_label_match")
+val labelRelationExpected: List<List<String?>> = listOf(
+    listOf("A", "CATEGORY_A", "label-1", "Same", "true"),
+    listOf("A", "CATEGORY_A", "label-2", "Same", "true"),
+    listOf("A", "CATEGORY_B", "label-3", "Other", "true"),
+    listOf("A", null, null, null, "false"),
+    listOf("B", "CATEGORY_A", "label-4", "Alpha", "true"),
+    listOf("C", null, null, null, "false"))
+fun labelRelationsQuery(e: PopulationExample): Calculation.Scope {
+    val facts = Computations.stages(e.raw("label_facts", listOf("subject", "object_ref"), MemberCondition.All(listOf(
+        condition("partition_key", ScalarValueType.TEXT, MemberCondition.Operator.GTE, "20000101"),
+        condition("activity_day", ScalarValueType.TEXT, MemberCondition.Operator.BETWEEN, "20010101", "20010107")))),
+        listOf(regroup(listOf("subject", "object_ref"))))
+    val labels = Computations.stages(latestPartitionRows(e, "labels", listOf("object_ref", "label_kind", "label_id", "label_display"),
+        condition("label_kind", ScalarValueType.TEXT, MemberCondition.Operator.IN, "CATEGORY_A", "CATEGORY_B")),
+        listOf(regroup(listOf("object_ref", "label_kind", "label_id", "label_display"))))
+    // 两类别共用同一标签关系，只LEFT一次；显示文本不替代ID，NULL对象键按普通EQ不匹配。
+    return Calculation.Scope(facts.root, facts.inputs + ("labels" to Calculation.InputScope("RELATION", labels)), facts.stages + listOf(
+        JoinInput("labels", "label", "LEFT", op(ResultOperator.EQ, sym("object_ref"), sym("label__object_ref"))),
+        Derive(sym("label__label_kind"), "label_kind", "标签原类别"),
+        Derive(sym("label__label_id"), "label_id", "标签原ID，不按显示名合并"),
+        Derive(sym("label__label_display"), "label_display", "标签原显示文本"),
+        Derive(nonnull("label__label_kind"), "has_label_match", "是否存在本次两类别的当前标签匹配"),
+        Project(labelRelationColumns), regroup(labelRelationColumns)))
+}
+
+val ledgerOwnershipColumns = listOf("raw_activity_rows", "account_count", "activity_reference_is_null", "activity_reference_is_empty", "activity_coordinate_groups")
+val ledgerIntersectionColumns = ledgerOwnershipColumns.dropLast(1) + listOf("fee_ledger_is_missing", "adjustment_ledger_is_missing", "fee_ledger_raw_rows", "adjustment_ledger_raw_rows", "activity_coordinate_groups")
+val ledgerOwnershipExpected: List<List<String?>> = listOf(
+    listOf("2", "1", "false", "false", "1"),
+    listOf("2", "2", "false", "false", "1"),
+    listOf("1", "1", "false", "false", "3"))
+val ledgerIntersectionExpected: List<List<String?>> = listOf(
+    listOf("2", "1", "false", "false", "false", "false", "3", "2", "1"),
+    listOf("2", "2", "false", "false", "false", "false", "1", "1", "1"),
+    listOf("1", "1", "false", "false", "true", "true", null, null, "1"),
+    listOf("1", "1", "false", "false", "false", "true", "1", null, "1"),
+    listOf("1", "1", "false", "false", "true", "false", null, "2", "1"))
+fun ledgerAttributionQuery(e: PopulationExample, question: String): Calculation.Scope {
+    require(question in setOf("OWNERSHIP", "LEDGER_INTERSECTION"))
+    val intersection = question == "LEDGER_INTERSECTION"
+    val activity = Computations.stages(e.raw("ledger_activity", listOf("subject", "reference_key", "activity_day"), MemberCondition.All(listOf(
+        condition("partition_key", ScalarValueType.TEXT, MemberCondition.Operator.GTE, "20000101"),
+        condition("activity_day", ScalarValueType.TEXT, MemberCondition.Operator.BETWEEN, "20010101", "20010107")))), listOf(
+        Derive(number("1"), "activity_row_marker", "每条原活动袋行贡献一次"),
+        regroup(listOf("reference_key", "activity_day"), counted("activity_row_marker", "raw_activity_rows"), counted("subject", "account_count", true))))
+    fun ledger(source: String): Calculation.Scope {
+        val reference = if (source == "fee_ledger") "reference_text" else "reference_key"
+        val rows = latestPartitionRows(e, source, listOf(reference, "ledger_day"),
+            condition("ledger_day", ScalarValueType.TEXT, MemberCondition.Operator.BETWEEN, "20010101", "20010107"))
+        val stages = mutableListOf<ValidatedOperation>()
+        if (reference != "reference_key") stages += Derive(sym(reference), "reference_key", "沿原I64含义形成的TEXT引用")
+        stages += Derive(sym("ledger_day"), "activity_day", "本账本业务日，不继承活动分区")
+        stages += Derive(number("1"), "ledger_row_marker", "每条原账本袋行贡献一次")
+        stages += regroup(listOf("reference_key", "activity_day"), counted("ledger_row_marker", "raw_rows"))
+        return Computations.stages(rows, stages)
+    }
+    val inputs = linkedMapOf<String, Calculation.InputScope>()
+    val stages = mutableListOf<ValidatedOperation>()
+    if (intersection) listOf("fee_ledger", "adjustment_ledger").forEach { source ->
+        inputs[source] = Calculation.InputScope("RELATION", ledger(source))
+        stages += JoinInput(source, source, "LEFT", op(ResultOperator.AND,
+            op(ResultOperator.EQ, sym("reference_key"), sym("${source}__reference_key")),
+            op(ResultOperator.EQ, sym("activity_day"), sym("${source}__activity_day"))))
+        stages += Derive(sym("${source}__raw_rows"), "${source}_raw_rows", "匹配本侧完成袋计数，缺组保NULL")
+        stages += Derive(op(ResultOperator.IS_NULL, sym("${source}__raw_rows")), "${source}_is_missing", "仅以完成组的正COUNT判缺侧")
+    }
+    stages += Derive(op(ResultOperator.IS_NULL, sym("reference_key")), "activity_reference_is_null", "活动引用是否NULL")
+    stages += Derive(op(ResultOperator.EQ, sym("reference_key"), text("")), "activity_reference_is_empty", "精确空串，不清洗或把NULL补成空串")
+    stages += Derive(number("1"), "coordinate_marker", "每个实际引用日调查组一次")
+    val columns = if (intersection) ledgerIntersectionColumns else ledgerOwnershipColumns
+    stages += regroup(columns.dropLast(1), counted("coordinate_marker", "activity_coordinate_groups"))
+    stages += Project(columns)
+    return Calculation.Scope(activity.root, activity.inputs + inputs, activity.stages + stages)
+}
+
+fun sourceRelationCases(e: PopulationExample, entry: PublishedQueryEntry): Map<String, ScriptValue> {
+    fun expectRows(rows: List<Map<String, String?>>, columns: List<String>, expected: List<List<String?>>) {
+        val actual = rows.map { row -> check(row.keys.toList() == columns) { "完整关系列不符：${row.keys}" }; columns.map { row.getValue(it) } }
+        check(actual.size == expected.size && actual.toSet() == expected.toSet()) { "完整关系行不符：实际$actual；预期$expected" }
+    }
+    val labels = e.execute(entry, "多值标签按完整身份形成五列集合", labelRelationsQuery(e), QueryExecutionMode.SOURCE)
+    expectRows(labels.rows, labelRelationColumns, labelRelationExpected)
+    val ownership = e.execute(entry, "OWNERSHIP：引用日活动原袋行与不同账户归属", ledgerAttributionQuery(e, "OWNERSHIP"), QueryExecutionMode.SOURCE)
+    expectRows(ownership.rows, ledgerOwnershipColumns, ledgerOwnershipExpected)
+    val intersection = e.execute(entry, "LEDGER_INTERSECTION：两账本先完成再双LEFT", ledgerAttributionQuery(e, "LEDGER_INTERSECTION"), QueryExecutionMode.SOURCE)
+    expectRows(intersection.rows, ledgerIntersectionColumns, ledgerIntersectionExpected)
+    listOf(ownership to setOf("raw_activity_rows", "account_count", "activity_coordinate_groups"),
+        intersection to setOf("raw_activity_rows", "account_count", "fee_ledger_raw_rows", "adjustment_ledger_raw_rows", "activity_coordinate_groups")).forEach { (saved, quantityNames) ->
+        val quantityColumns = olap.results.read(ResultReadRequest(saved.result, 0, 1, null)).columns.filter { it.symbol.name in quantityNames }
+        check(quantityColumns.map { it.symbol.name }.toSet() == quantityNames)
+        quantityColumns.forEach { column ->
+            val quantity = requireNotNull(column.symbol.quantity)
+            check(quantity.unit == QueryQuantity.Fixed(MetricValueContract.ONE) && quantity.declaration.unit == count.unit &&
+                quantity.declaration.arithmetic == count.arithmetic && quantity.declaration.result == count.result && quantity.declaration.overflow == count.overflow) {
+                "保存的袋计数丢失ONE/Exact/I64/FAIL合同：${column.symbol.name}"
+            }
+        }
+    }
+    return mapOf("labelRelationsQuery" to ScriptValue.QueryReferenceValue(labels.query), "labelRelationsResult" to ScriptValue.ResultReferenceValue(labels.result),
+        "ledgerOwnershipQuery" to ScriptValue.QueryReferenceValue(ownership.query), "ledgerOwnershipResult" to ScriptValue.ResultReferenceValue(ownership.result),
+        "ledgerIntersectionQuery" to ScriptValue.QueryReferenceValue(intersection.query), "ledgerIntersectionResult" to ScriptValue.ResultReferenceValue(intersection.result))
 }
 
 fun independentQuery(e: PopulationExample): Calculation.Scope {
@@ -667,6 +790,13 @@ fun installInputs(e: PopulationExample) {
     e.install("bases", texts("subject", "record_ref", "state_c") + numbers("count_a", "count_b", "base_a", "base_b"), mapOf("count_a" to count, "count_b" to count, "base_a" to floating("base-a"), "base_b" to floating("base-b")))
     val attributeQuantities = ('a'..'m').associate { it.toString() to floating("attribute-$it") }
     e.install("attributes", texts("record_ref", "partition_day") + booleans("flag_a", "flag_b") + attributeQuantities.keys.associateWith { ScalarValueType.NUMBER }, attributeQuantities)
+    val factFilters = mapOf("partition_key" to listOf(MemberCondition.Operator.GTE), "activity_day" to listOf(MemberCondition.Operator.BETWEEN))
+    e.install("label_facts", texts("subject", "object_ref", "partition_key", "activity_day", "record_id"), filterOperators = factFilters)
+    e.install("labels", texts("object_ref", "label_kind", "label_id", "label_display", "partition_key"),
+        filterOperators = mapOf("label_kind" to listOf(MemberCondition.Operator.IN)))
+    e.install("ledger_activity", texts("subject", "reference_key", "activity_day", "partition_key"), filterOperators = factFilters)
+    e.install("fee_ledger", numbers("reference_number") + texts("ledger_day", "partition_key"), castReference = true)
+    e.install("adjustment_ledger", texts("reference_key", "ledger_day", "partition_key"))
     e.createAxis()
 }
 fun references(query: QueryReference, result: QueryResultReference, captionQuery: QueryReference, captionResult: QueryResultReference) = ScriptValue.ObjectValue(mapOf(
@@ -677,6 +807,7 @@ fun build(): ScriptValue.ObjectValue {
     val meanTemplate = dailyTemplate(e.slot)
     val comparisonTemplate = dailyComparisonTemplate(e.slot, meanTemplate.calculation)
     val inline = e.publication("inline")
+    val sourceRelations = sourceRelationCases(e, inline)
     val cohort = e.execute(inline, "对象集合后分别测量原始袋", cohortQuery(e))
     expect(cohort.rows, linkedMapOf("" to mapOf("items" to "1", "qualified_items" to "1", "amount" to null, "records" to "1", "known" to "0"),
         "A" to mapOf("items" to "2", "qualified_items" to "2", "amount" to null, "records" to "2", "known" to "0"),
@@ -752,7 +883,7 @@ fun build(): ScriptValue.ObjectValue {
     val localReferences = mapOf("dailyInlineQuery" to ScriptValue.QueryReferenceValue(inlineDaily.query), "dailyInlineResult" to ScriptValue.ResultReferenceValue(inlineDaily.result),
         "dailyNestedQuery" to ScriptValue.QueryReferenceValue(nestedDaily.query), "dailyNestedResult" to ScriptValue.ResultReferenceValue(nestedDaily.result),
         "dailyPublishedQuery" to ScriptValue.QueryReferenceValue(publishedDaily.query), "dailyPublishedResult" to ScriptValue.ResultReferenceValue(publishedDaily.result))
-    return ScriptValue.ObjectValue(references(primary.query, primary.result, captions.query, captions.result).values + reusePublications(e) + localReferences + ("dailyInputRejected" to rejected))
+    return ScriptValue.ObjectValue(references(primary.query, primary.result, captions.query, captions.result).values + reusePublications(e) + localReferences + sourceRelations + ("dailyInputRejected" to rejected))
 }
 olap.output(when (parameters.text("phase")) {
     "build" -> build()

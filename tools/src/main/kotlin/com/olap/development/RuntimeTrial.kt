@@ -43,6 +43,7 @@ internal class RuntimeTrial(private val distribution: Path, private val root: Pa
         val processes = linkedSetOf<Long>()
         val sessions = linkedSetOf<String>()
         lateinit var resourceReuse: JsonObject
+        lateinit var identifierAuthoring: JsonObject
         ManagedProcess(listOf(distribution.resolve("runtime/agentic-olap").toString(), "start", "--config", configFile.toString()),
             workspace, root.resolve("service.log"), mapOf("AGENTIC_OLAP_TEST_SECRET" to "must-not-reach-the-author",
                 "SSL_CERT_FILE" to issuer.ca.toString(), "NO_PROXY" to "127.0.0.1,localhost")).use { service ->
@@ -80,6 +81,7 @@ internal class RuntimeTrial(private val distribution: Path, private val root: Pa
                     "root" to ScriptValue.Text(privateRoot.toString()), "model" to ScriptValue.Text(productModel.code))))
             """.trimIndent()
             try {
+                identifierAuthoring = identifierBoundaries(client, version)
                 val first = submit(initial, "first")
                 val firstIdentity = identity(first)
                 val firstSession = first.report.string("sessionId")
@@ -198,8 +200,34 @@ internal class RuntimeTrial(private val distribution: Path, private val root: Pa
         write(root.resolve("report.json"), objectOf("passed" to bool(true), "persistentLanguageHistory" to bool(true),
             "independentSessions" to bool(true), "identityIsolation" to bool(true), "singleAdmissionCallback" to bool(true), "sandbox" to bool(true),
             "executionIdentity" to bool(true), "completeOrderedOutput" to bool(true), "committedEffectsRecovered" to bool(true),
-            "resourceReuse" to resourceReuse,
+            "resourceReuse" to resourceReuse, "identifierAuthoring" to identifierAuthoring,
             "forcedCancellation" to bool(true), "processesReaped" to bool(true), "chunkedInputLimit" to bool(true)))
+    }
+
+    private fun identifierBoundaries(client: McpClient, version: String): JsonObject {
+        val description = client.call("describe-script-api", objectOf("type" to text("com.olap.prototype.calculation.Calculation.Argument"))).jsonObject
+        val identifier = description.objectAt("rules").objectAt("identifier")
+        val pattern = Regex(identifier.string("pattern"))
+        val forbidden = identifier.array("forbiddenSubstrings").map { it.jsonPrimitive.content }
+        val observed = linkedMapOf<String, JsonElement>()
+        for ((name, allowed) in linkedMapOf("periodStart" to false, "period_start" to true)) {
+            check((pattern.matches(name) && forbidden.none { name.contains(it) }) == allowed)
+            val execution = client.script("""
+                import com.olap.prototype.calculation.Calculation
+                olap.output(ScriptValue.Text(parameters.text("periodStart")))
+                Calculation.Argument(parameters.text("argumentName"))
+            """.trimIndent(), objectOf("periodStart" to text("普通输入保留原键"), "argumentName" to text(name)), version, "identifier-authoring.olap.kts")
+            check(execution.report.getValue("success").jsonPrimitive.boolean == allowed)
+            check(execution.value()["text"] == text("普通输入保留原键") && execution.report.array("calls").isEmpty())
+            if (allowed) execution.succeeded() else {
+                val diagnostic = execution.report.array("diagnostics").map { it.jsonObject }.single { it["code"] == text(identifier.string("violationCode")) }
+                check(diagnostic["stage"] == text("CONTRACT_INPUT") && diagnostic["fieldPath"] == JsonArray(listOf(text("Calculation.Argument"), text("name"))))
+                check(diagnostic.string("expected").isNotBlank() && diagnostic["actual"] == text("INVALID_IDENTIFIER_SHAPE"))
+                check(diagnostic.objectAt("location")["sourceName"] == text("identifier-authoring.olap.kts") && diagnostic.objectAt("location").getValue("startLine").jsonPrimitive.int > 0)
+            }
+            observed[name] = execution.report
+        }
+        return objectOf("discovery" to description, "executions" to JsonObject(observed))
     }
 
     private fun resourceBoundaries(submit: (String, String, String?) -> ScriptResult,

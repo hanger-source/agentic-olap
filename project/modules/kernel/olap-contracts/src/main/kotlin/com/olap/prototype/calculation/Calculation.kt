@@ -32,7 +32,7 @@ class Calculation(dimensionSlots: List<DimensionSlot>, memberSlots: List<MemberS
     })
 
     data class DimensionSlot(val name: String, val dimensionId: String, val dimensionVersion: Long, val role: String) {
-        init { ScopedInputContract.requireId(name); MetricDefinition.text(dimensionId, "dimensionId"); MetricDefinition.version(dimensionVersion); MetricDefinition.text(role, "dimension role") }
+        init { ScopedInputContract.requireId(name, listOf("Calculation.DimensionSlot", "name")); MetricDefinition.text(dimensionId, "dimensionId"); MetricDefinition.version(dimensionVersion); MetricDefinition.text(role, "dimension role") }
     }
 
     /** 实际采用的测量契约；观察键仍由完整计算分析证明。 */
@@ -41,8 +41,8 @@ class Calculation(dimensionSlots: List<DimensionSlot>, memberSlots: List<MemberS
         val observationSlots: List<DimensionSlot> = java.util.List.copyOf(observationSlots)
         val groupingArguments: List<String> = java.util.List.copyOf(groupingArguments)
         init {
-            ScopedInputContract.requireId(name)
-            this.parameters.keys.forEach { ScopedInputContract.requireId(it) }
+            ScopedInputContract.requireId(name, listOf("Calculation.MeasurementSlot", "name"))
+            this.parameters.keys.forEach { ScopedInputContract.requireId(it, listOf("Calculation.MeasurementSlot", "parameters", it)) }
             require(this.observationSlots.map { it.name }.distinct().size == this.observationSlots.size) { "measurement observation slots must be distinct" }
             require(this.groupingArguments.distinct().size == this.groupingArguments.size) { "measurement grouping arguments must be distinct" }
             this.groupingArguments.forEach { require(this.parameters[it]?.kind == ParameterKind.GROUPING) { "measurement observations require a declared grouping parameter: $it" } }
@@ -61,7 +61,7 @@ class Calculation(dimensionSlots: List<DimensionSlot>, memberSlots: List<MemberS
         init { MetricDefinition.text(role, "member container property role"); SetOutputContract.requireSourceContainer(shape) }
     }
     data class MemberDimension(val dimensionSlot: String, override val valueContract: MetricValueContract?) : ScalarMemberOutput {
-        init { ScopedInputContract.requireId(dimensionSlot) }
+        init { ScopedInputContract.requireId(dimensionSlot, listOf("Calculation.MemberDimension", "dimensionSlot")) }
     }
     data class MemberProperty(val role: String, val valueType: ScalarValueType, override val valueContract: MetricValueContract?) : ScalarMemberOutput {
         init { MetricDefinition.text(role, "member property role"); require(valueContract == null || valueType == ScalarValueType.NUMBER) { "only quantitative numeric member properties declare value contracts" } }
@@ -70,7 +70,7 @@ class Calculation(dimensionSlots: List<DimensionSlot>, memberSlots: List<MemberS
         val fixedSource: MemberRef?) {
         val outputs: Map<String, MemberOutput> = java.util.Map.copyOf(outputs)
         init {
-            ScopedInputContract.requireId(name); MetricDefinition.text(entity, "member entity"); MetricDefinition.text(role, "member role")
+            ScopedInputContract.requireId(name, listOf("Calculation.MemberSlot", "name")); MetricDefinition.text(entity, "member entity"); MetricDefinition.text(role, "member role")
             require(this.outputs.isNotEmpty()) { "member output slots must be explicit and distinct" }
         }
         override fun equals(other: Any?): Boolean = other is MemberSlot && name == other.name && entity == other.entity && role == other.role && shape == other.shape && outputs == other.outputs && fixedSource == other.fixedSource
@@ -82,7 +82,7 @@ class Calculation(dimensionSlots: List<DimensionSlot>, memberSlots: List<MemberS
         val outputs: List<SetOutputContract> = java.util.List.copyOf(outputs)
         val keys: List<String>? = keys?.let { java.util.List.copyOf(it) }
         init {
-            ScopedInputContract.requireId(name)
+            ScopedInputContract.requireId(name, listOf("Calculation.RelationSlot", "name"))
             require(this.outputs.isNotEmpty() && this.outputs.map { it.name }.distinct().size == this.outputs.size) { "relation formal requires explicit distinct outputs" }
             require(this.keys == null || this.keys.distinct().size == this.keys.size && this.outputs.map { it.name }.containsAll(this.keys)) { "relation keys must select distinct declared outputs" }
         }
@@ -113,10 +113,10 @@ class Calculation(dimensionSlots: List<DimensionSlot>, memberSlots: List<MemberS
     }
 
     sealed interface Binding
-    data class Argument(val name: String) : Binding { init { ScopedInputContract.requireId(name) } }
+    data class Argument(val name: String) : Binding { init { ScopedInputContract.requireId(name, listOf("Calculation.Argument", "name")) } }
     class GroupingSlots(slots: List<String>) : Binding {
         val slots: List<String> = java.util.List.copyOf(slots)
-        init { this.slots.forEach { ScopedInputContract.requireId(it) } }
+        init { this.slots.forEachIndexed { index, slot -> ScopedInputContract.requireId(slot, listOf("Calculation.GroupingSlots", "slots", index)) } }
         override fun equals(other: Any?): Boolean = other is GroupingSlots && slots == other.slots
         override fun hashCode(): Int = slots.hashCode()
     }
@@ -165,7 +165,7 @@ class Calculation(dimensionSlots: List<DimensionSlot>, memberSlots: List<MemberS
 
     sealed interface CallTarget
     data class Fixed(val metric: MetricRef) : CallTarget
-    data class Measurement(val slot: String) : CallTarget { init { ScopedInputContract.requireId(slot) } }
+    data class Measurement(val slot: String) : CallTarget { init { ScopedInputContract.requireId(slot, listOf("Calculation.Measurement", "slot")) } }
     data class Instance(val instance: MetricInstanceRef) : CallTarget
     class Call(val callId: String, val target: CallTarget, val outputAlias: String, dimensionSlots: Map<String, String>, memberSlots: Map<String, String>, measurementSlots: Map<String, String>, relationSlots: Map<String, String>, arguments: Map<String, Binding>, val sourceCondition: Binding,
         members: Map<String, CalculationBindings.Member>, relations: Map<String, CalculationBindings.Relation>) {
@@ -177,7 +177,7 @@ class Calculation(dimensionSlots: List<DimensionSlot>, memberSlots: List<MemberS
         val members: Map<String, CalculationBindings.Member> = java.util.Map.copyOf(members)
         val relations: Map<String, CalculationBindings.Relation> = java.util.Map.copyOf(relations)
         init {
-            ScopedInputContract.requireId(callId); MetricDefinition.text(outputAlias, "outputAlias")
+            ScopedInputContract.requireId(callId, listOf("Calculation.Call", "callId")); MetricDefinition.text(outputAlias, "outputAlias")
             if (target is Measurement || target is Instance) {
                 mapOf("dimensionSlots" to this.dimensionSlots, "measurementSlots" to this.measurementSlots).forEach { (field, bindings) ->
                     if (bindings.isNotEmpty()) throw InputContractException.violation(InputContractException.Rule.MEASUREMENT_BINDING_OVERRIDE,
@@ -232,7 +232,7 @@ class Calculation(dimensionSlots: List<DimensionSlot>, memberSlots: List<MemberS
         override fun equals(other: Any?): Boolean = other is Compute && calculation == other.calculation && bindings == other.bindings && arguments == other.arguments
         override fun hashCode(): Int = listOf(calculation, bindings, arguments).hashCode()
     }
-    data class Relation(val slot: String) : Root { init { ScopedInputContract.requireId(slot) } }
+    data class Relation(val slot: String) : Root { init { ScopedInputContract.requireId(slot, listOf("Calculation.Relation", "slot")) } }
     class ObjectMeasure(val measurement: Scope, val objects: Scope, roles: List<ObjectRole>) : Root {
         val roles: List<ObjectRole> = java.util.List.copyOf(roles)
         init { require(this.roles.isNotEmpty() && this.roles.map { it.target }.distinct().size == this.roles.size) { "object qualification requires explicit distinct measurement roles" } }
@@ -248,14 +248,17 @@ class Calculation(dimensionSlots: List<DimensionSlot>, memberSlots: List<MemberS
     data class EventRole(val role: String) : ObjectTarget { init { MetricDefinition.text(role, "fact entity role") } }
     class RecordOutputs(val memberSlot: String, keys: List<String>) : ObjectTarget {
         val keys: List<String> = symbols(keys, false)
-        init { ScopedInputContract.requireId(memberSlot) }
+        init { ScopedInputContract.requireId(memberSlot, listOf("Calculation.RecordOutputs", "memberSlot")) }
         override fun equals(other: Any?): Boolean = other is RecordOutputs && memberSlot == other.memberSlot && keys == other.keys
         override fun hashCode(): Int = listOf(memberSlot, keys).hashCode()
     }
     class RecordCallOutputs(inputPath: List<String>, val callId: String, keys: List<String>) : ObjectTarget {
         val inputPath: List<String> = java.util.List.copyOf(inputPath)
         val keys: List<String> = symbols(keys, false)
-        init { this.inputPath.forEach { ScopedInputContract.requireId(it) }; ScopedInputContract.requireId(callId) }
+        init {
+            this.inputPath.forEachIndexed { index, input -> ScopedInputContract.requireId(input, listOf("Calculation.RecordCallOutputs", "inputPath", index)) }
+            ScopedInputContract.requireId(callId, listOf("Calculation.RecordCallOutputs", "callId"))
+        }
         override fun equals(other: Any?): Boolean = other is RecordCallOutputs && inputPath == other.inputPath && callId == other.callId && keys == other.keys
         override fun hashCode(): Int = listOf(inputPath, callId, keys).hashCode()
     }
@@ -263,7 +266,7 @@ class Calculation(dimensionSlots: List<DimensionSlot>, memberSlots: List<MemberS
     enum class PopulationKind { BASE, UNION, INTERSECTION }
     class AlignmentPopulation(val kind: PopulationKind, inputIds: List<String>) {
         val inputIds: List<String> = symbols(inputIds, false)
-        init { this.inputIds.forEach { ScopedInputContract.requireId(it) }; require(kind != PopulationKind.BASE || this.inputIds.size == 1) { "base population requires exactly one input" } }
+        init { this.inputIds.forEachIndexed { index, input -> ScopedInputContract.requireId(input, listOf("Calculation.AlignmentPopulation", "inputIds", index)) }; require(kind != PopulationKind.BASE || this.inputIds.size == 1) { "base population requires exactly one input" } }
         override fun equals(other: Any?): Boolean = other is AlignmentPopulation && kind == other.kind && inputIds == other.inputIds
         override fun hashCode(): Int = listOf(kind, inputIds).hashCode()
     }
@@ -284,7 +287,7 @@ class Calculation(dimensionSlots: List<DimensionSlot>, memberSlots: List<MemberS
         val inputs: Map<String, AlignedInput> = Collections.unmodifiableMap(LinkedHashMap(inputs))
         val observationKeys: List<String> = symbols(observationKeys, true)
         init {
-            this.inputs.keys.forEach { ScopedInputContract.requireId(it) }
+            this.inputs.keys.forEach { ScopedInputContract.requireId(it, listOf("Calculation.AlignMeasurements", "inputs", it)) }
             require(this.inputs.isNotEmpty() && this.inputs.keys.containsAll(population.inputIds)) { "alignment population must select declared completed inputs" }
             val names = this.observationKeys.toMutableSet()
             this.inputs.values.forEach { input ->
@@ -327,7 +330,7 @@ class Calculation(dimensionSlots: List<DimensionSlot>, memberSlots: List<MemberS
         companion object { fun contract(): Map<String, Any> = QueryAggregationSemantics.observationContract() }
     }
     sealed interface DimensionReference
-    data class DimensionParameter(val slot: String) : DimensionReference { init { ScopedInputContract.requireId(slot) } }
+    data class DimensionParameter(val slot: String) : DimensionReference { init { ScopedInputContract.requireId(slot, listOf("Calculation.DimensionParameter", "slot")) } }
     data class PublishedDimension(val reference: ScopedInputContract.DimensionRef) : DimensionReference
     data class TimeRange(val dimension: DimensionReference, val window: Binding) { init { require(window is Argument || window is Range) { "time range requires a range value or declared argument" } } }
     data class EventCondition(val eventId: String, val eventVersion: String, val condition: DimensionCondition) { init { MetricDefinition.text(eventId, "eventId"); require(eventVersion.matches(Regex("[1-9][0-9]*"))) { "event condition requires an exact event version" } } }
@@ -352,7 +355,7 @@ class Calculation(dimensionSlots: List<DimensionSlot>, memberSlots: List<MemberS
         override fun hashCode(): Int = listOf(calls, grouping, groupingArguments, timeRange, clocks, sourceCondition, outputCondition, sourceEventConditions, population, groupingLevels).hashCode()
     }
     sealed interface MemberTarget
-    data class MemberParameter(val slot: String) : MemberTarget { init { ScopedInputContract.requireId(slot) } }
+    data class MemberParameter(val slot: String) : MemberTarget { init { ScopedInputContract.requireId(slot, listOf("Calculation.MemberParameter", "slot")) } }
     data class MemberSource(val source: MemberRef) : MemberTarget
     data class MemberProjection(val outputAlias: String, val slot: String, val dimension: DimensionReference?) { init { MetricDefinition.text(outputAlias, "member outputAlias"); MetricDefinition.text(slot, "member output slot") } }
     class Members(val callId: String, val target: MemberTarget, outputs: List<MemberProjection>, val range: Binding?, clocks: Map<String, Binding>, val condition: MemberCondition,
@@ -363,7 +366,7 @@ class Calculation(dimensionSlots: List<DimensionSlot>, memberSlots: List<MemberS
         val members: Map<String, CalculationBindings.Member> = java.util.Map.copyOf(members)
         val relations: Map<String, CalculationBindings.Relation> = java.util.Map.copyOf(relations)
         init {
-            ScopedInputContract.requireId(callId)
+            ScopedInputContract.requireId(callId, listOf("Calculation.Members", "callId"))
             require(this.outputs.isNotEmpty() && this.outputs.map { it.outputAlias }.distinct().size == this.outputs.size) { "member root requires distinct output aliases in declared order" }
             if (target is MemberParameter) {
                 require(this.arguments.isEmpty() && this.members.isEmpty() && this.relations.isEmpty()) { "formal member selection uses its adopted source arguments and inputs" }
@@ -373,15 +376,14 @@ class Calculation(dimensionSlots: List<DimensionSlot>, memberSlots: List<MemberS
         override fun equals(other: Any?): Boolean = other is Members && callId == other.callId && target == other.target && outputs == other.outputs && range == other.range && clocks == other.clocks && condition == other.condition && arguments == other.arguments && members == other.members && relations == other.relations
         override fun hashCode(): Int = listOf(callId, target, outputs, range, clocks, condition, arguments, members, relations).hashCode()
     }
-    data class Input(val inputId: String) : Root { init { ScopedInputContract.requireId(inputId) } }
+    data class Input(val inputId: String) : Root { init { ScopedInputContract.requireId(inputId, listOf("Calculation.Input", "inputId")) } }
     enum class SetKind { UNION, INTERSECT, EXCEPT }
     class SetProjection(val inputId: String, symbols: List<String>) {
         val symbols: List<String> = java.util.List.copyOf(symbols)
-        init { ScopedInputContract.requireId(inputId) }
+        init { ScopedInputContract.requireId(inputId, listOf("Calculation.SetProjection", "inputId")) }
         companion object {
-            fun contract(): Map<String, Any> = mapOf(
-                "inputId" to mapOf("pattern" to "[a-z][a-z0-9_]{0,47}", "forbiddenSubstring" to "__",
-                    "validation" to "SET_PROJECTION_CONSTRUCTOR"),
+            fun contract(): Map<String, Any> = ScopedInputContract.identifierContract("inputId") + mapOf(
+                "inputId" to mapOf("validation" to "SET_PROJECTION_CONSTRUCTOR"),
                 "input" to "REFERENCES_AN_EXPLICIT_ROOT_INPUT_IN_THE_ENCLOSING_SCOPE",
                 "symbols" to "ORDERED_NAMES_OF_THE_REFERENCED_COMPLETED_INPUT_OUTPUTS_POSITIONALLY_MATCHING_OUTPUT_SLOTS",
                 "widthValidation" to "SET_ROOT_CONSTRUCTOR_REQUIRES_EACH_PROJECTION_TO_MATCH_THE_NONEMPTY_OUTPUT_SLOT_LIST",
@@ -419,7 +421,7 @@ class Calculation(dimensionSlots: List<DimensionSlot>, memberSlots: List<MemberS
         val inputs: Map<String, InputScope> = Collections.unmodifiableMap(TreeMap(inputs))
         val stages: List<PostOperationContract.ValidatedOperation> = java.util.List.copyOf(stages)
         init {
-            this.inputs.keys.forEach { ScopedInputContract.requireId(it) }
+            this.inputs.keys.forEach { ScopedInputContract.requireId(it, listOf("Calculation.Scope", "inputs", it)) }
             require(this.inputs.keys.intersect(semanticInputs(root).keys).isEmpty()) { "declared inputs conflict with semantic construct children" }
         }
         fun children(): Map<String, InputScope> = Collections.unmodifiableMap(LinkedHashMap(inputs).apply { semanticInputs(root).forEach { (id, value) -> put(id, InputScope("ROOT", value)) } })
@@ -460,7 +462,7 @@ class Calculation(dimensionSlots: List<DimensionSlot>, memberSlots: List<MemberS
     override fun hashCode(): Int = listOf(dimensionSlots, memberSlots, measurementSlots, relationSlots, parameters, computation).hashCode()
 
     companion object {
-        fun groupingFamily(symbol: String): String? = if (symbol.startsWith("\$group:")) ScopedInputContract.requireId(symbol.removePrefix("\$group:")) else null
+        fun groupingFamily(symbol: String): String? = if (symbol.startsWith("\$group:")) ScopedInputContract.requireId(symbol.removePrefix("\$group:"), listOf("Calculation", "groupingFamily", "symbol")) else null
         fun rootValueContract(output: MemberOutput): MetricValueContract? = (output as? ScalarMemberOutput)?.valueContract
         fun semanticInputs(root: Root): Map<String, Scope> = when (root) {
             is ObjectMeasure -> linkedMapOf("measurement" to root.measurement, "objects" to root.objects)

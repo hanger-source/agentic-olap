@@ -5,12 +5,14 @@ import com.olap.prototype.dsl.transport.CapabilityContract
 import com.olap.prototype.query.GroupingLevels
 import com.olap.prototype.query.PostOperationContract
 import com.olap.prototype.calculation.Calculation
+import com.olap.prototype.calculation.CalculationBindings
 import com.olap.prototype.member.MemberResult
 import com.olap.prototype.governance.contract.LogicUnitRecord
 import com.olap.prototype.governance.contract.LogicalTableCreateRequest
 import com.olap.prototype.query.SetOutputContract
 import com.olap.prototype.query.ResultExpression
 import com.olap.prototype.query.QueryValueSemantics
+import com.olap.prototype.query.ScopedInputContract
 import java.lang.reflect.Type
 import kotlin.reflect.KClass
 import kotlin.reflect.KFunction
@@ -254,7 +256,30 @@ object ApiDiscovery {
                 )
                 else -> emptyMap()
             }
-        })
+        } + identifierRules(type))
+
+    private fun identifierRules(type: KClass<*>): Map<String, Any> {
+        val fields = when (type) {
+            Calculation.DimensionSlot::class, Calculation.MemberSlot::class, Calculation.RelationSlot::class,
+            Calculation.Argument::class, ResultExpression.ResultArgument::class -> listOf("name")
+            Calculation.MeasurementSlot::class -> listOf("name", "parameters.<key>")
+            Calculation.MemberDimension::class -> listOf("dimensionSlot")
+            Calculation.GroupingSlots::class -> listOf("slots[]")
+            Calculation.Measurement::class, Calculation.DimensionParameter::class,
+            Calculation.MemberParameter::class, Calculation.Relation::class -> listOf("slot")
+            Calculation.Call::class, Calculation.Members::class -> listOf("callId")
+            Calculation.RecordOutputs::class -> listOf("memberSlot")
+            Calculation.RecordCallOutputs::class -> listOf("inputPath[]", "callId")
+            Calculation.AlignmentPopulation::class -> listOf("inputIds[]")
+            Calculation.AlignMeasurements::class, Calculation.Scope::class -> listOf("inputs.<key>")
+            Calculation.Input::class, CalculationBindings.LocalRef::class,
+            CalculationBindings.LocalRelation::class -> listOf("inputId")
+            CalculationBindings::class -> listOf("groupingCandidates.<key>", "measurements.<key>", "relations.<key>")
+            CalculationBindings.SourceCall::class -> listOf("arguments.<key>")
+            else -> return emptyMap()
+        }
+        return ScopedInputContract.identifierContract(*fields.toTypedArray())
+    }
 
     private fun parameter(value: KParameter) = ApiParameter(requireNotNull(value.name), value.type.toString(), value.isOptional, value.isVararg)
 

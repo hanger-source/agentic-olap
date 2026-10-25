@@ -147,6 +147,11 @@ internal class Scenario(private val name: String, private val distribution: Path
                             "query" to references.objectAt("daily${stage}Query").objectAt("reference").getValue("query"),
                             "result" to references.objectAt("daily${stage}Result").objectAt("reference").getValue("result"))
                     })
+                    report["sourceRelationCases"] = JsonObject(listOf("labelRelations", "ledgerOwnership", "ledgerIntersection").associate { case ->
+                        case to objectOf(
+                            "query" to references.objectAt("${case}Query").objectAt("reference").getValue("query"),
+                            "result" to references.objectAt("${case}Result").objectAt("reference").getValue("result"))
+                    })
                 }
             }
             val savedParameters = parameters.with(

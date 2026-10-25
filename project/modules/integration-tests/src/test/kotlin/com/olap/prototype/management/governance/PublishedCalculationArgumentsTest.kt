@@ -52,6 +52,82 @@ import java.nio.file.Files
 
 class PublishedCalculationArgumentsTest {
     @Test
+    fun filtersAPublishedCompletedCountInCoreWithoutDroppingZeroGroups(@TempDir directory: Path) {
+        val metadata = directory.resolve("completed-count-platform")
+        val code = "positive_customer_count"
+        val count = GovernanceOrderFixture.records()
+        var sourceAdoptions: List<SourceAdoptionRef> = emptyList()
+        PlatformDatabase.openSingleInstance(metadata).use { database ->
+            val f = GovernanceOrderFixture(database, directory, listOf("""
+                INSERT INTO main.orders VALUES
+                ('a1',100,'A','2026-07-21','x'),('a2',100,'A','2026-07-21','x'),
+                ('a3',100,'A','2026-07-21',NULL),('a4',NULL,'A','2026-07-21','z'),
+                ('b1',0,'B','2026-07-21','y'),('b2',-1,'B','2026-07-21','y'),('b3',NULL,'B','2026-07-21',NULL),
+                ('c1',10,'C','2026-07-21','p'),('c2',20,'C','2026-07-21','q'),
+                ('d1',NULL,'D','2026-07-21','k'),('e1',2,'E','2026-07-21',''),('e2',2,'E','2026-07-21','')
+            """.trimIndent()))
+            f.seed()
+            f.activateSubjectGraph(includeSubject = false)
+            val binding = f.dimensions.listDimensionEventBindings("global.destination", 1).single()
+            val local = RelationAccessPath(emptyList())
+            val rows = f.adoptions.createMemberSource(MemberSourceCreateRequest(GovernanceOrderFixture.SUBJECT, 1,
+                "count_rows", "条件计数原始袋", MemberSourceDefinition.Projection(EventRef(GovernanceOrderFixture.EVENT, 1),
+                    MemberResult("PaymentObservation", "payment_record", MemberShape.RAW_BAG, emptyList(), linkedMapOf(
+                        "destination" to MemberSourceDefinition.DimensionOutput("目的地", "destination", ScalarValueType.TEXT,
+                            "global.destination", 1, binding.id, 1, null),
+                        "customer" to MemberSourceDefinition.PropertyOutput("客户", "customer", ScalarValueType.TEXT, "order_fact.customer_id", 1, local, null),
+                        "amount" to MemberSourceDefinition.PropertyOutput("金额", "amount", ScalarValueType.NUMBER, "order_fact.pay_amount", 1, local, GovernanceOrderFixture.money())),
+                        emptyMap(), null, emptyMap(), "保留重复客户、NULL与无满足记录的目的地")), CalculationBindings.empty(), emptyMap(), "golden"))
+            val outputs = linkedMapOf<String, Calculation.MemberOutput>("destination" to Calculation.MemberDimension("destination", null),
+                "customer" to Calculation.MemberProperty("customer", ScalarValueType.TEXT, null),
+                "amount" to Calculation.MemberProperty("amount", ScalarValueType.NUMBER, GovernanceOrderFixture.money()))
+            val positive = ResultOperation(ResultOperator.GT, listOf(ResultSymbol("amount"), ResultQuantityLiteral(BigDecimal.ZERO, GovernanceOrderFixture.money())))
+            val body = Calculation.Scope(Calculation.Members("rows", Calculation.MemberParameter("rows"),
+                outputs.keys.map { Calculation.MemberProjection(it, it, null) }, null, emptyMap(), MemberCondition.Unrestricted(), emptyMap(), emptyMap(), emptyMap()),
+                emptyMap(), listOf(
+                    Derive(ResultCaseWhen(listOf(ResultCaseBranch(positive, ResultSymbol("customer"))), ResultLiteral(null)), "eligible_customer", "正金额客户，NULL不参与"),
+                    Regroup(ResultGrouping(listOf("destination"), listOf(ResultAggregate("eligible_customer",
+                        ResultAggregation.Count(true, ResultAggregation.NullPolicy.IGNORE), "value", "去重有效客户")), null)),
+                    Project(listOf("destination", "value"))))
+            val definition = MetricCalculation(Calculation(listOf(Calculation.DimensionSlot("destination", "global.destination", 1, "destination")),
+                listOf(Calculation.MemberSlot("rows", "PaymentObservation", "payment_record", MemberShape.RAW_BAG, outputs, null)),
+                emptyList(), emptyList(), emptyMap(), body), "value", listOf("destination"), count)
+            val metric = f.metrics.createMetricCalculation(MetricCalculationCreateRequest(code, "正金额去重客户数", "trade", definition,
+                "完整保存CASE后条件COUNT，保留有输入但计数为0的组", MetricBusinessMeaning("正金额记录中的不同非NULL客户", "个", "有订单输入的目的地", emptyList()), "golden")).metric
+            f.activate("METRIC", metric.id)
+            f.adopt(metric.id, bindings = CalculationBindings(mapOf("destination" to CalculationBindings.Dimension(destination, "destination",
+                f.analysis.listAnalysisDimensionEventMappings(destination.id, 1).map { it.id })),
+                mapOf("rows" to CalculationBindings.SourceCall(MemberRef(rows.id, 1), emptyMap(), outputs.keys.associateWith { it }, emptyMap(), emptyMap())),
+                emptyMap(), emptyMap(), emptyMap()))
+            f.grantMetric(metric.id, order = 2)
+            f.scenarios.createScenarioPipelineRule(ScenarioPipelineRuleCreateRequest(GovernanceOrderFixture.SCENARIO, 1,
+                "POST_FILTER", 1, StageAuthorization.current("POST_FILTER")))
+            f.activate("SUBJECT_AREA", GovernanceOrderFixture.SUBJECT)
+            sourceAdoptions = f.sourceAdoptions
+        }
+        PlatformDatabase.openSingleInstance(metadata).use { database ->
+            val f = GovernanceOrderFixture(database, directory)
+            f.sourceAdoptions = sourceAdoptions
+            f.build("completed_count_filter")
+            val publication = f.publication("completed_count_filter")
+            val root = Calculation.Measures(listOf(invocation("selected_count", instance(f, code), "selected_count")),
+                listOf(Calculation.PublishedDimension(destination)), emptyList(), null, emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()),
+                DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(listOf("selected_count")), null)
+            val query = Calculation.Scope(root, emptyMap(), listOf(PostFilter(ResultOperation(ResultOperator.LT,
+                listOf(ResultSymbol("selected_count"), ResultQuantityLiteral(BigDecimal("2"), count))))))
+            val expected = mapOf("A" to 1, "B" to 0, "D" to 0, "E" to 1)
+            for (mode in listOf(QueryExecutionMode.CORE_FINALIZATION, QueryExecutionMode.SOURCE)) {
+                val rows = f.execute(publication, query, mode).result.resultFrame.rows
+                assertEquals(expected.size, rows.size, "$mode: 每个保留的目的地只输出一行")
+                val actual = rows.associate { row ->
+                    row["destination"].toString() to BigDecimal(row["selected_count"].toString()).intValueExact()
+                }
+                assertEquals(expected, actual, "$mode: 重复与NULL不增加票数，FALSE/UNKNOWN组保留真实的0")
+            }
+        }
+    }
+
+    @Test
     fun publishesAndReusesPersistedNativeScalarCalculationsThroughTheActualHttpPlugin(@TempDir directory: Path) {
         val spec = JdbcConnectionSpec("duckdb", TestConnectors.ref("duckdb"), "duckdb",
             "jdbc:duckdb:${directory.resolve("warehouse.duckdb")}", null, null, "org.duckdb.DuckDBDriver")
