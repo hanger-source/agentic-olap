@@ -72,13 +72,83 @@ internal class DarwinProcess private constructor(val pid: Int, val input: Output
             check(libc.kill(-pid, signal) == 0) { "process-group signal returned an invalid result: pid=$pid signal=$signal" }
         } catch (failure: LastErrorException) {
             if (failure.errorCode == ESRCH) return
-            throw IllegalStateException("process-group signal failed: pid=$pid signal=$signal errno=${failure.errorCode}", failure)
+            val problem = IllegalStateException("process-group signal failed: pid=$pid signal=$signal errno=${failure.errorCode}", failure)
+            if (failure.errorCode == EPERM) {
+                try {
+                    if (groupHasTerminated()) {
+                        log.debug("JVM process-group signal found no live members: pid={} signal={}", pid, signal)
+                        return
+                    }
+                } catch (observation: Throwable) {
+                    problem.addSuppressed(observation)
+                }
+            }
+            throw problem
+        }
+    }
+
+    private fun groupHasTerminated(): Boolean {
+        // XNU 10063.121.3 bsd/kern/kern_sig.c:1606-1615 跳过组内 SZOMB；
+        // 因此尚未回收的纯 zombie 进程组也会返回 POSIX EPERM。
+        val members = groupMembers().toSet()
+        Memory(SHORT_BSD_INFO_BYTES.toLong()).use { information ->
+            for (member in members) {
+                Native.setLastError(0)
+                // 同版 bsd/kern/proc_info.c:2003-2018：SHORTBSDINFO arg=1 才包含 zombie。
+                val bytes = libc.proc_pidinfo(member, PROC_PIDT_SHORTBSDINFO, 1, information, SHORT_BSD_INFO_BYTES)
+                val error = Native.getLastError()
+                if (bytes <= 0 && error == ESRCH) continue
+                check(bytes == SHORT_BSD_INFO_BYTES) {
+                    "process-group member observation failed: pid=$pid member=$member bytes=$bytes errno=${if (bytes <= 0) error else 0}"
+                }
+                // proc_bsdshortinfo 共 64B：uint32 pid/ppid/pgid/p_stat 的 offset 为 0/4/8/12。
+                check(information.getInt(0) == member && information.getInt(8) == pid) {
+                    "process-group member identity changed: pid=$pid member=$member observedPid=${information.getInt(0)} observedGroup=${information.getInt(8)}"
+                }
+                if (information.getInt(12) != SZOMB) return false
+            }
+        }
+        // 成员可能在被观察为终态前 fork；末次完整成员集只能是已确认死态成员的子集，
+        // 出现新成员即保留原信号错误，不循环等待成员集稳定。
+        return groupMembers().all { it in members }
+    }
+
+    private fun groupMembers(): IntArray {
+        // libproc 的空 buffer 返回全系统容量估计，不是当前组的成员数量。
+        Native.setLastError(0)
+        var capacity = libc.proc_listpids(PROC_PGRP_ONLY, pid, null, 0)
+        val sizeError = Native.getLastError()
+        check(capacity > 0 && capacity % Int.SIZE_BYTES == 0) {
+            "process-group list sizing failed: pid=$pid bytes=$capacity errno=${if (capacity <= 0) sizeError else 0}"
+        }
+        while (true) {
+            val members = Memory(capacity.toLong()).use { buffer ->
+                Native.setLastError(0)
+                val bytes = libc.proc_listpids(PROC_PGRP_ONLY, pid, buffer, capacity)
+                val error = Native.getLastError()
+                check(bytes >= 0 && bytes <= capacity && bytes % Int.SIZE_BYTES == 0 && (bytes != 0 || error == 0)) {
+                    "process-group list failed: pid=$pid bytes=$bytes capacity=$capacity errno=${if (bytes <= 0) error else 0}"
+                }
+                // libproc 返回字节数而非 PID 数；buffer 满时必须扩大重读，不能据此判定完整。
+                if (bytes == capacity) null else buffer.getIntArray(0, bytes / Int.SIZE_BYTES)
+            }
+            if (members == null) {
+                capacity = Math.multiplyExact(capacity, 2)
+                continue
+            }
+            check(members.all { it > 0 }) { "process-group list returned an invalid member: pid=$pid" }
+            return members
         }
     }
 
     companion object {
+        private const val EPERM = 1
         private const val EINTR = 4
         private const val ESRCH = 3
+        private const val SZOMB = 5
+        private const val PROC_PGRP_ONLY = 2
+        private const val PROC_PIDT_SHORTBSDINFO = 13
+        private const val SHORT_BSD_INFO_BYTES = 64
         private val libc: DarwinLibC by lazy {
             require(System.getProperty("os.name") == "Mac OS X") { "this product process runtime requires macOS" }
             Native.load("System", DarwinLibC::class.java)
@@ -221,6 +291,9 @@ internal interface DarwinLibC : Library {
     fun kill(pid: Int, signal: Int): Int
     @Throws(LastErrorException::class)
     fun waitpid(pid: Int, status: IntByReference, options: Int): Int
+    // libproc 错误返回 0 并设置 errno；调用者逐次清零并立即保存 errno，不使用 @Throws。
+    fun proc_listpids(type: Int, typeInfo: Int, buffer: Pointer?, bufferSize: Int): Int
+    fun proc_pidinfo(pid: Int, flavor: Int, argument: Long, buffer: Pointer, bufferSize: Int): Int
     fun posix_spawnattr_init(attributes: PointerByReference): Int
     fun posix_spawnattr_destroy(attributes: PointerByReference): Int
     fun posix_spawnattr_setflags(attributes: PointerByReference, flags: Short): Int
