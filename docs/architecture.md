@@ -182,7 +182,9 @@ RAW_BAG 没有记录身份并保留重复出现；RECORDS 具有经过实际来�
 
 原生标量在关系方言 prepare 之后、`SqlEvaluationProjection` 之前通过插件必需的 `nativeScalarExpression(builder: RexBuilder, function: NativeScalarFunction, call: RexCall): RexNode` 下沉，结果不再送回后续 Hep 优化或折叠链。直接 SQL 映射显式返回原 call；需要暴露内部纯中间值时返回完整 typed Rex 树。call.operands 只有本次已授权的有序 SCALAR 实参，PHYSICAL_TABLE 精确身份仍由原调用持有。返回 type 必须与原 type 完全相等，不新增输入、参数、表、子查询、相关依赖、窗口或聚合。原函数、实参及展开树必须 statement-stable，VOLATILE 不因替换为纯树而取得更强保证。
 
-纯树进入现有列程序与求值槽，在原 CASE／COALESCE 活动域内用普通当前行投影共享，不建立新 IR 或关系框架，不要求作者添加技术 DERIVE，也不要求伪声明 `CORRELATED_DERIVED_PROJECTION`。真实相关输入继续按原能力检查，可失败表达式不能提前到未匹配行或未选分支。`nativeScalarCall` 保留原生叶子 SQL 渲染；直接渲染与 typed 展开是显式映射选择，不在失败后切换，也不解析最终 SQL 字符串或承诺后端物化、恰好求值一次。
+纯树进入现有列程序与求值槽，在原 CASE／COALESCE 活动域内用普通当前行投影共享。列程序只从当前或父活动域复用已经绑定的同一稳定原值，依据实际守卫绑定及活动域包含关系选择已有列，不在更强守卫下重新展开已经绑定的整树；不能向父域提升计算、跨人口复用或共享 VOLATILE。可失败表达式不能提前到未匹配行或未选分支。
+
+真实求值边界由现有 `SqlStatementRelations` 按后序登记为有名 CTE 依赖，继续要求本节点及输入闭包在同一语句内稳定、安全；边界身份不能豁免这些条件。定义直接交付行合同列名，JOIN 同名列按正式输出身份区分；不为定义自身重复包装同列投影或已有列名。内部名称保持简短并检查冲突。该路径复用既有列程序、关系依赖和 SQL 转换，不建立新 IR 或关系框架，不要求作者添加技术 DERIVE，也不要求伪声明 `CORRELATED_DERIVED_PROJECTION`，真实相关输入继续按原能力检查。`nativeScalarCall` 保留原生叶子 SQL 渲染；直接渲染与 typed 展开是显式映射选择，不在失败后切换，不解析最终 SQL 字符串，也不承诺后端物化、恰好求值一次。
 
 普通聚合在共同 SQL 转换边界调用插件必需的 `aggregateSql(owner: Aggregate, call: AggregateCall, arguments: List<SqlNode>, expression: SqlNode): SqlNode`。实际 owner/call 保留输入与结果类型，arguments 是 call.argList 顺序的当前 SQL 作用域输入列表达式；expression 已完成 DISTINCT、FILTER、排序及方言基础改写，最外层 AS 由转换器保留。插件按实际类型选择 SQL AST 映射并保持原分组、人口、NULL、重复与排序，不接管整个关系，不解析生成 SQL，也不将类型推导变为保存渲染状态的通道。普通映射显式返回 expression，窗口不经过此普通 Aggregate 入口。返回类型与实际 `aggregateBehavior` 仍独立核验；类型化标量和聚合映射不自行赋予来源算术、类型转换或结果交付保证。
 

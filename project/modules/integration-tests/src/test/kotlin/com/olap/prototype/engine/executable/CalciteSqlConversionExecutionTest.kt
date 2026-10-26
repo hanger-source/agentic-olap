@@ -323,10 +323,6 @@ class CalciteSqlConversionExecutionTest {
             })
             assertEquals(1, references["observations"], "$dialect duplicated the qualified input in generated SQL")
             assertEquals(2, references["profiles"], "$dialect duplicated the SEMI qualification or its native latest-day lookup")
-            statement.withList.forEach { definition ->
-                val name = (definition as SqlWithItem).name.simple
-                assertTrue(requireNotNull(references[name]) > 1, "$dialect emitted an unused shared relation: $name")
-            }
             assertEquals(if (support.parameterSubmission == CompilationSupport.ParameterSubmission.BIND_PARAMETERS)
                 parameters else emptyList(), CalciteSqlRendering.orderedParameters(sql, parameters))
             val result = rows(source, plan, parameters, support)
@@ -363,6 +359,7 @@ class CalciteSqlConversionExecutionTest {
                 it.execute("ALTER TABLE observations ADD raw_text VARCHAR(32)")
                 it.execute("ALTER TABLE observations ADD should_parse BOOLEAN")
                 it.execute("UPDATE observations SET raw_text=CASE id WHEN 1 THEN ' 1_0.25 ' WHEN 2 THEN ' 2.5 ' WHEN 4 THEN 'bad' END, should_parse=(id<>4), region=LOWER(region)")
+                it.execute("INSERT INTO observations(id,region,amount,raw_text,should_parse) VALUES (5,'d',NULL,'unknown-invalid',NULL)")
             }
             val finite = dialect == "h2"
             val decimalFunction = NativeScalarFunction("tripled_decimal", listOf(NativeScalarFunction.Parameter(
@@ -402,7 +399,10 @@ class CalciteSqlConversionExecutionTest {
                         builder.makeLiteral(" "), call.operands.single())
                     val normalized = builder.makeCall(Ops.REPLACE, trimmed, builder.makeLiteral("_"), builder.makeLiteral(""))
                     val parsed = builder.makeCast(call.type, normalized)
-                    return builder.makeCast(call.type, builder.makeCall(Ops.PLUS, builder.makeCall(Ops.PLUS, parsed, parsed), parsed))
+                    val tripled = builder.makeCast(call.type, builder.makeCall(Ops.PLUS, builder.makeCall(Ops.PLUS, parsed, parsed), parsed))
+                    // 判空先在父活动域得到 parsed；非空子域的三个消费者继续读取同一结果。
+                    return builder.makeCall(call.type, Ops.CASE, listOf(builder.makeCall(Ops.IS_NOT_NULL, parsed),
+                        tripled, builder.makeNullLiteral(call.type)))
                 }
                 override fun nativeScalarCall(function: String, arguments: List<CompilationSupport.NativeArgument>): SqlNode {
                     require(function == upperFunction.id) { "tripled decimal must use its typed expression mapping" }
@@ -430,12 +430,12 @@ class CalciteSqlConversionExecutionTest {
                     return super.visit(call)
                 }
             })
-            assertEquals(1, replacements, "$dialect duplicated the row normalization for three consumers; this does not count physical evaluations")
+            assertEquals(1, replacements, "$dialect duplicated normalization between the parent NULL check and its guarded result consumers; this does not count physical evaluations")
             val result = rows(source, rendered.sql)
-            assertEquals(listOf(1, 2, 3, 4), result.map { (it[0] as Number).toInt() })
-            assertEquals(listOf("A", "A", "B", "C"), result.map { it[2] }, "$dialect changed the ordinary native SQL leaf mapping")
+            assertEquals(listOf(1, 2, 3, 4, 5), result.map { (it[0] as Number).toInt() })
+            assertEquals(listOf("A", "A", "B", "C", "D"), result.map { it[2] }, "$dialect changed the ordinary native SQL leaf mapping")
             decimal(result[0][1], "30.75"); decimal(result[1][1], "7.5")
-            assertNull(result[2][1]); assertNull(result[3][1])
+            assertNull(result[2][1]); assertNull(result[3][1]); assertNull(result[4][1])
             source.connection.createStatement().use { it.execute("UPDATE observations SET should_parse=TRUE WHERE id=4") }
             assertThrows(SQLException::class.java) { rows(source, rendered.sql) }
             val rawType = requireNotNull(input.rowType.getField("raw_text", true, false)).type

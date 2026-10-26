@@ -10,12 +10,12 @@ import java.util.Collections
 import java.util.IdentityHashMap
 import java.util.Locale
 
-/** 单条SQL的实际图事实；只共享同一节点且其求值在本语句内稳定，不推导关系等价。 */
-internal data class SqlStatementRelations(val sharedRelations: List<RelNode>, val parameterTypes: Map<Int, RelDataType>, val occupiedNames: Set<String>) {
+/** 单条SQL的具名依赖；承接真实求值边界和重复关系，不推导关系等价或提升相关作用域。 */
+internal data class SqlStatementRelations(val namedRelations: List<RelNode>, val parameterTypes: Map<Int, RelDataType>, val occupiedNames: Set<String>) {
     companion object {
-        fun analyze(plan: RelNode): SqlStatementRelations = Graph().run {
+        fun analyze(plan: RelNode, evaluationBoundaries: Set<RelNode>): SqlStatementRelations = Graph().run {
             visit(plan)
-            SqlStatementRelations(sharedRelations(), parameters.types.toMap(), occupied.toSet())
+            SqlStatementRelations(namedRelations(evaluationBoundaries), parameters.types.toMap(), occupied.toSet())
         }
     }
 
@@ -32,13 +32,13 @@ internal data class SqlStatementRelations(val sharedRelations: List<RelNode>, va
             node.inputs.forEach { uses[it] = (uses[it] ?: 0) + 1; visit(it) }
             order.add(node)
         }
-        fun sharedRelations(): List<RelNode> {
+        fun namedRelations(evaluationBoundaries: Set<RelNode>): List<RelNode> {
             val stableWithinStatement = IdentityHashMap<RelNode, Boolean>()
             return buildList {
                 order.forEach { node ->
                     val safe = statementStableExpressions(node) && node.inputs.all { stableWithinStatement[it] == true }
                     stableWithinStatement[node] = safe
-                    if (safe && (uses[node] ?: 0) >= 2 && node !is TableScan && node !is Values) add(node)
+                    if (safe && ((uses[node] ?: 0) >= 2 || node in evaluationBoundaries) && node !is TableScan && node !is Values) add(node)
                 }
             }
         }

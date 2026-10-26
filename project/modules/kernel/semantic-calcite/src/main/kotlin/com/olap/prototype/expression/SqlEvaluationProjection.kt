@@ -202,6 +202,8 @@ internal class SqlEvaluationProjection {
         private val width = original.rowType.fieldCount
         private val slots = mutableListOf<Slot>()
         private val reusable = linkedMapOf<Binding, RexInputRef>()
+        private val evaluatedValues = mutableMapOf<Binding, RexInputRef>()
+        private val activityParents = IdentityHashMap<RexNode, RexNode?>()
         private val checks = linkedMapOf<Check, RexInputRef>()
         private val bounds = guarantees[original].orEmpty().toMutableMap()
         private val names = original.rowType.fieldNames.toMutableSet()
@@ -227,6 +229,11 @@ internal class SqlEvaluationProjection {
         }
 
         fun expression(value: RexNode, active: RexNode? = null): RexNode {
+            val stableCandidate = candidate(value)
+            if (stableCandidate) evaluated(value, active)?.let {
+                if (value is RexCall && value.operator is SemanticNumericRex.NumericCheck) reusedChecks++
+                return it
+            }
             if (!needsEvaluation(value)) return if (containsSubQuery(value)) value.accept(subQueries) else value
             val rewritten = when (value) {
                 is RexSubQuery -> {
@@ -246,7 +253,19 @@ internal class SqlEvaluationProjection {
                 }
                 else -> value
             }
-            return if ((occurrences[value] ?: 0) >= 2 && candidate(value)) bind(rewritten, active) else rewritten
+            val result = if ((occurrences[value] ?: 0) >= 2 && stableCandidate) bind(rewritten, active) else rewritten
+            if (stableCandidate && result is RexInputRef) evaluatedValues[Binding(value, active)] = result
+            return result
+        }
+
+        /** 已在父活动域求得的稳定列可在其子域读取；不提升尚未执行的表达式。 */
+        private fun evaluated(value: RexNode, active: RexNode?): RexInputRef? {
+            var scope = active
+            while (scope != null) {
+                evaluatedValues[Binding(value, scope)]?.let { return it }
+                scope = activityParents[scope]
+            }
+            return evaluatedValues[Binding(value, null)]
         }
 
         private fun needsEvaluation(value: RexNode): Boolean = neededExpressions[value] ?: when {
@@ -326,7 +345,10 @@ internal class SqlEvaluationProjection {
             return call.clone(call.type, operands)
         }
 
-        private fun both(active: RexNode?, predicate: RexNode): RexNode = if (active == null) predicate else rex.makeCall(Ops.AND, active, predicate)
+        private fun both(active: RexNode?, predicate: RexNode): RexNode =
+            (if (active == null) predicate else rex.makeCall(Ops.AND, active, predicate)).also {
+                if (!activityParents.containsKey(it)) activityParents[it] = active
+            }
 
         fun guarded(value: RexNode, active: RexNode?): RexNode = if (active == null) value else rex.makeCall(Ops.CASE, active, value, rex.makeNullLiteral(value.type))
 
@@ -338,10 +360,12 @@ internal class SqlEvaluationProjection {
             val guarded = guarded(value, active)
             val dependencies = RelOptUtil.InputFinder.bits(guarded).asList()
             val depth = (dependencies.filter { it >= width }.maxOfOrNull { slots[it - width].depth } ?: 0) + 1
-            var name = "__evaluation_${slots.size}"
+            var name = "__v${slots.size}"
             while (!names.add(name)) name += "_"
             val reference = RexInputRef(width + slots.size, guarded.type)
             slots.add(Slot(guarded, name, depth))
+            if (active != null) activityParents[reference] = active
+            else if (activityParents.containsKey(value)) activityParents[reference] = activityParents[value]
             range(value)?.let { bounds[reference.index] = it }
             if (stable) reusable[key] = reference
             if (numeric) numericRoots.add(reference.index)

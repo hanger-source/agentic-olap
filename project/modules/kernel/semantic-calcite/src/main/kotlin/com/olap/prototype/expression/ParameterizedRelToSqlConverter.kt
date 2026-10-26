@@ -32,6 +32,7 @@ class ParameterizedRelToSqlConverter(private val support: CompilationSupport, pr
     }
     private val shared = IdentityHashMap<RelNode, SqlIdentifier>()
     private val definitions = mutableListOf<SqlNode>()
+    private var defining: RelNode? = null
 
     override fun aliasContext(aliases: Map<String, RelDataType>, qualified: Boolean): Context =
         object : AliasContext(dialect, aliases, qualified) {
@@ -151,20 +152,21 @@ class ParameterizedRelToSqlConverter(private val support: CompilationSupport, pr
             val columns = mutableListOf<SqlNode>()
             repeat(node.rowType.fieldCount) { addSelect(columns, context.field(it), node.rowType) }
             val selected = SqlSelect(POS, null, SqlNodeList(columns, POS), converted.asFrom(), null, null, null, null, null, null, null, null, null)
-            result(selected, listOf(Clause.FROM, Clause.SELECT), node, null).resetAlias()
-        } else converted.resetAlias()
+            result(selected, listOf(Clause.FROM, Clause.SELECT), node, null)
+        } else converted
+        if (node === defining) return bound
         // dispatch仍在当前子访问frame内；Result的expectedRel必须继续属于真正的父节点。
-        return result(bound.asFrom(), listOf(Clause.FROM), node, null)
+        return result(bound.resetAlias().asFrom(), listOf(Clause.FROM), node, null)
     }
 
     internal fun statement(plan: RelNode): SqlNode {
-        val graph = SqlStatementRelations.analyze(plan)
+        val graph = SqlStatementRelations.analyze(plan, evaluationBoundaries)
         val occupied = graph.occupiedNames.toMutableSet()
         var index = 0
-        graph.sharedRelations.forEach { node ->
+        graph.namedRelations.forEach { node ->
             var name: String
-            do { name = "__olap_shared_${index++}" } while (!occupied.add(name.lowercase(Locale.ROOT)))
-            emitSharedRelation(node, name)
+            do { name = "__r${index++}" } while (!occupied.add(name.lowercase(Locale.ROOT)))
+            emitNamedRelation(node, name)
         }
         return requireNotNull(withDefinitions(convertRoot(plan).asStatement()).accept(object : SqlShuttle() {
             override fun visit(parameter: SqlDynamicParam): SqlNode {
@@ -174,12 +176,37 @@ class ParameterizedRelToSqlConverter(private val support: CompilationSupport, pr
         })) { "SQL parameter typing must preserve the statement" }
     }
 
-    private fun emitSharedRelation(node: RelNode, name: String) {
+    private fun emitNamedRelation(node: RelNode, name: String) {
         val identity = SqlIdentifier(name, POS)
-        val references = (0 until node.rowType.fieldCount).map { node.cluster.rexBuilder.makeInputRef(node, it) }
-        val projection = LogicalProject.create(node, emptyList(), references, node.rowType.fieldNames, emptySet())
-        val query = convertRoot(projection).asStatement()
-        val columns = SqlNodeList(node.rowType.fieldNames.map { SqlIdentifier(it, POS) }, POS)
+        val previous = defining
+        val query = try {
+            // WITH 本身承接求值边界；定义自身无需再包一层同列 Project。
+            defining = node
+            convertRoot(node).asStatement()
+        } finally {
+            defining = previous
+        }
+        val outputs = (query as? SqlSelect)?.selectList
+        val namedOutputs = outputs?.map { output ->
+            when {
+                output is SqlIdentifier && !output.isStar -> output.names.last()
+                output is SqlCall && output.kind == SqlKind.AS -> (output.operand<SqlNode>(1) as? SqlIdentifier)?.simple
+                else -> null
+            }
+        }
+        val explicitOutputs = outputs != null && outputs.size == node.rowType.fieldCount &&
+            outputs.none { it is SqlIdentifier && it.isStar }
+        // 定义直接交付正式列名，特别是 JOIN 两侧的同名列；不再包同列投影。
+        val columns = if (explicitOutputs) {
+            (query as SqlSelect).selectList = SqlNodeList(requireNotNull(outputs).mapIndexed { index, output ->
+                val name = node.rowType.fieldNames[index]
+                if (namedOutputs?.get(index) == name) output else {
+                    val value = if (output is SqlCall && output.kind == SqlKind.AS) output.operand<SqlNode>(0) else output
+                    Ops.AS.createCall(POS, value, SqlIdentifier(name, POS))
+                }
+            }, POS)
+            null
+        } else SqlNodeList(node.rowType.fieldNames.map { SqlIdentifier(it, POS) }, POS)
         definitions.add(SqlWithItem(POS, identity, columns, query, SqlLiteral.createBoolean(false, POS)))
         shared[node] = identity
     }
