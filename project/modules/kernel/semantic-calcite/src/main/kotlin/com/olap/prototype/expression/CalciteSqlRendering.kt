@@ -36,7 +36,7 @@ object CalciteSqlRendering {
             }
         }.go(plan)
         // 每个查询根只做一次方言准备；之后的标量求值边界与公共关系引用共享同一节点身份。
-        val nativePlan = prepare(plan, dialect)
+        val nativePlan = NativeScalarLowering().lower(prepare(plan, dialect))
         val evaluation = SqlEvaluationProjection()
         val relation = evaluation.lower(nativePlan)
         var statement = ParameterizedRelToSqlConverter(support, evaluation.boundaries).statement(relation)

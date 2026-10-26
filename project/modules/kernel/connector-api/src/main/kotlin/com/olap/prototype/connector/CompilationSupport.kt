@@ -12,6 +12,8 @@ import org.apache.calcite.rel.core.Aggregate
 import org.apache.calcite.rel.core.AggregateCall
 import org.apache.calcite.rex.RexNode
 import org.apache.calcite.rex.RexOver
+import org.apache.calcite.rex.RexBuilder
+import org.apache.calcite.rex.RexCall
 import org.apache.calcite.sql.SqlAggFunction
 import org.apache.calcite.sql.SqlDialect
 import org.apache.calcite.sql.SqlKind
@@ -42,6 +44,14 @@ interface CompilationSupport {
 
     /** 参数已由内核核验精确物理引用；插件只渲染原生 AST。 */
     fun nativeScalarCall(function: String, arguments: List<NativeArgument>): SqlNode
+    /**
+     * 在关系准备后、行内求值共享前，公开本次原生标量的带类型纯计算。
+     * call.operands 仅按声明顺序包含 SCALAR 实参；精确物理表实参仍由原调用拥有。
+     * 直接 SQL 映射显式返回 call；展开时结果类型必须完全相同，函数、实参和树均须在语句内稳定。
+     * 只消费已有实参，不增加列、参数、关系、相关依赖、聚合或窗口；底层原生叶子由插件映射。
+     * 核心按原 CASE 活动域建立普通投影求值列，不授权提前计算未选分支或改变人口。
+     */
+    fun nativeScalarExpression(builder: RexBuilder, function: NativeScalarFunction, call: RexCall): RexNode
     fun requireNativeScalarFunction(id: String): NativeScalarFunction = nativeScalarFunctions.firstOrNull { it.id == id }
         ?: throw IllegalArgumentException("native scalar function is not declared by the exact connector: $id")
 

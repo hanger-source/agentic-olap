@@ -176,7 +176,11 @@ RAW_BAG 没有记录身份并保留重复出现；RECORDS 具有经过实际来�
 
 数量结果的 `FiniteDecimal` 与固定 `Decimal(p,s,rounding)` 共用既有单位、算术保证、NULL 和来源体系。Finite 仅表达有限十进制值域，没有统一 p/s、不隐含量化，不自行赋予 Exact 或工作容量；固定 Integer／Decimal 可进入，反向或与 BinaryFloat 混合须显式处理。原生类型和结果元数据以 `FINITE_DECIMAL` 且 p/s 为空承接该事实，普通 DECIMAL 继续要求固定容量；不以默认类型或观察到的单值补出全域保证。有限值无损交付沿用 DECIMAL 业务值编码，不能有限表示的未量化有理商明确失败。来源运算须由精确插件兑现，H2 DECFLOAT 的原值读取与显式 CORE 承接不外推为其 Finite SOURCE SUM／AVG／CAST 能力；SOURCE 不支持时不自动转 CORE。
 
-普通聚合在共同 SQL 转换边界调用插件必需的 `aggregateSql(owner: Aggregate, call: AggregateCall, arguments: List<SqlNode>, expression: SqlNode): SqlNode`。实际 owner/call 保留输入与结果类型，arguments 是 call.argList 顺序的当前 SQL 作用域输入列表达式；expression 已完成 DISTINCT、FILTER、排序及方言基础改写，最外层 AS 由转换器保留。插件按实际类型选择 SQL AST 映射并保持原分组、人口、NULL、重复与排序，不接管整个关系，不解析生成 SQL，也不将类型推导变为保存渲染状态的通道。普通映射显式返回 expression，窗口不经过此普通 Aggregate 入口。返回类型与实际 `aggregateBehavior` 仍独立核验；hook 存在不构成 Hologres TO_NUMBER、跨 scale SUM 或 NUMERIC→TEXT 保真的证明。
+原生标量在关系方言 prepare 之后、`SqlEvaluationProjection` 之前通过插件必需的 `nativeScalarExpression(builder: RexBuilder, function: NativeScalarFunction, call: RexCall): RexNode` 下沉，结果不再送回后续 Hep 优化或折叠链。直接 SQL 映射显式返回原 call；需要暴露内部纯中间值时返回完整 typed Rex 树。call.operands 只有本次已授权的有序 SCALAR 实参，PHYSICAL_TABLE 精确身份仍由原调用持有。返回 type 必须与原 type 完全相等，不新增输入、参数、表、子查询、相关依赖、窗口或聚合。原函数、实参及展开树必须 statement-stable，VOLATILE 不因替换为纯树而取得更强保证。
+
+纯树进入现有列程序与求值槽，在原 CASE／COALESCE 活动域内用普通当前行投影共享，不建立新 IR 或关系框架，不要求作者添加技术 DERIVE，也不要求伪声明 `CORRELATED_DERIVED_PROJECTION`。真实相关输入继续按原能力检查，可失败表达式不能提前到未匹配行或未选分支。`nativeScalarCall` 保留原生叶子 SQL 渲染；直接渲染与 typed 展开是显式映射选择，不在失败后切换，也不解析最终 SQL 字符串或承诺后端物化、恰好求值一次。
+
+普通聚合在共同 SQL 转换边界调用插件必需的 `aggregateSql(owner: Aggregate, call: AggregateCall, arguments: List<SqlNode>, expression: SqlNode): SqlNode`。实际 owner/call 保留输入与结果类型，arguments 是 call.argList 顺序的当前 SQL 作用域输入列表达式；expression 已完成 DISTINCT、FILTER、排序及方言基础改写，最外层 AS 由转换器保留。插件按实际类型选择 SQL AST 映射并保持原分组、人口、NULL、重复与排序，不接管整个关系，不解析生成 SQL，也不将类型推导变为保存渲染状态的通道。普通映射显式返回 expression，窗口不经过此普通 Aggregate 入口。返回类型与实际 `aggregateBehavior` 仍独立核验；类型化标量和聚合映射不自行赋予来源算术、类型转换或结果交付保证。
 
 完成关系的数学 AVG 可消费 Exact 整数、固定 Decimal 或 FiniteDecimal 原袋，也可由引擎在完整输入域、工作容量与本次 `NativeAggregateBehavior.ExactOrFail` 均已证明时，生成来源精确工作 SUM 和每列独立非 NULL 计数状态；PROPAGATE 另保留总次数。工作输入在聚合前无损转换，不借最终 AVG 容量限制累加，也不借 Finite 或未声明的原生 COUNT 保证推工作容量。文本分组用 `textIdentityKey` 的保 NULL、注入式二进制辅助键与原键共同分组，实际分组身份继续核验，辅助键不成为业务输出。两种物理路线都保留重复权重和各列 NULL 人口，最终除法与一次节点量化仍在 CORE；保证未知则在显式 CORE 计划中运输原袋，不调用未知 AVG 或失败后换计划。作者继续表达原 Average，不另写 SUM／COUNT 或增加 ROOT。事实 AVG、窗口 AVG 与快照 MEAN 继续遵守各自来源执行及中间量化责任，不因核心 REGROUP 支持数学均值而自动迁移。
 

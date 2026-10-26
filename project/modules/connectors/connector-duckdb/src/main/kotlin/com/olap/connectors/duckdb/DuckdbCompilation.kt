@@ -12,6 +12,8 @@ import org.apache.calcite.rel.type.*
 import org.apache.calcite.rex.RexLambdaRef
 import org.apache.calcite.rex.RexNode
 import org.apache.calcite.rex.RexOver
+import org.apache.calcite.rex.RexBuilder
+import org.apache.calcite.rex.RexCall
 import org.apache.calcite.rel.core.Aggregate
 import org.apache.calcite.rel.core.AggregateCall
 import org.apache.calcite.sql.*
@@ -27,6 +29,7 @@ import java.util.function.Supplier
 
 internal class DuckdbCompilation : CompilationSupport {
     override val nativeScalarFunctions: List<NativeScalarFunction> = emptyList()
+    override fun nativeScalarExpression(builder: RexBuilder, function: NativeScalarFunction, call: RexCall): RexNode = call
     override fun nativeScalarCall(function: String, arguments: List<CompilationSupport.NativeArgument>): SqlNode = throw IllegalArgumentException("DuckDB connector does not declare native scalar function: $function")
     override fun nativeAggregate(kind: SqlKind): SqlAggFunction = when (kind) {
         SqlKind.SUM -> SqlStdOperatorTable.SUM

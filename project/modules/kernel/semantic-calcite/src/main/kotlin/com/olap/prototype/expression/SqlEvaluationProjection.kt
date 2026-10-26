@@ -212,11 +212,15 @@ internal class SqlEvaluationProjection {
 
         init {
             fun count(value: RexNode, uses: Int) {
-                occurrences[value] = minOf(2, (occurrences[value] ?: 0) + minOf(2, uses))
+                val previous = occurrences[value] ?: 0
+                val current = minOf(2, previous + minOf(2, uses))
+                if (current == previous) return
+                occurrences[value] = current
+                val added = current - previous
                 when (value) {
                     is RexOver -> Unit
-                    is RexCall -> value.operands.forEach { count(it, uses) }
-                    is RexFieldAccess -> count(value.referenceExpr, uses)
+                    is RexCall -> value.operands.forEach { count(it, added) }
+                    is RexFieldAccess -> count(value.referenceExpr, added)
                 }
             }
             roots.forEach { (value, uses) -> count(value, uses) }
@@ -389,13 +393,7 @@ internal class SqlEvaluationProjection {
 
     private fun candidate(value: RexNode): Boolean = (value is RexCall || value is RexFieldAccess) && statementStableScalar(value)
 
-    private fun statementStableScalar(value: RexNode): Boolean = stableScalars[value] ?: when (value) {
-        is RexOver, is RexSubQuery -> false
-        is RexCall -> SemanticCalciteOperators.statementStable(value) && value.operands.all(::statementStableScalar)
-        is RexFieldAccess -> statementStableScalar(value.referenceExpr)
-        is RexInputRef, is RexLiteral, is RexDynamicParam -> true
-        else -> false
-    }.also { stableScalars[value] = it }
+    private fun statementStableScalar(value: RexNode): Boolean = SemanticCalciteOperators.statementStableExpression(value, stableScalars)
 
     private fun containsCheck(value: RexNode): Boolean = containsChecks[value] ?: when (value) {
         // 子查询关系在自己的作用域递归降低，其存在不要求拆开外层 AND/CASE。

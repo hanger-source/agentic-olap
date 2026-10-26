@@ -28,6 +28,8 @@ import org.apache.calcite.rel.core.JoinRelType
 import org.apache.calcite.rel.core.Aggregate
 import org.apache.calcite.rel.core.AggregateCall
 import org.apache.calcite.rex.RexNode
+import org.apache.calcite.rex.RexBuilder
+import org.apache.calcite.rex.RexCall
 import org.apache.calcite.rex.RexCorrelVariable
 import org.apache.calcite.rex.RexSubQuery
 import org.apache.calcite.sql.*
@@ -38,6 +40,7 @@ import org.apache.calcite.sql.util.SqlBasicVisitor
 import org.apache.calcite.sql.util.SqlString
 import org.apache.calcite.sql.`fun`.SqlCase
 import org.apache.calcite.sql.`fun`.SqlBasicAggFunction
+import org.apache.calcite.sql.`fun`.SqlTrimFunction
 import org.apache.calcite.sql.type.OperandTypes
 import org.apache.calcite.sql.type.ReturnTypes
 import org.apache.calcite.sql.type.SqlTypeName
@@ -334,6 +337,67 @@ class CalciteSqlConversionExecutionTest {
             val result = rows(source, b.build())
             assertEquals(listOf(1L, 2L, 3L, 4L), result.map { (it[0] as Number).toLong() })
             result.forEach { assertNotEquals((it[1] as Number).toLong(), (it[2] as Number).toLong(), "$dialect incorrectly shared sequence observation for id=${it[0]}") }
+        }
+    }
+    @Test fun typedNativeScalarSharesRowIntermediatesWithoutEvaluatingUnselectedErrors(@TempDir directory: Path) {
+        for (dialect in listOf("h2", "duckdb")) source(directory, dialect).use { source ->
+            source.connection.createStatement().use {
+                it.execute("ALTER TABLE observations ADD raw_text VARCHAR(32)")
+                it.execute("ALTER TABLE observations ADD should_parse BOOLEAN")
+                it.execute("UPDATE observations SET raw_text=CASE id WHEN 1 THEN ' 1_0.25 ' WHEN 2 THEN ' 2.5 ' WHEN 4 THEN 'bad' END, should_parse=(id<>4), region=LOWER(region)")
+            }
+            val decimalFunction = NativeScalarFunction("tripled_decimal", listOf(NativeScalarFunction.Parameter(
+                NativeScalarFunction.ParameterKind.SCALAR, ScalarValueType.TEXT)), NativeValueType("DECIMAL", 38, 18, true),
+                MetricValueContract.Exact(), NativeScalarFunction.Stability.IMMUTABLE)
+            val upperFunction = NativeScalarFunction("upper_region", listOf(NativeScalarFunction.Parameter(
+                NativeScalarFunction.ParameterKind.SCALAR, ScalarValueType.TEXT)), NativeValueType("VARCHAR", 8, null, true),
+                null, NativeScalarFunction.Stability.IMMUTABLE)
+            val baseSupport = TestConnectors.registry.require(source.spec.connectorRef).compilation
+            val b = builder(source)
+            val unpassedAmount = b.field("amount")
+            var useUnpassedAmount = false
+            val support = object : CompilationSupport by baseSupport {
+                override val nativeScalarFunctions = listOf(decimalFunction, upperFunction)
+                override fun requireNativeScalarFunction(id: String): NativeScalarFunction = nativeScalarFunctions.single { it.id == id }
+                override fun nativeScalarExpression(builder: RexBuilder, function: NativeScalarFunction, call: RexCall): RexNode {
+                    if (function.id != decimalFunction.id) return call
+                    if (useUnpassedAmount) return builder.makeCast(call.type, unpassedAmount)
+                    val trimmed = builder.makeCall(Ops.TRIM, builder.makeFlag(SqlTrimFunction.Flag.BOTH),
+                        builder.makeLiteral(" "), call.operands.single())
+                    val normalized = builder.makeCall(Ops.REPLACE, trimmed, builder.makeLiteral("_"), builder.makeLiteral(""))
+                    val parsed = builder.makeCast(call.type, normalized)
+                    return builder.makeCast(call.type, builder.makeCall(Ops.PLUS, builder.makeCall(Ops.PLUS, parsed, parsed), parsed))
+                }
+                override fun nativeScalarCall(function: String, arguments: List<CompilationSupport.NativeArgument>): SqlNode {
+                    require(function == upperFunction.id) { "tripled decimal must use its typed expression mapping" }
+                    return Ops.UPPER.createCall(SqlParserPos.ZERO, (arguments.single() as CompilationSupport.ScalarArgument).value)
+                }
+            }
+            val native = NativeExpressionScope(source.spec.connectorRef, support) { null }
+            val parsed = native.compileScalar(b, source.spec.connectorRef, decimalFunction.id, listOf(b.field("raw_text")))
+            val upper = native.compileScalar(b, source.spec.connectorRef, upperFunction.id, listOf(b.field("region")))
+            val selected = b.call(Ops.CASE, b.field("should_parse"), parsed, b.rexBuilder.makeNullLiteral(parsed.type))
+            b.project(listOf(b.field("id"), selected, upper), listOf("id", "amount", "region"), true).sort(b.field("id"))
+            val plan = b.build()
+            val rendered = CalciteSqlRendering.compile(plan, support)
+            var replacements = 0
+            SqlParser.create(rendered.sql.sql).parseQuery().accept(object : SqlBasicVisitor<Void>() {
+                override fun visit(call: SqlCall): Void? {
+                    if (call.operator.name.equals("REPLACE", ignoreCase = true)) replacements++
+                    return super.visit(call)
+                }
+            })
+            assertEquals(1, replacements, "$dialect duplicated the row normalization for three consumers; this does not count physical evaluations")
+            val result = rows(source, rendered.sql)
+            assertEquals(listOf(1, 2, 3, 4), result.map { (it[0] as Number).toInt() })
+            assertEquals(listOf("A", "A", "B", "C"), result.map { it[2] }, "$dialect changed the ordinary native SQL leaf mapping")
+            decimal(result[0][1], "30.75"); decimal(result[1][1], "7.5")
+            assertNull(result[2][1]); assertNull(result[3][1])
+            source.connection.createStatement().use { it.execute("UPDATE observations SET should_parse=TRUE WHERE id=4") }
+            assertThrows(SQLException::class.java) { rows(source, rendered.sql) }
+            useUnpassedAmount = true
+            val rejected = assertThrows(IllegalArgumentException::class.java) { CalciteSqlRendering.compile(plan, support) }
+            assertTrue(rejected.message.orEmpty().contains("outside its actual arguments"))
         }
     }
     @Test fun oneRegroupReusesGuardedNativeValuesAfterInnerMatching(@TempDir directory: Path) {

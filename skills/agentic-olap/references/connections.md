@@ -20,7 +20,7 @@ agentic-olap sdk --repository
 
 HTTP 或其他后端由使用方提供匹配其 SQL 后端及实际协议的插件；SQL 协议兼容不证明类型、数值、时间或一致性映射已经成立。业务 Agent 通过正式 MCP 使用已配置的来源。
 
-本仓库源码的连接器 API 为 `agentic-olap-connector/v17-kotlin-typed-aggregate-sql-calcite-1.42`；安装发行物时以实际服务及 `agentic-olap sdk` 披露的 API 为准。`connectorRef` 是 manifest 中实际的 `{id,version,sha256}`，数据源逐项引用该完整对象。服务核验 API 和摘要，驱动只由 JDBC 实现核验。
+本仓库源码的连接器 API 为 `agentic-olap-connector/v18-kotlin-native-scalar-expression-calcite-1.42`；安装发行物时以实际服务及 `agentic-olap sdk` 披露的 API 为准。`connectorRef` 是 manifest 中实际的 `{id,version,sha256}`，数据源逐项引用该完整对象。服务核验 API 和摘要，驱动只由 JDBC 实现核验。
 
 产品版本或 SDK Maven 坐标变化本身不要求重新构建既有插件。原插件与目标宿主的连接器 API 相同、所用公共接口的二进制合同及 JVM、Kotlin、Calcite 要求满足时，可原样保留完整插件组。宿主仍逐项核验原 manifest、JAR 摘要、完整 `connectorRef` 和 provider 身份；不因产品升级改写它们。API 字符串相同和装载成功都不能单独证明尚未调用的分支成立，升级须用原精确插件完成实际使用能力的查询验证。原字节和来源身份配置均未改变时，来源绑定也不变，无需仅为产品版本重登记目录或修订资产。
 
@@ -139,6 +139,10 @@ H2 仅把实际 DECFLOAT 作为有限原值无损读取，再由显式 CORE 承�
 ## 使用已声明的原生函数
 
 需要后端原生标量能力时，先用 `olap.sources.connectorCapabilities` 读取实际 `nativeScalarFunctions`，再从 Kotlin 类型发现取得所需作者节点。来源定义使用 `SemanticExpression.NativeCall`：Scalar 参数输入完整来源表达式，PhysicalTable 参数输入已采用的精确物理表身份和版本，不能传自由表名或 SQL。完成关系使用 `ResultExpression.ResultNativeCall(connectorRef,function,arguments)`，实参为有序结果表达式，只允许精确来源插件声明的纯 SCALAR 签名，不新增物理表依赖。两者均核对精确 `connectorRef`、函数 ID、参数及原生返回类型，不凭方言猜函数支持。
+
+插件必需的 `nativeScalarExpression(builder: RexBuilder, function: NativeScalarFunction, call: RexCall): RexNode` 在关系方言 prepare 之后、SqlEvaluationProjection 之前选择映射。直接 SQL 映射显式返回 call；完整纯 typed 树可以暴露内部中间表达式，返回 type 必须与原 type 完全相等，不新增输入、参数、表、子查询、相关依赖、窗口或聚合。call.operands 只有本次有序 SCALAR 实参，原 PHYSICAL_TABLE 身份继续由原调用持有。原函数、实参和树均须 statement-stable 才可展开共享，不能提升 VOLATILE；底层原生叶子仍由 nativeScalarCall 渲染。这是显式映射选择，不是展开失败后的切换。
+
+内部复用沿现有列程序、CASE／COALESCE 活动域及普通当前行投影，不要求作者补技术 DERIVE 或伪声明 CORRELATED_DERIVED_PROJECTION；真实相关输入保原检查，错误分支不能提前。aggregateSql 继续处理本次普通聚合，不因标量入口而改变。类型化映射不自行赋予来源算术、类型转换或结果交付保证；UNKNOWN 与取消未确认不能推断来源失败、已取消或耗时根因。
 
 关联后的条件解析应将 `ResultNativeCall` 放在该 JOIN 后的 `ResultCaseWhen` 分支内，不能无证明地移到源定义预解析。所有 CASE 分支都做静态校验，发布授权还须允许 `NATIVE_CALL` 及实参树的节点。插件和真实后端负责格式、NULL、解析错误、CASE 求值及 `IMMUTABLE/STATEMENT/VOLATILE` 稳定性；普通 TEXT 非 NULL 不证明格式有效。见[条件原生调用作者示例](../../../examples/agent-client/conditional-native-call.olap.kts)，示例要求部署方已有真实解析声明，不代表内置插件或目标后端已验收。
 

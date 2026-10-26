@@ -4,9 +4,9 @@
 
 ## 安装与启动
 
-本仓库源码的连接器 API 为 `agentic-olap-connector/v17-kotlin-typed-aggregate-sql-calcite-1.42`，存储格式为 `19`。服务、连接器和 SDK 使用同轮交付构件；安装发行物时以实际服务及 `agentic-olap sdk` 披露的 API 为准。独立插件须使用对应正式 Maven SDK 重新构建，集合展开实现与精确绑定要求见[连接说明](connections.md)。
+本仓库源码的连接器 API 为 `agentic-olap-connector/v18-kotlin-native-scalar-expression-calcite-1.42`，存储格式为 `19`。服务、连接器和 SDK 使用同轮交付构件；安装发行物时以实际服务及 `agentic-olap sdk` 披露的 API 为准。独立插件须使用对应正式 Maven SDK 重新构建，集合展开实现与精确绑定要求见[连接说明](connections.md)。
 
-API v17 的 `aggregateSql(owner,call,arguments,expression)` 是必需实现，普通聚合无特殊映射时显式返回 expression；不能只改旧插件 manifest 的 API 标签。该签名不改变 DSL、内部运行协议或持久格式，也不替代插件实际类型、算术与来源访问保证。
+API v18 的 `nativeScalarExpression(builder,function,call)` 是必需实现，直接 SQL 映射显式返回 call，纯 typed 树映射保原类型、已授权实参及语句内稳定性。普通聚合的 aggregateSql 合同保持，无特殊映射时显式返回 expression；不能只改旧插件 manifest 的 API 标签。接口不改变 DSL、内部运行协议或持久格式，也不替代插件实际类型、算术与来源访问保证。
 
 代码会话使用 `agentic-olap-kotlin-dsl/v12`，实际跨进程通信为 `agentic-olap-runtime/v15`。Kotlin 主服务直接持有正式应用、权威元数据和运行管理；语言会话在固定 REPL JVM 中保留真实 Kotlin 历史，来源工作进程承担调查、规划与执行。模型对话与账号由外部客户端持有。
 

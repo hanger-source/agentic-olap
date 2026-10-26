@@ -7,6 +7,13 @@ import org.apache.calcite.avatica.util.TimeUnit
 import org.apache.calcite.avatica.util.TimeUnitRange
 import org.apache.calcite.rex.RexNode
 import org.apache.calcite.rex.RexCall
+import org.apache.calcite.rex.RexOver
+import org.apache.calcite.rex.RexSubQuery
+import org.apache.calcite.rex.RexFieldAccess
+import org.apache.calcite.rex.RexInputRef
+import org.apache.calcite.rex.RexLocalRef
+import org.apache.calcite.rex.RexLiteral
+import org.apache.calcite.rex.RexDynamicParam
 import org.apache.calcite.sql.*
 import org.apache.calcite.sql.`fun`.SqlStdOperatorTable as Ops
 import org.apache.calcite.sql.parser.SqlParserPos
@@ -14,6 +21,7 @@ import org.apache.calcite.sql.type.SqlTypeName
 import org.apache.calcite.sql.type.SqlTypeUtil
 import org.apache.calcite.tools.RelBuilder
 import java.util.Locale
+import java.util.IdentityHashMap
 
 /** 授权语义到Calcite标准算子的共同绑定，不实现自己的类型或关系代数。 */
 object SemanticCalciteOperators {
@@ -25,6 +33,15 @@ object SemanticCalciteOperators {
             NativeScalarFunction.Stability.VOLATILE -> false
         }
     }
+
+    /** 共享和原生纯标量下沉使用同一稳定性规则；不据此跨语句缓存或常量折叠。 */
+    fun statementStableExpression(value: RexNode, known: MutableMap<RexNode, Boolean> = IdentityHashMap()): Boolean = known[value] ?: when (value) {
+        is RexOver, is RexSubQuery -> false
+        is RexCall -> statementStable(value) && value.operands.all { statementStableExpression(it, known) }
+        is RexFieldAccess -> statementStableExpression(value.referenceExpr, known)
+        is RexInputRef, is RexLocalRef, is RexLiteral, is RexDynamicParam -> true
+        else -> false
+    }.also { known[value] = it }
 
     fun predicate(builder: RelBuilder, field: RexNode, operator: MemberCondition.Operator, values: List<RexNode>): RexNode = when (operator) {
         MemberCondition.Operator.IS_NULL -> builder.isNull(field)

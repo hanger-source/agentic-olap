@@ -49,9 +49,9 @@ agentic-olap call execute-script --payload '{"executionId":"sources-1","waitMill
 
 业务连接器由使用者独立提供。在 `info` 指出的配置文件中登记插件 manifest、来源身份、插件参数和凭据引用。来源支持 HTTP 等访问实现，结构可由调查取得，也可通过 MCP 显式登记；catalog 权限不是必备条件。同一来源 ID 可以部署多个不同绑定；从 `list-data-sources` 选择并原样使用其 `sourceIdentityHash`，不按同名来源自动切换。业务 Agent 经 MCP 发现正式 Kotlin API，并以完整 kts 程序调用 `olap.sources/semantics/governance/queries/results`。定义与 Query 由正式构造器产生，写入、执行与结果交付仍走统一服务。服务不启动模型。
 
-源码构建的连接器 API 为 `agentic-olap-connector/v17-kotlin-typed-aggregate-sql-calcite-1.42`，元数据存储格式为 `19`。安装发行物时遵循目标宿主声明的接口和运行要求。既有持久根不会被自动改写。
+源码构建的连接器 API 为 `agentic-olap-connector/v18-kotlin-native-scalar-expression-calcite-1.42`，元数据存储格式为 `19`。安装发行物时遵循目标宿主声明的接口和运行要求。既有持久根不会被自动改写。
 
-该 API 要求插件显式实现普通聚合 SQL 的 `aggregateSql(owner,call,arguments,expression)`；普通映射返回 expression，窗口不经过该入口。独立插件按目标宿主披露的精确 SDK 实现和构建，不能仅修改 manifest 标签。SQL 映射、返回类型推导及实际算术保证分别兑现；接口交付不代表某个后端的有限解析或跨尺度 SUM 已经通过。完整合同见随包连接器文档。
+该 API 要求插件显式实现 `nativeScalarExpression(builder,function,call)`：直接 SQL 映射返回 call，需要内部复用的纯 typed 树保持原类型、实参及稳定性边界；底层叶子继续由 nativeScalarCall 渲染。普通聚合的 `aggregateSql(owner,call,arguments,expression)` 合同保持，普通映射返回 expression，窗口不经过该入口。独立插件按目标宿主披露的精确 SDK 实现和构建，不能仅修改 manifest 标签。SQL 映射、返回类型推导及实际算术保证分别兑现；接口交付不代表某个后端的有限解析、跨尺度 SUM 或业务查询已经通过。完整合同见随包连接器文档。
 
 需要独立持久根时，相关命令使用同一 `--home /absolute/path`。已有远程服务的客户端使用 `--url https://your-service/mcp --token-env OLAP_TOKEN`。服务器远程访问使用显式 `start --config /absolute/server.json` 和外部 JWT 认证配置；默认本机令牌模式只允许回环监听。
 

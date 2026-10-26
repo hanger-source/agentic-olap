@@ -3,6 +3,8 @@ package com.olap.prototype.expression
 import com.olap.prototype.connector.CompilationSupport
 import com.olap.prototype.connector.ConnectorRef
 import org.apache.calcite.rex.RexNode
+import org.apache.calcite.rex.RexBuilder
+import org.apache.calcite.rex.RexCall
 import org.apache.calcite.sql.*
 import org.apache.calcite.sql.type.OperandTypes
 import org.apache.calcite.tools.RelBuilder
@@ -25,6 +27,9 @@ class NativeScalarOperator private constructor(connector: ConnectorRef,
 
     override fun isDeterministic(): Boolean = declaration.stability == NativeScalarFunction.Stability.IMMUTABLE
     override fun isDynamicFunction(): Boolean = declaration.stability != NativeScalarFunction.Stability.IMMUTABLE
+
+    internal fun lower(builder: RexBuilder, call: RexCall): RexNode =
+        support.nativeScalarExpression(builder, declaration, call)
 
     internal fun expand(call: SqlCall): SqlNode {
         val values = arguments.map {

@@ -2,7 +2,7 @@
 
 `connector-api` 为独立后端实现提供共同合同和 Calcite 1.42.0 的公开类型。它不依赖治理、服务应用或内部编译实现。连接器实现已定义语义的原生映射与来源访问，业务指标、对象资格、数量、NULL 与查询组织仍由语义定义和共同内核拥有。
 
-SDK 按精确发行标签发布到 JitPack。`agentic-olap sdk` 返回本版 API、随包文档、Maven 仓库及 `artifacts` 中的完整坐标；`sdk --repository` 只输出仓库地址。构件使用 `com.github.hanger-source.agentic-olap` group，版本为 `v` 加产品版本，公开入口为 `connector-api`，可复用 JDBC 支持为 `warehouse-jdbc`，应用装载器为 `connector-loader`。新建或确需重新构建的插件使用目标宿主命令返回的精确坐标，不使用 SNAPSHOT。API 标识为 `agentic-olap-connector/v17-kotlin-typed-aggregate-sql-calcite-1.42`。插件须实现该 API 的实际公开签名，不能仅改 manifest 的版本标签。
+SDK 按精确发行标签发布到 JitPack。`agentic-olap sdk` 返回本版 API、随包文档、Maven 仓库及 `artifacts` 中的完整坐标；`sdk --repository` 只输出仓库地址。构件使用 `com.github.hanger-source.agentic-olap` group，版本为 `v` 加产品版本，公开入口为 `connector-api`，可复用 JDBC 支持为 `warehouse-jdbc`，应用装载器为 `connector-loader`。新建或确需重新构建的插件使用目标宿主命令返回的精确坐标，不使用 SNAPSHOT。API 标识为 `agentic-olap-connector/v18-kotlin-native-scalar-expression-calcite-1.42`。插件须实现该 API 的实际公开签名，不能仅改 manifest 的版本标签。
 
 SDK 的 JAR、POM 由插件工程的 Gradle 从 JitPack 匿名取得，第三方传递依赖从 Maven Central 取得。插件开发仍需 Kotlin/Gradle 工具链；运行产品无需这些构建工具。部署到其他服务前核对该服务的实际 API，不能把本地安装版本当作远程运行版本。
 
@@ -21,7 +21,7 @@ SDK 的 JAR、POM 由插件工程的 Gradle 从 JitPack 匿名取得，第三方
 ```json
 {
   "connectorRef": {"id": "backend", "version": "1.0.0", "sha256": "完整插件组摘要"},
-  "apiVersion": "agentic-olap-connector/v17-kotlin-typed-aggregate-sql-calcite-1.42",
+  "apiVersion": "agentic-olap-connector/v18-kotlin-native-scalar-expression-calcite-1.42",
   "jars": [
     {"file": "connector-backend.jar", "sha256": "该JAR摘要"},
     {"file": "backend-jdbc.jar", "sha256": "该JAR摘要"}
@@ -41,7 +41,7 @@ SDK 的 JAR、POM 由插件工程的 Gradle 从 JitPack 匿名取得，第三方
 
 ## 数据合同与兑现采用
 
-API v17 的来源输入分为两个明确对象：
+API v18 的来源输入分为两个明确对象：
 
 | 对象 | 内容与责任 |
 | --- | --- |
@@ -149,6 +149,26 @@ override val division: SqlOperator = SqlBinaryOperator(
 `MetricValueContract.Arithmetic` 区分 `EXACT_DECIMAL`、带结果域及误差容差的 `NATIVE_APPROXIMATION`，以及不声明结果域或误差界限的 `NATIVE_FLOATING`。后者仍核验容量、有限值及溢出，不能经 CAST 或 DECIMAL 结果类型取得输入没有的精确性或容差保证。插件的原生结果类型与算术保证必须分别如实声明。
 
 来源表达式 `SemanticExpression.NativeCall` 保存精确 `connectorRef`、函数 `function` 和 `arguments`。`SCALAR` 参数携带完整 `expression`；`PHYSICAL_TABLE` 参数携带 `physicalTableId/physicalTableVersion`，它是需要冻结与核验的真实物理依赖，不是表名字符串或任意 SQL。`nativeScalarCall` 只负责把核心校验后的 `ScalarArgument(SqlNode)`、`TableArgument(qualifiedPath)` 映射为后端 SQL AST，不接管业务关系规划。
+
+需要把原生标量内部的纯中间表达式交给共同求值复用时，插件实现必需入口：
+
+```kotlin
+fun nativeScalarExpression(
+    builder: RexBuilder,
+    function: NativeScalarFunction,
+    call: RexCall
+): RexNode
+```
+
+`function` 是本次已授权的精确原生函数声明，`call.operands` 仅包含其有序 SCALAR 实参；已授权 PHYSICAL_TABLE 身份继续由原调用持有，不转为标量操作数，也不授权新增表读取。直接 SQL 原生映射显式 `return call`；需要开放纯中间值的映射返回完整 typed Rex 树。两者是插件明确选择的映射，接口没有默认实现，不在展开失败后回到另一条路线。`nativeScalarCall` 继续负责原生叶子的底层 SQL 渲染。
+
+中间值使用普通带类型 `RexNode` 构造并继续作为后续操作数；同一中间值可以被多处引用。核心从实际依赖和稳定性建立求值列，不要求插件自行编造 `RexLocalRef`、输入列编号或 SQL 别名。后端专用叶子可用带明确返回类型的 `SqlOperator` 构造 Rex 调用，再由该算子的 SQL 映射渲染；不能把整块内部程序继续藏在一个不透明 SQL 叶子中，并声称其中间值已经可共享。
+
+下沉在共同关系方言准备完成之后、`SqlEvaluationProjection` 之前执行，使共享器能够看到树内 trim、系数等中间表达式；下沉结果不再送回后续 Hep 优化或折叠链。返回节点的 type 必须与原 call.type 完全相等，包含 NULL 性及技术容量；所有自由列、参数及相关字段引用只能来自原实际实参，不能借已有相关行变量读取另一个字段；不能新增输入、表、子查询、相关引用、窗口或聚合，也不能通过返回另一种类型改变数量保证。原函数、实参和展开树须符合共同的 statement-stable 规则，才可展开并共享；VOLATILE 不能由纯树替换取得更强稳定性，IMMUTABLE／STATEMENT 也不代表跨语句固定值。
+
+纯树复用现有列程序、CASE／COALESCE 活动域和普通当前行投影，内部复用不要求作者增加技术 DERIVE 或伪声明 `CORRELATED_DERIVED_PROJECTION`。本来包含真实相关输入的构造继续执行原能力检查。不能将可失败解析移到关联之前或未选分支外，也不承诺来源物化或恰好求值一次。接口不建立另一套 IR 或关系规划，不接受最终 SQL 字符串改写；解析算法、词法、NULL、越界与非有限值、来源算术保证及实际传输继续由插件兑现。
+
+该入口提供标量内部复用的类型化位置，不自行赋予来源算术、类型转换或结果交付保证。来源请求未收到响应时，UNKNOWN 与取消未确认不表示来源失败或已取消，也不能由 SQL 长度、表达式重复或等待超时推断耗时根因。
 
 完成关系使用 `ResultExpression.ResultNativeCall(connectorRef,function,arguments)`，实参为有序 `List<ResultExpression>`，只接受该精确来源连接器已经声明的纯 `SCALAR` 签名。它能放在 JOIN 后的 `DERIVE`、条件或 `ResultCaseWhen` 分支，直接消费当前结果符号；函数 ID、参数个数、原生类型和返回类型仍经共同原生编译入口核验。`PHYSICAL_TABLE` 依赖留在来源定义及其采用闭包，不能从完成关系新增表读取。发布的阶段表达式授权须允许 `NATIVE_CALL`，参数树继续逐节点核对授权。构造器、封闭变体和局部规则从正式 `describe-script-api` 发现，不另维护节点清单。
 

@@ -1,5 +1,13 @@
 # Agentic OLAP · 版本与变更
 
+## 0.31.0
+
+连接器 API 为 `agentic-olap-connector/v18-kotlin-native-scalar-expression-calcite-1.42`，新增必需的 `nativeScalarExpression(builder: RexBuilder, function: NativeScalarFunction, call: RexCall): RexNode`。直接 SQL 映射显式返回原 call；需要复用内部纯中间表达式时返回完整 typed Rex 树，原生叶子继续由 nativeScalarCall 渲染。call.operands 仅包含本次已授权的有序 SCALAR 实参，已授权 PHYSICAL_TABLE 身份仍由原调用持有。返回 type 与原 type 完全相等，不新增输入、参数、表、子查询、相关依赖、窗口或聚合。
+
+typed 下沉位于关系方言 prepare 之后、SqlEvaluationProjection 之前，不再送回后续 Hep 优化或折叠链，复用现有列程序、CASE／COALESCE 活动域和普通当前行投影；原函数、实参及树均须 statement-stable，不能提升 VOLATILE 或提前错误分支。不要求作者添加技术 DERIVE、伪声明 CORRELATED_DERIVED_PROJECTION 或改写 SQL 字符串；真实相关输入继续检查。直接渲染与 typed 树是显式映射选择，不在失败后切换，不建立新 IR 或关系框架，也不承诺后端物化或恰好求值一次。
+
+普通聚合 aggregateSql 合同保持。类型化映射不自行赋予来源算术、类型转换或结果交付保证；UNKNOWN 与取消未确认不能推断来源失败、已取消或耗时根因。独立插件按 API v18 的精确 SDK 实现并构建，不能只改 manifest 标签。公开作者 DSL v12、内部运行协议 v15、storage19、Query intent10、查询定义制品14、结果记录9、结果封套6及发行清单4保持各自职责。
+
 ## 0.30.0
 
 连接器 API 为 `agentic-olap-connector/v17-kotlin-typed-aggregate-sql-calcite-1.42`，新增必需的普通聚合 SQL 入口 `aggregateSql(owner,call,arguments,expression)`。插件取得本次实际 Aggregate／AggregateCall 的输入与结果类型、call.argList 顺序的当前 SQL 作用域输入列表达式，以及 Calcite 完成 DISTINCT、FILTER、排序及方言基础改写后的整项聚合表达式；最外层 AS 由共同转换器保留。普通映射显式返回 expression，特殊映射保持原分组、人口、NULL、重复及排序，不解析生成 SQL 或在类型推导中缓存渲染状态。窗口不经过此普通聚合入口。

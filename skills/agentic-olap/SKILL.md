@@ -31,7 +31,7 @@ agentic-olap call describe-script-api --payload '{}'
 
 首次启动生成本机配置、随机令牌与持久目录，仅监听回环地址。已有远程服务可直接接入 MCP；CLI 使用 `--url https://actual-service/mcp --token-env OLAP_TOKEN`。令牌由实际服务方提供，不写入仓库或日志。模型账号、提示词与会话由外部客户端持有。
 
-配置与认证见[服务使用与部署](references/server.md)；连接业务源时再读[来源接入](references/connections.md)。服务、SDK 与插件须匹配实际服务披露的连接器 API；本仓库源码为 `agentic-olap-connector/v17-kotlin-typed-aggregate-sql-calcite-1.42`，存储格式为 `19`。安装不会自动重启原服务或转换旧持久根。
+配置与认证见[服务使用与部署](references/server.md)；连接业务源时再读[来源接入](references/connections.md)。服务、SDK 与插件须匹配实际服务披露的连接器 API；本仓库源码为 `agentic-olap-connector/v18-kotlin-native-scalar-expression-calcite-1.42`，存储格式为 `19`。安装不会自动重启原服务或转换旧持久根。
 
 ## 从服务发现 Kotlin API
 
@@ -107,7 +107,9 @@ agentic-olap call wait-script --payload '{"executionId":"sources-001","waitMilli
 
 均值由 `MeanTarget.MATHEMATICAL` 或 `SOURCE_NATIVE` 显式选择；作者声明最终数量与量化，不照填插件原生舍入。显式 CORE_FINALIZATION 支持完成关系 REGROUP 对 Exact 整数、固定 Decimal 或 FiniteDecimal 求 MATHEMATICAL AVG，各列独立处理 NULL、保留重复权重，在该节点一次最终量化。引擎可在完整输入域、工作容量和实际聚合行为均已证明时生成精确工作 SUM 与独立非 NULL 计数，最终除法和量化仍在 CORE；工作保证未知则在该模式内交付原袋，不能从 Finite 猜一个工作容量。作者无需改成 SUM／COUNT、重建 ROOT 或另存指标。事实 AVG、窗口 AVG、快照 MEAN 和 SOURCE_NATIVE AVG 继续核对其实际来源节点，快照中间量化保留；DECIMAL 或精确算法不升级输入保证。来源 NativeCall、LEFT、形成观察的 CASE 保留在原来源前缀，不因拒绝自动切换位置或改 DOUBLE。完整语义与来源边界见[数量合同与人口](https://github.com/hanger-source/agentic-olap/blob/main/docs/agent-usage.md#数量合同与人口)及[来源接入](references/connections.md)。
 
-普通聚合 SQL 映射使用必需的 `aggregateSql(owner,call,arguments,expression)`；arguments 是 call.argList 顺序的当前作用域输入列表达式，expression 已含 DISTINCT／FILTER／排序及方言基础改写、不含最外层 AS。普通映射显式返回 expression，特殊映射须保持本次类型、人口和修饰含义；窗口不经过此入口，不设默认实现或失败后切换。插件不解析最终 SQL，也不在类型推导时缓存本次渲染状态。完整签名见[连接说明](references/connections.md)。
+原生标量内部复用由插件必需的 `nativeScalarExpression(builder,function,call)` 暴露完整纯 typed Rex 树；直接 SQL 映射显式返回 call。下沉在关系方言 prepare 之后、SqlEvaluationProjection 之前，返回原 type 完全相等，只消费已授权有序 SCALAR 实参，PHYSICAL_TABLE 身份仍在原调用；不新增输入、参数、表、相关依赖、子查询、窗口或聚合。原函数、实参及树须 statement-stable，VOLATILE 不提升。复用现有列程序、CASE／COALESCE 活动域及普通行投影，不要求作者技术 DERIVE 或伪声明 CORRELATED_DERIVED_PROJECTION，真实相关输入仍按原规则核验。nativeScalarCall 保留底层原生叶子渲染，typed 选择不是 fallback，不改写 SQL 字符串，也不证明后端实际求值次数。
+
+普通聚合 SQL 映射继续使用必需的 `aggregateSql(owner,call,arguments,expression)`；arguments 是 call.argList 顺序的当前作用域输入列表达式，expression 已含 DISTINCT／FILTER／排序及方言基础改写、不含最外层 AS。普通映射显式返回 expression，特殊映射须保持本次类型、人口和修饰含义；窗口不经过此入口，不设默认实现或失败后切换。插件不解析最终 SQL，也不在类型推导时缓存本次渲染状态。完整签名见[连接说明](references/connections.md)。
 
 聚合发现的 `behavior` 来自实际 `aggregateBehavior`，与 SQL 映射独立；未声明为 NULL，不从 DECIMAL／BIGINT 推保证。`ExactOrFail` 要求实际 SUM／COUNT 保留分组身份、NULL 与袋人口，无中间量化或静默溢出，AVG 不能用它冒充均值行为。文本工作分组由 `textIdentityKey` 产生保 NULL 的精确二进制辅助键，与原文本共同分组后移除；未知 collation 不自动获得精确身份保证。H2 原生 COUNT、DuckDB SUM／COUNT 保持未声明，其他来源必须交出自身实际依据。hook 交付不代表 Hologres TO_NUMBER／跨 scale SUM／NUMERIC→TEXT 保真或完整业务已验收。
 

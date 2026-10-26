@@ -2,7 +2,7 @@
 
 完整 MCP 服务通过来源插件访问数据。使用方提供与其网络、鉴权和查询协议相符的插件，服务负责语义管理、发布、规划、SQL 生成、执行要求检查及结果合同校验。HTTP 查询服务是来源访问实现，不需要数据库端口、JDBC URL、数据库凭据或 catalog 权限。业务公式、资格规则和指标组合仍通过语义定义和 Query 表达。
 
-本文描述源码中的来源访问合同：连接器 API 为 `agentic-olap-connector/v17-kotlin-typed-aggregate-sql-calcite-1.42`，元数据存储格式为 `19`。产品运行构件按同一发行装配；独立插件核对目标宿主的连接器合同与实际运行要求，产品版或 SDK 坐标变化本身不要求重构原插件，具体采用规则见[安装与发布](installation-release.md)。旧存储格式明确拒绝，服务不会自动改写已有持久根。
+本文描述源码中的来源访问合同：连接器 API 为 `agentic-olap-connector/v18-kotlin-native-scalar-expression-calcite-1.42`，元数据存储格式为 `19`。产品运行构件按同一发行装配；独立插件核对目标宿主的连接器合同与实际运行要求，产品版或 SDK 坐标变化本身不要求重构原插件，具体采用规则见[安装与发布](installation-release.md)。旧存储格式明确拒绝，服务不会自动改写已有持久根。
 
 ## 配置来源
 
@@ -85,7 +85,7 @@ JDBC 实现的 `identityParameters` 为 `jdbcUrl`、可选 `username` 和 `drive
 
 `sourceRequirements` 持有稳定 `dataContract`、明确选定的 `adoption`、本次实际使用的 `columns` 与 `constraintUses`。前者给出 P 的精确列和约束要求，后者给出实际绑定、连接器、方言、表坐标及该 S 的冻结证据；不能从 P 的原出处推导执行来源。`NOT_NULL.name` 直接标识列，其他约束项定位 P 的实际键或规则，插件无需解析 SQL 猜测来源列。`relationChecks` 另行给出 SQL、类型参数与违例码。两者都属于执行合同，参数顺序、比较语义与检查范围必须保留。
 
-API v17 的插件按上述两个正式对象实现纯能力声明及执行核验，不自行登记或选择采用。`adoption.requireContract(dataContract)` 只核冻结证据能否兑现 P，`requireDeployment(source)` 只核当前精确绑定；实际保证仍由本次 `execute` 兑现。`JdbcSourceRequirement.snapshotUniqueKeys` 来自 P，`sourceCollections` 只选取兑现 P 声明的登记，不能把 B 的其他观察自动提升为查询要求。可选 `JdbcSupport.supportsColumnInspection` 和 `supportsConstraintSnapshot` 接收 `PhysicalSourceEvidence`，核验使用所选 S 的出处和数据库／驱动观察，不沿用 P 原出处的技术信息。完整签名与字段责任见[连接器 API](../project/modules/kernel/connector-api/README.md#数据合同与兑现采用)。
+API v18 的插件按上述两个正式对象实现纯能力声明及执行核验，不自行登记或选择采用。`adoption.requireContract(dataContract)` 只核冻结证据能否兑现 P，`requireDeployment(source)` 只核当前精确绑定；实际保证仍由本次 `execute` 兑现。`JdbcSourceRequirement.snapshotUniqueKeys` 来自 P，`sourceCollections` 只选取兑现 P 声明的登记，不能把 B 的其他观察自动提升为查询要求。可选 `JdbcSupport.supportsColumnInspection` 和 `supportsConstraintSnapshot` 接收 `PhysicalSourceEvidence`，核验使用所选 S 的出处和数据库／驱动观察，不沿用 P 原出处的技术信息。完整签名与字段责任见[连接器 API](../project/modules/kernel/connector-api/README.md#数据合同与兑现采用)。
 
 源端原生强制约束可以免去同一非空条件的数据扫描，但插件必须核验约束确实作用于本次精确来源和列、覆盖已有数据与本次可读数据，而且在主查询期间不会因 DDL、表替换或连接切换失效。仅约束名称相同、目录返回 `nullable=false`、只约束后续写入、一次历史 catalog 观察或 `DECLARED` 结构都不足以证明这些条件。核验与使用之间的 schema 稳定性应由来源实际机制保证，例如同一受保护事务或 statement 的稳定 schema；不能靠先查目录再独立提交查询推断。源端只兑现非空约束时，也不能据此声明可以为优化器兑现所有冻结 PK／UK 等约束。
 
@@ -206,7 +206,11 @@ olap.output(olap.sources.connectorCapabilities(
 
 `validateConfiguration` 校验参数与插件支持组合；`SourceAccess.execute` 对本次实际访问环境负责。插件依据访问通道确实提供的同会话、不可变部署或其他有效机制，将核验与主查询关联。独立一次版本查询、历史样本或初始化观察，本身不保证后续请求命中相同环境；也不要求所有来源先取得 catalog 调查权限。实际环境不满足或不能兑现映射前提时，插件明确拒绝，使用已有来源失败合同交付受控原因及实际请求事实。原生探测、SQL 和内部异常保留在私有诊断；`SourceReadBasis` 继续表达数据读基础，不作为引擎环境证书。
 
-`nativeScalarCall` 接收函数与 SQL AST 实参，不接收来源配置；声明的映射应由精确插件及显式实参确定，不能声称配置会自动传入编译函数。`IMMUTABLE/STATEMENT/VOLATILE` 约束求值与共享，不替代环境保证。TEXT 签名也不证明字符串满足某个十进制词法或容量域：解析映射需要对允许输入兑现语义，对域外输入明确失败；调用方过滤或最终 DECIMAL 不能替代这一责任。
+插件通过必需的 `nativeScalarExpression(builder: RexBuilder, function: NativeScalarFunction, call: RexCall): RexNode` 选择本次原生标量映射。直接 SQL 映射显式返回 call；需要共享内部纯表达式时返回完整 typed Rex 树。call.operands 仅有已授权的有序 SCALAR 实参，原 PHYSICAL_TABLE 依赖仍由原调用持有。返回类型须与 call.type 完全相等，不得新增输入、表、子查询、相关引用、窗口或聚合。原函数、实参及展开树都须 statement-stable，才可展开并共享；不能把 VOLATILE 提升成稳定计算。这是显式映射选择，没有默认实现或展开失败后切换路线。
+
+typed 下沉位于共同关系方言准备之后、SqlEvaluationProjection 之前，复用既有列程序、CASE／COALESCE 活动域和普通当前行投影，不新增 IR、关系框架或作者技术 DERIVE。内部纯标量复用不要求伪声明 CORRELATED_DERIVED_PROJECTION；真实相关输入保持原能力检查。可失败表达式不能被提前到未匹配人口或未选择分支，后端物化与实际求值次数仍不由有名投影保证。普通 typed 聚合的 aggregateSql 合同继续独立适用。
+
+`nativeScalarCall` 保留底层原生叶子的 SQL AST 渲染，接收函数与 SQL AST 实参，不接收来源配置；声明的映射应由精确插件及显式实参确定，不能声称配置会自动传入编译函数。`IMMUTABLE/STATEMENT/VOLATILE` 约束求值与共享，不替代环境保证。TEXT 签名也不证明字符串满足某个十进制词法或容量域：解析映射需要对允许输入兑现语义，对域外输入明确失败；调用方过滤或最终 DECIMAL 不能替代这一责任。typed 入口不自行赋予来源算术、类型转换或结果交付保证；UNKNOWN 与取消未确认不能推断来源失败、已取消或耗时根因。
 
 ## 交付结果
 
