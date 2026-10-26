@@ -1,0 +1,21 @@
+此构件包含 Kotlin compiler embeddable 2.4.21 及其精确上游修复。
+
+Copyright 2010-2026 JetBrains s.r.o. and Kotlin Programming Language contributors.
+许可：Apache License 2.0，完整文本见同目录 LICENSE.txt。
+
+基础源码：JetBrains/kotlin，tag v2.4.21。
+基础提交：9180ce6a7a7d3627f88b424717583f28ddca052d。
+基础文件：compiler/fir/resolve/src/org/jetbrains/kotlin/fir/resolve/transformers/body/resolve/FirImplicitBodyResolve.kt。
+基础文件 Git blob：8797c12ea2b130c948f7497b361e65cad017e1a5。
+基础构件：org.jetbrains.kotlin:kotlin-compiler-embeddable:2.4.21。
+基础构件 SHA-256：ef19419c765e7ac8404465fa026ca8fc4dbb8a822de0fc79aa53c8dce29f1d02。
+
+回补提交：cf9848a4e79a47c33d1d46f44b3c0079e2898eb6，KT-89749。
+上游说明：FIR: Resolve REPL snippet members lazily within the snippet context。
+修复地址：https://github.com/JetBrains/kotlin/commit/cf9848a4e79a47c33d1d46f44b3c0079e2898eb6。
+
+回补只改变上述文件的 designation：包含 FirReplSnippet 并排除其已由
+transformReplSnippet 负责进入的重复 snippet class，以保留延迟返回类型解析的历史作用域。
+编译保持原模块名称 org.jetbrains.kotlin_resolve 及其 internal JVM 方法名称。
+本主 JAR 在构建时替换对应编译器类；运行时不同时保留原 compiler JAR，
+不按类路径顺序覆盖同名类，也不改写、重放或补求值作者片段。

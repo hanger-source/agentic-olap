@@ -83,6 +83,7 @@ internal class RuntimeTrial(private val distribution: Path, private val root: Pa
             }
             val initial = """
                 val retainedArguments = parameters
+                var capturedLabel = parameters.text("label")
                 val productModel = BusinessLineCreateRequest(parameters.text("label"), "语言历史", olap.caller.subject, "运行试验", olap.caller.subject)
                 val privateRoot = olap.temporaryDirectory
                 java.nio.file.Files.writeString(privateRoot.resolve("private.txt"), parameters.text("label"))
@@ -112,15 +113,23 @@ internal class RuntimeTrial(private val distribution: Path, private val root: Pa
                 val refused = other.rpc("read-script-session", objectOf("sessionId" to text(firstSession)))
                 check(!refused.getValue("success").jsonPrimitive.boolean && refused.objectAt("error")["code"] == text("SCRIPT_SESSION_UNAVAILABLE"))
                 val continued = submit("""
+                    fun retainedLabel() = capturedLabel
+                    fun modelCode() = productModel.code
+                    check(retainedLabel() == "first")
+                    check(retainedArguments.text("label") == retainedLabel())
                     check(java.nio.file.Files.readString(privateRoot.resolve("private.txt")) == "first")
                     check(olap.sources.list(EmptyRequest).items.isEmpty())
-                    olap.output(ScriptValue.Text(retainedArguments.text("label") + "/" + parameters.text("label") + "/" + productModel.code))
+                    olap.output(ScriptValue.Text(retainedLabel() + "/" + parameters.text("label") + "/" + modelCode()))
                 """.trimIndent(), "changed", firstSession).succeeded()
                 check(continued.report["workerId"] == first.report["workerId"])
                 check(continued.value()["text"] == text("first/changed/first"))
                 resourceReuse = resourceBoundaries(::submit, firstSession, first.report.getValue("workerId"),
                     firstIdentity.objectAt("pid").string("text"))
-                val secondContinued = submit("olap.output(ScriptValue.Text(productModel.code))", "changed", secondSession).succeeded()
+                val secondContinued = submit("""
+                    fun secondModelCode() = productModel.code
+                    check(capturedLabel == "second")
+                    olap.output(ScriptValue.Text(secondModelCode()))
+                """.trimIndent(), "changed", secondSession).succeeded()
                 check(secondContinued.value()["text"] == text("second"))
 
                 // 被拒绝目标先由宿主确认真实存在，避免把不存在误判成权限隔离。
@@ -128,6 +137,8 @@ internal class RuntimeTrial(private val distribution: Path, private val root: Pa
                 check(Files.readString(otherFile) == "second")
                 val forbidden = JsonPrimitive(otherFile.toString()).toString()
                 submit("""
+                    capturedLabel = "after-change"
+                    check(retainedLabel() == "after-change")
                     check(runCatching { java.nio.file.Files.readString(java.nio.file.Path.of(parameters.text("config"))) }.isFailure)
                     check(runCatching { java.nio.file.Files.readString(java.nio.file.Path.of($forbidden)) }.isFailure)
                     check(runCatching { java.net.Socket("127.0.0.1", parameters.decimal("port").toInt()).close() }.isFailure)
@@ -294,8 +305,8 @@ internal class RuntimeTrial(private val distribution: Path, private val root: Pa
             return result
         }
         retained("""
-            fun resourceReport(label: String, model: BusinessLineCreateRequest) = olap.output(ScriptValue.Text(
-                ProcessHandle.current().pid().toString() + "/" + label + "/" + model.code))
+            fun resourceReport(label: String) = olap.output(ScriptValue.Text(
+                ProcessHandle.current().pid().toString() + "/" + label + "/" + productModel.code))
             val resourceClient = olap
             val resourceOutput = System.out
             val resourceStarted = java.util.concurrent.CountDownLatch(20)
@@ -321,7 +332,7 @@ internal class RuntimeTrial(private val distribution: Path, private val root: Pa
                 }
             }
             check(resourceThreads.size == 20 && resourceThreads.all { it.isAlive && !it.isVirtual })
-            resourceReport("platform-threads", productModel)
+            resourceReport("platform-threads")
         """, "platform-threads")
         val continued = retained("""
             resourceStarted.await()
@@ -331,7 +342,7 @@ internal class RuntimeTrial(private val distribution: Path, private val root: Pa
             check(resourceFailure.get() is IllegalStateException)
             check(olap.sources.list(EmptyRequest).items.isEmpty())
             println("current-fragment-output")
-            resourceReport("background-rejected", productModel)
+            resourceReport("background-rejected")
         """, "background-rejected")
         check(continued.report.array("calls").map { it.jsonObject.string("operationId") } == listOf("list-data-sources"))
         val continuedOutput = printed(continued, "STDOUT")
@@ -351,7 +362,7 @@ internal class RuntimeTrial(private val distribution: Path, private val root: Pa
             System.err.close()
             println("stdout-after-close")
             System.err.println("stderr-after-close")
-            resourceReport("context-replaced", productModel)
+            resourceReport("context-replaced")
             System.setIn(resourceReplacementInput)
             System.setOut(resourceReplacementOutput)
             System.setErr(resourceReplacementError)
@@ -369,7 +380,7 @@ internal class RuntimeTrial(private val distribution: Path, private val root: Pa
             resourceReplacementError.close()
             resourceReplacementLoader.close()
             println("stdout-after-restoration")
-            resourceReport("context-restored", productModel)
+            resourceReport("context-restored")
         """, "context-restored")
         check("stdout-after-restoration" in printed(restored, "STDOUT"))
         return objectOf("platformThreads" to number(20), "sameWorker" to worker, "pid" to text(pid),

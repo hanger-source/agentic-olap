@@ -23,7 +23,7 @@ import java.math.BigDecimal
 import java.math.RoundingMode
 import java.util.concurrent.CancellationException
 
-/** 一次Query的明确来源切点及正式核心标量后缀；不读取历史结果或重新访问来源。 */
+/** 各来源原袋及正式核心计算依赖图；不读取历史结果或重新访问来源。 */
 class CoreFinalizationPlan private constructor(private val sourceLayout: ExecutableSourceLayout,
     val outputContract: ExecutableOutputContract, private val programs: List<ScopeProgram>, private val displayNames: Map<String, String>,
     private val sourceCuts: Map<ScopeId, Int>, scopes: List<ScopeId>) {
@@ -37,12 +37,13 @@ class CoreFinalizationPlan private constructor(private val sourceLayout: Executa
         data object Source : Root
         data class Forward(val scope: ScopeId) : Root
         data class Projection(val columns: Map<String, Column>, val population: CoreFinalizationGraph.Population,
-            val observationIdentity: List<String>?) : Root
+            val observationIdentity: List<String>?, val keys: Map<ScopeId, List<CoreExpression>>) : Root
     }
     private sealed interface Operation {
         data class Derive(val alias: String, val expression: CoreExpression) : Operation
         data class Project(val names: List<String>) : Operation
         data class Filter(val expression: CoreExpression) : Operation
+        data class Regroup(val computation: CoreRegroup) : Operation
     }
 
     fun execute(frame: ResultFrame, support: CompilationSupport, control: WarehouseExecutionControl,
@@ -55,40 +56,38 @@ class CoreFinalizationPlan private constructor(private val sourceLayout: Executa
             throw EngineExecutionException("MATERIALIZE_SOURCE_RESULT", "CORE_FINALIZATION_SOURCE_CONTRACT_FAILED",
                 "source cut result differs from its compiled input contract", failure)
         }
-        val budget = ResultMaterializationBudget(limits)
-        val rows = mutableListOf<List<ExecutableBusinessResult.Value>>()
-        frame.rows.indices.forEach { rowIndex ->
+        val completed = linkedMapOf<ScopeId, List<Map<String, CoreValue>>>()
+        programs.forEach { program ->
             control.checkCancellation()
-            val sourceValues = sourceLayout.scopes.mapValues { (scope, layout) ->
-                source.getValue(scope)[rowIndex]?.let { row -> layout.contract.columns.mapIndexed { index, field ->
+            val sourceValues = source[program.scope]?.map { row ->
+                sourceLayout.scopes.getValue(program.scope).contract.columns.mapIndexed { index, field ->
                     field.symbol.name to input(row[index])
-                }.toMap(LinkedHashMap()) }
+                }.toMap(LinkedHashMap())
             }
-            // null 表示该作用域缺组；Missing 仅表示一个实际存在组中的 NULL 值。
-            val completed = linkedMapOf<ScopeId, Map<String, CoreValue>?>()
             try {
-                programs.forEach { program ->
-                    control.checkCancellation()
-                    completed[program.scope] = evaluate(program, sourceValues[program.scope], completed, control)
-                }
-                val values = completed.getValue(ScopeId.root()) ?: return@forEach
-                budget.row()
-                rows += outputContract.columns.map { field ->
-                    val value = try { materialize(requireNotNull(values[field.symbol.name]), field.nativeType) }
-                    catch (failure: CoreArithmeticFailure) {
-                        val origin = field.symbol.origin as? QueryStageAnalysis.OperationOrigin
-                        val path = origin?.let { listOf<Any>("input") + it.scope.path + listOf("postOps", it.operationIndex, "expression") }.orEmpty()
-                        throw CoreFinalizationProblem(failure.code, path, requireNotNull(failure.message), failure)
-                    }
-                    account(budget, value, 1)
-                    value
-                }
+                completed[program.scope] = evaluate(program, sourceValues, completed, control)
             } catch (failure: CoreFinalizationProblem) {
                 throw EngineExecutionException("CORE_FINALIZATION", failure.code, requireNotNull(failure.message), failure,
-                    mapOf("fieldPath" to failure.fieldPath, "rowIndex" to rowIndex))
+                    mapOf("fieldPath" to failure.fieldPath, "scope" to program.scope.path))
             } catch (failure: CoreArithmeticFailure) {
                 throw EngineExecutionException("CORE_FINALIZATION", failure.code, requireNotNull(failure.message), failure,
-                    mapOf("rowIndex" to rowIndex))
+                    mapOf("scope" to program.scope.path))
+            }
+        }
+        val budget = ResultMaterializationBudget(limits)
+        val rows = completed.getValue(ScopeId.root()).mapIndexed { rowIndex, values ->
+            control.checkCancellation()
+            budget.row()
+            outputContract.columns.map { field ->
+                val value = try { materialize(requireNotNull(values[field.symbol.name]), field.nativeType) }
+                catch (failure: CoreArithmeticFailure) {
+                    val origin = field.symbol.origin as? QueryStageAnalysis.OperationOrigin
+                    val path = origin?.let { listOf<Any>("input") + it.scope.path + listOf("postOps", it.operationIndex, "expression") }.orEmpty()
+                    throw EngineExecutionException("CORE_FINALIZATION", failure.code, requireNotNull(failure.message), failure,
+                        mapOf("fieldPath" to path, "rowIndex" to rowIndex))
+                }
+                account(budget, value, 1)
+                value
             }
         }
         control.checkCancellation()
@@ -105,43 +104,74 @@ class CoreFinalizationPlan private constructor(private val sourceLayout: Executa
         }
     }
 
-    private fun evaluate(program: ScopeProgram, source: Map<String, CoreValue>?,
-        completed: Map<ScopeId, Map<String, CoreValue>?>, control: WarehouseExecutionControl): Map<String, CoreValue>? {
-        var values = when (val root = program.root) {
-            Root.Source -> LinkedHashMap(source ?: return null)
-            is Root.Forward -> LinkedHashMap(completed.getValue(root.scope) ?: return null)
-            is Root.Projection -> {
-                root.observationIdentity?.forEach { key -> root.columns.getValue(key).bindings.forEach { binding ->
-                    completed.getValue(binding.scope)?.let { branch ->
-                        if (binding.expression.evaluate(branch, control) == CoreValue.Missing)
-                            throw CoreFinalizationProblem("OBSERVATION_OBJECT_IDENTITY_NULL",
-                                listOf<Any>("input") + program.scope.path + listOf("root", "observationKeys", key),
-                                "completed observation identity contains NULL")
-                    }
-                } }
-                val present = root.population.scopes.map { completed.getValue(it) != null }
-                val selected = when (root.population.kind) {
-                    Calculation.PopulationKind.BASE -> present.single()
-                    Calculation.PopulationKind.UNION -> present.any { it }
-                    Calculation.PopulationKind.INTERSECTION -> present.all { it }
-                }
-                if (!selected) return null
-                root.columns.mapValuesTo(LinkedHashMap()) { (_, column) ->
-                    val binding = column.bindings.firstOrNull { completed.getValue(it.scope) != null }
-                    if (binding != null) binding.expression.evaluate(requireNotNull(completed.getValue(binding.scope)), control)
-                    else if (column.zeroWhenAbsent) zero(column.type) else CoreValue.Missing
-                }
-            }
+    private fun evaluate(program: ScopeProgram, source: List<Map<String, CoreValue>>?,
+        completed: Map<ScopeId, List<Map<String, CoreValue>>>, control: WarehouseExecutionControl): List<Map<String, CoreValue>> {
+        var rows = when (val root = program.root) {
+            Root.Source -> requireNotNull(source)
+            is Root.Forward -> completed.getValue(root.scope)
+            is Root.Projection -> project(program.scope, root, completed, control)
         }
         for (operation in program.operations) {
             control.checkCancellation()
-            when (operation) {
-                is Operation.Derive -> values[operation.alias] = operation.expression.evaluate(values, control)
-                is Operation.Project -> values = operation.names.associateTo(LinkedHashMap()) { it to values.getValue(it) }
-                is Operation.Filter -> if ((operation.expression.evaluate(values, control) as? CoreValue.Logical)?.value != true) return null
+            rows = when (operation) {
+                is Operation.Derive -> rows.map { row ->
+                    control.checkCancellation()
+                    LinkedHashMap(row).apply { put(operation.alias, operation.expression.evaluate(row, control)) }
+                }
+                is Operation.Project -> rows.map { row ->
+                    control.checkCancellation()
+                    operation.names.associateTo(LinkedHashMap()) { it to row.getValue(it) }
+                }
+                is Operation.Filter -> rows.filter { row ->
+                    control.checkCancellation()
+                    (operation.expression.evaluate(row, control) as? CoreValue.Logical)?.value == true
+                }
+                is Operation.Regroup -> operation.computation.execute(rows, control)
             }
         }
-        return values
+        return rows
+    }
+
+    private fun project(scope: ScopeId, root: Root.Projection, completed: Map<ScopeId, List<Map<String, CoreValue>>>,
+        control: WarehouseExecutionControl): List<Map<String, CoreValue>> {
+        val dependencies = root.columns.values.flatMap { column -> column.bindings.map { it.scope } }.distinct()
+        fun columns(actual: Map<ScopeId, Map<String, CoreValue>>): Map<String, CoreValue> = root.columns.mapValuesTo(LinkedHashMap()) { (_, column) ->
+            val binding = column.bindings.firstOrNull { it.scope in actual }
+            if (binding != null) binding.expression.evaluate(actual.getValue(binding.scope), control)
+            else if (column.zeroWhenAbsent) zero(column.type) else CoreValue.Missing
+        }
+        if (dependencies.size == 1 && root.observationIdentity == null) {
+            val dependency = dependencies.single()
+            return completed.getValue(dependency).map { row -> control.checkCancellation(); columns(mapOf(dependency to row)) }
+        }
+        val indices = dependencies.associateWith { dependency ->
+            val expressions = root.keys.getValue(dependency)
+            val index = linkedMapOf<List<CoreValueKeys.Key>, Map<String, CoreValue>>()
+            completed.getValue(dependency).forEach { row ->
+                control.checkCancellation()
+                val key = expressions.mapIndexed { position, expression ->
+                    val value = expression.evaluate(row, control)
+                    if (root.observationIdentity != null && value == CoreValue.Missing)
+                        throw CoreFinalizationProblem("OBSERVATION_OBJECT_IDENTITY_NULL",
+                            listOf<Any>("input") + scope.path + listOf("root", "observationKeys", root.observationIdentity[position]),
+                            "completed observation identity contains NULL")
+                    CoreValueKeys.key(value, expression.type)
+                }
+                if (index.putIfAbsent(key, row) != null) throw CoreFinalizationProblem("CORE_FINALIZATION_IDENTITY_NOT_UNIQUE",
+                    listOf<Any>("input") + scope.path + "root", "completed input contains more than one row for its declared complete key")
+            }
+            index
+        }
+        val selected = root.population.scopes.map { indices.getValue(it) }
+        val keys = when (root.population.kind) {
+            Calculation.PopulationKind.BASE -> selected.single().keys
+            Calculation.PopulationKind.UNION -> selected.flatMapTo(linkedSetOf()) { it.keys }
+            Calculation.PopulationKind.INTERSECTION -> selected.first().keys.filter { key -> selected.all { key in it } }
+        }
+        return keys.map { key ->
+            control.checkCancellation()
+            columns(indices.mapNotNull { (dependency, index) -> index[key]?.let { dependency to it } }.toMap())
+        }
     }
 
     private fun zero(type: CoreScalarType): CoreValue = when (type.kind) {
@@ -212,7 +242,7 @@ class CoreFinalizationPlan private constructor(private val sourceLayout: Executa
                 requireNotNull(analyses[scope]).stages.drop(selected.stageStart).forEach { stage ->
                 val path = listOf<Any>("input") + scope.path + listOf("postOps", stage.index)
                 when (val operation = stage.operation) {
-                    is PostOperationContract.Project -> Unit
+                    is PostOperationContract.Project, is PostOperationContract.Regroup -> Unit
                     is PostOperationContract.Derive, is PostOperationContract.PostFilter -> ResultExpressionTree.visit(
                         if (operation is PostOperationContract.Derive) operation.expression else (operation as PostOperationContract.PostFilter).expression,
                         path + "expression") { node, at ->
@@ -228,7 +258,7 @@ class CoreFinalizationPlan private constructor(private val sourceLayout: Executa
                         }
                         if (!supported) CoreFinalizationExpressions.unsupported(at, "expression is not supported at the core scalar finalization boundary")
                     }
-                    else -> CoreFinalizationExpressions.unsupported(path, "core finalization supports scalar DERIVE, POST_FILTER and PROJECT stages only")
+                    else -> CoreFinalizationExpressions.unsupported(path, "stage is outside the supported core scalar and exact regroup execution range")
                 }
             } }
         }
@@ -269,7 +299,19 @@ class CoreFinalizationPlan private constructor(private val sourceLayout: Executa
                         displays[alias] = projection?.displayNames?.get(alias) ?: completedDisplays[dependency]?.get(source) ?: alias
                     }
                 }
-                fun projection(population: CoreFinalizationGraph.Population, observationIdentity: List<String>? = null): Root.Projection = Root.Projection(columns.mapValues { (alias, bindings) ->
+                fun projection(population: CoreFinalizationGraph.Population, observationIdentity: List<String>? = null,
+                    identities: List<CoreFinalizationGraph.InputProjection> = emptyList()): Root.Projection {
+                    val keys = if (identities.size > 1 || observationIdentity != null) {
+                        val positions = observationIdentity ?: identities.first().identitySlots.keys.toList()
+                        identities.associate { input -> input.inputScope to positions.map { position ->
+                            val at = listOf<Any>("input") + scope.path + listOf("root") + input.position + listOf("keys", position)
+                            CoreFinalizationExpressions(completedTypes.getValue(input.inputScope))
+                                .compile(ResultSymbol(input.identitySlots.getValue(position)), at).also {
+                                    CoreValueKeys.requireSupported(it.type, at)
+                                }
+                        } }
+                    } else emptyMap()
+                    return Root.Projection(columns.mapValues { (alias, bindings) ->
                     val boundScopes = bindings.map { it.scope }.toSet()
                     val guaranteed = when (population.kind) {
                         Calculation.PopulationKind.BASE -> population.scopes.single() in boundScopes
@@ -279,7 +321,8 @@ class CoreFinalizationPlan private constructor(private val sourceLayout: Executa
                     Column(bindings.toList(), CoreFinalizationExpressions.projectionType(bindings.map { it.expression.type },
                         bindings.any { it.expression.type.nullable } || !guaranteed && alias !in absentZero,
                         listOf<Any>("input") + scope.path + listOf("root", "outputs", alias)), alias in absentZero)
-                }, population, observationIdentity)
+                    }, population, observationIdentity, keys)
+                }
                 val root = when (val root = node.root) {
                     CoreFinalizationGraph.Root.Source -> Root.Source
                     is CoreFinalizationGraph.Root.Forward -> Root.Forward(root.scope).also { displays.putAll(completedDisplays[root.scope].orEmpty()) }
@@ -294,7 +337,7 @@ class CoreFinalizationPlan private constructor(private val sourceLayout: Executa
                     }
                     is CoreFinalizationGraph.Root.Projection -> {
                         root.inputs.forEach { project(it.inputScope, it.outputSlots, it) }
-                        projection(root.population, root.observationIdentity)
+                        projection(root.population, root.observationIdentity, root.inputs)
                     }
                 }
                 val types = when (root) {
@@ -336,6 +379,13 @@ class CoreFinalizationPlan private constructor(private val sourceLayout: Executa
                             val expression = CoreFinalizationExpressions(types).compile(operation.expression, path + "expression")
                             check(expression.type.kind in setOf(CoreScalarType.Kind.BOOLEAN, CoreScalarType.Kind.NULL)) { "completed filter requires BOOLEAN" }
                             operations += Operation.Filter(expression)
+                        }
+                        is PostOperationContract.Regroup -> {
+                            val regroup = CoreRegroup.compile(operation.grouping, stage, types, path)
+                            types.clear(); types.putAll(regroup.outputTypes)
+                            displays.keys.retainAll(types.keys)
+                            operation.grouping.aggregates.forEach { displays[it.outputAlias] = it.outputDisplayName }
+                            operations += Operation.Regroup(regroup)
                         }
                         else -> error("local stage was not admitted")
                     }

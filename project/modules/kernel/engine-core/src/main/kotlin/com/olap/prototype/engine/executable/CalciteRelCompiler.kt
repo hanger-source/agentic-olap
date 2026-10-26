@@ -15,10 +15,8 @@ import com.olap.prototype.query.QueryStageAnalysis.Analysis
 import com.olap.prototype.query.QueryStageAnalysis.ScopeId
 import org.apache.calcite.plan.RelOptUtil
 import org.apache.calcite.rel.RelNode
-import org.apache.calcite.rel.core.JoinRelType
 import org.apache.calcite.rel.type.RelDataType
 import org.apache.calcite.rex.RexNode
-import org.apache.calcite.sql.`fun`.SqlStdOperatorTable
 import org.apache.calcite.tools.RelBuilder
 
 /** 已分析Scope→原生关系→优化→SQL；各阶段交出完整事实。 */
@@ -59,42 +57,43 @@ class CalciteRelCompiler private constructor(val connectors: ConnectorRegistry, 
                 SourceOutput(output.relation, output.displayNames) { type -> ExecutableSourceLayout.single(relations.contract(source.cut.scope, type)) }
             } else {
                 val contracts = completed.mapValues { (source, output) -> relations.contract(source.cut.scope, output.relation.rowType) }
-                val keys = sources.first().keys.keys.toList()
-                require(keys.all(String::isNotBlank)) { "core transport identity names must be explicit" }
-                sources.forEach { source ->
-                    require(source.keys.keys == keys.toSet() && source.keys.values.distinct().size == keys.size) { "core source cuts require the same explicit transport identity" }
-                    RelationalIdentity.requireUnique(completed.getValue(source).relation, keys.map(source.keys::getValue), "core source transport")
-                }
-                val keyTypes = keys.associateWith { key -> SemanticNativeTypes.commonType(builder.typeFactory,
-                    sources.map { source -> requireNotNull(completed.getValue(source).relation.rowType.getField(source.keys.getValue(key), true, false)) {
-                        "core transport identity is absent from its actual source cut"
-                    }.type }, "core source identity $key") }
-                val occupied = completed.values.flatMapTo(keys.toCollection(linkedSetOf())) { it.relation.rowType.fieldNames }
+                val occupied = completed.values.flatMapTo(linkedSetOf()) { it.relation.rowType.fieldNames }
                 val scopes = linkedMapOf<ScopeId, ExecutableSourceLayout.Scope>()
-                val display = keys.associateWithTo(linkedMapOf()) { "core source identity: $it" }
-                val branches = sources.map { source ->
+                val display = linkedMapOf<String, String>()
+                sources.forEach { source ->
                     val output = completed.getValue(source)
                     val contract = contracts.getValue(source)
-                    builder.push(output.relation)
-                    val expressions = keys.mapTo(mutableListOf<RexNode>()) { key ->
-                        val field = builder.field(source.keys.getValue(key))
-                        val target = builder.typeFactory.createTypeWithNullability(keyTypes.getValue(key), field.type.isNullable)
-                        builder.rexBuilder.makeCast(target, field)
-                    }
-                    val names = keys.toMutableList()
                     val columns = linkedMapOf<String, String>()
                     contract.columns.forEach { field ->
                         val physical = SemanticNativeTypes.internalAlias(occupied, "__core_value_")
-                        expressions += builder.field(field.symbol.name); names += physical
                         columns[field.symbol.name] = physical
                         display[physical] = output.displayNames[field.symbol.name] ?: field.symbol.name
                     }
                     val presence = SemanticNativeTypes.internalAlias(occupied, "__core_presence_")
-                    expressions += builder.literal(true); names += presence; display[presence] = "core source group present"
+                    display[presence] = "core source row present"
                     scopes[source.cut.scope] = ExecutableSourceLayout.Scope(contract, columns, presence)
+                }
+                val branches = sources.map { source ->
+                    builder.push(completed.getValue(source).relation)
+                    val expressions = mutableListOf<RexNode>()
+                    val names = mutableListOf<String>()
+                    scopes.forEach { (scope, output) ->
+                        val present = scope == source.cut.scope
+                        output.contract.columns.forEach { field ->
+                            val type = builder.typeFactory.createTypeWithNullability(field.nativeType, true)
+                            expressions += if (present) builder.rexBuilder.makeCast(type, builder.field(field.symbol.name))
+                                else builder.rexBuilder.makeNullLiteral(type)
+                            names += output.columns.getValue(field.symbol.name)
+                        }
+                        expressions += builder.literal(present)
+                        names += requireNotNull(output.presenceColumn)
+                    }
                     builder.project(expressions, names, true).build()
                 }
-                val transported = transport(builder, branches, keys)
+                // 每个原袋独立交付；UNION ALL只运输，不按值去重或推断跨cut身份。
+                branches.forEach(builder::push)
+                builder.union(true, branches.size)
+                val transported = builder.build()
                 SourceOutput(transported, display) { type ->
                     ExecutableSourceLayout(type.fieldList.map { ExecutableSourceLayout.Field(it.name, it.type) }, scopes)
                 }
@@ -103,31 +102,6 @@ class CalciteRelCompiler private constructor(val connectors: ConnectorRegistry, 
     }
 
     private data class SourceOutput(val relation: RelNode, val displayNames: Map<String, String>, val layout: (RelDataType) -> ExecutableSourceLayout)
-
-    /** 仅组装无损物理运输；不决定任何正式根的最终人口或缺席值。 */
-    private fun transport(builder: RelBuilder, branches: List<RelNode>, keys: List<String>): RelNode {
-        var result = branches.first()
-        branches.drop(1).forEach { right ->
-            val leftNames = result.rowType.fieldNames
-            val rightNames = right.rowType.fieldNames
-            builder.push(result).push(right)
-            val equality = keys.map { key ->
-                val leftKey = builder.field(2, 0, key)
-                val rightKey = builder.field(2, 1, key)
-                builder.or(builder.and(builder.isNull(leftKey), builder.isNull(rightKey)),
-                    builder.and(SemanticCalciteOperators.codeEquals(builder, leftKey, rightKey), builder.equals(leftKey, rightKey)))
-            }
-            builder.join(JoinRelType.FULL, builder.and(equality))
-            val expressions = keys.mapTo(mutableListOf<RexNode>()) { key ->
-                builder.call(SqlStdOperatorTable.COALESCE, builder.field(leftNames.indexOf(key)), builder.field(leftNames.size + rightNames.indexOf(key)))
-            }
-            val names = keys.toMutableList()
-            leftNames.forEachIndexed { index, name -> if (name !in keys) { expressions += builder.field(index); names += name } }
-            rightNames.forEachIndexed { index, name -> if (name !in keys) { expressions += builder.field(leftNames.size + index); names += name } }
-            result = builder.project(expressions, names, true).build()
-        }
-        return result
-    }
 
     private fun requireObservation(builder: RelBuilder, completed: RelNode, keys: List<String>?, scope: ScopeId, checks: MutableList<RelationalCheck>) {
         keys?.let {

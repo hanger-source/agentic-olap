@@ -10,6 +10,7 @@ import com.olap.prototype.query.QueryStageAnalysis.ScopeId
 import com.olap.prototype.warehouse.WarehouseExecutionControl
 import org.apache.calcite.rel.type.RelDataType
 import org.apache.calcite.sql.type.SqlTypeName
+import org.apache.calcite.sql.type.SqlTypeUtil
 import java.util.Collections
 
 /** 一次来源SQL的物理列布局；完成作用域仍各自持有真实语义输出合同。 */
@@ -36,20 +37,29 @@ class ExecutableSourceLayout(fields: List<Field>, scopes: Map<ScopeId, Scope>) {
         require(this.fields.isNotEmpty() && this.fields.map { it.name }.distinct().size == this.fields.size) { "source physical columns must be nonempty and distinct" }
         require(this.scopes.isNotEmpty()) { "source layout requires actual completed scopes" }
         val physical = this.fields.associateBy { it.name }
-        val values = this.scopes.values.flatMapTo(linkedSetOf()) { it.columns.values }
+        val payload = this.scopes.values.flatMap { it.columns.values }
+        val values = payload.toSet()
         val presence = this.scopes.values.mapNotNull { it.presenceColumn }
+        require(payload.distinct().size == payload.size) { "completed scopes require independent physical payloads" }
         require(presence.distinct().size == presence.size && presence.none(values::contains)) { "source presence columns must be independent of scope payloads" }
+        require(physical.keys == values + presence) { "source layout must contain only actual scope payloads and transport presence" }
+        require(if (this.scopes.size == 1) presence.isEmpty() else presence.size == this.scopes.size) { "multiple source scopes require one presence column each; a single scope keeps its native layout" }
         this.scopes.forEach { (scope, output) ->
             require(output.contract.outputScope == scope) { "source layout scope differs from its actual output contract" }
             require(physical.keys.containsAll(output.columns.values)) { "scope output is absent from the source physical layout" }
+            output.contract.columns.forEach { field ->
+                val type = physical.getValue(output.columns.getValue(field.symbol.name)).nativeType
+                require(SqlTypeUtil.equalSansNullability(field.nativeType, type)) { "source transport must retain each scope output's actual native type" }
+            }
             output.presenceColumn?.let { name ->
-                require(physical[name]?.nativeType?.sqlTypeName == SqlTypeName.BOOLEAN) { "source presence requires a physical BOOLEAN column" }
+                val type = requireNotNull(physical[name]) { "source presence is absent from the physical layout" }.nativeType
+                require(type.sqlTypeName == SqlTypeName.BOOLEAN && !type.isNullable) { "source presence requires a nonnull physical BOOLEAN column" }
             }
         }
     }
 
-    /** 每个cut按运输原行解包；缺席与存在但输出NULL分别保留。 */
-    fun materialize(frame: ResultFrame, support: CompilationSupport, control: WarehouseExecutionControl): Map<ScopeId, List<List<ExecutableBusinessResult.Value>?>> {
+    /** 每条运输行只属于一个cut；各cut恢复自己的完整原袋，存在但输出NULL仍是一行。 */
+    fun materialize(frame: ResultFrame, support: CompilationSupport, control: WarehouseExecutionControl): Map<ScopeId, List<List<ExecutableBusinessResult.Value>>> {
         control.checkCancellation()
         val names = fields.map { it.name }
         val physicalNames = names.toSet()
@@ -60,7 +70,7 @@ class ExecutableSourceLayout(fields: List<Field>, scopes: Map<ScopeId, Scope>) {
         val columns = scopes.mapValues { (_, output) -> output.contract.columns.mapIndexed { index, field ->
             ExecutableOutputContract.column("c$index", field, null)
         } }
-        val materialized = scopes.keys.associateWithTo(linkedMapOf()) { mutableListOf<List<ExecutableBusinessResult.Value>?>() }
+        val materialized = scopes.keys.associateWithTo(linkedMapOf()) { mutableListOf<List<ExecutableBusinessResult.Value>>() }
         frame.rows.forEach { row ->
             control.checkCancellation()
             val cells = linkedMapOf<String, Any?>()
@@ -70,19 +80,24 @@ class ExecutableSourceLayout(fields: List<Field>, scopes: Map<ScopeId, Scope>) {
             }
             check(cells.keys == physicalNames) { "source physical row has missing cells" }
             fields.forEach { field -> ExecutableResultTypes.requireValue(field.nativeType, cells.getValue(field.name)) }
-            scopes.forEach { (scope, output) ->
-                val present = output.presenceColumn?.let { name -> when (cells.getValue(name)) {
+            val present = scopes.entries.filter { (_, output) ->
+                output.presenceColumn?.let { name -> when (cells.getValue(name)) {
                     true -> true
-                    null -> false
-                    else -> error("source presence must be TRUE or NULL")
+                    false -> false
+                    else -> error("source presence must be TRUE or FALSE")
                 } } ?: true
-                val values = if (!present) null else output.contract.columns.map { field ->
-                    val raw = cells.getValue(output.columns.getValue(field.symbol.name))
-                    ExecutableResultTypes.requireValue(field.nativeType, raw)
-                    ExecutableBusinessResults.value(raw, field.nativeType)
-                }.also { ExecutableQuantityValues.require(columns.getValue(scope), it) }
-                materialized.getValue(scope).add(values?.let { java.util.List.copyOf(it) })
             }
+            check(present.size == 1) { "one source transport row must belong to exactly one completed scope" }
+            val (scope, output) = present.single()
+            scopes.forEach { (other, absent) ->
+                if (other != scope) check(absent.columns.values.all { cells.getValue(it) == null }) { "absent source scope has a nonnull transport payload" }
+            }
+            val values = output.contract.columns.map { field ->
+                val raw = cells.getValue(output.columns.getValue(field.symbol.name))
+                ExecutableResultTypes.requireValue(field.nativeType, raw)
+                ExecutableBusinessResults.value(raw, field.nativeType)
+            }.also { ExecutableQuantityValues.require(columns.getValue(scope), it) }
+            materialized.getValue(scope).add(java.util.List.copyOf(values))
         }
         control.checkCancellation()
         return Collections.unmodifiableMap(materialized.mapValuesTo(linkedMapOf()) { (_, rows) -> Collections.unmodifiableList(rows) })

@@ -2,6 +2,7 @@ package com.olap.prototype.engine.executable
 
 import com.olap.prototype.calculation.Calculation
 import com.olap.prototype.metric.MetricValueContract
+import com.olap.prototype.metric.MeanTarget
 import com.olap.prototype.member.MemberCondition
 import com.olap.prototype.member.MemberSourceDefinition
 import com.olap.prototype.query.DimensionCondition
@@ -9,14 +10,12 @@ import com.olap.prototype.query.PostOperationContract
 import com.olap.prototype.query.QueryStageAnalysis
 import com.olap.prototype.query.QueryStageAnalysis.Analysis
 import com.olap.prototype.query.QueryStageAnalysis.ScopeId
-import com.olap.prototype.query.QueryStageAnalysis.SymbolId
+import com.olap.prototype.query.ResultAggregation
 
 /** 实际来源前缀与核心后缀的依赖图；运输人口与各节点最终人口分别计算。 */
 class CoreFinalizationGraph private constructor(sources: List<SourceCut>, nodes: List<Node>) {
     data class SourceCut(val scope: ScopeId, val stageCount: Int)
-    class SourceInput(val cut: SourceCut, keys: Map<String, String>) {
-        val keys: Map<String, String> = java.util.Collections.unmodifiableMap(LinkedHashMap(keys))
-    }
+    data class SourceInput(val cut: SourceCut)
     data class Node(val scope: ScopeId, val root: Root, val stageStart: Int)
     data class Population(val kind: Calculation.PopulationKind, val scopes: List<ScopeId>)
     sealed interface Root {
@@ -29,75 +28,28 @@ class CoreFinalizationGraph private constructor(sources: List<SourceCut>, nodes:
     val nodes: List<Node> = java.util.List.copyOf(nodes)
     val scopes: List<ScopeId> = this.nodes.map { it.scope }
 
-    /** 仅从正式组合的完整键映射建立运输坐标；不按同名、同源或表达式文本推断身份。 */
+    /** 运输保留各切点的原袋；只有完成结果的实际组合才要求正式完整键。 */
     fun sourceInputs(analyses: Map<ScopeId, Analysis>, boundaries: Map<ScopeId, Analysis>): List<SourceInput> {
         this.sources.forEach { cut -> require(boundaries.getValue(cut.scope).stages.size == cut.stageCount) {
             "core population boundary differs from its selected source prefix"
         } }
-        val symbols = QueryStageAnalysis.symbols(analyses.values)
-        val sourceColumns = this.sources.flatMap { boundaries.getValue(it.scope).outputs }.associateBy { it.id }
-        val parent = sourceColumns.keys.associateWithTo(linkedMapOf()) { it }
-        fun representative(id: SymbolId): SymbolId {
-            val previous = parent.getValue(id)
-            return if (previous == id) id else {
-                var current = previous
-                while (parent.getValue(current) != current) current = parent.getValue(current)
-                parent[id] = current
-                current
-            }
-        }
-        val lineage = linkedMapOf<SymbolId, Set<SymbolId>>()
-        fun sources(id: SymbolId, active: MutableSet<SymbolId> = linkedSetOf()): Set<SymbolId> {
-            if (id in sourceColumns) return setOf(id)
-            lineage[id]?.let { return it }
-            check(active.add(id)) { "cyclic source symbol dependency" }
-            return try { symbols.getValue(id).dependencies.flatMapTo(linkedSetOf()) { sources(it, active) }.also { lineage[id] = it } }
-            finally { active.remove(id) }
-        }
         nodes.forEach { node ->
             val root = node.root as? Root.Projection ?: return@forEach
             if (root.inputs.size == 1 && root.observationIdentity == null) return@forEach
-            var common: Map<String, SymbolId>? = null
+            var positions: Set<String>? = null
             root.inputs.forEach { input ->
                 val branch = analyses.getValue(input.inputScope)
                 val key = (branch.key as? QueryStageAnalysis.UniqueKey)?.columns
                     ?: CoreFinalizationExpressions.unsupported(path(node.scope) + input.position, "core completed alignment needs the input's complete unique key")
-                val actualKey = key.flatMapTo(linkedSetOf()) { sources(it).map(::representative) }
-                val projection = input.identitySlots.mapValues { (_, name) ->
-                    val symbol = branch.outputs.first { it.name == name }
-                    val origins = sources(symbol.id)
-                    origins.map(::representative).distinct().singleOrNull()
-                        ?: CoreFinalizationExpressions.unsupported(path(node.scope) + input.position, "projection key is not a direct identity of its completed source outputs")
-                }
-                if (projection.values.toSet() != actualKey || projection.values.distinct().size != projection.size)
+                val projection = input.identitySlots.mapValues { (_, name) -> branch.outputs.first { it.name == name }.id }
+                if (projection.values.toSet() != key.toSet() || projection.values.distinct().size != projection.size)
                     CoreFinalizationExpressions.unsupported(path(node.scope) + input.position, "projection keys do not preserve the complete input identity")
-                val previous = common
-                if (previous != null) {
-                    check(previous.keys == projection.keys) { "completed alignment maps different key positions" }
-                    projection.forEach { (slot, id) -> parent[representative(id)] = representative(previous.getValue(slot)) }
-                } else common = projection
+                if (positions != null && positions != projection.keys)
+                    CoreFinalizationExpressions.unsupported(path(node.scope) + input.position, "completed alignment maps different key positions")
+                positions = projection.keys
             }
         }
-        val cutKeys = this.sources.associateWith { cut ->
-            val boundary = boundaries.getValue(cut.scope)
-            val key = boundary.key as? QueryStageAnalysis.UniqueKey
-            if (this.sources.size > 1 && key == null)
-                CoreFinalizationExpressions.unsupported(path(cut.scope), "different source completions require their actual complete unique keys for lossless transport")
-            boundary.outputs.filter { key != null && it.id in key.columns }
-        }
-        val coordinates = cutKeys.getValue(this.sources.first()).map { representative(it.id) }
-        if (coordinates.distinct().size != coordinates.size)
-            CoreFinalizationExpressions.unsupported(path(this.sources.first().scope), "completed alignment merges different positions of a source's complete key")
-        if (this.sources.size > 1) cutKeys.forEach { (cut, keys) ->
-            if (keys.map { representative(it.id) }.toSet() != coordinates.toSet() || keys.size != coordinates.size)
-                CoreFinalizationExpressions.unsupported(path(cut.scope), "source completion keys are not connected by the explicit completed alignment")
-        }
-        return this.sources.map { cut ->
-            val keys = cutKeys.getValue(cut)
-            SourceInput(cut, if (this.sources.size == 1) emptyMap() else coordinates.mapIndexed { index, identity ->
-                "__core_key_$index" to keys.single { representative(it.id) == identity }.name
-            }.toMap(LinkedHashMap()))
-        }
+        return this.sources.map(::SourceInput)
     }
 
     class InputProjection(val inputScope: ScopeId, outputSlots: Map<String, String>, identitySlots: Map<String, String>,
@@ -136,6 +88,8 @@ class CoreFinalizationGraph private constructor(sources: List<SourceCut>, nodes:
             try {
                 val input = requireNotNull(graph.scope(scope))
                 val prefix = nativeStageCount(scope)
+                if (scope in sourceRequired && hasCoreMean(scope))
+                    CoreFinalizationExpressions.unsupported(path(scope), "a source relation cannot consume a mathematical reduction completed in CORE")
                 val root = if (scope in sourceRequired) sourceRoot(scope, analyses.getValue(scope).stages.size) else when (val root = input.root) {
                     is ExecutableInputRoot.Input -> {
                         val child = scope.child(root.inputId)
@@ -236,13 +190,49 @@ class CoreFinalizationGraph private constructor(sources: List<SourceCut>, nodes:
             } finally { active.remove(scope) }
         }
 
-        private fun nativeStageCount(scope: ScopeId): Int = analyses.getValue(scope).stages.indexOfLast {
-            it.operation !is PostOperationContract.Derive && it.operation !is PostOperationContract.Project &&
-                it.operation !is PostOperationContract.PostFilter
-        } + 1
+        private fun hasCoreMean(scope: ScopeId): Boolean = analyses.getValue(scope).stages.any { isCoreMean(it.operation) }
+
+        private fun dependsOnCoreMean(scope: ScopeId, active: MutableSet<ScopeId> = linkedSetOf()): Boolean {
+            check(active.add(scope)) { "core scope dependencies contain a cycle" }
+            return try { hasCoreMean(scope) || sourceDependencies(scope, requireNotNull(graph.scope(scope))).any {
+                dependsOnCoreMean(it, active)
+            } } finally { active.remove(scope) }
+        }
+
+        private fun isCoreMean(operation: PostOperationContract.ValidatedOperation): Boolean =
+            operation is PostOperationContract.Regroup && operation.grouping.aggregates.any {
+                (it.aggregation as? ResultAggregation.Average)?.meanTarget == MeanTarget.MATHEMATICAL
+            }
+
+        private fun nativeStageCount(scope: ScopeId): Int {
+            val stages = analyses.getValue(scope).stages
+            val mean = stages.indexOfFirst { isCoreMean(it.operation) }
+            val inherited = sourceDependencies(scope, requireNotNull(graph.scope(scope))).any { dependsOnCoreMean(it) }
+            if (mean < 0 && !inherited) return stages.indexOfLast {
+                it.operation !is PostOperationContract.Derive && it.operation !is PostOperationContract.Project &&
+                    it.operation !is PostOperationContract.PostFilter
+            } + 1
+            val boundary = if (inherited) 0 else mean
+            val prefix = stages.take(boundary).indexOfLast { stage -> when (val operation = stage.operation) {
+                is PostOperationContract.Project -> false
+                is PostOperationContract.Derive -> CoreFinalizationExpressions.needsSource(operation.expression)
+                is PostOperationContract.PostFilter -> CoreFinalizationExpressions.needsSource(operation.expression)
+                else -> true
+            } } + 1
+            stages.drop(boundary).forEach { stage -> when (val operation = stage.operation) {
+                is PostOperationContract.Regroup, is PostOperationContract.Project -> Unit
+                is PostOperationContract.Derive -> if (CoreFinalizationExpressions.needsSource(operation.expression))
+                    CoreFinalizationExpressions.unsupported(stagePath(scope, stage.index), "a source expression cannot consume an earlier CORE reduction")
+                is PostOperationContract.PostFilter -> if (CoreFinalizationExpressions.needsSource(operation.expression))
+                    CoreFinalizationExpressions.unsupported(stagePath(scope, stage.index), "a source filter cannot consume an earlier CORE reduction")
+                else -> CoreFinalizationExpressions.unsupported(stagePath(scope, stage.index), "this relational operation is not supported after a CORE reduction")
+            } }
+            return prefix
+        }
 
         /** 关系消费要求在来源完成其输入；其余末端标量才留在 CORE。 */
         private fun canCompleteNatively(scope: ScopeId): Boolean {
+            if (hasCoreMean(scope)) return false
             val analysis = analyses.getValue(scope)
             if (scope !in sourceRequired && analysis.stages.drop(nativeStageCount(scope)).any {
                 it.operation is PostOperationContract.Derive || it.operation is PostOperationContract.PostFilter
@@ -314,7 +304,7 @@ class CoreFinalizationGraph private constructor(sources: List<SourceCut>, nodes:
                 CoreFinalizationExpressions.unsupported(path(scope), "a source relational boundary depends on a value or population completed in CORE")
             val stages = analyses.getValue(scope).stages
             val scalar = if (scope in sourceRequired) -1 else stages.drop(stageCount).indexOfFirst {
-                it.operation is PostOperationContract.Derive || it.operation is PostOperationContract.PostFilter
+                it.operation is PostOperationContract.Derive || it.operation is PostOperationContract.PostFilter || isCoreMean(it.operation)
             }
             requireSource(SourceCut(scope, if (scalar < 0) stages.size else stageCount + scalar), scope)
             return Root.Source

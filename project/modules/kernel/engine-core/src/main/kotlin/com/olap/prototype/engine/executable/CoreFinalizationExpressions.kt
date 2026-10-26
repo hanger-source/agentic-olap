@@ -6,6 +6,7 @@ import com.olap.prototype.expression.ScalarFunction
 import com.olap.prototype.expression.SemanticNativeTypes
 import com.olap.prototype.metric.MetricValueContract
 import com.olap.prototype.query.ResultExpression
+import com.olap.prototype.query.ResultExpressionTree
 import com.olap.prototype.query.ResultExpression.*
 import com.olap.prototype.query.QueryExecutionMode
 import com.olap.prototype.query.ScalarValueType
@@ -282,6 +283,20 @@ internal class CoreFinalizationExpressions(private val symbols: Map<String, Core
     }
 
     companion object {
+        /** 在规划时识别真实来源求值，不能把这些节点移过核心归约。 */
+        fun needsSource(expression: ResultExpression): Boolean = ResultExpressionTree.nodes(expression).any { value -> when (value) {
+            is ResultNativeCall, is ResultRow, is ResultRowField, is ResultCollectionSort, is ResultCollectionText,
+            is ResultWeightedContribution, is ResultUniformAllocation -> true
+            is ResultTypedLiteral -> value.valueType != ScalarValueType.NUMBER
+            is ResultLiteral -> value.value != null && value.value !is Boolean && value.value !is BigDecimal
+            is ResultCast -> value.targetType !in setOf(SemanticExpression.ValueType.INTEGER, SemanticExpression.ValueType.BIGINT,
+                SemanticExpression.ValueType.DECIMAL, SemanticExpression.ValueType.BOOLEAN)
+            is ResultCall -> !QueryExecutionMode.supportsCoreFunction(value.function)
+            is ResultOperation -> value.operator in setOf(ResultOperator.TIMESTAMPDIFF, ResultOperator.TIMESTAMPADD, ResultOperator.DATE_TRUNC)
+            is ResultNumeric -> value.valueContract.arithmetic !is MetricValueContract.Exact || value.valueContract.result is MetricValueContract.BinaryFloat
+            is ResultQuantityLiteral -> value.valueContract.arithmetic !is MetricValueContract.Exact || value.valueContract.result is MetricValueContract.BinaryFloat
+            else -> false
+        } }
         private val factory = JavaTypeFactoryImpl(object : RelDataTypeSystemImpl() {
             override fun getMaxPrecision(typeName: SqlTypeName): Int = if (typeName == SqlTypeName.DECIMAL) Int.MAX_VALUE else super.getMaxPrecision(typeName)
             override fun getMaxScale(typeName: SqlTypeName): Int = if (typeName == SqlTypeName.DECIMAL) Int.MAX_VALUE else super.getMaxScale(typeName)

@@ -401,11 +401,13 @@ Unit
 
 方程与实际运算符、操作数单位或精确倍率不匹配时返回 `RESULT_UNIT_EQUATION_MISMATCH`，路径指向实际算术节点，`expectedKind/actualKind` 区分运算符、左右单位和倍率问题；NUMERIC 的输出单位与计算结果不一致时返回 `RESULT_UNIT_MISMATCH`，路径指向该节点的 `valueContract/unit`。两者同属 `ANALYZE_STAGES`，不把数量声明不成立误报成来源故障或必须补建 Metric。
 
-均值使用共同的显式计算目标。`MeanTarget.MATHEMATICAL` 对实际参与值求数学均值，再完成该节点声明的最终量化；`SOURCE_NATIVE` 有意采用本发布所选实现的原生均值，再应用输出合同。目标与 `Exact / Approximate / NativeFloating` 独立，结果表示为 DECIMAL 不会恢复输入已失去的保证。作者声明人口、NULL、单位、结果容量和最终舍入，不填写后端原生舍入。来源无法兑现目标时明确拒绝，不改变业务目标或自动换算法。
+均值使用共同的显式计算目标。`MeanTarget.MATHEMATICAL` 对实际参与值求数学均值，再完成该节点声明的最终量化；`SOURCE_NATIVE` 有意采用本发布所选实现的原生均值，再应用输出合同。目标与 `Exact / Approximate / NativeFloating` 独立，结果表示为 DECIMAL 不会恢复输入已失去的保证。作者声明人口、NULL、单位、结果容量和最终舍入，不填写后端原生舍入。所选执行位置无法兑现目标时明确拒绝，不改变业务目标或自动换算法。
 
 事实 AVG 使用 `FactMeasure.meanTarget`，完成关系、partition／window 与观察窗口使用 `ResultAggregation.Average(valueContract, nullPolicy, meanTarget)`，快照 MEAN 使用 `MetricSnapshotRule.meanTarget`。快照的 `meanValueContract` 在每个实体的时间均值处量化，随后外层聚合是另一项计算；不能把两步压成一次全总体均值。非 AVG／MEAN 不携带均值目标。
 
-当前 CORE_FINALIZATION 的本地执行范围是完成关系之后的标量计算；REGROUP 和窗口中的 AVG 仍在来源关系前缀执行。声明 MATHEMATICAL 不会自动将 AVG 拆为统计量，也不意味着来源可以省略原生均值的类型及保证映射。原生映射拒绝的回执保留受控原因，区分类型／行为不可用、输入保证升级与数学量化尚未证明；来源未提交不表示数据库已执行失败。显式组织统计量和核心除法属于另一份明确计算，仍须具有相应运算授权，不能用它绕过原 AVG 的语义或场景权限。
+选择 CORE_FINALIZATION 时，完成关系 REGROUP 的 `Average(..., MATHEMATICAL)` 可以直接消费来源无损交付的 Exact 整数或 Decimal 原袋，由核心按组求数学均值，在该节点应用一次最终数量和量化合同。各列独立遵守自己的 NULL 政策及参与次数，重复行保留权重；全 NULL 组的均值为 NULL，无记录的有键分组不制造结果行，无分组的空袋归约依聚合语义返回一行。工作和与计数不按最终 Decimal 容量提前截断。作者无需改写为 SUM／COUNT，也不依赖原生 AVG 的映射来执行这个核心节点。
+
+这项能力不将事实 AVG、窗口 AVG 或快照 MEAN 自动移到核心，SOURCE_NATIVE 也不改为数学均值。来源执行的均值仍须提供该实际节点的原生类型及保证映射。形成观察袋的 NativeCall、LEFT 和来源 CASE 保留在原来源前缀；后续不支持的关系或函数不能消费核心结果。原生映射拒绝的回执保留受控原因，区分类型／行为不可用、输入保证升级与数学量化尚未证明；来源未提交不表示数据库已执行失败。显式组织统计量和除法属于另一份明确计算，不能用它替代原 AVG 的语义或场景权限。
 
 真实输入的算术保证在投影前保留；选择数学算法、扩大容量或显式转成 DECIMAL 都不将 NativeFloating 提升为 Exact 或已知误差界。当前没有为非零 Approximate 误差建立通用均值传播规则，不能仅凭相同容差继续承诺。作者可保留诚实的数量声明；执行器无法满足组合时返回受控原因，不自动改变声明。已完成数值继续可以参与 CASE、SET、求和及后续定义，数量来历保留均值目标、NULL 政策与实际量化，不把未证明等价当作计算非法。
 
@@ -515,13 +517,13 @@ if (result == null) olap.output(receipt)
 else olap.output(olap.results.read(ResultReadRequest(result, 0, 100, null)))
 ~~~
 
-`Computations.members` 调用明确的成员来源，`invoke/measure` 选择实际测量或正式测量形参，`set/objectMeasure/align/statistics` 直接组合计算体。阶段通过 `Computations.stages` 或 `scope` 构造中的 `stage` 追加。实际输入已经具有的数量、身份、键和观察事实由共同绑定与分析传播，不要求作者提取后再声明成形式参数。
+`Computations.members` 调用明确的成员来源，`invoke` 调用精确测量实例或定义，`measurement` 调用真正的测量形参，`measure` 组织这些测量调用。`set/join/objectMeasure/align/statistics` 直接组合计算体；`join` 保留左侧完整计算体及已有阶段，再追加明确的关系连接。阶段通过 `Computations.stages` 或 `scope` 构造中的 `stage` 追加。实际输入已经具有的数量、身份、键和观察事实由共同绑定与分析传播，不要求作者提取后再声明成形式参数。
 
 需要具名复用时，在 `scope` 中声明输入并通过 `Computations.input` 精确引用；输入模式表示其真实消费方式。对象资格、对齐和统计自身的子计算由相应构造组织，不要求作者额外填写 ROOT map。集合投影、对象角色、对齐键、BASE／UNION／INTERSECTION 人口、无匹配政策及结果量化仍由作者明确选择。
 
 将计算沉淀为可复用定义时，`Calculation` 声明可替换输入的正式合同与参数，共同计算体中的运算保持相同。成员、测量和关系形参分别拥有独立接受条件；调用时才提供实际输入并核验。`Computations.compute` 用于确实需要实例化参数化计算的场合，普通集合、资格或对齐不需要绕经它。固定成员来源引用保留其精确采用上下文，不能当成无上下文的共享定义身份；共享定义和跨上下文复用继续使用正式形参及明确采用。
 
-本地模板无需先保存才能被另一个模板使用。查询使用 `Computations.compute(template, bindings, arguments, members, relations)` 提供明确的实际绑定；定义内部使用 `Calculation.ParentSlots` 映射内层所需的父形参，参数用 `Calculation.Argument` 显式转发。内层的参数名与父参数名可以不同，映射按各自词法作用域解析。嵌套后的计算仍能作为同一 Query 的输入，或按实际出口保存为指标及计算成员；保存不会替作者补期间、人口或输入保证。
+本地模板无需先保存才能被另一个模板使用。查询使用 `Computations.compute(template, bindings, arguments)` 提供明确的实际绑定，成员和关系实际输入直接放入这一份 `CalculationBindings`，不先声明占位再另传实际输入；定义内部使用 `Calculation.ParentSlots` 映射内层所需的父形参，参数用 `Calculation.Argument` 显式转发。内层的参数名与父参数名可以不同，映射按各自词法作用域解析。嵌套后的计算仍能作为同一 Query 的输入，或按实际出口保存为指标及计算成员；保存不会替作者补期间、人口或输入保证。
 
 正式计算的参数引用、槽位与具名输入使用其类型发现中 `identifierFields` 指明的标识规则：`[a-z][a-z0-9_]{0,47}`，禁止双下划线。非法标识在实际构造字段返回 `INVALID_IDENTIFIER`；普通 `ScriptArguments` 对象键不受该规则限制，例如可以读取 `parameters.text("periodStart")`，再显式传给名为 `period_start` 的正式计算参数。不是所有 Map 键都属于这类标识，具体受限位置以对应类型发现为准。
 
@@ -537,11 +539,11 @@ else olap.output(olap.results.read(ResultReadRequest(result, 0, 100, null)))
 
 `CandidateRequest` 按获准发布的维度或成员出口读取真实候选值，`offset` 为非负 Int，`limit` 为正 Int，不另设 200 条或百万偏移政策。来源查询读取一条额外探针以判断是否有下一页，使用 Long 计算 SQL 取数长度；实际读取仍受既有来源期限、内存和结果物化预算约束。仅在确有后续值时，按实际返回数量计算 `nextOffset`；超出 Int 坐标表示范围时明确返回该字段的合同错误，不截断坐标、假称没有下一页或自动重执行。
 
-完成关系保留已经形成的列、键、人口和数量来源，本身不指定执行位置。执行、校验与解释请求通过 `executionMode` 选择本次物理执行：`QueryExecutionMode.SOURCE` 将完整计算交给精确来源；`CORE_FINALIZATION` 在同一引擎 worker 内先接收同源完成关系，再执行根计算绑定后的标量阶段。它不是来源失败后的自动切换，也不读取其他运行的保存结果。
+完成关系保留已经形成的列、键、人口和数量来源，本身不指定执行位置。执行、校验与解释请求通过 `executionMode` 选择本次物理执行：`QueryExecutionMode.SOURCE` 将完整计算交给精确来源；`CORE_FINALIZATION` 在同一引擎 worker 内接收同源关系前缀的完整袋，再按实际作用域依赖执行支持的归约、标量阶段和完成关系装配。它不是来源失败后的自动切换，也不读取其他运行的保存结果。
 
 保存或更新查询时，`QueryDefinitionCommand.executionMode` 选择本次保存前的完整编译验证，默认 SOURCE。需要 CORE_FINALIZATION 的完整查询应在该命令中同样明确选择；不能因为来源无法兑现精确除法就拒绝它本来合法的核心执行计划。保存仍检查发布授权、绑定、来源关系前缀及核心后缀，不跳过实际编译。这个请求选项不进入 QueryIntent、QueryDefinitionView 或保存制品，不形成保存查询的隐式执行偏好；后续执行、校验与解释分别选择自己的模式。完整示例见[对象人口与完成关系](../examples/populations/README.md)。
 
-核心终算支持 DERIVE／PROJECT，以及精确数值、布尔、NULL、CASE、COALESCE、NULLIF、ABS、NUMERIC、ROUND 和数值 CAST。COALESCE 按顺序选择首个非 NULL 值，选中后不再求值后续参数；NULLIF 按精确数值或布尔相等比较并保留第一个参数的数量含义，ABS 只处理精确数值。这些函数不隐式量化，也不引入来源的文本或时间转换规则。具体节点、运算与限制从 `QueryExecutionMode.rules` 读取。不支持的本地阶段、函数、类型或表达式在提交来源前拒绝。子输入中的扫描、JOIN、归约、对齐、窗口及来源函数继续在来源完成；当前执行器尚不承载任意本地关系运算，其范围不改变共享定义的业务含义。
+核心执行支持 DERIVE／POST_FILTER／PROJECT，以及完成关系上的受支持 REGROUP。REGROUP 可处理 Exact 整数或 Decimal 的 MATHEMATICAL AVG、SUM、数值 MIN／MAX，以及 COUNT、COUNT DISTINCT；各聚合保留自己的 NULL 政策，不支持 grouping levels、样本标准差、集合聚合或 SOURCE_NATIVE AVG。标量支持精确数值、布尔、NULL、CASE、COALESCE、NULLIF、ABS、NUMERIC、ROUND 和数值 CAST。COALESCE 按顺序选择首个非 NULL 值，选中后不再求值后续参数；NULLIF 按精确数值或布尔相等比较并保留第一个参数的数量含义，ABS 只处理精确数值。这些函数不隐式量化，也不引入来源的文本或时间转换规则。具体节点、运算与限制从 `QueryExecutionMode.rules` 读取。不支持的本地阶段、函数、类型或表达式在提交来源前拒绝。扫描、来源 JOIN、窗口、事实聚合和来源函数继续在来源完成；核心不承载任意本地关系运算，其范围不改变共享定义的业务含义。
 
 例如，`completed` 是已按真实对象完成的同源 `Calculation.Scope`，含 `object_key`、Exact DECIMAL 的 `numerator` 和 Exact Integer64 的 `denominator`。下例假设两项数量的单位均为 ONE；具有业务单位的数量须在实际乘除节点使用已声明的单位方程。
 
@@ -579,9 +581,9 @@ olap.output(receipt)
 
 多个获准计算可以引用同一份精确完成关系，各自映射关系形参的列。例如，一份按对象完成的 ROOT 同时提供六组 SUM／各字段非 NULL COUNT，六个已发布均值分别将自己的两列映射为 numerator／denominator；来源只交付一次这份完成关系，核心在每一行上执行六份原定义及各自的数量、舍入与 NULL 合同，再投影宽结果。调用者无需复制定义内部公式，也不能绕过采用与发布授权。
 
-切点沿实际依赖和阶段位置确定：先沿归约、关联等实际关系消费边确定输入的完整来源计算要求，再选择没有后续来源消费者的末端标量后缀。被上层关系消费的 CASE、过滤和投影继续在来源完成；仅登记一个 ROOT 输入不会使它自动成为来源依赖。来源完成各作用域的关系前缀，核心执行末尾的 DERIVE、POST_FILTER 与 PROJECT，不需要仅为适配执行器再包一层 ROOT。保存定义采用同一规则；关系根的列映射、嵌套调用、调用出口的数量合同及后续标量阶段按真实作用域执行。
+切点沿实际依赖和阶段位置确定：先沿必须由来源完成的关系消费边确定原生计算要求，再选择支持的完成关系归约与标量阶段。来源 NativeCall、LEFT、来源 CASE 等形成实际观察袋，核心 REGROUP 消费其真实输出；仅登记一个 ROOT 输入不会使它自动成为来源依赖。不需要仅为适配执行器再包一层 ROOT。保存定义采用同一规则；关系根的列映射、嵌套调用、调用出口的数量合同、归约和后续标量阶段按真实作用域执行。
 
-多个定义可以各自完成来源关系前缀和核心标量后缀，再按正式测量调用或 ALIGN 的身份映射汇合。不同来源出口需要实际完整唯一键；键的位置必须由本次组合的正式身份映射连接，不能凭同名列、相同数据源或相似 SQL 猜测。引擎在同一来源 SQL 内按精确身份无损运输各出口的行及存在事实，核心分别完成原定义，再按作者选择的 UNION、INTERSECTION 或 BASE 人口投影。一个分支在核心 POST_FILTER 后缺组，不影响其他分支；缺组、存在但值为 NULL，以及显式 ZERO_WHEN_ABSENT 分别处理。空来源不会被补成一行，缺组不会因另一分支存在而执行自身的 COALESCE 或量化。
+多个定义可以各自具有来源关系前缀和核心归约、标量阶段，再按正式测量调用或 ALIGN 的身份映射汇合。同一精确来源的一条 SQL 通过 UNION ALL 运输各作用域独立的原袋，不先 JOIN、去重或要求原袋唯一。每个作用域保留自己的原生类型及存在标记；每条物理行恰好一个标记为 TRUE，其他作用域为 typed NULL payload 和 FALSE 标记。核心按原合同恢复各自的完整袋，完成原定义后，才按本次正式映射的完整键和作者选择的 UNION、INTERSECTION 或 BASE 人口投影。键不能凭同名列、相同数据源或相似 SQL 猜测。一个分支在核心 POST_FILTER 后缺组，不影响其他分支；缺组、存在但值为 NULL，以及显式 ZERO_WHEN_ABSENT 分别处理。运输不补行；无分组归约按其正式空袋语义执行。缺组不会因另一分支存在而执行自身的 COALESCE 或量化。
 
 这条路径没有增加任意本地 JOIN 或跨来源执行。来源关系需要消费完整计算结果时，来源必须兑现该结果的算术、量化和人口合同，不能兑现则在提交前明确拒绝。已选择在核心计算或量化的值不会搬回来源；不因编译失败而移动切点、改执行位置或再发来源请求。解释中的 sourceOutputScopes 及每个根、阶段的 SOURCE／CORE 位置反映实际选择，包括同一作用域中的来源前缀和核心后缀。
 

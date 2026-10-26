@@ -94,9 +94,13 @@ olap.output(olap.sources.connectorCapabilities(ConnectorCapabilitiesRequest(aggr
 
 `connectors` 返回精确 `connectorRef`、原生标量函数、编译能力、参数提交策略和参数角色声明。声明不代替真实后端验证。若编译返回 `NATIVE_COMPILATION_CAPABILITY_MISSING`，按其 capability/operation 检查精确插件；例如数值绑定要求的相关派生投影与普通 EXISTS 条件相关是不同能力。
 
-组织 AVG 等聚合前，用 `ConnectorCapabilitiesRequest.Aggregate(connectorRef, aggregation, inputType, grouped)` 读取该输入的正式映射。`aggregation` 是 `ResultAggregation.Kind`；`inputType` 是 `NativeValueType`，给出实际类型、容量和可空性，不能拿最终输出合同代替。DECIMAL 须明确 precision/scale。全局聚合用 `grouped=false`，普通非空分组键用 true，空分组集合按全局处理。`mapping` 区分插件已经兑现的结果类型与 AVG 的 `averageBehavior`，以及明确未实现的映射；此读取不证明整个查询可执行。
+需要来源原生 AVG 等聚合时，可用 `ConnectorCapabilitiesRequest.Aggregate(connectorRef, aggregation, inputType, grouped)` 读取该输入的正式映射。`aggregation` 是 `ResultAggregation.Kind`；`inputType` 是 `NativeValueType`，给出实际类型、容量和可空性，不能拿最终输出合同代替。DECIMAL 须明确 precision/scale。全局聚合用 `grouped=false`，普通非空分组键用 true，空分组集合按全局处理。`mapping` 区分插件已经兑现的结果类型与 AVG 的 `averageBehavior`，以及明确未实现的映射；此读取不证明整个查询可执行。
 
-`MeanTarget.MATHEMATICAL` 对实际参与值求数学均值，再完成该节点声明的最终量化；`SOURCE_NATIVE` 有意采用本发布所选实现的原生均值，再应用输出合同。目标与 `Exact / Approximate / NativeFloating` 独立，结果表示为 DECIMAL 不会恢复输入已失去的保证。作者声明人口、NULL、单位、结果容量和最终舍入，不填写后端原生舍入。来源无法兑现目标时明确拒绝，不改变业务目标或自动换算法。 AVG 的 `valueContract` 与 `meanTarget` 必填，快照 MEAN 的 `meanValueContract` 是该实体时间归约自己的量化，外层聚合继续独立。发现的原生行为供理解实现范围，真实 Query 才检查实际形态和目标。
+`MeanTarget.MATHEMATICAL` 对实际参与值求数学均值，再完成该节点声明的最终量化；`SOURCE_NATIVE` 有意采用本发布所选实现的原生均值，再应用输出合同。目标与 `Exact / Approximate / NativeFloating` 独立，结果表示为 DECIMAL 不会恢复输入已失去的保证。作者声明人口、NULL、单位、结果容量和最终舍入，不填写后端原生舍入。所选执行位置无法兑现目标时明确拒绝，不改变业务目标或自动换算法。 AVG 的 `valueContract` 与 `meanTarget` 必填，快照 MEAN 的 `meanValueContract` 是该实体时间归约自己的量化，外层聚合继续独立。发现的原生行为供理解实现范围，真实 Query 才检查实际形态和目标。
+
+显式 CORE_FINALIZATION 支持完成关系 REGROUP 对来源无损交付的 Exact 整数或固定 Decimal 原袋求 MATHEMATICAL AVG；它按各列独立 NULL 人口、重复权重及一次节点最终量化执行，不要求插件映射该核心 AVG，也不要求作者改成 SUM/COUNT。形成观察的来源 NativeCall、LEFT、CASE 仍由来源兑现。事实、窗口、快照及 SOURCE_NATIVE 的均值不自动移入核心，来源原生 AVG 仍须有实际行为和容量依据；已有精度损失或越界证据不能因最终改 Decimal 或选择 SOURCE_NATIVE 而变 Exact。
+
+精确 Decimal 当前为固定 precision／scale；NUMERIC 标签或缺失 p/s 不代表支持可变尺度输入，未知工作容量不代表无限容量。输入解析、聚合工作和节点最终容量是不同保证：单值可容纳不证明 SUM 可容纳，38,20 比38,18多两位小数、少两位整数，并非全面无损扩大。完整边界见[来源接入的数值职责](https://github.com/hanger-source/agentic-olap/blob/main/docs/source-access.md)。
 
 ## 显式提供结构
 

@@ -99,11 +99,17 @@ API v14 的插件按上述两个正式对象实现纯能力声明及执行核验
 
 候选值读取同样提交完整 `SourceSqlRequest` 给 `execute`，保留精确来源、参数、输出类型和实际采用的保证。候选值入口另行核对单列标量结果、类型和分页边界，不要求插件实现另一套候选执行通路。连接器的 `CompilationSupport.nativeAggregate` 提供实际来源的原生聚合运算符与结果类型推导；核心继续决定业务公式及数量保证，不能以某一数据库的返回类型代替所有来源的事实。
 
-`MeanTarget.MATHEMATICAL` 对实际参与值求数学均值，再完成该节点声明的最终量化；`SOURCE_NATIVE` 有意采用本发布所选实现的原生均值，再应用输出合同。目标与 `Exact / Approximate / NativeFloating` 独立，结果表示为 DECIMAL 不会恢复输入已失去的保证。作者声明人口、NULL、单位、结果容量和最终舍入，不填写后端原生舍入。来源无法兑现目标时明确拒绝，不改变业务目标或自动换算法。
+`MeanTarget.MATHEMATICAL` 对实际参与值求数学均值，再完成该节点声明的最终量化；`SOURCE_NATIVE` 有意采用本发布所选实现的原生均值，再应用输出合同。目标与 `Exact / Approximate / NativeFloating` 独立，结果表示为 DECIMAL 不会恢复输入已失去的保证。作者声明人口、NULL、单位、结果容量和最终舍入，不填写后端原生舍入。所选执行位置无法兑现目标时明确拒绝，不改变业务目标或自动换算法。
+
+显式选择 CORE_FINALIZATION 后，完成关系 REGROUP 的 MATHEMATICAL AVG 可接收来源无损交付的 Exact 整数或固定 Decimal 原袋，在核心按组保留重复权重与各列独立 NULL 人口，并在该 AVG 节点应用一次最终量化。此节点不调用插件的原生 AVG；来源仍须兑现输入类型及算术保证。来源 NativeCall、LEFT 与用于形成观察的 CASE 保留在原来源前缀，不能由核心重做或用样本补保证。事实 AVG、窗口 AVG、快照 MEAN 和 SOURCE_NATIVE AVG 不因此成为核心执行能力；它们在来源执行时仍核验实际原生节点。
 
 连接器的 `averageBehavior(Aggregate, AggregateCall)` 与 `averageBehavior(RexOver)` 读取实际节点的输入、原生结果类型、分组／窗口、FILTER 和 DISTINCT。`QuantizedMean(rounding)` 说明精确累加与计数、仅最后向实际原生 DECIMAL scale 量化；`NativeFloating` 不提供误差上界。类型系统、原生函数及真实调用的结果容量必须一致。内核在真实节点形成后、最终量化前核验目标，不用空人口全局聚合代替本次形态，也不把声明相同舍入或多保留几位当作一次最终量化的证明。
 
-原生 AVG 静默算错时，合法容量、有限值及 Overflow.FAIL 不会修复它。已知错误或尚无数值依据的映射明确拒绝，返回 `NATIVE_AGGREGATE_MAPPING_UNAVAILABLE`、实际输入类型和受控 `reason`；不猜 DECIMAL、不转 DOUBLE、不在客户端补算。H2 已有依据的精确路径允许声明 QuantizedMean(HALF_DOWN)，数学目标的支持范围仍须与实际最终量化相容；这不是所有来源的通用数值政策。
+原生 AVG 静默算错或已有越界证据时，合法的最终容量、有限返回值及 Overflow.FAIL 不会修复其实际算法。该路径不能声明 Exact，SOURCE_NATIVE 和扩大最终 Decimal 也不能洗掉已有精度损失或工作溢出。已知错误或尚无数值依据的映射明确拒绝，返回 `NATIVE_AGGREGATE_MAPPING_UNAVAILABLE`、实际输入类型和受控 `reason`；不猜 DECIMAL、不转 DOUBLE、不在客户端补算。H2 已有依据的精确路径允许声明 QuantizedMean(HALF_DOWN)，数学目标的支持范围仍须与实际最终量化相容；这不是所有来源的通用数值政策。
+
+当前精确 Decimal 表示使用固定 precision／scale。后端类型名 NUMERIC、`NativeValueType` 中缺失的 precision／scale 或一次 JDBC 观察，都不声明可变尺度有限数值域；未知工作容量也不等于无限容量。纯外部类型和函数的映射由插件按真实后端保证兑现，不能只修改内核看到的类型名称来扩大输入域。来源可变尺度数值需要怎样约束、解析或拒绝，须在接入合同中明确；核心不从已读样本推导这种保证。
+
+输入表示与解析、聚合工作行为及容量、节点最终表示分别承担保证。某个值能放入 Decimal，不证明同袋 SUM 的工作和或结果也能放入；最终输出 precision／scale 不能代替来源累加器的容量依据。`DECIMAL(38,20)` 有18位整数容量，`DECIMAL(38,18)` 有20位整数容量：前者增加两位小数，同时减少两位整数，并非对后者的全面无损扩大。解析是否保留原值、聚合是否会在最终量化前舍入或溢出、节点是否满足声明的舍入与 FAIL，各自都须成立。
 
 `DIVIDE` 与 `SAFE_DIVIDE` 表达允许小数的算术商，不按输入的整数技术类型自动截断。显式 `SUM(x)/COUNT(x)` 使用 `CompilationSupport.division`，不使用 AVG 的原生均值行为合同；来源表达式、完成关系及分摊计算使用同一除法入口。两个输入都是整数 SQL 类型时，核心按各自完整整数域无损转换为 `DECIMAL(p,0)` 并保留 NULL，例如 BIGINT 转为 `DECIMAL(19,0)`。这是输入表示规范化，不会将最终输出的 precision／scale 提前施加给操作数，也不改变 SAFE_DIVIDE 的零分母 NULL 政策。
 
