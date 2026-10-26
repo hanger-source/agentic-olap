@@ -41,7 +41,7 @@ data class ApiOverview(val formatVersion: String, val dslApiVersion: String, val
 
 /** 结构来自真实公开声明；局部语义规则只读取已知模型自身合同，不执行任意 getter 或工厂。 */
 object ApiDiscovery {
-    const val VERSION = "agentic-olap-kotlin-dsl/v11"
+    const val VERSION = "agentic-olap-kotlin-dsl/v12"
     val imports: List<String> = listOf("com.olap.prototype.dsl.*", "com.olap.prototype.governance.contract.*",
         "com.olap.prototype.governance.contract.GovernanceReadRequests.AssetVersionRequest",
         "com.olap.prototype.governance.contract.GovernanceReadRequests.DefinitionDependenciesRequest",
@@ -167,8 +167,13 @@ object ApiDiscovery {
             GroupingLevels::class -> GroupingLevels.contract()
             QueryRunRequest::class -> QueryRunRequest.contract()
             QueryRunListRequest::class -> QueryRunListRequest.contract()
+            com.olap.prototype.query.contract.QueryValidationRequest::class -> com.olap.prototype.query.contract.QueryValidationRequest.contract()
+            com.olap.prototype.query.contract.QueryValidationResult::class -> com.olap.prototype.query.contract.QueryValidationResult.contract()
             com.olap.prototype.query.contract.QueryExplanationRequest::class -> com.olap.prototype.query.contract.QueryExplanationRequest.contract()
             com.olap.prototype.query.contract.QueryExplanationSection::class -> com.olap.prototype.query.contract.QueryExplanationSection.contract()
+            com.olap.prototype.query.QueryExplanationView.Summary::class -> com.olap.prototype.query.QueryExplanationView.Summary.contract()
+            com.olap.prototype.query.QueryExplanationView.SourceOutput::class -> com.olap.prototype.query.QueryExplanationView.SourceOutput.contract()
+            com.olap.prototype.query.QueryExplanationView.SourceRepresentation::class -> com.olap.prototype.query.QueryExplanationView.SourceRepresentation.contract()
             ResultMetadataRequest::class -> ResultMetadataRequest.contract()
             com.olap.prototype.governance.contract.GovernanceReadRequests.PageInput::class,
             com.olap.prototype.governance.contract.GovernanceReadRequests.SourceDiscoveriesInput::class,

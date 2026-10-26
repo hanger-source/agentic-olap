@@ -26,11 +26,16 @@ class ExecutableSourceLayout(fields: List<Field>, scopes: Map<ScopeId, Scope>) {
 
     class Scope internal constructor(val contract: ExecutableOutputContract, columns: Map<String, String>, val presenceColumn: String?,
         val payload: List<Field> = contract.columns.map { Field(it.symbol.name, it.nativeType) },
-        @get:JsonIgnore internal val reduction: CoreSourceReduction? = null) {
+        @get:JsonIgnore internal val reduction: CoreSourceReduction? = null,
+        val reductionReason: String? = null,
+        val attemptedReductionStage: Int? = null) {
         val columns: Map<String, String> = Collections.unmodifiableMap(LinkedHashMap(columns))
         val representation: String get() = if (reduction == null) "OBSERVATION_BAG" else "EXACT_AGGREGATE_WORK"
         val reductionStage: Int? get() = reduction?.stage?.index
         init {
+            require(reductionReason == null || reductionReason.isNotBlank()) { "source reduction reason must describe the actual selection" }
+            require(attemptedReductionStage == null || attemptedReductionStage >= 0 && reductionReason != null) { "source reduction attempt requires its actual stage and reason" }
+            require(reduction == null || reductionReason == null && attemptedReductionStage == null) { "selected source work cannot also declare a rejected reduction" }
             require(this.columns.keys.toList() == payload.map { it.name }) { "source layout must map every actual payload field in order" }
             require(this.columns.values.all(String::isNotBlank) && this.columns.values.distinct().size == this.columns.size) { "scope outputs require distinct physical columns" }
             require(presenceColumn == null || presenceColumn.isNotBlank() && presenceColumn !in this.columns.values) { "source presence must be a separate physical column" }

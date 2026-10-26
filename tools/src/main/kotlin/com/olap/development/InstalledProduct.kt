@@ -75,6 +75,8 @@ internal class InstalledProduct(private val tarballs: Path, private val root: Pa
             val result = built.objectAt("result").objectAt("reference").objectAt("result")
             val continued = built.objectAt("continuedResult").objectAt("reference").objectAt("result")
             val numericReference = built.objectAt("numericResult").objectAt("reference").objectAt("result")
+            val sourceWork = built.objectAt("sourceWorkResult").objectAt("reference").objectAt("result")
+            val sourceBag = built.objectAt("sourceBagResult").objectAt("reference").objectAt("result")
             orderColumnVersion = built.objectAt("orderColumnVersion").string("text")
             salesResult(result); salesResult(continued)
             val usagePagination = usagePagination(result)
@@ -88,7 +90,9 @@ internal class InstalledProduct(private val tarballs: Path, private val root: Pa
             check(divisionResult(numericReference) == numeric)
             val reopened = program(objectOf("phase" to text("reopen"), "definitionId" to query.getValue("definitionId"),
                 "definitionVersion" to query.getValue("definitionVersion"), "querySha256" to query.getValue("sha256"),
-                "resultRunId" to result.getValue("runId"), "resultSha256" to result.getValue("sha256")))
+                "resultRunId" to result.getValue("runId"), "resultSha256" to result.getValue("sha256"),
+                "sourceWorkRunId" to sourceWork.getValue("runId"), "sourceWorkSha256" to sourceWork.getValue("sha256"),
+                "sourceBagRunId" to sourceBag.getValue("runId"), "sourceBagSha256" to sourceBag.getValue("sha256")))
             val repeated = reopened.objectAt("result").objectAt("reference").objectAt("result")
             check(repeated["runId"] != result["runId"]); salesResult(repeated)
             stop()
@@ -99,6 +103,7 @@ internal class InstalledProduct(private val tarballs: Path, private val root: Pa
                 "analysisPersistentRead" to bool(true), "sourceIdentityHash" to text(sourceIdentityHash), "queryReference" to query,
                 "runIds" to JsonArray(listOf(result.getValue("runId"), continued.getValue("runId"), repeated.getValue("runId"))),
                 "expected" to objectOf("sales_amount" to text("175.00"), "order_count" to text("4")), "integerDivision" to numeric,
+                "sourceReductionResults" to objectOf("work" to sourceWork, "bag" to sourceBag),
                 "serialCapabilities" to serialCalls, "sourceAdoption" to sourceAdoption, "stageAuthorization" to approvals, "usagePagination" to usagePagination,
                 "completeResponseDelivery" to complete))
         } catch (failure: Throwable) {

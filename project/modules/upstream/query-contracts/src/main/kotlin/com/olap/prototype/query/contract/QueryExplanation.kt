@@ -44,6 +44,8 @@ enum class QueryExplanationSection(val paginated: Boolean) {
             "pastEnd" to "EMPTY_ITEMS_WITH_TOTAL_ITEMS_AND_NO_NEXT_OFFSET",
             "nextOffset" to "ACTUAL_PAGE_END_ONLY_WHEN_FURTHER_ITEMS_EXIST",
             "validation" to "NO_OFFSET_PLUS_LIMIT_PRECONDITION_OR_LOOKAHEAD",
+            "sourceOutputScopes" to QueryExplanationView.SourceOutput.contract(),
+            "compilation" to "COMPILES_THE_EXACT_QUERY_IN_THE_REQUESTED_EXECUTION_MODE_WITHOUT_EXECUTING_SOURCE_SQL_OR_VERIFYING_SOURCE_GUARANTEES",
             "violation" to mapOf("code" to InputContractException.Rule.PAGINATION.code,
                 "fieldPath" to "offset OR limit", "details" to "ACTUAL_NUMERIC_VALUE_AND_EXPECTED_INCLUSIVE_RANGE"),
         )

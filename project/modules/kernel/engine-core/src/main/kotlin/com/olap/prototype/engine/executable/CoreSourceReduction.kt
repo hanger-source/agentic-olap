@@ -71,31 +71,42 @@ internal class CoreSourceReduction private constructor(
 
     data class Lowered(val relation: RelNode, val reduction: CoreSourceReduction)
 
+    sealed interface Selection {
+        data class Work(val lowered: Lowered) : Selection
+        data class Bag(val attemptedReductionStage: Int?, val reason: String) : Selection
+    }
+
+    private sealed interface WorkingType {
+        data class Available(val type: RelDataType) : WorkingType
+        data class Unavailable(val reason: String) : WorkingType
+    }
+
     companion object {
         /** 物理候选只接受可证明保持的前置操作与可合并统计，不以失败重试另一种计算。 */
         fun compile(builder: RelBuilder, source: CoreFinalizationGraph.SourceInput, input: RelNode,
-            parameters: MutableList<JdbcParameter>, native: NativeExpressionScope): Lowered? {
+            parameters: MutableList<JdbcParameter>, native: NativeExpressionScope): Selection {
             val remaining = source.analysis.stages.drop(source.cut.stageCount)
-            if (!deterministic(input)) return null
             val position = remaining.indexOfFirst { it.operation is PostOperationContract.Regroup }
-            if (position < 0) return null
+            if (position < 0) return Selection.Bag(null, "NO_CORE_REGROUP")
+            val stage = remaining[position]
+            fun bag(reason: String) = Selection.Bag(stage.index, reason)
+            evaluationInstability(input)?.let { return bag("INPUT_EVALUATION_STABILITY_UNPROVEN: $it") }
             val preceding = remaining.take(position)
             if (preceding.any { stage -> when (val op = stage.operation) {
                 is PostOperationContract.Project -> false
                 is PostOperationContract.PostFilter -> !nullPredicate(op.expression)
                 else -> true
-            } }) return null
+            } }) return bag("PRECEDING_STAGE_NOT_SUPPORTED_BY_SOURCE_REDUCTION")
             if (preceding.any { stage -> PostOperationTraversal.expressions(stage.operation).any { expression ->
                 ResultExpressionTree.nodes(expression).filterIsInstance<ResultExpression.ResultSymbol>().any { symbol ->
                     input.rowType.getField(symbol.symbol, true, false)?.type?.sqlTypeName in setOf(SqlTypeName.ROW, SqlTypeName.ARRAY)
                 }
-            } }) return null
-            val stage = remaining[position]
+            } }) return bag("PRECEDING_CONTAINER_FILTER_NOT_SUPPORTED_BY_SOURCE_REDUCTION")
             val grouping = (stage.operation as PostOperationContract.Regroup).grouping
             if (grouping.groupingLevels != null || grouping.aggregates.isEmpty() || grouping.aggregates.any {
                 it.aggregation !is ResultAggregation.Sum && it.aggregation !is ResultAggregation.Average &&
                     (it.aggregation as? ResultAggregation.Count)?.distinct != false
-            }) return null
+            }) return bag("AGGREGATION_SHAPE_NOT_SUPPORTED_BY_SOURCE_REDUCTION")
             builder.push(input)
             if (preceding.isNotEmpty()) {
                 val last = preceding.last()
@@ -109,8 +120,11 @@ internal class CoreSourceReduction private constructor(
             val computation = CoreRegroup.compile(grouping, stage, inputTypes, at)
             val workTypes = grouping.aggregates.map { aggregate ->
                 if (aggregate.aggregation is ResultAggregation.Count) null
-                else workingType(builder, requireNotNull(relation.rowType.getField(aggregate.input, true, false)).type,
-                    stage.inputs.first { it.name == aggregate.input }.quantity?.declaration, native.support) ?: return null
+                else when (val candidate = workingType(builder, requireNotNull(relation.rowType.getField(aggregate.input, true, false)).type,
+                    stage.inputs.first { it.name == aggregate.input }.quantity?.declaration, native.support)) {
+                    is WorkingType.Available -> candidate.type
+                    is WorkingType.Unavailable -> return bag("${candidate.reason}: ${aggregate.input}")
+                }
             }
             val occupied = relation.rowType.fieldNames.toMutableSet()
             fun alias() = SemanticNativeTypes.internalAlias(occupied, "__core_work_")
@@ -123,7 +137,7 @@ internal class CoreSourceReduction private constructor(
                 val value = builder.field(name)
                 if (value.type.sqlTypeName in setOf(SqlTypeName.CHAR, SqlTypeName.VARCHAR)) {
                     val key = native.support.textIdentityKey(builder, value)
-                    if (key == null) { builder.build(); return null }
+                    if (key == null) { builder.build(); return bag("EXACT_TEXT_GROUP_KEY_UNAVAILABLE: $name") }
                     check(key.type.sqlTypeName in setOf(SqlTypeName.BINARY, SqlTypeName.VARBINARY) && key.type.isNullable == value.type.isNullable) {
                         "exact text grouping key must retain NULL and use a binary representation"
                     }
@@ -131,7 +145,7 @@ internal class CoreSourceReduction private constructor(
                     names += alias()
                     groupCount++
                 } else if (!SqlTypeUtil.isExactNumeric(value.type) && value.type.sqlTypeName !in setOf(SqlTypeName.NULL, SqlTypeName.BOOLEAN)) {
-                    builder.build(); return null
+                    builder.build(); return bag("GROUP_KEY_TYPE_NOT_SUPPORTED_BY_SOURCE_REDUCTION: $name")
                 }
             }
             val counterType = builder.typeFactory.createSqlType(SqlTypeName.DECIMAL, 20, 0)
@@ -157,18 +171,23 @@ internal class CoreSourceReduction private constructor(
             val states = arguments.map { (known, value) -> WorkState(sum(known), value?.let(::sum)) }
             val aggregate = LogicalAggregate.create(projected, emptyList(), keys, listOf(keys), calls)
             // 此处询问的是实际键、实际输入、实际调用；DECIMAL标签本身不是精确保证。
-            if (!NativeAggregateKeys.preservesExactIdentity(aggregate, native.support)) return null
-            if (calls.any { native.support.aggregateBehavior(aggregate, it) != NativeAggregateBehavior.ExactOrFail }) return null
+            if (!NativeAggregateKeys.preservesExactIdentity(aggregate, native.support)) return bag("EXACT_GROUP_IDENTITY_UNPROVEN")
+            calls.forEach { call ->
+                if (native.support.aggregateBehavior(aggregate, call) != NativeAggregateBehavior.ExactOrFail) {
+                    val arguments = call.argList.joinToString { projected.rowType.fieldList[it].type.fullTypeString }
+                    return bag("ACTUAL_NATIVE_WORK_EXACT_OR_FAIL_UNAVAILABLE: ${call.aggregation.kind}($arguments) -> ${call.type.fullTypeString}")
+                }
+            }
             calls.forEach { NativeAggregateTypes.requireExactWork(aggregate, it) }
             calls.forEach { call ->
                 val inputType = projected.rowType.fieldList[call.argList.single()].type
-                if (!contains(call.type, inputType)) return null
+                if (!contains(call.type, inputType)) return bag("ACTUAL_NATIVE_WORK_RESULT_CAPACITY_INSUFFICIENT: ${call.name}")
             }
             builder.push(aggregate)
             val retained = grouping.groupBy + calls.map { it.name }
             val work = builder.project(retained.map(builder::field), retained, true).build()
             val fields = work.rowType.fieldList.map { ExecutableSourceLayout.Field(it.name, it.type) }
-            return Lowered(work, CoreSourceReduction(stage, fields, grouping, total, states, computation))
+            return Selection.Work(Lowered(work, CoreSourceReduction(stage, fields, grouping, total, states, computation)))
         }
 
         private fun nullPredicate(expression: ResultExpression): Boolean = when (expression) {
@@ -181,25 +200,28 @@ internal class CoreSourceReduction private constructor(
             else -> false
         }
 
-        private fun deterministic(input: RelNode): Boolean {
-            var deterministic = true
+        private fun evaluationInstability(input: RelNode): String? {
+            var unstable: String? = null
             val visitor = object : RexShuttle() {
                 override fun visitCall(call: RexCall): RexNode {
-                    if (!call.operator.isDeterministic) deterministic = false
+                    if (!SemanticCalciteOperators.statementStable(call) && unstable == null)
+                        unstable = (call.operator as? NativeScalarOperator)?.declaration?.id ?: call.operator.name
                     return super.visitCall(call)
                 }
             }
             val visited = hashSetOf<RelNode>()
             fun visit(node: RelNode) { if (visited.add(node)) { node.accept(visitor); node.inputs.forEach(::visit) } }
             visit(input)
-            return deterministic
+            return unstable
         }
 
         /** 完整原生域被输入数量合同包含后，才允许省去逐原值运输核验。 */
-        private fun workingType(builder: RelBuilder, input: RelDataType, declaration: MetricValueContract?, support: CompilationSupport): RelDataType? {
-            if (declaration?.arithmetic !is MetricValueContract.Exact || declaration.unit !is MetricValueContract.Fixed ||
-                !SqlTypeUtil.isExactNumeric(input)) return null
-            val (precision, scale) = capacity(input) ?: return null
+        private fun workingType(builder: RelBuilder, input: RelDataType, declaration: MetricValueContract?, support: CompilationSupport): WorkingType {
+            if (declaration == null) return WorkingType.Unavailable("INPUT_QUANTITY_UNAVAILABLE")
+            if (declaration.arithmetic !is MetricValueContract.Exact || !SqlTypeUtil.isExactNumeric(input))
+                return WorkingType.Unavailable("EXACT_INPUT_ARITHMETIC_UNPROVEN")
+            if (declaration.unit !is MetricValueContract.Fixed) return WorkingType.Unavailable("VARIABLE_UNIT_WORK_REDUCTION_UNAVAILABLE")
+            val (precision, scale) = capacity(input) ?: return WorkingType.Unavailable("COMMON_FIXED_INPUT_CAPACITY_UNAVAILABLE")
             val domainCovered = when (val result = declaration.result) {
                 is MetricValueContract.Integer -> input.sqlTypeName != SqlTypeName.DECIMAL && when (input.sqlTypeName) {
                     SqlTypeName.TINYINT -> 8
@@ -213,10 +235,11 @@ internal class CoreSourceReduction private constructor(
                 MetricValueContract.FiniteDecimal -> true
             }
             // 每组合法INTEGER64次数的完整输入域：p位定点累计最多需要p+19位，不用样本估界。
-            if (!domainCovered || precision + 19 > support.maximumDeclaredDecimalPrecision) return null
+            if (!domainCovered) return WorkingType.Unavailable("INPUT_QUANTITY_DOES_NOT_COVER_NATIVE_DOMAIN")
+            if (precision + 19 > support.maximumDeclaredDecimalPrecision) return WorkingType.Unavailable("WORK_CAPACITY_EXCEEDS_DECLARED_NATIVE_MAXIMUM")
             val type = builder.typeFactory.createSqlType(SqlTypeName.DECIMAL, precision + 19, scale)
-            if (type.precision != precision + 19 || type.scale != scale) return null
-            return builder.typeFactory.createTypeWithNullability(type, input.isNullable)
+            if (type.precision != precision + 19 || type.scale != scale) return WorkingType.Unavailable("WORK_TYPE_CAPACITY_NOT_PRESERVED")
+            return WorkingType.Available(builder.typeFactory.createTypeWithNullability(type, input.isNullable))
         }
 
         private fun capacity(type: RelDataType): Pair<Int, Int>? = when (type.sqlTypeName) {

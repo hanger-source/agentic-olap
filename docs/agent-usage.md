@@ -33,10 +33,10 @@ agentic-olap call describe-script-api --payload '{"type":"com.olap.prototype.cal
 
 ## 会话中调用正式能力
 
-`execute-script` 向持续 Kotlin 会话提交一个完整代码片段。DSL 为 `agentic-olap-kotlin-dsl/v11`，实际版本取服务发现结果。省略或留空 `sessionId` 创建会话；后续用实际返回的 `sessionId` 在同一 JVM 中继续。首次调用可以读取来源并保留 Kotlin 对象：
+`execute-script` 向持续 Kotlin 会话提交一个完整代码片段。DSL 为 `agentic-olap-kotlin-dsl/v12`，实际版本取服务发现结果。省略或留空 `sessionId` 创建会话；后续用实际返回的 `sessionId` 在同一 JVM 中继续。首次调用可以读取来源并保留 Kotlin 对象：
 
 ~~~sh
-agentic-olap call execute-script --payload '{"executionId":"sources-001","waitMillis":0,"source":"val sources = olap.sources.list(EmptyRequest)\nolap.output(sources)","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v11","parameters":{}}'
+agentic-olap call execute-script --payload '{"executionId":"sources-001","waitMillis":0,"source":"val sources = olap.sources.list(EmptyRequest)\nolap.output(sources)","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v12","parameters":{}}'
 agentic-olap call wait-script --payload '{"executionId":"sources-001","waitMillis":1000}'
 ~~~
 
@@ -583,7 +583,7 @@ val receipt = olap.queries.execute(QueryExecutionRequest(
 olap.output(receipt)
 ~~~
 
-这里 SAFE_DIVIDE 明确选择零分母为 NULL；使用普通 DIVIDE 不会隐式改变其除零政策。查询可以直接执行，不要求先校验；若需要解释或校验同一个计划，其请求也应显式选择相同 `executionMode`。解释的摘要给出实际 `sourceOutputScopes`，每个根及阶段分别给出 `rootExecutionLocation` 与 `executionLocation=SOURCE/CORE`；SQL 及原生计划只代表来源部分，保存回执保留实际执行模式。
+这里 SAFE_DIVIDE 明确选择零分母为 NULL；使用普通 DIVIDE 不会隐式改变其除零政策。查询可以直接执行，不要求先校验；若需要解释或校验同一个计划，其请求也应显式选择相同 `executionMode`。解释摘要的 `sourceOutputScopes` 逐项给出实际作用域、来源表示及归约选择，每个根及阶段分别给出 `rootExecutionLocation` 与 `executionLocation=SOURCE/CORE`；SQL 及原生计划只代表来源部分，保存回执保留实际执行模式。
 
 共同计算可以沉淀为定义：定义以正式关系形参接收完成数量，根使用该关系，阶段表达共同的 DERIVE／PROJECT。本地模板通过 `Computations.compute` 提供实际绑定；已保存并发布的测量定义通过 `Computations.invoke` 选择精确采用实例，计算成员通过正式成员调用使用。它们的关系实参显式映射 ROOT 输入，执行请求选择 CORE_FINALIZATION；使用已发布定义无需取出其内部计算体重新实例化。
 
@@ -602,6 +602,21 @@ olap.output(receipt)
 ## 校验、解释与保存
 
 `olap.queries.validate`、`explain` 与 `execute` 是独立能力。查询可直接执行，不要求先建立 Analysis、冻结任务结构、保存查询或调用校验。解释不执行来源 SQL，可按正式 section 读取人口、资格、粒度、阶段、来源、关系计划和编译规模；未取得的实际扫描量、基数及逐行 NULL 原因保持未知。
+
+`QueryExplanationSection.SUMMARY` 的 `sourceOutputScopes` 是正式 `QueryExplanationView.SourceOutput` 列表。每项的 `scope` 对应 SCOPES 中同一作用域；`representation=OBSERVATION_BAG` 表示直接运输当前来源切点的行袋，保留实际重复度，不表示一定扫描原数据库明细，也不否认切点之前已完成的来源聚合；`EXACT_AGGREGATE_WORK` 表示来源已被规划为交付所选原 REGROUP 的精确工作状态，核心仍完成该节点其余计算及最终数量合同。只有后一种表示具有非 NULL 的 `reductionStage`，它是同一作用域 `stages` 中原 REGROUP 的零基索引。
+
+保留行袋时，`reductionReason` 交付编译器实际选择原因，能够定位候选时由 `attemptedReductionStage` 指向原阶段；候选索引不代表已经选择或执行归约。未记录的原因与候选保持 NULL，不从 SUM 数量、SQL 长度或关系计划形状猜测。以上字段只说明本次编译选择，不是来源运行统计，也不证明来源已经兑现保证。正式类型发现包含这些字段及枚举规则。
+
+`olap.queries.validate` 与 `explain` 都按请求的实际执行模式进入完整编译，包括原生计划和工作归约选择，不执行来源 SQL。validate 只返回编译成功及精确发布能力摘要；它不返回归约选择详情，也不证明来源已兑现其保证。读取准入原因使用同一 Query、同一执行模式的 explain SUMMARY，无需另开来源探测或从服务日志猜测。
+
+~~~kotlin
+val explained = olap.queries.explain(QueryExplanationRequest(
+    selection, QueryExplanationSection.SUMMARY, 0, 1000,
+    QueryExecutionMode.CORE_FINALIZATION
+))
+val summary = (explained.content as QueryExplanationContent.Summary).value
+olap.output(summary.sourceOutputScopes)
+~~~
 
 `QueryExplanationSection.EXECUTION_REQUIREMENTS` 给出当前计划需要的来源能力、仍需执行的关系检查及其已知语义作用域、身份键和原因。`sourceConstraints` 按精确来源绑定、连接器及物理表版本列出实际采用的约束；每项保留种类、约束名或非空列名、原生列到精确物理列版本的映射，以及 `adoptedFor`：非空原生列类型、优化器键元数据、引用元数据或时态关系规则。单表 RAW_BAG 也可能采用非空列类型；这不等于 Query 做了去重或唯一键归约。
 

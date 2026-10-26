@@ -6,6 +6,7 @@ import com.olap.prototype.connector.NativeCompilationCapabilityException
 import org.apache.calcite.avatica.util.TimeUnit
 import org.apache.calcite.avatica.util.TimeUnitRange
 import org.apache.calcite.rex.RexNode
+import org.apache.calcite.rex.RexCall
 import org.apache.calcite.sql.*
 import org.apache.calcite.sql.`fun`.SqlStdOperatorTable as Ops
 import org.apache.calcite.sql.parser.SqlParserPos
@@ -16,6 +17,15 @@ import java.util.Locale
 
 /** 授权语义到Calcite标准算子的共同绑定，不实现自己的类型或关系代数。 */
 object SemanticCalciteOperators {
+    /** 相同实参在一条来源语句内可复用；不允许据此常量折叠或跨语句缓存。 */
+    fun statementStable(call: RexCall): Boolean = when (val native = call.operator as? NativeScalarOperator) {
+        null -> call.operator.isDeterministic && !call.operator.isDynamicFunction
+        else -> when (native.declaration.stability) {
+            NativeScalarFunction.Stability.IMMUTABLE, NativeScalarFunction.Stability.STATEMENT -> true
+            NativeScalarFunction.Stability.VOLATILE -> false
+        }
+    }
+
     fun predicate(builder: RelBuilder, field: RexNode, operator: MemberCondition.Operator, values: List<RexNode>): RexNode = when (operator) {
         MemberCondition.Operator.IS_NULL -> builder.isNull(field)
         MemberCondition.Operator.IS_NOT_NULL -> builder.isNotNull(field)

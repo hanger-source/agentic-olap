@@ -25,8 +25,23 @@ sealed interface QuerySelection {
 
 data class QueryExecutionRequest(val query: QuerySelection, val saveResult: Boolean, val question: String?, val readBasis: SourceReadBasis.Versioned?,
     val executionMode: QueryExecutionMode = QueryExecutionMode.SOURCE)
-data class QueryValidationRequest(val query: QuerySelection, val executionMode: QueryExecutionMode = QueryExecutionMode.SOURCE)
-data class QueryValidationResult(val valid: Boolean, val capabilityHash: String)
+data class QueryValidationRequest(val query: QuerySelection, val executionMode: QueryExecutionMode = QueryExecutionMode.SOURCE) {
+    companion object {
+        fun contract(): Map<String, Any> = mapOf(
+            "validation" to "AUTHORIZES_AND_COMPILES_THE_EXACT_QUERY_IN_THE_REQUESTED_EXECUTION_MODE_INCLUDING_NATIVE_PLANNING_AND_WORK_REDUCTION_SELECTION",
+            "sourceExecution" to "NO_SOURCE_SQL_EXECUTION_NO_SOURCE_CAPABILITY_OR_GUARANTEE_VERIFICATION",
+            "selectionDetails" to "USE_EXPLAIN_QUERY_SUMMARY_WITH_THE_SAME_QUERY_AND_EXECUTION_MODE_FOR_ACTUAL_SOURCE_OUTPUT_REPRESENTATION_AND_REDUCTION_DECISION",
+        )
+    }
+}
+data class QueryValidationResult(val valid: Boolean, val capabilityHash: String) {
+    companion object {
+        fun contract(): Map<String, Any> = mapOf(
+            "valid" to "SUCCESSFUL_AUTHORIZATION_AND_COMPILATION_NOT_PROOF_OF_SOURCE_EXECUTION_OR_NUMERIC_GUARANTEES",
+            "capabilityHash" to "EXACT_PUBLICATION_CAPABILITY_HASH_NOT_A_COMPILED_PLAN_OR_SOURCE_RESULT_REFERENCE",
+        )
+    }
+}
 data class QueryResultReference(val runId: String, val sha256: String) {
     init { require(runId.matches(Regex("run-[0-9a-f]{32}")) && sha256.matches(Regex("[0-9a-f]{64}"))) }
 }

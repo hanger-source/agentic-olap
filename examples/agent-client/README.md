@@ -21,10 +21,10 @@ agentic-olap call describe-script-api --payload '{}'
 
 连接后按[AI 使用指引](../../docs/agent-usage.md)发现实际 Kotlin 方法、构造器、属性与精确版本，再提交 kts 程序调查业务、检索和复用定义、组织查询。CLI 的 `--payload` 是工具参数对象；直接 MCP 调用使用 `arguments={"payload":{...}}`。脚本中固定提供 `olap` 与 `parameters`，模型账号和对话仍留在外部客户端。已有适用定义时直接使用，需要沉淀新的业务含义时再明确建设与发布。接入、来源与授权配置见[服务使用说明](../../skills/agentic-olap/references/server.md)，可安装的完整使用指引从[本仓库 skill](https://github.com/hanger-source/agentic-olap/tree/main/skills/agentic-olap)取得。
 
-从仓库根提交[第一段程序](read-sources.olap.kts)，建立会话并保留真实来源对象、参数快照和一个帮助函数。`dslApiVersion` 使用发现返回的精确值，本例为 `agentic-olap-kotlin-dsl/v11`：
+从仓库根提交[第一段程序](read-sources.olap.kts)，建立会话并保留真实来源对象、参数快照和一个帮助函数。`dslApiVersion` 使用发现返回的精确值，本例为 `agentic-olap-kotlin-dsl/v12`：
 
 ```sh
-agentic-olap call execute-script --payload "$(jq -n --rawfile source examples/agent-client/read-sources.olap.kts '{executionId:"sources-first-001",waitMillis:10000,source:$source,sourceName:"read-sources.olap.kts",dslApiVersion:"agentic-olap-kotlin-dsl/v11",parameters:{label:"first"}}')"
+agentic-olap call execute-script --payload "$(jq -n --rawfile source examples/agent-client/read-sources.olap.kts '{executionId:"sources-first-001",waitMillis:10000,source:$source,sourceName:"read-sources.olap.kts",dslApiVersion:"agentic-olap-kotlin-dsl/v12",parameters:{label:"first"}}')"
 ```
 
 `executionId` 标识一次明确执行；每次新执行分配新标识。首次可省略 `sessionId`，返回的 `result.sessionId` 是后续片段使用的会话。`waitMillis=0` 读取当前状态，正值只决定本次等待时长。若 `result.state` 仍为 `RUNNING`，继续等待同一个执行，直到取得最终状态：
@@ -39,7 +39,7 @@ agentic-olap call wait-script --payload '{"executionId":"sources-first-001","wai
 
 ```sh
 SESSION_ID='<result.sessionId>'
-agentic-olap call execute-script --payload "$(jq -n --arg session "$SESSION_ID" --rawfile source examples/agent-client/continue-sources.olap.kts '{sessionId:$session,executionId:"sources-second-001",waitMillis:10000,source:$source,sourceName:"continue-sources.olap.kts",dslApiVersion:"agentic-olap-kotlin-dsl/v11",parameters:{label:"second"}}')"
+agentic-olap call execute-script --payload "$(jq -n --arg session "$SESSION_ID" --rawfile source examples/agent-client/continue-sources.olap.kts '{sessionId:$session,executionId:"sources-second-001",waitMillis:10000,source:$source,sourceName:"continue-sources.olap.kts",dslApiVersion:"agentic-olap-kotlin-dsl/v12",parameters:{label:"second"}}')"
 ```
 
 同样按 `sources-second-001` 等待最终状态。第二段直接使用第一段的正式对象与函数；`originalParameters` 保持第一段的不可变快照，环境中的 `parameters` 表示第二段参数。函数重新调用正式客户端时使用当前执行归属。普通末表达式只参与 Kotlin 求值，不自动成为业务输出。

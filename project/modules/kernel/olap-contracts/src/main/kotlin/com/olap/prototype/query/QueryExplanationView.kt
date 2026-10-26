@@ -23,7 +23,51 @@ data class QueryExplanationView(val requestId: String, val summary: Summary, val
     data class RelationCheck(val code: String, val scope: QueryStageAnalysis.ScopeId?, val keys: List<String>, val reason: String?)
     data class Summary(val scopeCount: Int, val sourceInputCount: Int, val executionBoundary: String,
         val populationContract: PopulationContract, val actualSourceStatistics: String, val rowNullAttribution: String,
-        val sourceOutputScopes: List<QueryStageAnalysis.ScopeId>)
+        val sourceOutputScopes: List<SourceOutput>) {
+        companion object {
+            fun contract(): Map<String, Any> = mapOf(
+                "sourceOutputScopes" to SourceOutput.contract(),
+                "actualSourceStatistics" to "NOT_OBSERVED_UNLESS_ACTUAL_SOURCE_STATISTICS_HAVE_BEEN_COLLECTED",
+                "execution" to "EXPLANATION_DESCRIBES_THE_COMPILED_PLAN_WITHOUT_EXECUTING_SOURCE_SQL_OR_VERIFYING_SOURCE_GUARANTEES",
+            )
+        }
+    }
+    enum class SourceRepresentation {
+        OBSERVATION_BAG, EXACT_AGGREGATE_WORK;
+        companion object {
+            fun contract(): Map<String, Any> = mapOf(
+                "OBSERVATION_BAG" to "ACTUAL_SOURCE_CUT_ROWS_WITH_ORIGINAL_MULTIPLICITY_NOT_REPLACED_BY_EXACT_AGGREGATE_WORK_NOT_A_CLAIM_OF_RAW_DATABASE_DETAIL_SCANS",
+                "EXACT_AGGREGATE_WORK" to "PROVEN_SOURCE_WORK_STATES_FOR_THE_SELECTED_ORIGINAL_REGROUP_CORE_STILL_COMPLETES_ITS_CONTRACT",
+                "scope" to "SOURCE_OUTPUT_REPRESENTATION_DOES_NOT_ASSERT_A_PHYSICAL_SCAN_COUNT_OR_MATERIALIZATION",
+            )
+        }
+    }
+    /** 对本次真实来源布局的公开投影；尝试过的归约与已经选择的归约分别记录。 */
+    data class SourceOutput(val scope: QueryStageAnalysis.ScopeId, val representation: SourceRepresentation,
+        val reductionStage: Int?, val reductionReason: String?, val attemptedReductionStage: Int?) {
+        init {
+            require(reductionStage == null || reductionStage >= 0) { "selected reduction stage must be nonnegative" }
+            require(attemptedReductionStage == null || attemptedReductionStage >= 0) { "attempted reduction stage must be nonnegative" }
+            require(reductionReason == null || reductionReason.isNotBlank()) { "reduction reason must be an explicit compiler decision" }
+            require(attemptedReductionStage == null || reductionReason != null) { "an unselected reduction candidate must retain its actual reason" }
+            require((representation == SourceRepresentation.EXACT_AGGREGATE_WORK) == (reductionStage != null)) {
+                "only exact aggregate work selects an original reduction stage"
+            }
+            require(representation != SourceRepresentation.EXACT_AGGREGATE_WORK || reductionReason == null && attemptedReductionStage == null) {
+                "selected exact aggregate work cannot report a declined candidate"
+            }
+        }
+        companion object {
+            fun contract(): Map<String, Any> = mapOf(
+                "scope" to "EXACT_MATCH_TO_SCOPES_SCOPE_NO_INFERENCE_FROM_SQL_OR_SUM_COUNTS",
+                "representation" to SourceRepresentation.contract(),
+                "reductionStage" to "SELECTED_EXACT_AGGREGATE_WORK_ONLY_ZERO_BASED_ORIGINAL_REGROUP_INDEX_IN_THE_SAME_SCOPE_STAGES_OTHERWISE_NULL",
+                "reductionReason" to "ACTUAL_COMPILER_DECISION_FOR_RETAINING_THE_BAG_WHEN_AVAILABLE_NOT_A_SOURCE_FAILURE_OR_GUESSED_OPTIMIZER_CAUSE",
+                "attemptedReductionStage" to "UNSELECTED_CANDIDATE_REGROUP_INDEX_WHEN_KNOWN_NOT_AN_EXECUTED_OR_SELECTED_REDUCTION",
+                "execution" to "COMPILED_SELECTION_ONLY_NOT_OBSERVED_SOURCE_EXECUTION_OR_VERIFIED_SOURCE_CAPABILITIES",
+            )
+        }
+    }
     data class PopulationMode(val mode: String, val fields: List<String>, val groups: String, val inputs: String?)
     data class PopulationContract(val formatVersion: String, val required: Boolean, val modes: List<PopulationMode>,
         val scope: String, val grain: String, val unmatchedMetrics: String, val calculationMetric: String, val emptyPopulation: String, val coverage: String)

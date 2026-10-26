@@ -32,6 +32,21 @@ fun verify(reference: QueryResultReference): ResultPage {
     check(count.type == ExecutableBusinessResult.ValueKind.INTEGER && count.value == "4")
     return page
 }
+fun verifyReduction(reference: QueryResultReference, expected: String): QueryExplanationView.Summary {
+    val page = olap.results.read(ResultReadRequest(reference, 0, 10, null))
+    check(page.totalRows == 1 && page.rows.size == 1 && page.columns.size == 1)
+    check(BigDecimal(scalar(page.rows.single().single()).value).compareTo(BigDecimal(expected)) == 0)
+    val stored = olap.results.metadata(ResultMetadataRequest(reference, ResultMetadataSection.EXPLANATION,
+        null, QueryExplanationSection.SUMMARY, 0, 1000))
+    return (((stored.content as ResultMetadataContent.Explanation).value) as QueryExplanationContent.Summary).value
+}
+fun verifyReductionChoice(summary: QueryExplanationView.Summary, work: Boolean) {
+    val output = summary.sourceOutputScopes.single()
+    if (work) check(output.representation == QueryExplanationView.SourceRepresentation.EXACT_AGGREGATE_WORK &&
+        output.reductionStage == 0 && output.attemptedReductionStage == null && output.reductionReason == null)
+    else check(output.representation == QueryExplanationView.SourceRepresentation.OBSERVATION_BAG && output.reductionStage == null &&
+        output.attemptedReductionStage == 1 && output.reductionReason == "PRECEDING_STAGE_NOT_SUPPORTED_BY_SOURCE_REDUCTION")
+}
 fun execute(intent: QueryIntent, question: String): QueryExecutionReceipt =
     olap.queries.execute(QueryExecutionRequest(QuerySelection.Inline(intent), true, question, null)).also {
         check(it.status == QueryExecutionStatus.SUCCEEDED && it.saved) { it.error.toString() }
@@ -147,6 +162,7 @@ olap.output(when (parameters.text("phase")) {
             olap.governance.createScenarioMetricRef(ScenarioMetricRefCreateRequest(scenario.id, 1, adoption.id, 1, true, index + 1))
         }
         olap.governance.createScenarioPipelineRule(ScenarioPipelineRuleCreateRequest(scenario.id, 1, "DERIVE", 1, StageAuthorization.current("DERIVE")))
+        olap.governance.createScenarioPipelineRule(ScenarioPipelineRuleCreateRequest(scenario.id, 1, "REGROUP", 2, StageAuthorization.current("REGROUP")))
         activate(GovernanceActivationObjectType.SUBJECT_AREA, subject.id)
         olap.governance.buildRelease(SubjectAreaReleaseBuildRequest("installed-sales", "1", "安装后销售口径", subject.id, 1, actor, sourceAdoptions))
         val coordinate = QueryCapabilityRequest(scenario.id, 1, "installed-sales", "1")
@@ -176,6 +192,7 @@ olap.output(when (parameters.text("phase")) {
         check(notNull.adoptedFor == "NON_NULL_NATIVE_COLUMN_TYPE" && !requirements.sourceCapabilitiesChecked)
         val summary = olap.queries.explain(QueryExplanationRequest(QuerySelection.Inline(intent),
             QueryExplanationSection.SUMMARY, 0, 1000)).content as QueryExplanationContent.Summary
+        check(summary.value.sourceOutputScopes.all { it.representation == QueryExplanationView.SourceRepresentation.OBSERVATION_BAG && it.reductionStage == null })
         val allScopes = olap.queries.explain(QueryExplanationRequest(QuerySelection.Inline(intent),
             QueryExplanationSection.SCOPES, 0, Int.MAX_VALUE)).content as QueryExplanationContent.Scopes
         check(allScopes.items.size == summary.value.scopeCount && allScopes.totalItems == allScopes.items.size && allScopes.nextOffset == null)
@@ -267,6 +284,41 @@ olap.output(when (parameters.text("phase")) {
         val coreRun = olap.results.run(QueryRunRequest(coreResult.runId, 0, 20)).run
         check(coreRun.receipt?.executionMode == QueryExecutionMode.CORE_FINALIZATION && coreRun.receipt?.resultReference == coreResult.resultReference)
         check(requireNotNull(coreRun.serviceObservation).workers.let { it.isNotEmpty() && it.all { worker -> worker.outcome == "REUSED" } })
+        val aggregateMean = MetricValueContract(mean.unit, mean.arithmetic, mean.result, emptyMap(), mean.overflow)
+        val completedDays = computation(publication, codes = listOf("day_sum"))
+        fun meanStage(input: String) = PostOperationContract.Regroup(PostOperationContract.ResultGrouping(emptyList(),
+            listOf(PostOperationContract.ResultAggregate(input, ResultAggregation.Average(aggregateMean, ResultAggregation.NullPolicy.IGNORE,
+                MeanTarget.MATHEMATICAL), "mean", "对本次完整输入求均值")), null))
+        val workIntent = QueryIntent(coordinate, Computations.stages(completedDays, listOf(meanStage("day_sum"))))
+        val bagIntent = QueryIntent(coordinate, Computations.stages(completedDays, listOf(
+            PostOperationContract.Derive(ResultNumeric(ResultOperation(ResultOperator.DIVIDE, listOf(ResultSymbol("day_sum"),
+                ResultQuantityLiteral(BigDecimal("3"), count))), mean, "days_per_valid_contribution"), "rounded_days", "先按明确合同量化，再参与归约"),
+            meanStage("rounded_days"))))
+        fun explainReduction(intent: QueryIntent, work: Boolean): QueryExplanationView.Summary {
+            val selected = QuerySelection.Inline(intent)
+            val summary = (olap.queries.explain(QueryExplanationRequest(selected, QueryExplanationSection.SUMMARY,
+                0, 1000, QueryExecutionMode.CORE_FINALIZATION)).content as QueryExplanationContent.Summary).value
+            verifyReductionChoice(summary, work)
+            val output = summary.sourceOutputScopes.single()
+            val scopes = (olap.queries.explain(QueryExplanationRequest(selected, QueryExplanationSection.SCOPES,
+                0, 1000, QueryExecutionMode.CORE_FINALIZATION)).content as QueryExplanationContent.Scopes).items
+            val stageIndex = requireNotNull(if (work) output.reductionStage else output.attemptedReductionStage)
+            val originalStage = scopes.single { it.scope == output.scope }.stages.single { it.index == stageIndex }
+            check(originalStage.contract is PostOperationContract.Regroup && originalStage.executionLocation == QueryExplanationView.ExecutionLocation.CORE)
+            return summary
+        }
+        val workExplanation = explainReduction(workIntent, true)
+        val bagExplanation = explainReduction(bagIntent, false)
+        fun executeReduction(intent: QueryIntent): QueryResultReference = olap.queries.execute(QueryExecutionRequest(QuerySelection.Inline(intent),
+            true, "正式来源选择解释与保存结果一致", null, QueryExecutionMode.CORE_FINALIZATION)).let {
+            check(it.status == QueryExecutionStatus.SUCCEEDED && it.saved) { it.error.toString() }
+            requireNotNull(it.resultReference)
+        }
+        val sourceWork = executeReduction(workIntent)
+        val sourceBag = executeReduction(bagIntent)
+        // 安装来源独立写入30、30、30、31，完成和为121；先除3量化的结果为40.333333333333333333。
+        check(verifyReduction(sourceWork, "121").sourceOutputScopes == workExplanation.sourceOutputScopes)
+        check(verifyReduction(sourceBag, "40.333333333333333333").sourceOutputScopes == bagExplanation.sourceOutputScopes)
         val carry = olap.semantics.contextSelection(SubjectContextSelectionRequest(subject.id, 1)).selection
         olap.governance.reviseSubjectArea(SubjectContextRevisionRequest(subject.id, 1, subjectDefinition, carry))
         activate(GovernanceActivationObjectType.SUBJECT_AREA, subject.id, 2)
@@ -281,12 +333,15 @@ olap.output(when (parameters.text("phase")) {
             "logicalTableId" to text(logical.logicalTable.id), "orderUnitId" to text(units.getValue("ORDER_ID").id),
             "amountUnitId" to text(units.getValue("AMOUNT").id), "daysUnitId" to text(units.getValue("CALENDAR_DAYS").id),
             "numericResult" to ScriptValue.ResultReferenceValue(requireNotNull(numericResult.resultReference)),
-            "coreResult" to ScriptValue.ResultReferenceValue(requireNotNull(coreResult.resultReference)))
+            "coreResult" to ScriptValue.ResultReferenceValue(requireNotNull(coreResult.resultReference)),
+            "sourceWorkResult" to ScriptValue.ResultReferenceValue(sourceWork), "sourceBagResult" to ScriptValue.ResultReferenceValue(sourceBag))
     }
     "reopen" -> {
         val query = QueryReference(parameters.text("definitionId"), parameters.text("definitionVersion").toLong(), parameters.text("querySha256"))
         val original = reference("result")
         verify(original)
+        verifyReductionChoice(verifyReduction(reference("sourceWork"), "121"), true)
+        verifyReductionChoice(verifyReduction(reference("sourceBag"), "40.333333333333333333"), false)
         check(olap.queries.read(QueryVersionRequest(query)).reference == query)
         val repeated = olap.queries.execute(QueryExecutionRequest(QuerySelection.Saved(query), true, "重启后按同一发布重新计算销售额与订单数", null))
         check(repeated.status == QueryExecutionStatus.SUCCEEDED && repeated.saved && repeated.runId != original.runId)

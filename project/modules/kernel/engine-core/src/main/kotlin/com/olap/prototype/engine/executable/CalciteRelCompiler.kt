@@ -51,18 +51,21 @@ class CalciteRelCompiler private constructor(val connectors: ConnectorRegistry, 
                 relations.compile(input, source.cut.scope)
             }
             val contracts = completed.mapValues { (source, output) -> relations.contract(source.cut.scope, output.relation.rowType) }
-            val reductions = completed.mapValues { (source, output) ->
+            val selections = completed.mapValues { (source, output) ->
                 CoreSourceReduction.compile(builder, source, output.relation, relations.parameters, relations.native)
             }
+            val reductions = selections.mapValues { (_, selection) -> (selection as? CoreSourceReduction.Selection.Work)?.lowered }
             val payloads = completed.mapValues { (source, output) -> reductions[source]?.relation ?: output.relation }
             if (sources.size == 1) {
                 val source = sources.single()
                 val output = completed.getValue(source)
                 val reduction = reductions[source]?.reduction
+                val rejected = selections[source] as? CoreSourceReduction.Selection.Bag
                 val payload = reduction?.fields ?: contracts.getValue(source).columns.map { ExecutableSourceLayout.Field(it.symbol.name, it.nativeType) }
                 SourceOutput(payloads.getValue(source), payload.associate { it.name to (output.displayNames[it.name] ?: it.name) }) { type -> ExecutableSourceLayout(
                     type.fieldList.map { ExecutableSourceLayout.Field(it.name, it.type) },
-                    mapOf(source.cut.scope to ExecutableSourceLayout.Scope(contracts.getValue(source), payload.associate { it.name to it.name }, null, payload, reduction))) }
+                    mapOf(source.cut.scope to ExecutableSourceLayout.Scope(contracts.getValue(source), payload.associate { it.name to it.name }, null, payload, reduction,
+                        rejected?.reason, rejected?.attemptedReductionStage))) }
             } else {
                 val occupied = payloads.values.flatMapTo(linkedSetOf()) { it.rowType.fieldNames }
                 val scopes = linkedMapOf<ScopeId, ExecutableSourceLayout.Scope>()
@@ -71,6 +74,7 @@ class CalciteRelCompiler private constructor(val connectors: ConnectorRegistry, 
                     val output = completed.getValue(source)
                     val contract = contracts.getValue(source)
                     val reduction = reductions[source]?.reduction
+                    val rejected = selections[source] as? CoreSourceReduction.Selection.Bag
                     val payload = reduction?.fields ?: contract.columns.map { ExecutableSourceLayout.Field(it.symbol.name, it.nativeType) }
                     val columns = linkedMapOf<String, String>()
                     payload.forEach { field ->
@@ -80,7 +84,8 @@ class CalciteRelCompiler private constructor(val connectors: ConnectorRegistry, 
                     }
                     val presence = SemanticNativeTypes.internalAlias(occupied, "__core_presence_")
                     display[presence] = "core source row present"
-                    scopes[source.cut.scope] = ExecutableSourceLayout.Scope(contract, columns, presence, payload, reduction)
+                    scopes[source.cut.scope] = ExecutableSourceLayout.Scope(contract, columns, presence, payload, reduction,
+                        rejected?.reason, rejected?.attemptedReductionStage)
                 }
                 val branches = sources.map { source ->
                     builder.push(payloads.getValue(source))

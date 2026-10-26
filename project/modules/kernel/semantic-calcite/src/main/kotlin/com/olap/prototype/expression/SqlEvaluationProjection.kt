@@ -391,7 +391,7 @@ internal class SqlEvaluationProjection {
 
     private fun statementStableScalar(value: RexNode): Boolean = stableScalars[value] ?: when (value) {
         is RexOver, is RexSubQuery -> false
-        is RexCall -> SqlStatementRelations.statementStable(value) && value.operands.all(::statementStableScalar)
+        is RexCall -> SemanticCalciteOperators.statementStable(value) && value.operands.all(::statementStableScalar)
         is RexFieldAccess -> statementStableScalar(value.referenceExpr)
         is RexInputRef, is RexLiteral, is RexDynamicParam -> true
         else -> false

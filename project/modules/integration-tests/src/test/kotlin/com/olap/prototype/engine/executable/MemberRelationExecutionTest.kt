@@ -696,81 +696,108 @@ class MemberRelationExecutionTest {
             definitions.members["profiles@1"] = MemberSource.Projection("profiles", 1, MemberSourceDefinition.Projection(EventRef("profiles", 1),
                 MemberResult("档案观测", "profiles", MemberShape.RAW_BAG, emptyList(), profileOutputs, emptyMap(), null, emptyMap(), null)),
                 profileOutputs.keys.associateWith { SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, "profiles.$it", 1) })
-            val deployed = TestConnectors.registry.require(warehouse.spec.connectorRef)
-            val declaration = NativeScalarFunction("elapsed_days", List(2) { NativeScalarFunction.Parameter(NativeScalarFunction.ParameterKind.SCALAR, ScalarValueType.TEXT) },
-                NativeValueType("BIGINT", null, null, true), MetricValueContract.Exact(), NativeScalarFunction.Stability.IMMUTABLE)
-            val support = object : CompilationSupport by deployed.compilation {
-                override val nativeScalarFunctions = listOf(declaration)
-                override fun requireNativeScalarFunction(id: String): NativeScalarFunction { require(id == declaration.id); return declaration }
-                override fun nativeAggregate(kind: SqlKind): SqlAggFunction {
-                    if (kind == SqlKind.AVG) throw UnsupportedOperationException("this source does not implement native AVG")
-                    return deployed.compilation.nativeAggregate(kind)
-                }
-                override fun nativeScalarCall(function: String, arguments: List<CompilationSupport.NativeArgument>): SqlNode {
-                    require(function == declaration.id)
-                    val position = SqlParserPos.ZERO
-                    val date = SqlDataTypeSpec(SqlBasicTypeNameSpec(SqlTypeName.DATE, position), position)
-                    val values = arguments.map { org.apache.calcite.sql.`fun`.SqlStdOperatorTable.CAST.createCall(position,
-                        (it as CompilationSupport.ScalarArgument).value, date) }
-                    return SqlFunction(if (dialect == "h2") "DATEDIFF" else "DATE_DIFF", SqlKind.OTHER_FUNCTION, ReturnTypes.BIGINT_NULLABLE,
-                        null, OperandTypes.VARIADIC, SqlFunctionCategory.TIMEDATE).createCall(position,
-                        SqlLiteral.createCharString("day", position), values[0], values[1])
-                }
-            }
-            val registry = ConnectorRegistry(listOf(ResolvedConnector(deployed.ref, support, deployed.access)))
-            val source = SourceProvider(warehouse.spec.source(), registry)
-            val delegate = SourceExecutableSqlExecutor({ if (it == source.bindingRef) source else null },
-                RuntimeDeploymentLimits.nativeMemoryBytes, null)
-            var submissions = 0
-            val engine = OlapEngine(OlapSemanticCompiler(CalciteRelCompiler(registry)), ExecutableSqlExecutor { lowering, context, control ->
-                submissions++; delegate.execute(lowering, context, control)
-            }, RuntimeDeploymentLimits.result)
-            fun records(kind: Int, fields: List<String>) = Calculation.Scope(Calculation.Members("records", Calculation.MemberSource(MemberRef("orders", 1)),
-                listOf(Calculation.MemberProjection("customer", "customer", Calculation.PublishedDimension(ScopedInputContract.DimensionRef("customers", "1", "customer")))) +
-                    fields.map { Calculation.MemberProjection(it, it, null) }, null, emptyMap(), memberEquals("kind", kind), emptyMap(), emptyMap(), emptyMap()), emptyMap(), emptyList())
-            val mean = coreDecimal(38, 2, MetricValueContract.Rounding.HALF_UP)
-            val raw = records(2, listOf("amount")).let { Calculation.Scope(it.root, it.inputs, listOf(regroup(listOf("customer"), listOf(
-                reduction("amount", ResultAggregation.Average(mean, ResultAggregation.NullPolicy.IGNORE, MeanTarget.MATHEMATICAL), "raw_mean"),
-                reduction("amount", ResultAggregation.Count(false, ResultAggregation.NullPolicy.IGNORE), "raw_count"))))) }
-            val profiles = Calculation.Scope(Calculation.Members("profiles", Calculation.MemberSource(MemberRef("profiles", 1)),
-                profileOutputs.keys.map { Calculation.MemberProjection(it, it, null) }, null, emptyMap(), MemberCondition.Unrestricted(), emptyMap(), emptyMap(), emptyMap()), emptyMap(), emptyList())
-            val qualifiedDays = ResultCaseWhen(listOf(ResultCaseBranch(symbol("profile__eligible"),
-                ResultNativeCall(deployed.ref, declaration.id, listOf(symbol("started"), symbol("ended"))))), ResultLiteral(null))
-            val dated = Calculation.Scope(Calculation.Input("records"), mapOf(
-                "records" to Calculation.InputScope("ROOT", records(1, extra)), "profiles" to Calculation.InputScope("RELATION", profiles)), listOf(
-                JoinInput("profiles", "profile", "LEFT", ResultOperation(ResultOperator.EQ, listOf(symbol("object_key"), symbol("profile__object_key")))),
-                Derive(qualifiedDays, "qualified_days", "LEFT后仅资格TRUE求日期差，未命中保持NULL"),
-                regroup(listOf("customer"), listOf(
-                    reduction("qualified_days", ResultAggregation.Average(mean, ResultAggregation.NullPolicy.IGNORE, MeanTarget.MATHEMATICAL), "date_mean"),
-                    reduction("qualified_days", ResultAggregation.Count(false, ResultAggregation.NullPolicy.IGNORE), "date_count")))))
-            val aligned = Calculation.Scope(Calculation.AlignMeasurements(mapOf(
-                "raw" to Calculation.AlignedInput(raw, mapOf("customer" to "customer"), listOf(
-                    Calculation.AlignedValue("raw_mean", "raw_mean", Calculation.NoMatch.PRESERVE_NULL),
-                    Calculation.AlignedValue("raw_count", "raw_count", Calculation.NoMatch.PRESERVE_NULL))),
-                "dated" to Calculation.AlignedInput(dated, mapOf("customer" to "customer"), listOf(
-                    Calculation.AlignedValue("date_mean", "date_mean", Calculation.NoMatch.PRESERVE_NULL),
-                    Calculation.AlignedValue("date_count", "date_count", Calculation.NoMatch.PRESERVE_NULL)))), listOf("customer"),
-                Calculation.AlignmentPopulation(Calculation.PopulationKind.UNION, listOf("raw", "dated"))), emptyMap(), emptyList())
             warehouse.finishSetup()
             val catalog = definitions.catalog()
-            fun execute(query: Calculation.Scope): ExecutableBusinessResult {
-                val before = submissions
-                val result = engine.execute(catalog, ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION, "core-native-date-means-$dialect-$before",
-                    catalog.manifest.catalogId, query, QueryExecutionMode.CORE_FINALIZATION), observer, RuntimeDeploymentLimits.CONTROL)
-                assertEquals(before + 1, submissions, "$dialect: 两独立原袋及来源LEFT只提交一次来源")
-                assertEquals(SourceExecutionState.SUCCEEDED, result.sourceReadEvidence.request.execution)
-                return result.businessResult
+            val deployed = TestConnectors.registry.require(warehouse.spec.connectorRef)
+            // 同一真实日期SQL只改变公开稳定性保证，不从结果相同反推VOLATILE可复用。
+            for (stability in listOf(NativeScalarFunction.Stability.STATEMENT, NativeScalarFunction.Stability.VOLATILE)) {
+                val declaration = NativeScalarFunction("elapsed_days", List(2) { NativeScalarFunction.Parameter(NativeScalarFunction.ParameterKind.SCALAR, ScalarValueType.TEXT) },
+                    NativeValueType("BIGINT", null, null, true), MetricValueContract.Exact(), stability)
+                val support = object : CompilationSupport by deployed.compilation {
+                    override val nativeScalarFunctions = listOf(declaration)
+                    override fun requireNativeScalarFunction(id: String): NativeScalarFunction { require(id == declaration.id); return declaration }
+                    override fun nativeAggregate(kind: SqlKind): SqlAggFunction {
+                        if (kind == SqlKind.AVG) throw UnsupportedOperationException("this source does not implement native AVG")
+                        return deployed.compilation.nativeAggregate(kind)
+                    }
+                    override fun nativeScalarCall(function: String, arguments: List<CompilationSupport.NativeArgument>): SqlNode {
+                        require(function == declaration.id)
+                        val position = SqlParserPos.ZERO
+                        val date = SqlDataTypeSpec(SqlBasicTypeNameSpec(SqlTypeName.DATE, position), position)
+                        val values = arguments.map { org.apache.calcite.sql.`fun`.SqlStdOperatorTable.CAST.createCall(position,
+                            (it as CompilationSupport.ScalarArgument).value, date) }
+                        return SqlFunction(if (dialect == "h2") "DATEDIFF" else "DATE_DIFF", SqlKind.OTHER_FUNCTION, ReturnTypes.BIGINT_NULLABLE,
+                            null, OperandTypes.VARIADIC, SqlFunctionCategory.TIMEDATE).createCall(position,
+                            SqlLiteral.createCharString("day", position), values[0], values[1])
+                    }
+                }
+                val registry = ConnectorRegistry(listOf(ResolvedConnector(deployed.ref, support, deployed.access)))
+                val source = SourceProvider(warehouse.spec.source(), registry)
+                val delegate = SourceExecutableSqlExecutor({ if (it == source.bindingRef) source else null },
+                    RuntimeDeploymentLimits.nativeMemoryBytes, null)
+                var submissions = 0
+                var datedRows = 0
+                var datedRepresentation: String? = null
+                var datedReason: String? = null
+                var datedAttemptedStage: Int? = null
+                val engine = OlapEngine(OlapSemanticCompiler(CalciteRelCompiler(registry)), ExecutableSqlExecutor { lowering, context, control ->
+                    submissions++
+                    val datedOutput = lowering.outputLayout.scopes.getValue(QueryStageAnalysis.ScopeId.root().child("dated"))
+                    datedRepresentation = datedOutput.representation
+                    datedReason = datedOutput.reductionReason
+                    datedAttemptedStage = datedOutput.attemptedReductionStage
+                    delegate.execute(lowering, context, control).also { result ->
+                        datedRows = result.frame.rows.count { row -> datedOutput.presenceColumn?.let { row[it] == true } ?: true }
+                    }
+                }, RuntimeDeploymentLimits.result)
+                fun records(kind: Int, fields: List<String>) = Calculation.Scope(Calculation.Members("records", Calculation.MemberSource(MemberRef("orders", 1)),
+                    listOf(Calculation.MemberProjection("customer", "customer", Calculation.PublishedDimension(ScopedInputContract.DimensionRef("customers", "1", "customer")))) +
+                        fields.map { Calculation.MemberProjection(it, it, null) }, null, emptyMap(), memberEquals("kind", kind), emptyMap(), emptyMap(), emptyMap()), emptyMap(), emptyList())
+                val mean = coreDecimal(38, 2, MetricValueContract.Rounding.HALF_UP)
+                val raw = records(2, listOf("amount")).let { Calculation.Scope(it.root, it.inputs, listOf(regroup(listOf("customer"), listOf(
+                    reduction("amount", ResultAggregation.Average(mean, ResultAggregation.NullPolicy.IGNORE, MeanTarget.MATHEMATICAL), "raw_mean"),
+                    reduction("amount", ResultAggregation.Count(false, ResultAggregation.NullPolicy.IGNORE), "raw_count"))))) }
+                val profiles = Calculation.Scope(Calculation.Members("profiles", Calculation.MemberSource(MemberRef("profiles", 1)),
+                    profileOutputs.keys.map { Calculation.MemberProjection(it, it, null) }, null, emptyMap(), MemberCondition.Unrestricted(), emptyMap(), emptyMap(), emptyMap()), emptyMap(), emptyList())
+                val qualifiedDays = ResultCaseWhen(listOf(ResultCaseBranch(symbol("profile__eligible"),
+                    ResultNativeCall(deployed.ref, declaration.id, listOf(symbol("started"), symbol("ended"))))), ResultLiteral(null))
+                val dated = Calculation.Scope(Calculation.Input("records"), mapOf(
+                    "records" to Calculation.InputScope("ROOT", records(1, extra)), "profiles" to Calculation.InputScope("RELATION", profiles)), listOf(
+                    JoinInput("profiles", "profile", "LEFT", ResultOperation(ResultOperator.EQ, listOf(symbol("object_key"), symbol("profile__object_key")))),
+                    Derive(qualifiedDays, "qualified_days", "LEFT后仅资格TRUE求日期差，未命中保持NULL"),
+                    regroup(listOf("customer"), listOf(
+                        reduction("qualified_days", ResultAggregation.Average(mean, ResultAggregation.NullPolicy.IGNORE, MeanTarget.MATHEMATICAL), "date_mean"),
+                        reduction("qualified_days", ResultAggregation.Count(false, ResultAggregation.NullPolicy.IGNORE), "date_count")))))
+                val aligned = Calculation.Scope(Calculation.AlignMeasurements(mapOf(
+                    "raw" to Calculation.AlignedInput(raw, mapOf("customer" to "customer"), listOf(
+                        Calculation.AlignedValue("raw_mean", "raw_mean", Calculation.NoMatch.PRESERVE_NULL),
+                        Calculation.AlignedValue("raw_count", "raw_count", Calculation.NoMatch.PRESERVE_NULL))),
+                    "dated" to Calculation.AlignedInput(dated, mapOf("customer" to "customer"), listOf(
+                        Calculation.AlignedValue("date_mean", "date_mean", Calculation.NoMatch.PRESERVE_NULL),
+                        Calculation.AlignedValue("date_count", "date_count", Calculation.NoMatch.PRESERVE_NULL)))), listOf("customer"),
+                    Calculation.AlignmentPopulation(Calculation.PopulationKind.UNION, listOf("raw", "dated"))), emptyMap(), emptyList())
+                fun execute(query: Calculation.Scope): ExecutableBusinessResult {
+                    val before = submissions
+                    val result = engine.execute(catalog, ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION, "core-native-date-means-$dialect-$stability-$before",
+                        catalog.manifest.catalogId, query, QueryExecutionMode.CORE_FINALIZATION), observer, RuntimeDeploymentLimits.CONTROL)
+                    assertEquals(before + 1, submissions, "$dialect: 两独立原袋及来源LEFT只提交一次来源")
+                    assertEquals(SourceExecutionState.SUCCEEDED, result.sourceReadEvidence.request.execution)
+                    val transport = "dialect=$dialect, stability=$stability, representation=$datedRepresentation, datedReason=$datedReason, attemptedStage=$datedAttemptedStage, rows=$datedRows"
+                    if (dialect == "h2" && stability == NativeScalarFunction.Stability.STATEMENT) {
+                        assertEquals("EXACT_AGGREGATE_WORK", datedRepresentation, "同一SQL内稳定的日期值可完成工作SUM/COUNT；$transport")
+                        assertEquals(4, datedRows, "LEFT后的6条实际观察归约为4个客户工作组，含两个全NULL组；$transport")
+                        assertNull(datedReason, transport)
+                    } else {
+                        assertEquals("OBSERVATION_BAG", datedRepresentation, "稳定性或实际原生SUM保证未满足时保留原袋；$transport")
+                        assertEquals(6, datedRows, "原袋保留LEFT重复、资格FALSE和未匹配NULL的全部实际观察；$transport")
+                        if (stability == NativeScalarFunction.Stability.VOLATILE)
+                            assertTrue(datedReason?.startsWith("INPUT_EVALUATION_STABILITY_UNPROVEN: ") == true, transport)
+                        else assertTrue(datedReason?.startsWith("ACTUAL_NATIVE_WORK_EXACT_OR_FAIL_UNAVAILABLE: ") == true,
+                            "DuckDB同一语句稳定不代表原生SUM具有ExactOrFail保证；$transport")
+                    }
+                    return result.businessResult
+                }
+                val expected = listOf(
+                    listOf("1", "0.50", "2", "0.33", "3"),
+                    listOf("2", null, null, null, "0"), listOf("3", null, null, null, "0"),
+                    listOf("4", null, "0", null, null), listOf("5", "-1", "2", null, null),
+                    listOf("6", null, null, "-2", "1")).map { row -> row.map { it?.let(::decimal) } }
+                assertEquals(expected, numericRows(execute(aligned)), "$dialect: 原袋2/3独立归约，LEFT重复、资格NULL及缺组不能被笛卡尔运输改写")
+                val selected = Calculation.Scope(aligned.root, aligned.inputs, listOf(PostFilter(ResultOperation(ResultOperator.LT,
+                    listOf(symbol("date_mean"), ResultQuantityLiteral(BigDecimal("0.333"), coreDecimal(38, 3, MetricValueContract.Rounding.NONE)))))))
+                assertEquals(listOf(expected[0], expected[5]), numericRows(execute(selected)),
+                    "$dialect: 1/3先在AVG节点量化为0.33再筛选；真实NULL和缺组不补0")
             }
-            val expected = listOf(
-                listOf("1", "0.50", "2", "0.33", "3"),
-                listOf("2", null, null, null, "0"), listOf("3", null, null, null, "0"),
-                listOf("4", null, "0", null, null), listOf("5", "-1", "2", null, null),
-                listOf("6", null, null, "-2", "1")).map { row -> row.map { it?.let(::decimal) } }
-            assertEquals(expected, numericRows(execute(aligned)), "$dialect: 原袋2/3独立归约，LEFT重复、资格NULL及缺组不能被笛卡尔运输改写")
-            val selected = Calculation.Scope(aligned.root, aligned.inputs, listOf(PostFilter(ResultOperation(ResultOperator.LT,
-                listOf(symbol("date_mean"), ResultQuantityLiteral(BigDecimal("0.333"), coreDecimal(38, 3, MetricValueContract.Rounding.NONE)))))))
-            assertEquals(listOf(expected[0], expected[5]), numericRows(execute(selected)),
-                "$dialect: 1/3先在AVG节点量化为0.33再筛选；真实NULL和缺组不补0")
         }
     }
 

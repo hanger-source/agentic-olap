@@ -48,10 +48,10 @@ agentic-olap call describe-script-api --payload '{"type":"com.olap.prototype.cal
 
 计算以共同 `Calculation.Scope` 为中心，直接构造、内联组合、引用定义以及成为更高层定义的计算体使用同一规则。`Computations` 的类型发现披露这些入口。具体集合、测量与完成结果直接组合；只有真实可替换输入才声明形式槽。`Computations.scope { ... }` 内用 `relation(id, computation, outputs)` 或 `member(...)` 一次登记完成输入并取得正式局部引用，供内联计算、算法或计算成员调用，不再分开填写 ROOT 与局部引用。已有身份、数量与键由引擎核验传播，作者明确期间、人口、列映射与缺失政策。成员必须具有实际来源与角色，不能将完成测量包装成属性。完整构造见[共同计算使用方式](https://github.com/hanger-source/agentic-olap/blob/main/docs/agent-usage.md#以计算及其结果继续组合)。
 
-`execute-script` 向持续 Kotlin 会话提交一个完整片段。DSL 为 `agentic-olap-kotlin-dsl/v11`，以服务发现结果为准。`executionId` 必填；不填 `sessionId` 创建会话，后续使用实际返回的会话 ID：
+`execute-script` 向持续 Kotlin 会话提交一个完整片段。DSL 为 `agentic-olap-kotlin-dsl/v12`，以服务发现结果为准。`executionId` 必填；不填 `sessionId` 创建会话，后续使用实际返回的会话 ID：
 
 ~~~sh
-agentic-olap call execute-script --payload '{"executionId":"sources-001","waitMillis":0,"source":"val sources = olap.sources.list(EmptyRequest)\nolap.output(sources)","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v11","parameters":{}}'
+agentic-olap call execute-script --payload '{"executionId":"sources-001","waitMillis":0,"source":"val sources = olap.sources.list(EmptyRequest)\nolap.output(sources)","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v12","parameters":{}}'
 agentic-olap call wait-script --payload '{"executionId":"sources-001","waitMillis":1000}'
 ~~~
 
@@ -123,7 +123,7 @@ agentic-olap call wait-script --payload '{"executionId":"sources-001","waitMilli
 
 ## 执行、读取与继续积累
 
-`validate/explain/execute` 独立使用。解释按实际合同返回人口、资格、粒度、阶段和关系计划；未取得的来源统计保持未知。查询可直接执行，计算交给引擎，不在外围重算业务指标。
+`validate/explain/execute` 独立使用。解释按实际合同返回人口、资格、粒度、阶段和关系计划；SUMMARY 的 `sourceOutputScopes` 是 `SourceOutput` 条目，每项保留 `scope`、`representation`、`reductionStage`、`reductionReason`、`attemptedReductionStage`。`EXACT_AGGREGATE_WORK` 的 `reductionStage` 指向同一作用域原 REGROUP 的零基索引；`OBSERVATION_BAG` 不冒充已归约，原因及候选索引只取实际编译选择，不从 SUM 数量猜测。解释不执行来源，未取得的来源统计及保证核验仍保持未知。查询可直接执行，计算交给引擎，不在外围重算业务指标。
 
 `QueryExplanationRequest` 的 `offset` 是非负 Int，`limit` 是正 Int，本页最多返回实际存在的项目，不另设页长额度。SCOPES／SOURCES／PLAN 按列表分页，超过末尾返回空页；SUMMARY／COMPILATION_SCALE／EXECUTION_REQUIREMENTS 为单值，`offset` 必须为 0。`nextOffset` 仅在还有项目时返回，按实际页尾继续；不要求 `offset + limit` 落在 Int 内。保存结果的 `ResultMetadataRequest` 使用相同的 Int 列表边界；RUN／SOURCE_EVIDENCE／PUBLICATION／QUERY_INTENT 为单值，EXPLANATION 按其实际解释 section 处理。具体规则可通过正式类型发现读取；非法分页以 `INVALID_PAGINATION` 返回 `offset` 或 `limit`、实际值和允许范围。大消息继续按下述完整响应存档交付，不重执行查询。
 

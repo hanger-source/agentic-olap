@@ -15,7 +15,12 @@ internal object QueryExplanation {
     fun describe(query: CompiledQuery): View {
         val analyses = query.stageAnalyses.associateBy { it.scope }
         val coreScopes = query.coreFinalizationPlan?.scopes.orEmpty()
-        val sourceOutputScopes = query.coreFinalizationPlan?.sourceScopes ?: setOf(QueryStageAnalysis.ScopeId.root())
+        val sourceOutputs = requireNotNull(query.executableLoweringResult) { "explanation requires the actual compiled source output layout" }
+            .outputLayout.scopes.entries.sortedBy { it.key.path.joinToString("/") }.map { (scope, output) ->
+                View.SourceOutput(scope, View.SourceRepresentation.valueOf(output.representation), output.reductionStage,
+                    output.reductionReason, output.attemptedReductionStage)
+            }
+        val sourceOutputScopes = sourceOutputs.map { it.scope }.toSet()
         val scopes = query.scopes.map { scope ->
             val analysis = analyses.getValue(scope.scope)
             val root = root(scope.root)
@@ -49,7 +54,7 @@ internal object QueryExplanation {
         }
         val boundary = if (query.coreFinalizationPlan == null) "ONE_EXACT_SOURCE_BINDING" else "ONE_EXACT_SOURCE_BINDING_THEN_CORE_SCALAR_FINALIZATION"
         return View(query.requestId, View.Summary(scopes.size, query.resolvedSources.size, boundary, RowPopulationContract.contract(),
-            "NOT_OBSERVED", "NOT_OBSERVED", sourceOutputScopes.sortedBy { it.path.joinToString("/") }), scopes, query.resolvedSources.map(::source), query.sqlPlan, scale, requirements)
+            "NOT_OBSERVED", "NOT_OBSERVED", sourceOutputs), scopes, query.resolvedSources.map(::source), query.sqlPlan, scale, requirements)
     }
     private fun sourceConstraints(source: JdbcSourceRequirement): View.SourceConstraints {
         val constraints = source.constraintUses.sortedWith(compareBy({ it.kind.name }, { it.name ?: "" })).map { use ->

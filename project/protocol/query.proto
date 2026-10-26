@@ -97,7 +97,14 @@ message ExplanationScopes { repeated ExplanationScope items = 1; int32 total_ite
 message ExplanationSources { repeated ExplanationSource items = 1; int32 total_items = 2; optional int32 next_offset = 3; }
 message ExplanationPlan { repeated ExplanationPlanNode items = 1; int32 total_items = 2; optional int32 next_offset = 3; }
 message ExplanationScale { ExplanationCompilationScale value = 1; }
-message ExplanationSummary { int32 scope_count = 1; int32 source_input_count = 2; string execution_boundary = 3; PopulationContract population_contract = 4; string actual_source_statistics = 5; string row_null_attribution = 6; repeated agentic.olap.semantic.v1.ScopeId source_output_scopes = 7; }
+message ExplanationSummary {
+  reserved 7;
+  int32 scope_count = 1; int32 source_input_count = 2; string execution_boundary = 3; PopulationContract population_contract = 4;
+  string actual_source_statistics = 5; string row_null_attribution = 6;
+  repeated ExplanationSourceOutput source_output_scopes = 8;
+}
+enum ExplanationSourceRepresentation { EXPLANATION_SOURCE_REPRESENTATION_UNSPECIFIED = 0; OBSERVATION_BAG = 1; EXACT_AGGREGATE_WORK = 2; }
+message ExplanationSourceOutput { agentic.olap.semantic.v1.ScopeId scope = 1; ExplanationSourceRepresentation representation = 2; optional int32 reduction_stage = 3; optional string reduction_reason = 4; optional int32 attempted_reduction_stage = 5; }
 message PopulationMode { string mode = 1; repeated string fields = 2; string groups = 3; optional string inputs = 4; }
 message PopulationContract { string format_version = 1; bool required = 2; repeated PopulationMode modes = 3; string scope = 4; string grain = 5; string unmatched_metrics = 6; string calculation_metric = 7; string empty_population = 8; string coverage = 9; }
 message ExplanationKey { bool proven_unique = 1; repeated agentic.olap.semantic.v1.SymbolId columns = 2; }

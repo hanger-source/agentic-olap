@@ -60,8 +60,20 @@ object QueryExplanationProto {
         v.scope, v.grain, v.unmatchedMetrics, v.calculationMetric, v.emptyPopulation, v.coverage)
     fun toProto(v: View.Summary): ExplanationSummary = ExplanationSummary.newBuilder().setScopeCount(v.scopeCount).setSourceInputCount(v.sourceInputCount)
         .setExecutionBoundary(v.executionBoundary).setPopulationContract(toProto(v.populationContract)).setActualSourceStatistics(v.actualSourceStatistics).setRowNullAttribution(v.rowNullAttribution)
-        .addAllSourceOutputScopes(v.sourceOutputScopes.map(SemanticProto::toProto)).build()
-    fun fromProto(v: ExplanationSummary): View.Summary { require(v.hasPopulationContract() && v.sourceOutputScopesCount > 0); return View.Summary(v.scopeCount, v.sourceInputCount, v.executionBoundary, fromProto(v.populationContract), v.actualSourceStatistics, v.rowNullAttribution, v.sourceOutputScopesList.map(SemanticProto::fromProto)) }
+        .addAllSourceOutputScopes(v.sourceOutputScopes.map(::toProto)).build()
+    fun fromProto(v: ExplanationSummary): View.Summary { require(v.hasPopulationContract() && v.sourceOutputScopesCount > 0); return View.Summary(v.scopeCount, v.sourceInputCount, v.executionBoundary, fromProto(v.populationContract), v.actualSourceStatistics, v.rowNullAttribution, v.sourceOutputScopesList.map(::fromProto)) }
+    fun toProto(v: View.SourceOutput): ExplanationSourceOutput = ExplanationSourceOutput.newBuilder().setScope(SemanticProto.toProto(v.scope))
+        .setRepresentation(ExplanationSourceRepresentation.valueOf(v.representation.name)).apply {
+            v.reductionStage?.let(::setReductionStage)
+            v.reductionReason?.let(::setReductionReason)
+            v.attemptedReductionStage?.let(::setAttemptedReductionStage)
+        }.build()
+    fun fromProto(v: ExplanationSourceOutput): View.SourceOutput {
+        require(v.hasScope()) { "source output explanation requires its actual scope" }
+        return View.SourceOutput(SemanticProto.fromProto(v.scope), View.SourceRepresentation.valueOf(v.representation.name),
+            if (v.hasReductionStage()) v.reductionStage else null, if (v.hasReductionReason()) v.reductionReason else null,
+            if (v.hasAttemptedReductionStage()) v.attemptedReductionStage else null)
+    }
     fun toProto(v: QueryStageAnalysis.Key): ExplanationKey = ExplanationKey.newBuilder().apply { when (v) {
         is QueryStageAnalysis.UniqueKey -> { provenUnique = true; addAllColumns(v.columns.sortedWith(compareBy({ it.scope.path.joinToString("\u0000") }, { it.position })).map(SemanticProto::toProto)) }
         QueryStageAnalysis.UnknownKey.INSTANCE -> provenUnique = false
