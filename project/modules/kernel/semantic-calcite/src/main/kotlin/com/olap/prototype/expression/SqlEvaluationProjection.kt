@@ -218,7 +218,10 @@ internal class SqlEvaluationProjection {
                 val current = minOf(2, previous + minOf(2, uses))
                 if (current == previous) return
                 occurrences[value] = current
-                val added = current - previous
+                // 可共享父值只构造一次；对父值的再次引用，不是其所有后代的新消费者。
+                // 同一父的不同实参位置仍分别计数，非稳定父值继续按实际重复求值传递次数。
+                val added = if (candidate(value)) { if (previous == 0) 1 else 0 } else current - previous
+                if (added == 0) return
                 when (value) {
                     is RexOver -> Unit
                     is RexCall -> value.operands.forEach { count(it, added) }
