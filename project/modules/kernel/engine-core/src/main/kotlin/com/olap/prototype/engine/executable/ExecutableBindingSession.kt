@@ -23,9 +23,10 @@ internal class ExecutableBindingSession(val catalog: ExecutableCatalog, connecto
         return completion.finish(CalculationBinding(this, request.computation, ScopeId.root(), 0).bind(null))
     }
 
-    fun bindInline(root: Calculation.Compute, parent: CalculationBinding, caller: ScopeAssembly, callerScope: ScopeId, lexicalScope: ScopeId, depth: Int): ExecutableInputScope {
+    fun bindInline(root: Calculation.Compute, parent: CalculationBinding, caller: ScopeAssembly, callerSyntax: Calculation.Scope,
+        callerScope: ScopeId, lexicalScope: ScopeId, depth: Int): ExecutableInputScope {
         val adoption = root.bindings
-        if (adoption is Calculation.ExplicitBindings) catalog.requireBindings(root.calculation, adoption.bindings)
+        if (adoption is Calculation.ExplicitBindings) catalog.requireBindings(root.calculation, adoption.bindings, callerSyntax)
         val application = CalculationInstantiation.compute(root, parent.definition, parent.bindings, parent.arguments)
         catalog.requireBoundBindings(root.calculation, application.bindings)
         val members = if (adoption is Calculation.ParentSlots) adoption.memberSlots.mapValues { (_, slot) -> parent.fullMember(slot, callerScope, depth) } else emptyMap()
@@ -34,7 +35,7 @@ internal class ExecutableBindingSession(val catalog: ExecutableCatalog, connecto
         } else emptyMap()
         val invocation = CalculationBinding(this, root, application.bindings, application.arguments, lexicalScope, depth,
             parent.owner, parent.displayName, parent.templateStack(), members, relations)
-        if (adoption is Calculation.ExplicitBindings) invocation.bindExternal(adoption.members, adoption.relations,
+        if (adoption is Calculation.ExplicitBindings) invocation.bindExternal(adoption.bindings.members, adoption.bindings.relations,
             MemberEnvironment(caller.callerInputs(), callerScope, callerScope), callerScope, depth, parent.templateStack())
         return invocation.bind("ROOT")
     }

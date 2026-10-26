@@ -69,7 +69,7 @@ object PublishedQueryContract {
             when (val root = scope.root) {
                 is Calculation.Measures -> authorizeMeasures(root, bindings, arguments, depth)
                 is Calculation.Members -> authorizeMembers(root, owner, bindings, arguments, depth, false)
-                is Calculation.Compute -> authorizeCompute(root, owner, bindings, arguments, depth, path)
+                is Calculation.Compute -> authorizeCompute(root, scope, owner, bindings, arguments, depth, path)
                 is Calculation.Relation -> if (owner == null) fail("public relation roots require a declared calculation formal")
                 is Calculation.SetCombination -> count[0] += root.inputs.size
                 is Calculation.Input, is Calculation.ObjectMeasure, is Calculation.AlignMeasurements, is Calculation.ObservationStatistics -> kotlin.Unit
@@ -92,13 +92,14 @@ object PublishedQueryContract {
                 fail("query exceeds scope/instance/occurrence budget")
         }
 
-        private fun authorizeCompute(root: Calculation.Compute, parent: Calculation?, parentBindings: CalculationBindings,
+        private fun authorizeCompute(root: Calculation.Compute, callerScope: Calculation.Scope, parent: Calculation?, parentBindings: CalculationBindings,
             parentArguments: Map<String, Calculation.Value>, depth: Int, path: List<Any>) {
             val calculation = root.calculation
+            val catalog = compilationCatalog
+            (root.bindings as? Calculation.ExplicitBindings)?.let { catalog.requireBindings(calculation, it.bindings, callerScope) }
             val application = CalculationInstantiation.compute(root, parent, parentBindings, parentArguments)
             val bindings = application.bindings
             bindings.measurements.values.forEach { if (metric(it).adoptionStatus != "ACTIVE") fail("metric adoption is not active") }
-            val catalog = compilationCatalog
             bindings.dimensions.values.forEach { authorizeDimensionBinding(it, catalog) }
             bindings.groupingCandidates.values.flatten().forEach { authorizeDimensionBinding(it, catalog) }
             authorizeMemberBindings(bindings.members, calculation.memberSlots.associateBy { it.name }, depth)
@@ -207,10 +208,10 @@ object PublishedQueryContract {
             }
             root.calls.forEach { call ->
                 count[0]++
-                val instanceRef = when (val target = call.target) {
-                    is Calculation.Instance -> target.instance
-                    is Calculation.Measurement -> requireNotNull(bindings.measurements[target.slot]) { "public measurement parameters require a calculation binding" }
-                    is Calculation.Fixed -> fail("public calculations must select approved measurement instances")
+                val instanceRef = when (call) {
+                    is Calculation.InstanceCall -> call.instance
+                    is Calculation.MeasurementCall -> requireNotNull(bindings.measurements[call.slot]) { "public measurement parameters require a calculation binding" }
+                    is Calculation.DefinitionCall -> fail("public calculations must select approved measurement instances")
                 }
                 val candidate = metric(instanceRef)
                 if (candidate.adoptionStatus != "ACTIVE") fail("metric adoption is not active")

@@ -189,7 +189,7 @@ class PublishedCalculationArgumentsTest {
                     f.build("published_native_scalar")
                     val publication = f.publication("published_native_scalar")
                     fun complete(code: String) = measures(listOf(invocation("count", instance(f, code), "quantity")))
-                    fun transform(id: String, input: String) = Calculation.Call(id, Calculation.Instance(instance(f, "native_completed_number")), id, emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), mapOf("completed" to CalculationBindings.LocalRelation(input, mapOf("quantity" to "quantity"))))
+                    fun transform(id: String, input: String) = Calculation.InstanceCall(id, instance(f, "native_completed_number"), relations = mapOf("completed" to CalculationBindings.LocalRelation(input, mapOf("quantity" to "quantity"))))
                     val query = Calculation.Scope(measures(listOf(transform("records", "records"), transform("distinct_amounts", "amounts"))).root, mapOf("records" to Calculation.InputScope("ROOT", complete("native_amount_records")),
                             "amounts" to Calculation.InputScope("ROOT", complete("native_amount_values"))), emptyList())
                     val encoded = ProtoBytes.encode(QueryProto.toProto(f.intent(publication, query)))
@@ -488,9 +488,9 @@ class PublishedCalculationArgumentsTest {
                     Calculation.RelationSlot("amounts", outputs(amountContracts), listOf("account")), Calculation.RelationSlot("bag", outputs(bagContracts), listOf("account"))), emptyMap(),
                     Calculation.Scope(Calculation.AlignMeasurements(linkedMapOf("amounts" to aligned("amounts", amountContracts), "bag" to aligned("bag", bagContracts)), listOf("account"),
                         Calculation.AlignmentPopulation(Calculation.PopulationKind.BASE, listOf("amounts"))), emptyMap(), emptyList()))
-                val basis = Calculation.Scope(Calculation.Compute(alignment, Calculation.ExplicitBindings(CalculationBindings(dimensionBindings, emptyMap(), emptyMap(), emptyMap(), mapOf("amounts" to CalculationBindings.RelationParameter(), "bag" to CalculationBindings.RelationParameter())), emptyMap(), mapOf("amounts" to CalculationBindings.LocalRelation("amounts", completedAmountSymbols + mapOf("account" to "account", sourceCount to sourceCount)),
-                        "bag" to CalculationBindings.LocalRelation("bag", (bagContracts.keys + "account").associateWith { it }))), emptyMap()), mapOf("amounts" to Calculation.InputScope("ROOT", completedAmounts), "bag" to Calculation.InputScope("ROOT", completedBag)), emptyList())
-                val calls = ratios.map { spec -> Calculation.Call(spec.code, Calculation.Instance(instance(f, spec.code)), spec.code, emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), mapOf("basis" to CalculationBindings.LocalRelation("completed", mapOf("account" to "account", "numerator" to spec.numerator, "denominator" to spec.denominator)))) }
+                val basis = Calculation.Scope(Calculation.Compute(alignment, Calculation.ExplicitBindings(CalculationBindings(dimensions = dimensionBindings, relations = mapOf("amounts" to CalculationBindings.LocalRelation("amounts", completedAmountSymbols + mapOf("account" to "account", sourceCount to sourceCount)),
+                        "bag" to CalculationBindings.LocalRelation("bag", (bagContracts.keys + "account").associateWith { it })))), emptyMap()), mapOf("amounts" to Calculation.InputScope("ROOT", completedAmounts), "bag" to Calculation.InputScope("ROOT", completedBag)), emptyList())
+                val calls = ratios.map { spec -> Calculation.InstanceCall(spec.code, instance(f, spec.code), relations = mapOf("basis" to CalculationBindings.LocalRelation("completed", mapOf("account" to "account", "numerator" to spec.numerator, "denominator" to spec.denominator)))) }
                 val measured = Calculation.Scope(Calculation.Measures(calls, (listOf(axis)).map { Calculation.PublishedDimension(it) }, emptyList(), null, emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(calls.map { it.callId }), null), mapOf("completed" to Calculation.InputScope("ROOT", basis)), emptyList())
                 val detailNames = listOf("account", "base_a", "base_b") + contributions.keys + listOf(sourceCount, joinedCount, knownCount, nullCount) + ratios.map { "metric__${it.code}" }
                 val stages = mutableListOf<PostOperationContract.ValidatedOperation>(
@@ -621,7 +621,7 @@ class PublishedCalculationArgumentsTest {
 
     private fun conditionalAmount(factId: String): MetricCalculation {
         val parameters = mapOf("population" to Calculation.Parameter(Calculation.ParameterKind.CONDITION, "SOURCE_CONDITION", emptyList(), null, null))
-        val call = Calculation.Call("private_amount", Calculation.Fixed(MetricRef(factId, "1")), "value", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Argument("population"), emptyMap(), emptyMap())
+        val call = Calculation.DefinitionCall("private_amount", MetricRef(factId, "1"), outputAlias = "value", sourceCondition = Calculation.Argument("population"))
         val calculation = Calculation(emptyList(), emptyList(), emptyList(), emptyList(), parameters,
             Calculation.Scope(Calculation.Measures(listOf(call), emptyList(), emptyList(), null, emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(listOf(call.callId)), null), emptyMap(), emptyList()))
         return MetricCalculation(calculation, "value", emptyList(), GovernanceOrderFixture.money())
@@ -654,7 +654,7 @@ class PublishedCalculationArgumentsTest {
 
     private fun instance(f: GovernanceOrderFixture, code: String) = f.adoptions.metricAdoption(MetricAdoption.identity(GovernanceOrderFixture.SUBJECT, code), 1).instance
     private fun invocation(id: String, instance: MetricInstanceRef, alias: String, arguments: Map<String, Calculation.Value> = emptyMap()) =
-        Calculation.Call(id, Calculation.Instance(instance), alias, emptyMap(), emptyMap(), emptyMap(), emptyMap(), arguments, Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), emptyMap())
+        Calculation.InstanceCall(id, instance, outputAlias = alias, arguments = arguments)
     private fun measures(calls: List<Calculation.Call>, sourceCondition: DimensionCondition = DimensionCondition.Unrestricted()) =
         Calculation.Scope(Calculation.Measures(calls, emptyList(), emptyList(), null, emptyMap(), Calculation.Condition(sourceCondition), DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(calls.map { it.callId }), null), emptyMap(), emptyList())
     private fun number(expected: String, actual: Any?) { assertNotNull(actual); assertEquals(0, BigDecimal(expected).compareTo(BigDecimal(actual.toString()))) }

@@ -24,13 +24,13 @@ internal object CustomerCalculationDefinitions {
             PostOperationContract.PostFilter(ResultExpression.ResultOperation(if (strict) ResultExpression.ResultOperator.GT else ResultExpression.ResultOperator.GTE,
                 listOf(ResultExpression.ResultSymbol("spent"), ResultExpression.ResultArgument("minimum", ScalarValueType.NUMBER)))),
             regroup("spent", "AVG", listOf("\$group:groups"), nativeMeanMoney()))
-        return MetricCalculation(Calculation(slots, listOf(Calculation.MemberSlot("customers", "客户", "customer", MemberShape.UNIQUE_MEMBERS,
-            mapOf("customer" to Calculation.MemberDimension("customer", null)), null)), emptyList(), emptyList(), parameters, Calculation.Scope(Calculation.Measures(listOf(Calculation.Call("orders", Calculation.Fixed(MetricRef(paymentMetric, "1")), "spent", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), emptyMap())), (listOf("customer")).map { Calculation.DimensionParameter(it) }, listOf("groups"), Calculation.TimeRange(Calculation.DimensionParameter("time"), Calculation.Argument("window")), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(listOf("orders")), null),
+        return MetricCalculation(Calculation(dimensionSlots = slots, memberSlots = listOf(Calculation.MemberSlot("customers", "客户", "customer", MemberShape.UNIQUE_MEMBERS,
+            mapOf("customer" to Calculation.MemberDimension("customer", null)), null)), parameters = parameters, computation = Calculation.Scope(Calculation.Measures(listOf(Calculation.DefinitionCall("orders", MetricRef(paymentMetric, "1"), outputAlias = "spent")), (listOf("customer")).map { Calculation.DimensionParameter(it) }, listOf("groups"), Calculation.TimeRange(Calculation.DimensionParameter("time"), Calculation.Argument("window")), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(listOf("orders")), null),
             mapOf("eligible" to Calculation.InputScope("RELATION", customers)), stages)), "value", listOf("\$group:groups"), nativeMeanMoney())
     }
 
     fun parent(child: String, definition: MetricCalculation): MetricCalculation {
-        val call = Calculation.Call("qualified", Calculation.Fixed(MetricRef(child, "1")), "value", mapOf("customer" to "customer", "time" to "time"), mapOf("customers" to "customers"), emptyMap(), emptyMap(), mapOf("window" to Calculation.Argument("window"), "minimum" to Calculation.Argument("minimum"), "groups" to Calculation.Argument("groups")), Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), emptyMap())
+        val call = Calculation.DefinitionCall("qualified", MetricRef(child, "1"), outputAlias = "value", dimensionSlots = mapOf("customer" to "customer", "time" to "time"), memberSlots = mapOf("customers" to "customers"), arguments = mapOf("window" to Calculation.Argument("window"), "minimum" to Calculation.Argument("minimum"), "groups" to Calculation.Argument("groups")))
         return MetricCalculation(Calculation(definition.calculation.dimensionSlots, definition.calculation.memberSlots, emptyList(), emptyList(), definition.calculation.parameters, Calculation.Scope(Calculation.Measures(listOf(call), emptyList(), listOf("groups"), null, emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(listOf("qualified")), null), emptyMap(), emptyList())),
             "value", listOf("\$group:groups"), nativeMeanMoney())
     }
@@ -40,9 +40,7 @@ internal object CustomerCalculationDefinitions {
         val localParameters = parameters.mapKeys { (name, _) -> localNames.getValue(name) }
         val sourceArguments = parameters.keys.associateWith { Calculation.Argument(localNames.getValue(it)) }
         val forwardedArguments = parameters.keys.associate { localNames.getValue(it) to Calculation.Argument(it) }
-        val local = Calculation(emptyList(), emptyList(),
-            listOf(Calculation.MeasurementSlot("selected", parameters, emptyList(), listOf("groups"), contract)), emptyList(), localParameters,
-            Computations.measure(listOf(Computations.invoke(Calculation.Measurement("selected"), "qualified", outputAlias = "value", arguments = sourceArguments)),
+        val local = Calculation(measurementSlots = listOf(Calculation.MeasurementSlot("selected", parameters, emptyList(), listOf("groups"), contract)), parameters = localParameters, computation = Computations.measure(listOf(Computations.measurement("selected", "qualified", outputAlias = "value", arguments = sourceArguments)),
                 emptyList(), RowPopulationContract.calls(listOf("qualified")), groupingArguments = listOf(localNames.getValue("groups"))))
         val parent = Calculation(emptyList(), emptyList(),
             listOf(Calculation.MeasurementSlot("qualified", parameters, emptyList(), listOf("groups"), contract)), emptyList(), parameters,

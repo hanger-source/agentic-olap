@@ -277,12 +277,14 @@ class QueryUsageRepository(private val database: PlatformDatabase, private val l
                 root.members.values.forEach(::memberBinding)
             }
             is Calculation.Measures -> root.calls.forEach { call ->
-                when (val target = call.target) {
-                    is Calculation.Instance -> instance(target.instance)
-                    is Calculation.Fixed -> metric(target.metric)
-                    is Calculation.Measurement -> Unit
+                when (call) {
+                    is Calculation.InstanceCall -> {
+                        instance(call.instance)
+                        call.members.values.forEach(::memberBinding)
+                    }
+                    is Calculation.DefinitionCall -> metric(call.metric)
+                    is Calculation.MeasurementCall -> Unit
                 }
-                call.members.values.forEach(::memberBinding)
             }
             is Calculation.Compute -> {
                 root.calculation.memberSlots.mapNotNull { it.fixedSource }.forEach(::member)
@@ -290,7 +292,6 @@ class QueryUsageRepository(private val database: PlatformDatabase, private val l
                     is Calculation.ExplicitBindings -> {
                         bindings.bindings.measurements.values.forEach(::instance)
                         bindings.bindings.members.values.forEach(::memberBinding)
-                        bindings.members.values.forEach(::memberBinding)
                     }
                     is Calculation.ParentSlots -> Unit
                 }

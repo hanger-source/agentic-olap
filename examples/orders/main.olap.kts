@@ -234,7 +234,7 @@ fun references(saved: BusinessExample.Saved): ScriptValue = ScriptValue.ObjectVa
 
 
 fun measure(slot: String, alias: String, grouped: Boolean, period: Boolean) = Computations.measure(
-    listOf(Computations.invoke(Calculation.Measurement(slot), slot, outputAlias = alias,
+    listOf(Computations.measurement(slot, slot, outputAlias = alias,
         arguments = if (period) mapOf("window" to Calculation.Argument("window")) else emptyMap())),
     if (grouped) listOf(Calculation.DimensionParameter("customer")) else emptyList(), RowPopulationContract.calls(listOf(slot)))
 
@@ -242,8 +242,7 @@ fun slot(name: String, contract: MetricValueContract, grouped: Boolean, period: 
     name, if (period) PERIOD else emptyMap(), if (grouped) listOf(CUSTOMER_SLOT) else emptyList(), emptyList(), contract)
 
 fun aggregateDefinition(fact: MetricRef, contract: MetricValueContract) = MetricCalculation(
-    Calculation(listOf(CUSTOMER_SLOT, TIME_SLOT), emptyList(), emptyList(), emptyList(), PERIOD,
-        Computations.measure(listOf(Computations.invoke(Calculation.Fixed(fact), "fact", outputAlias = "value")), listOf(Calculation.DimensionParameter("customer")),
+    Calculation(dimensionSlots = listOf(CUSTOMER_SLOT, TIME_SLOT), parameters = PERIOD, computation = Computations.measure(listOf(Computations.invoke(fact, "fact", outputAlias = "value")), listOf(Calculation.DimensionParameter("customer")),
             RowPopulationContract.calls(listOf("fact")), timeRange = Calculation.TimeRange(Calculation.DimensionParameter("time"), Calculation.Argument("window")))),
     "value", listOf("customer"), contract)
 
@@ -269,7 +268,7 @@ fun people(slot: String) = Computations.members(slot, Calculation.MemberParamete
 
 fun floating(value: ResultExpression): ResultExpression = ResultCast(value, SemanticExpression.ValueType.DOUBLE, null, null, MetricValueContract.Rounding.NONE)
 
-fun netAt(window: Calculation.Range) = Computations.measure(listOf(Computations.invoke(Calculation.Measurement("net"), "net", outputAlias = "measured", arguments = mapOf("window" to window))),
+fun netAt(window: Calculation.Range) = Computations.measure(listOf(Computations.measurement("net", "net", outputAlias = "measured", arguments = mapOf("window" to window))),
     listOf(Calculation.DimensionParameter("customer")), RowPopulationContract.calls(listOf("net")))
 
 fun netDefinition(fees: Boolean): MetricCalculation {
@@ -304,9 +303,8 @@ fun qualification(): Calculation {
 }
 
 fun qualifiedTotal(measured: Calculation.Scope): Calculation.Scope {
-    val qualified = Calculation.Scope(Calculation.Input("net_rows"), linkedMapOf(
-        "net_rows" to Calculation.InputScope("ROOT", measured), "eligible" to Calculation.InputScope("RELATION", people("eligible"))),
-        listOf(JoinInput("eligible", "chosen", "SEMI", operation(ResultOperator.EQ, symbol("customer"), symbol(ScopedInputContract.metricSymbol("chosen", "customer"))))))
+    val qualified = Computations.join(measured, people("eligible"),
+        JoinInput("eligible", "chosen", "SEMI", operation(ResultOperator.EQ, symbol("customer"), symbol(ScopedInputContract.metricSymbol("chosen", "customer")))))
     return Computations.scope(Calculation.ObservationStatistics(qualified, Calculation.ObjectsBy(listOf("customer")), emptyList(),
         listOf(Calculation.Reduction(reduction("measured", ResultAggregation.Sum(amountContract(), ResultAggregation.NullPolicy.IGNORE), "value")))))
 }
@@ -319,9 +317,10 @@ fun growthDefinition(): MetricCalculation {
         "prior" to aligned(qualifiedTotal(netAt(period("2025-12-01", "2026-01-01"))), "value", "prior", false),
     )
     val ratio = operation(ResultOperator.DIVIDE, floating(operation(ResultOperator.SUBTRACT, symbol("current"), symbol("prior"))), floating(symbol("prior")))
-    return MetricCalculation(Calculation(listOf(CUSTOMER_SLOT), listOf(eligibleSlot("eligible_source"), eligibleSlot("eligible")), listOf(slot("net", amountContract(), true, true)), emptyList(), emptyMap(), Calculation.Scope(align(inputs, false, "current"),
-        mapOf("fixed_people" to Calculation.InputScope("ROOT", people("eligible_source"))),
-        listOf(numeric("value", ratio, ratioContract(), "ratio"), Project(listOf("value"))))), "value", emptyList(), ratioContract())
+    return MetricCalculation(Calculation(dimensionSlots = listOf(CUSTOMER_SLOT), memberSlots = listOf(eligibleSlot("eligible")),
+        measurementSlots = listOf(slot("net", amountContract(), true, true)), computation = Computations.stages(
+            Computations.scope(align(inputs, false, "current")), listOf(numeric("value", ratio, ratioContract(), "ratio"), Project(listOf("value"))))),
+        "value", emptyList(), ratioContract())
 }
 
 fun statisticsDefinition(outputName: String): Calculation {
@@ -408,18 +407,17 @@ fun buildOrders(): BusinessExample.Saved {
     }
     val children = linkedMapOf<String, SubjectAreaMetricRefRecord>()
     aggregates.forEach { (code, definition) ->
-        children[code] = example.adopt(subject, "${code}_original", definition, CalculationBindings(mapOf("customer" to customer.bound, "time" to originalTime.bound), emptyMap(), emptyMap(), emptyMap(), emptyMap()))
+        children[code] = example.adopt(subject, "${code}_original", definition, CalculationBindings(dimensions = mapOf("customer" to customer.bound, "time" to originalTime.bound)))
         if (code in listOf("gross", "refund")) children["${code}_occurrence"] = example.adopt(subject, "${code}_occurrence", definition,
-            CalculationBindings(mapOf("customer" to customer.bound, "time" to occurrenceTime.bound), emptyMap(), emptyMap(), emptyMap(), emptyMap()))
+            CalculationBindings(dimensions = mapOf("customer" to customer.bound, "time" to occurrenceTime.bound)))
     }
     val netDefinition = example.calculation("net", netDefinition(false))
-    fun net(code: String, suffix: String) = example.adopt(subject, code, netDefinition, CalculationBindings(mapOf("customer" to customer.bound), emptyMap(), emptyMap(),
-        mapOf("gross" to children.getValue("gross$suffix").instance, "refund" to children.getValue("refund$suffix").instance), emptyMap()))
+    fun net(code: String, suffix: String) = example.adopt(subject, code, netDefinition, CalculationBindings(dimensions = mapOf("customer" to customer.bound), measurements = mapOf("gross" to children.getValue("gross$suffix").instance, "refund" to children.getValue("refund$suffix").instance)))
     val net = net("original_net", "")
     val occurrenceNet = net("occurrence_net", "_occurrence")
     val totalDefinition = example.calculation("net_total", totalDefinition("net", amountContract()))
     fun total(code: String, input: SubjectAreaMetricRefRecord) = example.adopt(subject, code, totalDefinition,
-        CalculationBindings(mapOf("customer" to customer.bound), emptyMap(), emptyMap(), mapOf("net" to input.instance), emptyMap()))
+        CalculationBindings(dimensions = mapOf("customer" to customer.bound), measurements = mapOf("net" to input.instance)))
     val metrics = linkedMapOf("original_net" to net, "original_total" to total("original_total", net), "occurrence_total" to total("occurrence_total", occurrenceNet),
         "gross_total" to total("gross_total", children.getValue("gross")))
     val qualification = qualification()
@@ -429,21 +427,18 @@ fun buildOrders(): BusinessExample.Saved {
     val shared = governance.createMemberDefinition(MemberDefinitionCreateRequest("qualified_customers", "合格客户", qualifiedDefinition, "资格成为可继续引用的定义", example.actor, example.actor))
     example.activate("MEMBER_DEFINITION", shared.id)
     val qualified = governance.adoptMemberDefinition(MemberDefinitionAdoptRequest(subject.id, 1, "qualified", "本期合格客户", shared.reference,
-        CalculationBindings(mapOf("customer" to customer.bound), emptyMap(), emptyMap(), mapOf("net" to net.instance, "orders" to children.getValue("orders").instance), emptyMap()), emptyMap(), example.actor))
+        CalculationBindings(dimensions = mapOf("customer" to customer.bound), measurements = mapOf("net" to net.instance, "orders" to children.getValue("orders").instance)), emptyMap(), example.actor))
     fun eligible(binding: Calculation.Binding) = CalculationBindings.SourceCall(MemberRef(qualified.id, 1), mapOf("window" to binding), mapOf("customer" to "customer"), emptyMap(), emptyMap())
     val qualifiedTotalDefinition = example.calculation("qualified_total", qualifiedDefinition())
-    metrics["fixed_cohort"] = example.adopt(subject, "fixed_cohort", qualifiedTotalDefinition, CalculationBindings(mapOf("customer" to customer.bound),
-        mapOf("eligible" to eligible(period("2026-01-01", "2026-02-01"))), emptyMap(), mapOf("net" to net.instance), emptyMap()))
-    metrics["separate_cohort"] = example.adopt(subject, "separate_cohort", qualifiedTotalDefinition, CalculationBindings(mapOf("customer" to customer.bound),
-        mapOf("eligible" to eligible(Calculation.Argument("window"))), emptyMap(), mapOf("net" to net.instance), emptyMap()))
+    metrics["fixed_cohort"] = example.adopt(subject, "fixed_cohort", qualifiedTotalDefinition, CalculationBindings(dimensions = mapOf("customer" to customer.bound), members = mapOf("eligible" to eligible(period("2026-01-01", "2026-02-01"))), measurements = mapOf("net" to net.instance)))
+    metrics["separate_cohort"] = example.adopt(subject, "separate_cohort", qualifiedTotalDefinition, CalculationBindings(dimensions = mapOf("customer" to customer.bound), members = mapOf("eligible" to eligible(Calculation.Argument("window"))), measurements = mapOf("net" to net.instance)))
     val growth = growthDefinition()
-    val growthBindings = CalculationBindings(mapOf("customer" to customer.bound), mapOf("eligible_source" to eligible(period("2026-01-01", "2026-02-01")),
-        "eligible" to CalculationBindings.LocalRef("fixed_people", mapOf("customer" to "customer"))), emptyMap(), mapOf("net" to net.instance), emptyMap())
+    val growthBindings = CalculationBindings(dimensions = mapOf("customer" to customer.bound),
+        members = mapOf("eligible" to eligible(period("2026-01-01", "2026-02-01"))), measurements = mapOf("net" to net.instance))
     metrics["fixed_growth"] = example.adopt(subject, "fixed_growth", example.calculation("cohort_growth", growth), growthBindings)
     listOf("order_mean", "customer_mean", "unweighted", "weighted").forEach { code -> metrics[code] = example.adopt(subject, code,
         example.calculation(code, MetricCalculation(statisticsDefinition(code), code, emptyList(),
-            if (code in setOf("customer_mean", "unweighted")) sourceAverageContract() else averageContract())), CalculationBindings(mapOf("customer" to customer.bound),
-            emptyMap(), emptyMap(), mapOf("gross" to children.getValue("gross").instance, "orders" to children.getValue("orders").instance), emptyMap())) }
+            if (code in setOf("customer_mean", "unweighted")) sourceAverageContract() else averageContract())), CalculationBindings(dimensions = mapOf("customer" to customer.bound), measurements = mapOf("gross" to children.getValue("gross").instance, "orders" to children.getValue("orders").instance))) }
     val scenario = governance.createScenario(ScenarioCreateRequest(subject.id, 1, "business", "订单经营", example.actor, "独立事实、业务资格和共同计算", example.actor)).scenario
     listOf(customer, originalTime, occurrenceTime).forEach { example.grant(scenario, it) }
     governance.createScenarioMemberSourceRef(ScenarioMemberSourceRefCreateRequest(scenario.id, 1, qualified.id, 1,

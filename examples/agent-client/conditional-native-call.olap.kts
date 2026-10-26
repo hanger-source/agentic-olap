@@ -31,9 +31,9 @@ val details = Computations.members("details", MemberRef(parameters.text("detailM
         Calculation.MemberProjection("raw_text", parameters.text("rawTextSlot"), null)))
 
 // 仅按记录身份 LEFT；右侧跨日期多版本均保留，不推断单键唯一，也不提前解析明细。
+val related = Computations.join(facts, details, JoinInput("details", "detail", "LEFT",
+    resultOp(ResultOperator.EQ, resultSymbol("record_id"), resultSymbol("detail__record_id"))))
 val stages: List<PostOperationContract.ValidatedOperation> = listOf(
-    JoinInput("details", "detail", "LEFT",
-        resultOp(ResultOperator.EQ, resultSymbol("record_id"), resultSymbol("detail__record_id"))),
     Derive(ResultCaseWhen(listOf(ResultCaseBranch(
         resultOp(ResultOperator.NE, resultSymbol("eligibility_text"), resultText("")),
         ResultNativeCall(connector, native.id, listOf(resultSymbol("detail__raw_text"), resultText(parameters.text("format"))))
@@ -41,10 +41,7 @@ val stages: List<PostOperationContract.ValidatedOperation> = listOf(
     Project(listOf("record_day", "record_id", "eligibility_text", "detail__raw_text", "parsed_date")))
 val publication = QueryCapabilityRequest(parameters.text("scenarioId"), parameters.decimal("scenarioVersion").longValueExact(),
     parameters.text("releaseId"), parameters.text("releaseVersion"))
-val selection = QuerySelection.Inline(Computations.query(publication, Computations.scope(facts.root) {
-    input("details", details, InputMode.RELATION)
-    stages.forEach { stage(it) }
-}))
+val selection = QuerySelection.Inline(Computations.query(publication, Computations.stages(related, stages)))
 when (parameters.text("operation")) {
     "validate" -> olap.output(olap.queries.validate(QueryValidationRequest(selection)))
     "execute" -> olap.output(olap.queries.execute(QueryExecutionRequest(selection, true, "关联后按资格条件解析日期", null)))

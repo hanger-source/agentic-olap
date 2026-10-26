@@ -73,7 +73,7 @@ class PublishedComputedOrdersTest {
             c.metrics.getValue("sum").metricId, 1, CalculationBindings(emptyMap(), mapOf("rows" to CalculationBindings.LocalRef("caller_only", OrderMemberDefinitions.slots)), emptyMap(), emptyMap(), emptyMap()), emptyMap(), "golden")) }
         val cycle = f.adoptions.createSubjectAreaMetricRef(SubjectAreaMetricRefCreateRequest("travel.trade", 1, "cycle_sum", "环验证总额", c.meaning, c.rawMetric.id, 1,
             CalculationBindings(emptyMap(), mapOf("rows" to CalculationBindings.SourceCall(MemberRef(c.raw.id, 1), emptyMap(), mapOf("amount" to "amount"), emptyMap(), emptyMap())), emptyMap(), emptyMap(), emptyMap()), emptyMap(), "golden")).subjectAreaMetricRef
-        val body = Calculation(emptyList(), emptyList(), listOf(Calculation.MeasurementSlot("total", emptyMap(), emptyList(), emptyList(), GovernanceOrderFixture.money())), emptyList(), emptyMap(), Calculation.Scope(Calculation.Measures(listOf(Calculation.Call("total", Calculation.Measurement("total"), "amount", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), emptyMap())), emptyList(), emptyList(), null, emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(listOf("total")), null), emptyMap(), emptyList()))
+        val body = Calculation(measurementSlots = listOf(Calculation.MeasurementSlot("total", emptyMap(), emptyList(), emptyList(), GovernanceOrderFixture.money())), computation = Calculation.Scope(Calculation.Measures(listOf(Calculation.MeasurementCall("total", "total", outputAlias = "amount")), emptyList(), emptyList(), null, emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(listOf("total")), null), emptyMap(), emptyList()))
         val member = c.member("measured_total", MemberSourceDefinition.Computed(body, MemberResult("订单", "order", MemberShape.RAW_BAG, emptyList(),
             mapOf("amount" to MemberSourceDefinition.ComputedPropertyOutput("金额", "amount", ScalarValueType.NUMBER, "amount", GovernanceOrderFixture.money())), emptyMap(), null, emptyMap(), "测量完成结果")),
             CalculationBindings(emptyMap(), emptyMap(), emptyMap(), mapOf("total" to cycle.instance), emptyMap()))
@@ -95,36 +95,52 @@ class PublishedComputedOrdersTest {
             c.formed(mapOf("window" to c.july), condition = MemberCondition.Predicate("candidate_amount", MemberCondition.Operator.GTE, listOf(Calculation.Scalar(ScalarValueType.NUMBER, "50")))))
         rejected.forEach { root -> assertThrows(ProducerContractException::class.java) { c.freeze(Calculation.Scope(root, emptyMap(), emptyList())) } }
         for (binding in listOf(c.source(c.inner, c.july), CalculationBindings.SourceCall(MemberRef(c.publicRows.id, 1), mapOf("window" to c.july), mapOf("order" to "order", "amount" to "candidate_amount"), emptyMap(), emptyMap()))) {
-            assertThrows(ProducerContractException::class.java) { c.freeze(Calculation.Scope(measures(listOf(Calculation.Call("sum", Calculation.Instance(c.metrics.getValue("sum").instance), "sum", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), mapOf("rows" to binding), emptyMap()))), emptyMap(), emptyList())) }
+            assertThrows(ProducerContractException::class.java) { c.freeze(Calculation.Scope(measures(listOf(Calculation.InstanceCall("sum", c.metrics.getValue("sum").instance, members = mapOf("rows" to binding)))), emptyMap(), emptyList())) }
         }
     }
 
     private fun exerciseInlineQualification(c: ComputedOrderFixture) {
         val rows = c.sumDefinition.calculation.memberSlots.single()
         val eligible = Calculation.MemberSlot("eligible", rows.entity, rows.role, rows.shape, rows.outputs, null)
-        val measurement = Calculation.Scope(Calculation.Measures(listOf(Calculation.Call("sum", Calculation.Measurement("sum"), "qualified_sum", emptyMap(), mapOf("rows" to "rows"), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), emptyMap())), emptyList(), emptyList(), null, emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(listOf("sum")), null), emptyMap(), emptyList())
+        val measurement = Calculation.Scope(Calculation.Measures(listOf(Calculation.MeasurementCall("sum", "sum", outputAlias = "qualified_sum", memberSlots = mapOf("rows" to "rows"))), emptyList(), emptyList(), null, emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(listOf("sum")), null), emptyMap(), emptyList())
         val objects = Calculation.Scope(Calculation.Members("qualified", Calculation.MemberParameter("eligible"), listOf(Calculation.MemberProjection("order", "order", null), Calculation.MemberProjection("amount", "amount", null)), null, emptyMap(), MemberCondition.Predicate("amount", MemberCondition.Operator.GTE, listOf(Calculation.Scalar(ScalarValueType.NUMBER, "50"))), emptyMap(), emptyMap(), emptyMap()), emptyMap(), emptyList())
         val inline = Calculation(emptyList(), listOf(rows, eligible), listOf(Calculation.MeasurementSlot("sum", emptyMap(), emptyList(), emptyList(), GovernanceOrderFixture.money())), emptyList(), emptyMap(), Calculation.Scope(Calculation.ObjectMeasure(measurement, objects, listOf(Calculation.ObjectRole(listOf("order"), Calculation.RecordOutputs("rows", listOf("order"))))), emptyMap(), emptyList()))
-        val bindings = CalculationBindings(emptyMap(), mapOf("rows" to CalculationBindings.InputParameter(), "eligible" to CalculationBindings.InputParameter()), emptyMap(), mapOf("sum" to c.metrics.getValue("sum").instance), emptyMap())
+        val measurements = mapOf("sum" to c.metrics.getValue("sum").instance)
         for (window in listOf(c.july, c.august)) for (local in listOf(false, true)) {
             val source = c.source(c.publicRows, window)
             val scope = Computations.scope {
                 val actualRows = if (local) member("formed", Computations.scope(c.formed(mapOf("window" to window))), OrderMemberDefinitions.slots) else source
-                Computations.compute(inline, bindings, members = mapOf("rows" to actualRows, "eligible" to source))
+                Computations.compute(inline, CalculationBindings(members = mapOf("rows" to actualRows, "eligible" to source), measurements = measurements))
             }
             number(if (window == c.july) 70.0 else 100.0, c.execute(scope).result.resultFrame.rows.single()["qualified_sum"])
         }
+        // 期间仅由实际来源调用消费；默认值与显式替换均属于被调用算法的参数。
+        val parameterized = Calculation(memberSlots = inline.memberSlots, measurementSlots = inline.measurementSlots,
+            parameters = mapOf("period" to Calculation.Parameter(Calculation.ParameterKind.RANGE, "DATE", emptyList(), c.july, null)),
+            computation = inline.computation)
+        val parameterSource = CalculationBindings.SourceCall(MemberRef(c.publicRows.id, 1),
+            mapOf("window" to Calculation.Argument("period")), OrderMemberDefinitions.slots, emptyMap(), emptyMap())
+        val actual = CalculationBindings(members = mapOf("rows" to parameterSource, "eligible" to parameterSource), measurements = measurements)
+        for ((arguments, expected) in listOf(emptyMap<String, Calculation.Binding>() to 70.0,
+            mapOf("period" to c.august) to 100.0)) {
+            val scope = Computations.compute(parameterized, actual, arguments)
+            number(expected, c.execute(scope).result.resultFrame.rows.single()["qualified_sum"])
+        }
+        val unused = Calculation(memberSlots = inline.memberSlots, measurementSlots = inline.measurementSlots,
+            parameters = parameterized.parameters + ("unused" to Calculation.Parameter(Calculation.ParameterKind.SCALAR,
+                "TEXT", emptyList(), Calculation.Scalar(ScalarValueType.TEXT, "unread"), null)), computation = inline.computation)
+        assertThrows(IllegalArgumentException::class.java) { c.freeze(Computations.compute(unused, actual)) }
         val july = c.source(c.publicRows, c.july)
-        val privateDefinition = Calculation(emptyList(), CustomerCalculationDefinitions.amount("SUM", MemberShape.RAW_BAG).calculation.memberSlots, emptyList(), emptyList(), emptyMap(), Calculation.Scope(Calculation.Measures(listOf(Calculation.Call("private", Calculation.Fixed(MetricRef(c.rawMetric.id, "1")), "value", emptyMap(), mapOf("rows" to "rows"), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), emptyMap())), emptyList(), emptyList(), null, emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(listOf("private")), null), emptyMap(), emptyList()))
-        assertThrows(ProducerContractException::class.java) { c.freeze(Calculation.Scope(Calculation.Compute(privateDefinition, Calculation.ExplicitBindings(CalculationBindings(emptyMap(), mapOf("rows" to CalculationBindings.SourceCall(MemberRef(c.raw.id, 1), emptyMap(), mapOf("amount" to "amount"), emptyMap(), emptyMap())), emptyMap(), emptyMap(), emptyMap()), emptyMap(), emptyMap()), emptyMap()), emptyMap(), emptyList())) }
+        val privateDefinition = Calculation(memberSlots = CustomerCalculationDefinitions.amount("SUM", MemberShape.RAW_BAG).calculation.memberSlots, computation = Calculation.Scope(Calculation.Measures(listOf(Calculation.DefinitionCall("private", MetricRef(c.rawMetric.id, "1"), outputAlias = "value", memberSlots = mapOf("rows" to "rows"))), emptyList(), emptyList(), null, emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(listOf("private")), null), emptyMap(), emptyList()))
+        assertThrows(ProducerContractException::class.java) { c.freeze(Calculation.Scope(Calculation.Compute(privateDefinition, Calculation.ExplicitBindings(CalculationBindings(emptyMap(), mapOf("rows" to CalculationBindings.SourceCall(MemberRef(c.raw.id, 1), emptyMap(), mapOf("amount" to "amount"), emptyMap(), emptyMap())), emptyMap(), emptyMap(), emptyMap())), emptyMap()), emptyMap(), emptyList())) }
         val hidden = Calculation(listOf(Calculation.DimensionSlot("hidden", "global.destination", 1, "destination")), inline.memberSlots, inline.measurementSlots, inline.relationSlots, inline.parameters, inline.computation)
         val hiddenDimension = CalculationBindings.Dimension(ScopedInputContract.DimensionRef("travel.trade.destination", "1", "destination"), "destination", c.f.analysis.listAnalysisDimensionEventMappings("travel.trade.destination", 1).map { it.id })
-        assertThrows(ProducerContractException::class.java) { c.freeze(Calculation.Scope(Calculation.Compute(hidden, Calculation.ExplicitBindings(CalculationBindings(mapOf("hidden" to hiddenDimension), bindings.members, emptyMap(), bindings.measurements, emptyMap()), mapOf("rows" to july, "eligible" to july), emptyMap()), emptyMap()), emptyMap(), emptyList())) }
+        assertThrows(ProducerContractException::class.java) { c.freeze(Calculation.Scope(Calculation.Compute(hidden, Calculation.ExplicitBindings(CalculationBindings(dimensions = mapOf("hidden" to hiddenDimension), members = mapOf("rows" to july, "eligible" to july), measurements = measurements)), emptyMap()), emptyMap(), emptyList())) }
         for (rejected in listOf(CalculationBindings.SourceCall(MemberRef(c.publicRows.id, 1), mapOf("window" to c.july), mapOf("order" to "order", "amount" to "candidate_amount"), emptyMap(), emptyMap()),
             CalculationBindings.SourceCall(MemberRef(c.publicRows.id, 1), mapOf("window" to c.july, "lower" to Calculation.Scalar(ScalarValueType.NUMBER, "0")), OrderMemberDefinitions.slots, emptyMap(), emptyMap()))) {
-            assertThrows(ProducerContractException::class.java) { c.freeze(Calculation.Scope(Calculation.Compute(inline, Calculation.ExplicitBindings(bindings, mapOf("rows" to rejected, "eligible" to july), emptyMap()), emptyMap()), emptyMap(), emptyList())) }
+            assertThrows(ProducerContractException::class.java) { c.freeze(Calculation.Scope(Calculation.Compute(inline, Calculation.ExplicitBindings(CalculationBindings(members = mapOf("rows" to rejected, "eligible" to july), measurements = measurements)), emptyMap()), emptyMap(), emptyList())) }
         }
-        val accepted = Computations.compute(inline, bindings, members = mapOf("rows" to july, "eligible" to july))
+        val accepted = Computations.compute(inline, CalculationBindings(members = mapOf("rows" to july, "eligible" to july), measurements = measurements))
         number(70.0, c.execute(accepted).result.resultFrame.rows.single()["qualified_sum"])
     }
 

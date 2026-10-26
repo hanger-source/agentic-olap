@@ -8,6 +8,7 @@ import com.olap.prototype.member.MemberCondition as DM
 import com.olap.prototype.query.GroupingLevels as DG
 import com.olap.prototype.query.ScalarValueType
 import com.olap.prototype.query.RowPopulationContract
+import com.olap.prototype.contract.InputContractException
 
 internal object SemanticCalculationProto {
     fun scalar(v: DC.Scalar): CalculationScalar = CalculationScalar.newBuilder().setScalarType(v.scalarType.name).setValue(v.value).build()
@@ -191,16 +192,55 @@ internal object SemanticCalculationProto {
     fun alignmentPopulation(v: AlignmentPopulation): DC.AlignmentPopulation = DC.AlignmentPopulation(DC.PopulationKind.valueOf(v.kind), v.inputIdsList)
     fun levels(v: DG): GroupingLevels = GroupingLevels.newBuilder().setOutputAlias(v.outputAlias).addAllLevels(v.levels.map { GroupingLevel.newBuilder().setId(it.id).addAllGroupBy(it.groupBy).build() }).build()
     fun levels(v: GroupingLevels): DG = DG(v.outputAlias, v.levelsList.map { DG.Level(it.id, it.groupByList) })
-    private fun call(v: DC.Call): CalculationCall = CalculationCall.newBuilder().setCallId(v.callId).setTarget(CallTarget.newBuilder().apply { when (val target = v.target) {
-        is DC.Fixed -> setFixed(SemanticProto.toProto(target.metric)); is DC.Measurement -> setMeasurement(target.slot); is DC.Instance -> setInstance(SemanticProto.toProto(target.instance))
-    } }).setOutputAlias(v.outputAlias).putAllDimensionSlots(v.dimensionSlots).putAllMemberSlots(v.memberSlots).putAllMeasurementSlots(v.measurementSlots).putAllRelationSlots(v.relationSlots)
-        .putAllArguments(v.arguments.mapValues { binding(it.value) }).setSourceCondition(binding(v.sourceCondition))
-        .putAllMembers(v.members.mapValues { member(it.value) }).putAllRelations(v.relations.mapValues { relation(it.value) }).build()
-    private fun call(v: CalculationCall): DC.Call = DC.Call(v.callId, when (v.target.kindCase) {
-        CallTarget.KindCase.FIXED -> DC.Fixed(SemanticProto.fromProto(v.target.fixed)); CallTarget.KindCase.MEASUREMENT -> DC.Measurement(v.target.measurement)
-        CallTarget.KindCase.INSTANCE -> DC.Instance(SemanticProto.fromProto(v.target.instance)); else -> error("call target kind is required")
-    }, v.outputAlias, v.dimensionSlotsMap, v.memberSlotsMap, v.measurementSlotsMap, v.relationSlotsMap, v.argumentsMap.mapValues { binding(it.value) }, binding(v.sourceCondition),
-        v.membersMap.mapValues { member(it.value) }, v.relationsMap.mapValues { relation(it.value) })
+    private fun call(v: DC.Call): CalculationCall = CalculationCall.newBuilder().setCallId(v.callId)
+        .setOutputAlias(v.outputAlias).putAllArguments(v.arguments.mapValues { binding(it.value) })
+        .setSourceCondition(binding(v.sourceCondition)).apply {
+            when (v) {
+                is DC.DefinitionCall -> {
+                    setTarget(CallTarget.newBuilder().setFixed(SemanticProto.toProto(v.metric)))
+                    putAllDimensionSlots(v.dimensionSlots); putAllMemberSlots(v.memberSlots)
+                    putAllMeasurementSlots(v.measurementSlots); putAllRelationSlots(v.relationSlots)
+                }
+                is DC.MeasurementCall -> {
+                    setTarget(CallTarget.newBuilder().setMeasurement(v.slot))
+                    putAllMemberSlots(v.memberSlots); putAllRelationSlots(v.relationSlots)
+                }
+                is DC.InstanceCall -> {
+                    setTarget(CallTarget.newBuilder().setInstance(SemanticProto.toProto(v.instance)))
+                    putAllMembers(v.members.mapValues { member(it.value) }); putAllRelations(v.relations.mapValues { relation(it.value) })
+                }
+            }
+        }.build()
+
+    private fun call(v: CalculationCall): DC.Call {
+        // 协议边界拒绝不属于该调用的字段，不以丢弃数据来获得可构造的领域对象。
+        fun absent(name: String, values: Map<*, *>, adopted: Boolean = false) {
+            if (values.isNotEmpty()) throw InputContractException.violation(
+                if (adopted) InputContractException.Rule.MEASUREMENT_BINDING_OVERRIDE else InputContractException.Rule.DECODE_INPUT,
+                listOf("calls", v.callId, name), "this call does not accept $name", "NOT_APPLICABLE_TO_CALL_VARIANT", "NONEMPTY_MAP")
+        }
+        val arguments = v.argumentsMap.mapValues { binding(it.value) }
+        val sourceCondition = binding(v.sourceCondition)
+        return when (v.target.kindCase) {
+            CallTarget.KindCase.FIXED -> {
+                absent("members", v.membersMap); absent("relations", v.relationsMap)
+                DC.DefinitionCall(v.callId, SemanticProto.fromProto(v.target.fixed), v.outputAlias,
+                    v.dimensionSlotsMap, v.memberSlotsMap, v.measurementSlotsMap, v.relationSlotsMap, arguments, sourceCondition)
+            }
+            CallTarget.KindCase.MEASUREMENT -> {
+                absent("dimensionSlots", v.dimensionSlotsMap, true); absent("measurementSlots", v.measurementSlotsMap, true)
+                absent("members", v.membersMap); absent("relations", v.relationsMap)
+                DC.MeasurementCall(v.callId, v.target.measurement, v.outputAlias, v.memberSlotsMap, v.relationSlotsMap, arguments, sourceCondition)
+            }
+            CallTarget.KindCase.INSTANCE -> {
+                absent("dimensionSlots", v.dimensionSlotsMap, true); absent("memberSlots", v.memberSlotsMap, true)
+                absent("measurementSlots", v.measurementSlotsMap, true); absent("relationSlots", v.relationSlotsMap, true)
+                DC.InstanceCall(v.callId, SemanticProto.fromProto(v.target.instance), v.outputAlias, arguments,
+                    v.membersMap.mapValues { member(it.value) }, v.relationsMap.mapValues { relation(it.value) }, sourceCondition)
+            }
+            else -> error("call target kind is required")
+        }
+    }
 
     fun members(v: DC.Members): CalculationMembers = CalculationMembers.newBuilder().setCallId(v.callId).setTarget(MemberTarget.newBuilder().apply { when (val target = v.target) {
         is DC.MemberParameter -> setParameter(target.slot); is DC.MemberSource -> setSource(SemanticProto.toProto(target.source))
@@ -231,14 +271,15 @@ internal object SemanticCalculationProto {
     fun population(v: RowPopulation): RowPopulationContract.Selection = RowPopulationContract.Selection(v.mode, v.callIdsList, v.inputIds.valuesList.takeIf { v.hasInputIds() })
 
     private fun computeBindings(v: DC.ComputeBindings): ComputeBindings = ComputeBindings.newBuilder().apply { when (v) {
-        is DC.ExplicitBindings -> setExplicit(ExplicitComputeBindings.newBuilder().setBindings(bindings(v.bindings))
-            .putAllMembers(v.members.mapValues { member(it.value) }).putAllRelations(v.relations.mapValues { relation(it.value) }))
+        is DC.ExplicitBindings -> setExplicit(ExplicitComputeBindings.newBuilder().setBindings(bindings(v.bindings)))
         is DC.ParentSlots -> setParentSlots(ParentSlotBindings.newBuilder().putAllDimensionSlots(v.dimensionSlots)
             .putAllMemberSlots(v.memberSlots).putAllMeasurementSlots(v.measurementSlots).putAllRelationSlots(v.relationSlots))
     } }.build()
     private fun computeBindings(v: ComputeBindings): DC.ComputeBindings = when (v.kindCase) {
-        ComputeBindings.KindCase.EXPLICIT -> v.explicit.let { DC.ExplicitBindings(bindings(it.bindings),
-            it.membersMap.mapValues { entry -> member(entry.value) }, it.relationsMap.mapValues { entry -> relation(entry.value) }) }
+        ComputeBindings.KindCase.EXPLICIT -> v.explicit.let {
+            require(it.unknownFields.asMap().isEmpty()) { "inline calculation requires one complete actual binding" }
+            DC.ExplicitBindings(bindings(it.bindings))
+        }
         ComputeBindings.KindCase.PARENT_SLOTS -> v.parentSlots.let { DC.ParentSlots(it.dimensionSlotsMap, it.memberSlotsMap, it.measurementSlotsMap, it.relationSlotsMap) }
         else -> error("compute bindings kind is required")
     }

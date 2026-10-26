@@ -225,9 +225,13 @@ internal object CalculationValidation {
             (root.sourceCondition as? Condition)?.let(::requireDefinitionValue)
             require(root.outputCondition is DimensionCondition.Unrestricted && root.sourceEventConditions.isEmpty()) { "reusable definitions express lasting conditions in their body and source conditions through declared arguments" }
             root.calls.forEach { call ->
-                require(call.target !is Instance) { "reusable definitions adopt exact measurement instances through declared measurement slots" }
-                require(dimensions.containsAll(call.dimensionSlots.values) && members.containsAll(call.memberSlots.values) && measurements.containsAll(call.measurementSlots.values) && relations.containsAll(call.relationSlots.values) &&
-                    (call.target !is Measurement || call.target.slot in measurements)) { "child call maps an unknown parent slot" }
+                when (call) {
+                    is InstanceCall -> throw IllegalArgumentException("reusable definitions adopt exact measurement instances through declared measurement slots")
+                    is DefinitionCall -> require(dimensions.containsAll(call.dimensionSlots.values) && members.containsAll(call.memberSlots.values) &&
+                        measurements.containsAll(call.measurementSlots.values) && relations.containsAll(call.relationSlots.values)) { "child call maps an unknown parent slot" }
+                    is MeasurementCall -> require(call.slot in measurements && members.containsAll(call.memberSlots.values) &&
+                        relations.containsAll(call.relationSlots.values)) { "child call maps an unknown parent slot" }
+                }
                 binding(call.sourceCondition, ParameterKind.CONDITION)
                 (call.sourceCondition as? Condition)?.let(::requireDefinitionValue)
                 call.arguments.values.forEach { value ->

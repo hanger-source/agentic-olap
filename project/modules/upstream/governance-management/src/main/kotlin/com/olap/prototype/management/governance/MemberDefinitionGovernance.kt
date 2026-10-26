@@ -79,7 +79,7 @@ class MemberDefinitionGovernanceService(private val database: PlatformDatabase, 
             metrics.validateCalculation(calculation, null).values.forEach { call ->
                 call.arguments.values.forEach(::contextFree)
                 contextFree(call.sourceCondition)
-                val fixed = call.target as? Calculation.Fixed ?: return@forEach
+                val fixed = call as? Calculation.DefinitionCall ?: return@forEach
                 val ref = fixed.metric
                 if (ref in active) throw ProducerContractException("shared member definition has a fixed metric dependency cycle: $active -> $ref")
                 val completed = completedDepths[ref]

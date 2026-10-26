@@ -40,15 +40,15 @@ class MetricGovernanceService(private val database: PlatformDatabase, private va
             val position = (if (path.isEmpty()) "" else "$path/") + "root/${site.path.joinToString("/")}"
             val call = site.call
             calls[position] = call
-            when (val target = call.target) {
-                is Calculation.Instance -> throw ProducerContractException("reusable metric definitions adopt measurement instances through declared measurement slots: $position")
-                is Calculation.Measurement -> {
-                    val slot = body.measurementSlots.firstOrNull { it.name == target.slot } ?: throw ProducerContractException("undeclared measurement slot: ${target.slot}")
+            when (call) {
+                is Calculation.InstanceCall -> throw ProducerContractException("reusable metric definitions adopt measurement instances through declared measurement slots: $position")
+                is Calculation.MeasurementCall -> {
+                    val slot = body.measurementSlots.firstOrNull { it.name == call.slot } ?: throw ProducerContractException("undeclared measurement slot: ${call.slot}")
                     validateArguments(body, call, slot.parameters, position)
                 }
-                is Calculation.Fixed -> {
-                    if (own != null && target.metric == own) throw ProducerContractException("metric calculation cannot call itself: $position")
-                    val child = metricSnapshot(target.metric.id, target.metric.version.toLong()).definition
+                is Calculation.DefinitionCall -> {
+                    if (own != null && call.metric == own) throw ProducerContractException("metric calculation cannot call itself: $position")
+                    val child = metricSnapshot(call.metric.id, call.metric.version.toLong()).definition
                     if (child is MetricCalculation) validateNested(body, call, child.calculation, position)
                     else if (call.dimensionSlots.isNotEmpty() || call.memberSlots.isNotEmpty() || call.measurementSlots.isNotEmpty() || call.relationSlots.isNotEmpty() || call.arguments.isNotEmpty())
                         throw ProducerContractException("fact measure has no calculation slots or parameters: $position")
@@ -57,7 +57,7 @@ class MetricGovernanceService(private val database: PlatformDatabase, private va
         } }
         return calls
     }
-    private fun validateNested(parent: Calculation, call: Calculation.Call, child: Calculation, position: String) {
+    private fun validateNested(parent: Calculation, call: Calculation.DefinitionCall, child: Calculation, position: String) {
         if (call.measurementSlots.keys != child.measurementSlots.mapTo(hashSetOf()) { it.name }) throw ProducerContractException("nested fixed call must map all measurement slots: $position")
         call.measurementSlots.values.forEach { name -> if (parent.measurementSlots.none { it.name == name }) throw ProducerContractException("nested measurement maps an unknown parent slot: $name") }
         if (call.dimensionSlots.keys != child.dimensionSlots.mapTo(hashSetOf()) { it.name } || call.memberSlots.keys != child.memberSlots.mapTo(hashSetOf()) { it.name })
@@ -79,7 +79,7 @@ class MetricGovernanceService(private val database: PlatformDatabase, private va
         validateRelations(parent, call, child, position)
         validateArguments(parent, call, child.parameters, position)
     }
-    private fun validateRelations(parent: Calculation, call: Calculation.Call, child: Calculation, position: String) {
+    private fun validateRelations(parent: Calculation, call: Calculation.DefinitionCall, child: Calculation, position: String) {
         if (call.relationSlots.keys != child.relationSlots.mapTo(hashSetOf()) { it.name })
             throw ProducerContractException("nested call must map all and only relation slots: $position")
         child.relationSlots.forEach { expected ->
@@ -155,7 +155,7 @@ class MetricGovernanceService(private val database: PlatformDatabase, private va
     }
     private fun calculationDependencies(metric: MetricRecord, calls: Map<String, Calculation.Call>): List<MetricDependencyRecord> = buildList {
         calls.forEach { (position, call) ->
-            val target = (call.target as? Calculation.Fixed)?.metric
+            val target = (call as? Calculation.DefinitionCall)?.metric
             if (target != null) add(dependency(metric, "call:$position", position, "CHILD_METRIC", target.id, target.version.toLong(), call.callId))
         }
         val definition = metric.definition as MetricCalculation

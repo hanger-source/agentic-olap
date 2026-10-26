@@ -151,8 +151,7 @@ class PublishedQualifiedCountsTest {
                 val instance = f.adoptions.metricAdoption(MetricAdoption.identity(GovernanceOrderFixture.SUBJECT, code), 1).instance
                 val arguments = LinkedHashMap(period)
                 if (code in meanCodes) arguments["requested_days"] = Calculation.Scalar(ScalarValueType.NUMBER, "19")
-                return Calculation.Call(code, Calculation.Instance(instance), alias, emptyMap(), emptyMap(), emptyMap(), emptyMap(), arguments,
-                    Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), emptyMap())
+                return Calculation.InstanceCall(code, instance, outputAlias = alias, arguments = arguments)
             }
             fun measures(calls: List<Calculation.Call>) = Calculation.Scope(Calculation.Measures(calls, listOf(Calculation.PublishedDimension(axis)),
                 emptyList(), null, emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), DimensionCondition.Unrestricted(), emptyList(),

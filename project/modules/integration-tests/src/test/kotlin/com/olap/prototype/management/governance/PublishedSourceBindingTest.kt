@@ -51,7 +51,7 @@ class PublishedSourceBindingTest {
                 SubjectAreaReleaseBuildRequest("binding_upgrade", version, "来源采用", "travel.bindings", 1, "golden", sources))
             fun publication(version: String) = f.artifacts.loadExecutableCatalog(ReleaseCatalogRequest("travel.bindings.amount", 1, "binding_upgrade", version))
             val computation = Calculation.Scope(Calculation.Measures(listOf(
-                Calculation.Call("measure", Calculation.Instance(adoption.instance), "value", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), emptyMap())), emptyList(), emptyList(), null, emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(listOf("measure")), null), emptyMap(), emptyList())
+                Calculation.InstanceCall("measure", adoption.instance, outputAlias = "value")), emptyList(), emptyList(), null, emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(listOf("measure")), null), emptyMap(), emptyList())
             build("1", initialAdoptions)
             val originalArtifact = f.artifacts.loadArtifact("binding_upgrade", "1")
             val originalPublishedBytes = ProtoBytes.encode(GovernanceProto.toProto(publication("1")))

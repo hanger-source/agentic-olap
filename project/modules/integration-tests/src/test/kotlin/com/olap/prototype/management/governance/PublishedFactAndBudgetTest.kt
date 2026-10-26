@@ -123,7 +123,7 @@ class PublishedFactAndBudgetTest {
             val scope = GovernanceOrderFixture.measurementScope(instance, listOf(destination()), args)
             val rows = f.execute(publication, scope).result.resultFrame.rows
             assertEquals(listOf(listOf("杭州", BigDecimal("241.00"))), rows.map { row -> row.cells.map { it.value } })
-            val calls = (0 until 96).map { Calculation.Call("measure_$it", Calculation.Instance(instance), "gross_$it", emptyMap(), emptyMap(), emptyMap(), emptyMap(), args, Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), emptyMap()) }
+            val calls = (0 until 96).map { Calculation.InstanceCall("measure_$it", instance, outputAlias = "gross_$it", arguments = args) }
             val oversized = Calculation.Scope(Calculation.Measures(calls, (listOf(destination())).map { Calculation.PublishedDimension(it) }, emptyList(), null, emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(calls.map { it.callId }), null), emptyMap(), emptyList())
             val failure = assertThrows(EngineExecutionException::class.java) {
                 ExecutableSemanticBinder(f.connectors).bind(publication.catalog, f.kernelRequest(publication, oversized))

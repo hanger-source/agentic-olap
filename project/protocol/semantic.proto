@@ -131,7 +131,11 @@ message BoundGroupingLevel { string id = 1; repeated string group_by = 2; int64 
 
 message CalculationCompute { Calculation calculation = 1; ComputeBindings bindings = 2; map<string, CalculationBinding> arguments = 3; }
 message ComputeBindings { oneof kind { ExplicitComputeBindings explicit = 1; ParentSlotBindings parent_slots = 2; } }
-message ExplicitComputeBindings { CalculationBindings bindings = 1; map<string, MemberBinding> members = 2; map<string, RelationBinding> relations = 3; }
+message ExplicitComputeBindings {
+  CalculationBindings bindings = 1;
+  reserved 2, 3;
+  reserved "members", "relations";
+}
 message ParentSlotBindings { map<string, string> dimension_slots = 1; map<string, string> member_slots = 2; map<string, string> measurement_slots = 3; map<string, string> relation_slots = 4; }
 message EventCondition { string event_id = 1; string event_version = 2; DimensionCondition condition = 3; }
 message RowPopulation { string mode = 1; repeated string call_ids = 2; StringList input_ids = 3; }

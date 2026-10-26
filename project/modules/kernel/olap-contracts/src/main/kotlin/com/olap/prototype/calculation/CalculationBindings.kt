@@ -5,7 +5,7 @@ import com.olap.prototype.member.MemberSource
 import com.olap.prototype.query.ScopedInputContract
 
 /** 一次计算采用的精确维度、成员、分组范围和测量实例；不复制源表达式。 */
-class CalculationBindings(dimensions: Map<String, Dimension>, members: Map<String, Member>, groupingCandidates: Map<String, List<Dimension>>, measurements: Map<String, MetricInstanceRef>, relations: Map<String, Relation>) {
+class CalculationBindings(dimensions: Map<String, Dimension> = emptyMap(), members: Map<String, Member> = emptyMap(), groupingCandidates: Map<String, List<Dimension>> = emptyMap(), measurements: Map<String, MetricInstanceRef> = emptyMap(), relations: Map<String, Relation> = emptyMap()) {
     val dimensions: Map<String, Dimension> = java.util.Map.copyOf(dimensions)
     val members: Map<String, Member> = java.util.Map.copyOf(members)
     val measurements: Map<String, MetricInstanceRef> = java.util.Map.copyOf(measurements)
@@ -75,10 +75,12 @@ class CalculationBindings(dimensions: Map<String, Dimension>, members: Map<Strin
             is MetricCalculation -> validate(definition.calculation, dimensionFacts, sources, outputMappings, definitions, instances, true)
         }
     }
+    /** 声明消费规则不变；外部完成输入按其真实词法作用域核验。 */
     fun require(calculation: Calculation, dimensionFacts: (Dimension, List<Calculation.DimensionSlot>) -> Unit,
         sources: (MemberRef) -> MemberSource, outputMappings: MemberInvocationBinding.DimensionMapping,
-        definitions: (MetricRef) -> MetricDefinition, instances: (MetricInstanceRef) -> MetricInstance) =
-        validate(calculation, dimensionFacts, sources, outputMappings, definitions, instances, true)
+        definitions: (MetricRef) -> MetricDefinition, instances: (MetricInstanceRef) -> MetricInstance,
+        localInputs: Calculation.Scope = calculation.computation) =
+        validate(calculation, dimensionFacts, sources, outputMappings, definitions, instances, true, localInputs = localInputs)
 
     fun requireBound(definition: MetricDefinition, dimensionFacts: (Dimension, List<Calculation.DimensionSlot>) -> Unit,
         sources: (MemberRef) -> MemberSource, outputMappings: MemberInvocationBinding.DimensionMapping,
@@ -99,7 +101,8 @@ class CalculationBindings(dimensions: Map<String, Dimension>, members: Map<Strin
 
     private fun validate(calculation: Calculation, dimensionFacts: (Dimension, List<Calculation.DimensionSlot>) -> Unit,
         sources: (MemberRef) -> MemberSource, outputMappings: MemberInvocationBinding.DimensionMapping,
-        definitions: (MetricRef) -> MetricDefinition, instances: (MetricInstanceRef) -> MetricInstance, declaration: Boolean, inheritedInputs: Boolean = false) {
+        definitions: (MetricRef) -> MetricDefinition, instances: (MetricInstanceRef) -> MetricInstance, declaration: Boolean,
+        inheritedInputs: Boolean = false, localInputs: Calculation.Scope = calculation.computation) {
         require(dimensions.keys == calculation.dimensionSlots.map { it.name }.toSet() && members.keys == calculation.memberSlots.map { it.name }.toSet() &&
             groupingCandidates.keys == calculation.parameters.filterValues { it.kind == Calculation.ParameterKind.GROUPING }.keys &&
             measurements.keys == calculation.measurementSlots.map { it.name }.toSet() && relations.keys == calculation.relationSlots.map { it.name }.toSet()) { "calculation binding must bind all and only declared slots and grouping parameters" }
@@ -112,12 +115,12 @@ class CalculationBindings(dimensions: Map<String, Dimension>, members: Map<Strin
                     require(slot.fixedSource == null || slot.fixedSource == member.source) { "member input differs from its fixed source declaration" }
                     val source = sources(member.source)
                     MemberInvocationBinding.requireMember(calculation, slot, this, source, outputMappings)
-                    if (!inheritedInputs) MemberInvocationBinding.requireArguments(calculation, member, source, used, sources, outputMappings, declaration, calculation.computation)
+                    if (!inheritedInputs) MemberInvocationBinding.requireArguments(calculation, member, source, used, sources, outputMappings, declaration, localInputs)
                 }
                 is LocalRef -> {
                     require(slot.fixedSource == null) { "fixed member sources cannot be supplied as a local or external input" }
                     require(member.outputSlots.keys == slot.outputs.keys) { "local member input must map all and only formal outputs" }
-                    if (declaration && !inheritedInputs) CalculationInstantiation.localInput(calculation, member)
+                    if (declaration && !inheritedInputs) CalculationInstantiation.localInput(localInputs, member)
                 }
                 is InputParameter -> Unit
                 null -> error("member slot was not bound")
@@ -152,7 +155,7 @@ class CalculationBindings(dimensions: Map<String, Dimension>, members: Map<Strin
                 is LocalRelation -> {
                     require(relation.outputSlots.keys == slot.outputs.map { it.name }.toSet()) { "local relation input must map all and only formal outputs" }
                     if (declaration && !inheritedInputs) {
-                        val input = requireNotNull(calculation.computation.children()[relation.inputId]) { "local relation input must belong to the calculation root scope" }
+                        val input = requireNotNull(localInputs.children()[relation.inputId]) { "local relation input must belong to its declaring lexical scope" }
                         require(input.mode == "ROOT") { "local relation input must explicitly declare ROOT mode" }
                     }
                 }

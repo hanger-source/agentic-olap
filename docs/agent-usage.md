@@ -33,10 +33,10 @@ agentic-olap call describe-script-api --payload '{"type":"com.olap.prototype.cal
 
 ## 会话中调用正式能力
 
-`execute-script` 向持续 Kotlin 会话提交一个完整代码片段。DSL 为 `agentic-olap-kotlin-dsl/v8`，实际版本取服务发现结果。省略或留空 `sessionId` 创建会话；后续用实际返回的 `sessionId` 在同一 JVM 中继续。首次调用可以读取来源并保留 Kotlin 对象：
+`execute-script` 向持续 Kotlin 会话提交一个完整代码片段。DSL 为 `agentic-olap-kotlin-dsl/v9`，实际版本取服务发现结果。省略或留空 `sessionId` 创建会话；后续用实际返回的 `sessionId` 在同一 JVM 中继续。首次调用可以读取来源并保留 Kotlin 对象：
 
 ~~~sh
-agentic-olap call execute-script --payload '{"executionId":"sources-001","waitMillis":0,"source":"val sources = olap.sources.list(EmptyRequest)\nolap.output(sources)","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v8","parameters":{}}'
+agentic-olap call execute-script --payload '{"executionId":"sources-001","waitMillis":0,"source":"val sources = olap.sources.list(EmptyRequest)\nolap.output(sources)","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v9","parameters":{}}'
 agentic-olap call wait-script --payload '{"executionId":"sources-001","waitMillis":1000}'
 ~~~
 
@@ -213,7 +213,28 @@ olap.output(rule)
 
 `Calculation.Scope` 是共同的计算体：对象集合、记录关系、测量、资格、对齐和有序阶段都构造并返回它。Query 将该计算体交给某个精确发布执行；可复用定义在计算体外声明真正可替换的形参、参数和接受条件。两者使用同一绑定与计算规则。保存定义不会把计算换成另一套语言，内联组合也不要求先建立一个指标。
 
-具体输入已经选定时，直接传递它的计算体。`Computations.set`、`objectMeasure`、`align` 和 `statistics` 各自接收实际计算；不为组合眼前的输入重新声明成员槽、测量槽或关系槽。只有抽象“以后允许替换什么”时才声明这些形参。成员形参约束真实对象来源与角色，关系形参接收带原数量、身份和键事实的完成结果，两者不能相互伪装。
+具体输入已经选定时，直接传递它的计算体。`Computations.set`、`join`、`objectMeasure`、`align` 和 `statistics` 各自接收实际计算；不为组合眼前的输入重新声明成员槽、测量槽或关系槽。只有抽象“以后允许替换什么”时才声明这些形参。成员形参约束真实对象来源与角色，关系形参接收带原数量、身份和键事实的完成结果，两者不能相互伪装。
+
+测量调用有三种明确的输入归属，它们都进入同一个 `measure` 运算，不更换计算语言：
+
+| 调用 | 作者提供什么 | 已有事实由谁承接 |
+| --- | --- | --- |
+| `Computations.invoke(instance, ...)`／`Calculation.InstanceCall` | 精确采用实例、剩余参数和实际成员／完成关系 | 实例自身的维度、固定实参和测量绑定 |
+| `Computations.measurement(slot, ...)`／`Calculation.MeasurementCall` | 定义中声明的可替换测量形参，必要的父成员／关系形参转发 | 调用该定义时明确采用的测量实例 |
+| `Computations.invoke(metric, ...)`／`Calculation.DefinitionCall` | 精确共享定义及其形参到父形参的映射 | 同一实例化链核验并展开形参接受条件 |
+
+作者只填写该调用实际接受的输入。实例调用没有覆盖维度或测量绑定的字段；形参调用不接受另一组实际成员来覆盖父形参。共享定义引用仍不等于公开查询权限：Query 选择获准实例，共享定义内部按精确依赖调用。`Calculation` 和 `CalculationBindings` 只需列出实际声明或固定采用的项目，未使用的形参类别不必逐一填空集合。
+
+`join` 保留左计算完整的输入与已有阶段，将右计算登记为关系输入，并在当前位置追加明确的关联。例如，`measured` 已完成本次测量，`eligible` 是独立资格计算时：
+
+~~~kotlin
+val qualified = Computations.join(measured, eligible,
+    PostOperationContract.JoinInput("eligible", "chosen", "SEMI",
+        ResultExpression.ResultOperation(ResultOperator.EQ,
+            listOf(symbol("subject"), symbol("chosen__subject")))))
+~~~
+
+关联方式、条件、发生位置和后续归约仍由作者选择；SDK 不前移筛选、不拆出计算根，也不要求补写 RELATION 模式。相同输入身份仅能复用同一计算及模式。这个结果仍是 `Calculation.Scope`，可以继续测量对齐、追加阶段或成为定义的计算体。现有键、NULL、重复度、数量与授权检查继续使用共同引擎规则。
 
 调用一个接受完成关系的定义时，使用 `Computations.scope { ... }` 同时组织实际输入和消费它的计算。例如下面的函数把不同的已完成数量传给同一个已采用算法；该算法的正式合同声明 `completed(subject, quantity)` 与数值参数 `days`：
 
@@ -240,6 +261,21 @@ fun averageCompleted(
 `relation` 一次登记实际完成输入，并返回本作用域中的正式关系引用。作者选择实际列与形参列的对应，不重复填入输入已经具有的单位、数量合同或完整键，也不另行登记 ROOT。对同一 `id` 的多份列映射复用同一个精确计算；不同计算或模式不能占用同一身份。结果仍为普通 `Calculation.Scope`，可以继续加阶段、作为对齐输入，或成为更高层定义的计算体。返回计算已有的输入与阶段保留，builder 的 `stage(...)` 按登记顺序追加在其后。
 
 同一作用域入口也用于 `Computations.compute` 的内联参数化计算和 `Computations.members` 的计算成员调用。真实成员输入用 `member(id, computation, outputs)` 登记；它不会为普通完成测量补造成员角色。显式具名输入仍用于需要直接引用的关系、键对齐和复杂图。局部引用按最终消费它的作用域解析，不捕获 builder，也不是可跨作用域搬运的全局句柄；继续组合时传递完整计算体，定义嵌套通过已声明形参转发输入。
+
+即时应用本地算法只交一份完整实际绑定。例如 `algorithm` 是已构造但未保存的 `Calculation`，其 `subject` 维度和 `completed` 关系形参已明确声明：
+
+~~~kotlin
+val applied = Computations.scope {
+    val completed = relation("basis", basis,
+        mapOf("subject" to "subject", "quantity" to quantity))
+    Computations.compute(algorithm,
+        CalculationBindings(dimensions = mapOf("subject" to subjectBinding),
+            relations = mapOf("completed" to completed)),
+        arguments = mapOf("days" to Calculation.Scalar(ScalarValueType.NUMBER, days)))
+}
+~~~
+
+`ExplicitBindings` 中的局部成员与关系引用属于调用者作用域，源调用中的 `Argument` 引用算法自己的值参数；先补齐这次参数与默认值，再解析源调用。即时应用没有持久采用，不先声明 `InputParameter`／`RelationParameter` 再填同名实际输入。已有持久采用则仍需明确选择固定输入或留给以后调用者，调用不能覆盖已经固定的采用。模板嵌套用 `ParentSlots` 转发真正形参；公开内联计算仍受当前公开能力授权，保存并批准的定义可以封装其获准私有依赖，两者不自动扩大权限。
 
 定义的接受条件与实际输入各有 owner：例如算法要求每对象一行及精确数量，这是形参合同；输入是否真的满足，由共同分析核验。采用已经固定的身份、角色、数量、NULL、来源和键不靠 SDK 猜测、字段同名或调用者重复声明成立。Computed 成员的维度出口可以继承其采用的正式身份；需要在多个获准分析映射中选择时，仍明确选择目标维度。
 

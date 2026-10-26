@@ -139,7 +139,7 @@ class FrozenRelationExecutionTest {
     @Test
     fun executesFrozenCalculationWithoutAssigningItAFactEvent(@TempDir directory: Path) {
         FrozenPublicationFixture(directory, "duckdb", true).use { fixture ->
-            val calculation = MetricCalculation(Calculation(emptyList(), emptyList(), emptyList(), emptyList(), emptyMap(), Calculation.Scope(Calculation.Measures(listOf(Calculation.Call("payment", Calculation.Fixed(MetricRef("amount", "1")), "value", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), emptyMap())), emptyList(), emptyList(), null, emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(listOf("payment")), null), emptyMap(), emptyList())), "value", emptyList(), money())
+            val calculation = MetricCalculation(Calculation(computation = Calculation.Scope(Calculation.Measures(listOf(Calculation.DefinitionCall("payment", MetricRef("amount", "1"), outputAlias = "value")), emptyList(), emptyList(), null, emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(listOf("payment")), null), emptyMap(), emptyList())), "value", emptyList(), money())
             val catalog = frozen(fixture.release(amount() + ("complete_amount" to calculation), true))
             assertEquals(listOf(listOf(BigDecimal("1099.00"))), execute(fixture, catalog, request(listOf(call(catalog, "completed", "complete_amount")), timed = false)))
         }

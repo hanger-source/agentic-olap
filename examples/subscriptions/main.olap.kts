@@ -96,8 +96,8 @@ fun slot(name: String, source: MemberResult, selectedOutputs: List<String> = sou
     return Calculation.MemberSlot(name, source.entity, source.role, source.shape, outputs, null)
 }
 
-fun members(name: String, source: MemberResult, selectedOutputs: List<String> = source.outputs.keys.sorted()) = Calculation.Members(name, Calculation.MemberParameter(name),
-    selectedOutputs.map { Calculation.MemberProjection(it, it, null) }, null, emptyMap(), MemberCondition.Unrestricted(), emptyMap(), emptyMap(), emptyMap())
+fun members(name: String, source: MemberResult, selectedOutputs: List<String> = source.outputs.keys.sorted()) = Computations.members(name, Calculation.MemberParameter(name),
+    selectedOutputs.map { Calculation.MemberProjection(it, it, null) })
 fun asOfParameters() = mapOf("as_of" to Calculation.Parameter(Calculation.ParameterKind.SCALAR, "DATE", emptyList(), null, null))
 fun symbol(value: String) = ResultSymbol(value)
 fun literalDate(value: String) = ResultTypedLiteral(ScalarValueType.DATE, value)
@@ -126,10 +126,9 @@ fun sevenDays() = WindowFrameContract.Frame("RANGE", WindowFrameContract.Bound("
     WindowFrameContract.Bound("CURRENT_ROW", null, null))
 fun dateRange(start: String, end: String) = Calculation.Range(TemporalWindow(TemporalWindow.ValueType.DATE, TemporalWindow.BOUNDARY, start, end))
 
-fun calendarInputs(usage: MemberResult, calendar: MemberResult, usageOutputs: List<String> = usage.outputs.keys.sorted()) = linkedMapOf(
-    "calendar" to Calculation.InputScope("ROOT", Calculation.Scope(members("calendar", calendar), emptyMap(), emptyList())),
-    "usage" to Calculation.InputScope("RELATION", Calculation.Scope(members("usage", usage, usageOutputs), emptyMap(), emptyList())),
-)
+fun calendarRows(calendar: MemberResult) = Computations.scope(Calculation.Input("calendar")) {
+    input("calendar", members("calendar", calendar), InputMode.ROOT)
+}
 
 class BusinessExample(val client: OlapClient, val parameters: ScriptArguments, val domain: String) {
     val actor = client.caller.subject
@@ -272,19 +271,21 @@ fun migratedStock(axes: Map<String, Calculation.DimensionSlot>, legacy: MemberRe
         MetricValueContract.Overflow.FAIL)
     val factor = MetricValueContract(MetricValueContract.Fixed(MetricValueContract.ONE), MetricValueContract.Exact(),
         MetricValueContract.Decimal(3, 2, MetricValueContract.Rounding.NONE), emptyMap(), MetricValueContract.Overflow.FAIL)
-    val old = Calculation.Scope(members("legacy", legacy), emptyMap(), listOf(
+    val old = Computations.stages(members("legacy", legacy), listOf(
         PostFilter(op(ResultOperator.LT, symbol("day"), literalDate("2026-04-01"))),
         Derive(ResultNumeric(op(ResultOperator.MULTIPLY, symbol("amount"), ResultQuantityLiteral(BigDecimal("0.01"), factor)),
             conversion, "cents_to_yuan"), "value", "明确从分换为元"),
     ))
-    val fresh = Calculation.Scope(members("current", current), emptyMap(), listOf(
+    val fresh = Computations.stages(members("current", current), listOf(
         PostFilter(op(ResultOperator.GTE, symbol("day"), literalDate("2026-04-01"))), Derive(symbol("amount"), "value", "新系统元存量"),
     ))
-    val body = Calculation(listOf(axes.getValue("subscription"), axes.getValue("day")), listOf(slot("legacy", legacy), slot("current", current)), emptyList(), emptyList(), asOfParameters(), Calculation.Scope(Calculation.SetCombination(Calculation.SetKind.UNION, true,
-        listOf(Calculation.SetProjection("legacy", listOf("subscription", "day", "value")), Calculation.SetProjection("current", listOf("subscription", "day", "value"))),
+    val body = Calculation(dimensionSlots = listOf(axes.getValue("subscription"), axes.getValue("day")),
+        memberSlots = listOf(slot("legacy", legacy), slot("current", current)), parameters = asOfParameters(),
+        computation = Computations.stages(Computations.set(Calculation.SetKind.UNION, true,
+        linkedMapOf("legacy" to Computations.ProjectedInput(old, listOf("subscription", "day", "value")),
+            "current" to Computations.ProjectedInput(fresh, listOf("subscription", "day", "value"))),
         listOf(SetOutputContract("subscription", SetOutputContract.DimensionSlot("subscription")), SetOutputContract("day", SetOutputContract.DimensionSlot("day")),
             SetOutputContract("value", SetOutputContract.Quantity(balance())))),
-        linkedMapOf("legacy" to Calculation.InputScope("ROOT", old), "current" to Calculation.InputScope("ROOT", fresh)),
         listOf(SelectVersions(listOf("subscription"), listOf(OrderKey("day", "DESC", "LAST")), VersionTies.FAIL,
             SnapshotSelection("day", Calculation.Argument("as_of"))))))
     return computed(body, mapOf("subscription" to "subscription", "day" to "day"), mapOf("value" to balance()), listOf("subscription"),
@@ -292,7 +293,8 @@ fun migratedStock(axes: Map<String, Calculation.DimensionSlot>, legacy: MemberRe
 }
 
 fun regionAt(axes: Map<String, Calculation.DimensionSlot>, regions: MemberResult): MemberSourceDefinition.Computed {
-    val body = Calculation(listOf(axes.getValue("subscription"), axes.getValue("day"), axes.getValue("region")), listOf(slot("regions", regions)), emptyList(), emptyList(), asOfParameters(), Calculation.Scope(members("regions", regions), emptyMap(), listOf(
+    val body = Calculation(dimensionSlots = listOf(axes.getValue("subscription"), axes.getValue("day"), axes.getValue("region")),
+        memberSlots = listOf(slot("regions", regions)), parameters = asOfParameters(), computation = Computations.stages(members("regions", regions), listOf(
         PostFilter(op(ResultOperator.LTE, symbol("day"), ResultArgument("as_of", ScalarValueType.DATE))),
         SelectVersions(listOf("subscription"), listOf(OrderKey("day", "DESC", "LAST")), VersionTies.FAIL, null),
     )))
@@ -301,10 +303,11 @@ fun regionAt(axes: Map<String, Calculation.DimensionSlot>, regions: MemberResult
 }
 
 fun historicalStock(axes: Map<String, Calculation.DimensionSlot>, stock: MemberResult, regions: MemberResult): MemberSourceDefinition.Computed {
-    val body = Calculation(listOf(axes.getValue("subscription"), axes.getValue("day"), axes.getValue("region")), listOf(slot("stock", stock), slot("regions", regions)), emptyList(), emptyList(), asOfParameters(), Calculation.Scope(members("stock", stock),
-        mapOf("history" to Calculation.InputScope("RELATION", Calculation.Scope(members("regions", regions), emptyMap(), emptyList()))),
-        listOf(JoinInput("history", "history", "INNER", op(ResultOperator.EQ, symbol("subscription"), symbol("history__subscription"))),
-            Project(listOf("subscription", "day", "value", "history__region")))))
+    val body = Calculation(dimensionSlots = listOf(axes.getValue("subscription"), axes.getValue("day"), axes.getValue("region")),
+        memberSlots = listOf(slot("stock", stock), slot("regions", regions)), parameters = asOfParameters(),
+        computation = Computations.stages(Computations.join(members("stock", stock), members("regions", regions),
+            JoinInput("history", "history", "INNER", op(ResultOperator.EQ, symbol("subscription"), symbol("history__subscription")))),
+            listOf(Project(listOf("subscription", "day", "value", "history__region")))))
     return computed(body, mapOf("subscription" to "subscription", "day" to "day", "region" to "history__region"), mapOf("value" to balance()),
         listOf("subscription"), "真实存量先选版本，区域随后按同历史时点关联；缺少归属不推断、不拿旧区域冒充")
 }
@@ -312,14 +315,16 @@ fun historicalStock(axes: Map<String, Calculation.DimensionSlot>, stock: MemberR
 fun stockMetric(axes: Map<String, Calculation.DimensionSlot>, source: MemberResult): MetricCalculation {
     val parameters = asOfParameters() + ("groups" to Calculation.Parameter(Calculation.ParameterKind.GROUPING, "SEMANTIC_DIMENSIONS",
         listOf(axes.getValue("region"), axes.getValue("subscription")), null, null))
-    val body = Calculation(listOf(axes.getValue("subscription"), axes.getValue("day"), axes.getValue("region")), listOf(slot("records", source)), emptyList(), emptyList(), parameters, Calculation.Scope(members("records", source), emptyMap(), listOf(Regroup(ResultGrouping(listOf("\$group:groups"),
+    val body = Calculation(dimensionSlots = listOf(axes.getValue("subscription"), axes.getValue("day"), axes.getValue("region")),
+        memberSlots = listOf(slot("records", source)), parameters = parameters, computation = Computations.stages(members("records", source), listOf(Regroup(ResultGrouping(listOf("\$group:groups"),
         listOf(ResultAggregate("value", ResultAggregation.Sum(balance(), ResultAggregation.NullPolicy.IGNORE), "balance", "历史时点存量（元）")), null)))))
     return MetricCalculation(body, "balance", listOf("\$group:groups"), balance())
 }
 
 fun usageMetric(axes: Map<String, Calculation.DimensionSlot>, usage: MemberResult, calendar: MemberResult): MetricCalculation {
-    val body = Calculation(listOf(axes.getValue("day")), listOf(slot("calendar", calendar), slot("usage", usage)), emptyList(), emptyList(), emptyMap(), Calculation.Scope(Calculation.Input("calendar"), calendarInputs(usage, calendar), listOf(
-        JoinInput("usage", "usage", "LEFT", op(ResultOperator.EQ, symbol("day"), symbol("usage__day"))),
+    val body = Calculation(dimensionSlots = listOf(axes.getValue("day")), memberSlots = listOf(slot("calendar", calendar), slot("usage", usage)),
+        computation = Computations.stages(Computations.join(calendarRows(calendar), members("usage", usage),
+            JoinInput("usage", "usage", "LEFT", op(ResultOperator.EQ, symbol("day"), symbol("usage__day")))), listOf(
         ObserveWindow(listOf("usage__tenant", "usage__person"), emptyList(), "rolling", "七日完整对象去重", listOf(OrderKey("day", "ASC", "LAST")),
             ResultAggregation.Count(true, ResultAggregation.NullPolicy.IGNORE), sevenDays(), ObservationDomain.CALENDAR, "day",
             dateRange("2026-03-02", "2026-03-09"), dateRange("2026-03-08", "2026-03-09"), CalendarAxis("calendar", "day")),
@@ -333,8 +338,9 @@ val destinationOutputs = listOf("subscription", "destination")
 fun dailyMeanMetric(axes: Map<String, Calculation.DimensionSlot>, usage: MemberResult, calendar: MemberResult): MetricCalculation {
     val mean = MetricValueContract(MetricValueContract.Fixed(MetricValueContract.ONE), MetricValueContract.NativeFloating(),
         MetricValueContract.BinaryFloat(64), emptyMap(), MetricValueContract.Overflow.FAIL)
-    val body = Calculation(listOf(axes.getValue("day")), listOf(slot("calendar", calendar), slot("usage", usage, dailyEventOutputs)), emptyList(), emptyList(), emptyMap(), Calculation.Scope(Calculation.Input("calendar"), calendarInputs(usage, calendar, dailyEventOutputs), listOf(
-        JoinInput("usage", "usage", "LEFT", op(ResultOperator.EQ, symbol("day"), symbol("usage__day"))),
+    val body = Calculation(dimensionSlots = listOf(axes.getValue("day")), memberSlots = listOf(slot("calendar", calendar), slot("usage", usage, dailyEventOutputs)),
+        computation = Computations.stages(Computations.join(calendarRows(calendar), members("usage", usage, dailyEventOutputs),
+            JoinInput("usage", "usage", "LEFT", op(ResultOperator.EQ, symbol("day"), symbol("usage__day")))), listOf(
         Regroup(ResultGrouping(listOf("day"), listOf(ResultAggregate("usage__id", ResultAggregation.Count(false, ResultAggregation.NullPolicy.IGNORE), "daily_events", "当日实际使用事件数，未匹配事件为零")), null)),
         ObserveWindow(listOf("daily_events"), emptyList(), "daily_mean", "完整七个公历日的使用事件日均", listOf(OrderKey("day", "ASC", "LAST")),
             ResultAggregation.Average(mean, ResultAggregation.NullPolicy.IGNORE, MeanTarget.SOURCE_NATIVE), sevenDays(), ObservationDomain.CALENDAR, "day",
@@ -346,11 +352,13 @@ fun dailyMeanMetric(axes: Map<String, Calculation.DimensionSlot>, usage: MemberR
 
 fun allocationMetric(axes: Map<String, Calculation.DimensionSlot>, destinations: MemberResult): MetricCalculation {
     val allocated = average(YUAN)
-    val measurement = Computations.measure(listOf(Computations.invoke(Calculation.Measurement("charges"), "charges", outputAlias = "value")),
+    val measurement = Computations.measure(listOf(Computations.measurement("charges", "charges", outputAlias = "value")),
         listOf(Calculation.DimensionParameter("subscription")), RowPopulationContract.calls(listOf("charges")))
-    val body = Calculation(listOf(axes.getValue("subscription"), axes.getValue("destination")), listOf(slot("destinations", destinations, destinationOutputs)), listOf(Calculation.MeasurementSlot("charges", emptyMap(), listOf(axes.getValue("subscription")), emptyList(), balance())), emptyList(), emptyMap(), Calculation.Scope(measurement.root,
-        mapOf("destinations" to Calculation.InputScope("RELATION", Calculation.Scope(members("destinations", destinations, destinationOutputs), emptyMap(), emptyList()))),
-        listOf(JoinInput("destinations", "place", "INNER", op(ResultOperator.EQ, symbol("subscription"), symbol("place__subscription"))),
+    val body = Calculation(dimensionSlots = listOf(axes.getValue("subscription"), axes.getValue("destination")),
+        memberSlots = listOf(slot("destinations", destinations, destinationOutputs)),
+        measurementSlots = listOf(Calculation.MeasurementSlot("charges", emptyMap(), listOf(axes.getValue("subscription")), emptyList(), balance())),
+        computation = Computations.stages(Computations.join(measurement, members("destinations", destinations, destinationOutputs),
+            JoinInput("destinations", "place", "INNER", op(ResultOperator.EQ, symbol("subscription"), symbol("place__subscription")))), listOf(
             Derive(ResultUniformAllocation(symbol("value"), listOf("subscription"), listOf("place__subscription", "place__destination"), allocated, "divide"),
                 "allocated", "每个订阅确认账款在其实际完整目的地总体内均摊"),
             Regroup(ResultGrouping(listOf("place__destination"), listOf(ResultAggregate("allocated", ResultAggregation.Sum(allocated, ResultAggregation.NullPolicy.IGNORE), "allocated_total", "目的地分摊账款")), null)))))
@@ -358,8 +366,7 @@ fun allocationMetric(axes: Map<String, Calculation.DimensionSlot>, destinations:
 }
 
 fun chargesBySubscription(axes: Map<String, Calculation.DimensionSlot>, fact: MetricRef) = MetricCalculation(
-    Calculation(listOf(axes.getValue("subscription")), emptyList(), emptyList(), emptyList(), emptyMap(),
-        Computations.measure(listOf(Computations.invoke(Calculation.Fixed(fact), "charges", outputAlias = "value")), listOf(Calculation.DimensionParameter("subscription")), RowPopulationContract.calls(listOf("charges")))),
+    Calculation(dimensionSlots = listOf(axes.getValue("subscription")), computation = Computations.measure(listOf(Computations.invoke(fact, "charges", outputAlias = "value")), listOf(Calculation.DimensionParameter("subscription")), RowPopulationContract.calls(listOf("charges")))),
     "value", listOf("subscription"), balance())
 
 fun verifySubscriptions(page: ResultPage) = expect(page, mapOf("东" to mapOf("observation" to "125"), "西" to mapOf("observation" to "75")))
@@ -427,9 +434,8 @@ fun buildSubscriptions(): BusinessExample.Saved {
         val shared = governance.createMemberDefinition(MemberDefinitionCreateRequest(code, code, definition, definition.result.description, example.actor, example.actor))
         example.activate("MEMBER_DEFINITION", shared.id)
         members[code] = governance.adoptMemberDefinition(MemberDefinitionAdoptRequest(subject.id, 1, code, code, shared.reference,
-            CalculationBindings(definition.calculation.dimensionSlots.associate { it.name to axes.getValue(it.name).bound }, inputSources.mapValues { (_, name) ->
-                call(members.getValue(name), if (code == "historical_stock") mapOf("as_of" to Calculation.Argument("as_of")) else emptyMap()) },
-                emptyMap(), emptyMap(), emptyMap()), emptyMap(), example.actor))
+            CalculationBindings(dimensions = definition.calculation.dimensionSlots.associate { it.name to axes.getValue(it.name).bound }, members = inputSources.mapValues { (_, name) ->
+                call(members.getValue(name), if (code == "historical_stock") mapOf("as_of" to Calculation.Argument("as_of")) else emptyMap()) }), emptyMap(), example.actor))
     }
     val chargesUnit = tables.getValue("subscription_charges").units.getValue("amount")
     val charges = governance.createMetric(MetricCreateRequest("confirmed_charges", "实际确认账款", example.actor,
@@ -441,21 +447,17 @@ fun buildSubscriptions(): BusinessExample.Saved {
         "charges_by_subscription" to chargesBySubscription(slots, MetricRef(charges.id, "1"))).mapValues { (name, definition) -> example.calculation(name, definition) }
     val adopted = linkedMapOf<String, SubjectAreaMetricRefRecord>()
     adopted["charges_by_subscription"] = example.adopt(subject, "charges_by_subscription", definitions.getValue("charges_by_subscription"),
-        CalculationBindings(mapOf("subscription" to axes.getValue("subscription").bound), emptyMap(), emptyMap(), emptyMap(), emptyMap()))
-    val balanceBindings = CalculationBindings(listOf("subscription", "day", "region").associateWith { axes.getValue(it).bound },
-        mapOf("records" to call(members.getValue("historical_stock"), mapOf("as_of" to Calculation.Argument("as_of")))),
-        mapOf("groups" to listOf(axes.getValue("region").bound, axes.getValue("subscription").bound)), emptyMap(), emptyMap())
+        CalculationBindings(dimensions = mapOf("subscription" to axes.getValue("subscription").bound)))
+    val balanceBindings = CalculationBindings(dimensions = listOf("subscription", "day", "region").associateWith { axes.getValue(it).bound }, members = mapOf("records" to call(members.getValue("historical_stock"), mapOf("as_of" to Calculation.Argument("as_of")))), groupingCandidates = mapOf("groups" to listOf(axes.getValue("region").bound, axes.getValue("subscription").bound)))
     listOf(Triple("march_regions", "2026-03-31", "region"), Triple("april_regions", "2026-04-30", "region"), Triple("april_total", "2026-04-30", ""),
         Triple("subscription_balances", "2026-04-30", "subscription")).forEach { (name, date, group) -> adopted[name] = example.adopt(subject, name, definitions.getValue("historical_balance"), balanceBindings,
         mapOf("as_of" to Calculation.Scalar(ScalarValueType.DATE, date), "groups" to Calculation.Grouping(if (group.isEmpty()) emptyList() else listOf(axes.getValue(group).bound.reference)))) }
-    val windowBindings = CalculationBindings(mapOf("day" to axes.getValue("day").bound), mapOf("usage" to call(members.getValue("usage")), "calendar" to call(members.getValue("calendar"))), emptyMap(), emptyMap(), emptyMap())
+    val windowBindings = CalculationBindings(dimensions = mapOf("day" to axes.getValue("day").bound), members = mapOf("usage" to call(members.getValue("usage")), "calendar" to call(members.getValue("calendar"))))
     adopted["seven_day_people"] = example.adopt(subject, "seven_day_people", definitions.getValue("window_people"), windowBindings)
-    val dailyMeanBindings = CalculationBindings(mapOf("day" to axes.getValue("day").bound),
-        mapOf("usage" to call(members.getValue("usage"), selectedOutputs = dailyEventOutputs), "calendar" to call(members.getValue("calendar"))), emptyMap(), emptyMap(), emptyMap())
+    val dailyMeanBindings = CalculationBindings(dimensions = mapOf("day" to axes.getValue("day").bound), members = mapOf("usage" to call(members.getValue("usage"), selectedOutputs = dailyEventOutputs), "calendar" to call(members.getValue("calendar"))))
     adopted["calendar_daily_mean"] = example.adopt(subject, "calendar_daily_mean", definitions.getValue("calendar_daily_mean"), dailyMeanBindings)
     adopted["allocated_destinations"] = example.adopt(subject, "allocated_destinations", definitions.getValue("destination_allocation"),
-        CalculationBindings(listOf("subscription", "destination").associateWith { axes.getValue(it).bound }, mapOf("destinations" to call(members.getValue("destinations"), selectedOutputs = destinationOutputs)),
-            emptyMap(), mapOf("charges" to adopted.getValue("charges_by_subscription").instance), emptyMap()))
+        CalculationBindings(dimensions = listOf("subscription", "destination").associateWith { axes.getValue(it).bound }, members = mapOf("destinations" to call(members.getValue("destinations"), selectedOutputs = destinationOutputs)), measurements = mapOf("charges" to adopted.getValue("charges_by_subscription").instance)))
     val scenario = governance.createScenario(ScenarioCreateRequest(subject.id, 1, "observation", "订阅历史与完整日历", example.actor, "存量、归属、窗口与贡献分别定义", example.actor)).scenario
     axes.values.forEach { example.grant(scenario, it) }
     val entry = example.publish(subject, scenario, adopted.values.toList(), emptyList())

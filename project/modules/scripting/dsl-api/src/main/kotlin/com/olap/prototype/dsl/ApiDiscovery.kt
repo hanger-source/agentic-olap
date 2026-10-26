@@ -41,7 +41,7 @@ data class ApiOverview(val formatVersion: String, val dslApiVersion: String, val
 
 /** 结构来自真实公开声明；局部语义规则只读取已知模型自身合同，不执行任意 getter 或工厂。 */
 object ApiDiscovery {
-    const val VERSION = "agentic-olap-kotlin-dsl/v8"
+    const val VERSION = "agentic-olap-kotlin-dsl/v9"
     val imports: List<String> = listOf("com.olap.prototype.dsl.*", "com.olap.prototype.governance.contract.*",
         "com.olap.prototype.governance.contract.GovernanceReadRequests.AssetVersionRequest",
         "com.olap.prototype.governance.contract.GovernanceReadRequests.DefinitionDependenciesRequest",
@@ -145,7 +145,8 @@ object ApiDiscovery {
         when (type) {
             Computations::class -> Computations.contract()
             CalculationScopeBuilder::class -> CalculationScopeBuilder.contract()
-            Calculation.Call::class -> Calculation.Call.contract()
+            Calculation.Call::class, Calculation.DefinitionCall::class, Calculation.MeasurementCall::class,
+            Calculation.InstanceCall::class -> Calculation.Call.contract()
             Calculation.Compute::class -> Calculation.Compute.contract()
             com.olap.prototype.warehouse.contract.SourceAdoptionRegistrationRequest::class ->
                 com.olap.prototype.warehouse.contract.SourceAdoptionRegistrationRequest.contract()
@@ -265,9 +266,11 @@ object ApiDiscovery {
             Calculation.MeasurementSlot::class -> listOf("name", "parameters.<key>")
             Calculation.MemberDimension::class -> listOf("dimensionSlot")
             Calculation.GroupingSlots::class -> listOf("slots[]")
-            Calculation.Measurement::class, Calculation.DimensionParameter::class,
+            Calculation.DimensionParameter::class,
             Calculation.MemberParameter::class, Calculation.Relation::class -> listOf("slot")
-            Calculation.Call::class, Calculation.Members::class -> listOf("callId")
+            Calculation.MeasurementCall::class -> listOf("callId", "slot")
+            Calculation.Call::class, Calculation.DefinitionCall::class, Calculation.InstanceCall::class,
+            Calculation.Members::class -> listOf("callId")
             Calculation.RecordOutputs::class -> listOf("memberSlot")
             Calculation.RecordCallOutputs::class -> listOf("inputPath[]", "callId")
             Calculation.AlignmentPopulation::class -> listOf("inputIds[]")

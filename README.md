@@ -34,7 +34,7 @@ Agentic OLAP 建立以 OLAP 为基础的高阶可组合语义计算模型：将�
 
 “净额”“资格客户”“固定同群两期增长”可以分别沉淀为可引用的定义，由高层定义继续组合已有含义。Query 可以直接调用已发布的高层定义，也可以在授权范围内组合已有定义与尚未沉淀的内联计算；粒度、数量、单位、NULL 和来源含义沿计算链保留。对应的实际用法见[订单与跨期退款](examples/orders/README.md)。
 
-作者围绕同一个 `Calculation.Scope` 继续组合计算。具体输入直接参与集合、资格、测量和对齐；只有需要替换的输入才成为定义形参。调用接受完成关系的算法时，SDK 一次登记实际计算并交出局部引用，引擎承接原身份、数量、NULL 和键事实。作者明确业务选择，无需另建一组形式槽把已选输入再绑定回去。完整的[共同计算用法](docs/agent-usage.md#以计算及其结果继续组合)覆盖内联计算、保存算法和计算成员调用。
+作者围绕同一个 `Calculation.Scope` 继续组合计算。具体输入直接参与集合、关联、资格、测量和对齐；只有需要替换的输入才成为定义形参。共享定义、可替换测量和已采用实例分别拥有各自合法的调用输入，作者不填写与本次调用无关的绑定结构。调用接受完成关系的算法时，SDK 一次登记实际计算并交出局部引用，引擎承接原身份、数量、NULL 和键事实。作者明确业务选择，无需另建一组形式槽把已选输入再绑定回去。完整的[共同计算用法](docs/agent-usage.md#以计算及其结果继续组合)覆盖内联计算、保存算法和计算成员调用。
 
 ## 从数据库到结果
 
@@ -73,7 +73,7 @@ agentic-olap start
 agentic-olap info
 agentic-olap tools
 agentic-olap call describe-script-api --payload '{}'
-agentic-olap call execute-script --payload '{"executionId":"sources-1","waitMillis":1000,"source":"olap.output(olap.sources.list(EmptyRequest))","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v8","parameters":{}}'
+agentic-olap call execute-script --payload '{"executionId":"sources-1","waitMillis":1000,"source":"olap.output(olap.sources.list(EmptyRequest))","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v9","parameters":{}}'
 ```
 
 回执包含 `sessionId`、`executionId` 和实际状态。若仍为 `RUNNING`，调用 `wait-script` 等待同一执行；后续代码传同一 `sessionId` 和新的 `executionId`，可继续使用已有对象与函数。同执行身份的重试只观察已有执行，不重复副作用。用完后调用 `close-script-session` 关闭自己建立的会话；语言会话关闭不会删除已保存的定义、发布或结果。

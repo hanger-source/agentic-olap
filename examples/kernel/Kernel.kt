@@ -1,4 +1,5 @@
 import com.olap.prototype.calculation.*
+import com.olap.prototype.dsl.Computations
 import com.olap.prototype.connector.*
 import com.olap.prototype.connector.loader.ConnectorPlugins
 import com.olap.prototype.codec.GovernanceProto
@@ -242,7 +243,7 @@ object Kernel {
             COUNT_DEFINITION.key() to fact(COUNT_DEFINITION, "order_id", MetricAggregation.COUNT, COUNT),
             PER_RECORD_DEFINITION.key() to ExecutableMetric(PER_RECORD_DEFINITION, perRecord()),
         )
-        val bindings = CalculationBindings(mapOf("customer" to CalculationBindings.Dimension(CUSTOMER, "customer", listOf("orders-customer-mapping"))), emptyMap(), emptyMap(), mapOf("amount" to AMOUNT_INSTANCE, "records" to COUNT_INSTANCE), emptyMap())
+        val bindings = CalculationBindings(dimensions = mapOf("customer" to CalculationBindings.Dimension(CUSTOMER, "customer", listOf("orders-customer-mapping"))), measurements = mapOf("amount" to AMOUNT_INSTANCE, "records" to COUNT_INSTANCE))
         val instances = linkedMapOf(
             AMOUNT_INSTANCE.id to MetricInstance(AMOUNT_DEFINITION, CalculationBindings.empty(), emptyMap(), "金额合计"),
             COUNT_INSTANCE.id to MetricInstance(COUNT_DEFINITION, CalculationBindings.empty(), emptyMap(), "订单记录数"),
@@ -282,8 +283,8 @@ object Kernel {
         val perRecord = ResultNumeric(ResultOperation(ResultOperator.DIVIDE, listOf(symbol("selected_amount"), symbol("selected_records"))), division, "per_record")
         val scaled = ResultNumeric(ResultOperation(ResultOperator.MULTIPLY, listOf(perRecord, ResultArgument("factor", ScalarValueType.NUMBER))), multiplication, "factor")
         val root = Calculation.Measures(listOf(
-            Calculation.Call("selected_amount", Calculation.Measurement("amount"), "selected_amount", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), emptyMap()),
-            Calculation.Call("selected_records", Calculation.Measurement("records"), "selected_records", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), emptyMap())), (listOf("customer")).map { Calculation.DimensionParameter(it) }, emptyList(), null, emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(listOf("selected_amount", "selected_records")), null)
+            Calculation.MeasurementCall("selected_amount", "amount"),
+            Calculation.MeasurementCall("selected_records", "records")), (listOf("customer")).map { Calculation.DimensionParameter(it) }, emptyList(), null, emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(listOf("selected_amount", "selected_records")), null)
         val computation = Calculation.Scope(root, emptyMap(), listOf(
             Derive(ResultNumeric(ResultOperation(ResultOperator.ADD, listOf(scaled, ResultArgument("offset", ScalarValueType.NUMBER))), MEAN_MONEY, null),
                 "adjusted_per_record", "调整后的每记录金额"), Project(listOf("customer", "adjusted_per_record"))))
@@ -298,18 +299,18 @@ object Kernel {
             Calculation.MemberProjection("order_id", "order_id", null), Calculation.MemberProjection("customer", "customer", Calculation.PublishedDimension(CUSTOMER)), Calculation.MemberProjection("amount", "amount", null)), null, emptyMap(), MemberCondition.Unrestricted(), emptyMap(), emptyMap(), emptyMap()), emptyMap(), listOf(
             Derive(ResultRow(listOf(symbol("order_id"), symbol("amount"))), "order_row", "订单与金额"),
             Regroup(ResultGrouping(listOf("customer"), listOf(ResultAggregate("order_row", ResultAggregation.Collect(false), "orders", "订单明细袋")), null))))
-        val measures = Calculation.Measures(listOf(Calculation.Call("sum_orders", Calculation.Instance(sumInstance), "amount_sum", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), emptyMap()),
-            Calculation.Call("count_orders", Calculation.Instance(countInstance), "order_count", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), emptyMap())), (listOf(CUSTOMER)).map { Calculation.PublishedDimension(it) }, emptyList(), null, emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(listOf("sum_orders", "count_orders")), null)
-        return ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION, requestId, CATALOG, Calculation.Scope(measures,
-            mapOf("detail" to Calculation.InputScope("RELATION", members)), listOf(
-                JoinInput("detail", "detail", "LEFT", ResultOperation(ResultOperator.EQ, listOf(symbol("customer"), symbol("detail__customer")))),
-                Project(listOf("customer", "amount_sum", "order_count", "detail__orders")), Sort(listOf(OrderKey("customer", "ASC", "LAST"))))))
+        val measures = Calculation.Measures(listOf(Calculation.InstanceCall("sum_orders", sumInstance, outputAlias = "amount_sum"),
+            Calculation.InstanceCall("count_orders", countInstance, outputAlias = "order_count")), (listOf(CUSTOMER)).map { Calculation.PublishedDimension(it) }, emptyList(), null, emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(listOf("sum_orders", "count_orders")), null)
+        return ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION, requestId, CATALOG, Computations.stages(
+            Computations.join(Computations.scope(measures), members,
+                JoinInput("detail", "detail", "LEFT", ResultOperation(ResultOperator.EQ, listOf(symbol("customer"), symbol("detail__customer"))))),
+            listOf(Project(listOf("customer", "amount_sum", "order_count", "detail__orders")), Sort(listOf(OrderKey("customer", "ASC", "LAST"))))))
     }
 
     private fun measurementRequest(): ExecutableQueryRequest {
         val root = Calculation.Measures(listOf(
-            Calculation.Call("base_per_record", Calculation.Instance(BASE_PER_RECORD), "base_per_record", emptyMap(), emptyMap(), emptyMap(), emptyMap(), mapOf("offset" to number("1")), Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), emptyMap()),
-            Calculation.Call("double_per_record", Calculation.Instance(DOUBLE_PER_RECORD), "double_per_record", emptyMap(), emptyMap(), emptyMap(), emptyMap(), mapOf("offset" to number("1")), Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), emptyMap())), (listOf(CUSTOMER)).map { Calculation.PublishedDimension(it) }, emptyList(), null, emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(listOf("base_per_record", "double_per_record")), null)
+            Calculation.InstanceCall("base_per_record", BASE_PER_RECORD, arguments = mapOf("offset" to number("1"))),
+            Calculation.InstanceCall("double_per_record", DOUBLE_PER_RECORD, arguments = mapOf("offset" to number("1")))), (listOf(CUSTOMER)).map { Calculation.PublishedDimension(it) }, emptyList(), null, emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(listOf("base_per_record", "double_per_record")), null)
         return ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION, "kernel-orders-measurement-bindings", CATALOG,
             Calculation.Scope(root, emptyMap(), listOf(Project(listOf("customer", "base_per_record", "double_per_record")), Sort(listOf(OrderKey("customer", "ASC", "LAST"))))))
     }

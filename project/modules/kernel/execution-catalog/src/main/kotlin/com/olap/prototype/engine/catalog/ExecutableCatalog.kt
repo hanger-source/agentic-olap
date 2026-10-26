@@ -188,8 +188,8 @@ class ExecutableCatalog(val manifest: ExecutableCatalogManifest,
 
     fun requireBindings(definition: MetricDefinition, bindings: CalculationBindings) = bindings.require(definition, ::requireDimensionBinding,
         ::requireMemberSource, ::memberDimensionMapping, { requireMetric(it).definition }, ::requireMetricInstance)
-    fun requireBindings(calculation: Calculation, bindings: CalculationBindings) = bindings.require(calculation, ::requireDimensionBinding,
-        ::requireMemberSource, ::memberDimensionMapping, { requireMetric(it).definition }, ::requireMetricInstance)
+    fun requireBindings(calculation: Calculation, bindings: CalculationBindings, localInputs: Calculation.Scope = calculation.computation) = bindings.require(calculation, ::requireDimensionBinding,
+        ::requireMemberSource, ::memberDimensionMapping, { requireMetric(it).definition }, ::requireMetricInstance, localInputs)
     fun requireBoundBindings(definition: MetricDefinition, bindings: CalculationBindings) = bindings.requireBound(definition, ::requireDimensionBinding,
         ::requireMemberSource, ::memberDimensionMapping, { requireMetric(it).definition }, ::requireMetricInstance)
     fun requireBoundBindings(calculation: Calculation, bindings: CalculationBindings) = bindings.requireBound(calculation, ::requireDimensionBinding,

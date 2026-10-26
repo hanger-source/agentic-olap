@@ -167,7 +167,7 @@ class MetricSource(callPath: List<String>, val origin: Origin, val event: EventR
                 bindings.values.filterIsInstance<CalculationBindings.SourceCall>().forEach { member(it.source, path, it, null, false) }
                 measurements.values.forEach { instance(it, path, false) }
                 calculation.callSites().forEach { site ->
-                    val fixed = site.call.target as? Calculation.Fixed
+                    val fixed = site.call as? Calculation.DefinitionCall
                     if (fixed != null) metric(fixed.metric, emptyMap(), emptyMap(), path + site.path + listOf("\$metric", site.call.callId), fixedSegment, false)
                 }
                 fun templates(scope: Calculation.Scope, position: List<String>) {
@@ -210,13 +210,13 @@ class MetricSource(callPath: List<String>, val origin: Origin, val event: EventR
                 is Calculation.Measures -> root.calls.forEach { call ->
                     val position = path + listOf("\$metric", call.callId)
                     val supplied = CalculationInstantiation.memberBindings(call, bindings)
-                    when (val target = call.target) {
-                        is Calculation.Measurement -> instance(requireNotNull(measurements[target.slot]) { "measurement slot is not bound" }, position, capture, supplied)
-                        is Calculation.Instance -> throw IllegalArgumentException("frozen calculation dependencies must adopt exact instances through formal measurement slots")
-                        is Calculation.Fixed -> {
+                    when (call) {
+                        is Calculation.MeasurementCall -> instance(requireNotNull(measurements[call.slot]) { "measurement slot is not bound" }, position, capture, supplied)
+                        is Calculation.InstanceCall -> throw IllegalArgumentException("frozen calculation dependencies must adopt exact instances through formal measurement slots")
+                        is Calculation.DefinitionCall -> {
                             val childMeasurements = TreeMap<String, MetricInstanceRef>()
                             call.measurementSlots.forEach { (child, parent) -> childMeasurements[child] = requireNotNull(measurements[parent]) { "nested measurement slot is not bound" } }
-                            metric(target.metric, supplied, childMeasurements, position, fixedSegment, capture)
+                            metric(call.metric, supplied, childMeasurements, position, fixedSegment, capture)
                         }
                     }
                 }

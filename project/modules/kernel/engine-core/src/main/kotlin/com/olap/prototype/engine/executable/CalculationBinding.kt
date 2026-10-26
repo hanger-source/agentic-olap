@@ -37,7 +37,10 @@ internal class CalculationBinding private constructor(private val session: Execu
         this(session, source.definition.calculation, source.definition.calculation.computation, bindings, selection.sourceArguments, lexicalScope,
             CalculationOwner.Member(MemberRef(source.id, source.version)), source.id, depth, linkedSetOf(), emptyMap(), emptyMap())
 
-    fun childStack(child: Calculation.Call): MutableSet<String> = if (child.target is Calculation.Measurement || child.target is Calculation.Instance) linkedSetOf() else stack
+    fun childStack(child: Calculation.Call): MutableSet<String> = when (child) {
+        is Calculation.DefinitionCall -> stack
+        is Calculation.MeasurementCall, is Calculation.InstanceCall -> linkedSetOf()
+    }
     fun templateStack(): MutableSet<String> = stack
     fun bindExternal(supplied: Map<String, CalculationBindings.Member>, suppliedRelations: Map<String, CalculationBindings.Relation>, caller: MemberEnvironment, callerScope: ScopeId, depth: Int, stack: MutableSet<String>) {
         val declared = requireNotNull(definition) { "only a parameterized calculation accepts external formal arguments" }
@@ -137,7 +140,7 @@ internal class CalculationBinding private constructor(private val session: Execu
             var suffix = 0
             while (id in input.inputs) id = "computation_${++suffix}"
             ScopedInputContract.requireId(id)
-            input.inputs[id] = session.bindInline(root, this@CalculationBinding, input, scope, scope.child(id), depth + 1)
+            input.inputs[id] = session.bindInline(root, this@CalculationBinding, input, syntax, scope, scope.child(id), depth + 1)
             return ExecutableInputRoot.Input(id)
         }
         private fun bindMeasures(root: Calculation.Measures): ExecutableInputRoot.Measures {

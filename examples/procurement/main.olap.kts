@@ -253,8 +253,7 @@ fun sumDefinition(po: Calculation.DimensionSlot): MetricCalculation {
 }
 
 fun totalDefinition(po: Calculation.DimensionSlot) = MetricCalculation(
-    Calculation(listOf(po), emptyList(), listOf(Calculation.MeasurementSlot("amount", emptyMap(), listOf(po), emptyList(), money())), emptyList(), emptyMap(),
-        Computations.stages(Computations.measure(listOf(Computations.invoke(Calculation.Measurement("amount"), "amount")),
+    Calculation(dimensionSlots = listOf(po), measurementSlots = listOf(Calculation.MeasurementSlot("amount", emptyMap(), listOf(po), emptyList(), money())), computation = Computations.stages(Computations.measure(listOf(Computations.measurement("amount", "amount")),
             listOf(Calculation.DimensionParameter("po")), RowPopulationContract.calls(listOf("amount"))), listOf(sum(emptyList(), "amount")))),
     "value", emptyList(), money())
 
@@ -301,18 +300,15 @@ fun buildProcurement(): BusinessExample.Saved {
     val formed = linkedMapOf("purchase" to purchases)
     listOf("latest_effective", "latest_successful").forEach { code ->
         formed[code] = example.member(subject, code, receiptDefinition(po, code == "latest_effective"),
-            CalculationBindings(mapOf("po" to axis.bound), mapOf("deliveries" to example.sourceCall(deliveries, "id", "po", "receipt", "revision", "status", "amount", "delivered")),
-                emptyMap(), emptyMap(), emptyMap()), mapOf("accepted" to Calculation.Scalar(ScalarValueType.TEXT, "SUCCESS")))
+            CalculationBindings(dimensions = mapOf("po" to axis.bound), members = mapOf("deliveries" to example.sourceCall(deliveries, "id", "po", "receipt", "revision", "status", "amount", "delivered"))), mapOf("accepted" to Calculation.Scalar(ScalarValueType.TEXT, "SUCCESS")))
     }
     val sum = example.calculation("record_amount_by_po", sumDefinition(po))
     val total = example.calculation("measurement_total", totalDefinition(po))
     val metrics = linkedMapOf<String, SubjectAreaMetricRefRecord>()
     formed.forEach { (code, member) ->
-        val measured = example.adopt(subject, code, sum, CalculationBindings(mapOf("po" to axis.bound),
-            mapOf("rows" to example.sourceCall(member, "id", "po", "amount")), emptyMap(), emptyMap(), emptyMap()))
+        val measured = example.adopt(subject, code, sum, CalculationBindings(dimensions = mapOf("po" to axis.bound), members = mapOf("rows" to example.sourceCall(member, "id", "po", "amount"))))
         metrics[code] = measured
-        metrics["${code}_total"] = example.adopt(subject, "${code}_total", total, CalculationBindings(mapOf("po" to axis.bound), emptyMap(), emptyMap(),
-            mapOf("amount" to measured.instance), emptyMap()))
+        metrics["${code}_total"] = example.adopt(subject, "${code}_total", total, CalculationBindings(dimensions = mapOf("po" to axis.bound), measurements = mapOf("amount" to measured.instance)))
     }
     val scenario = governance.createScenario(ScenarioCreateRequest(subject.id, 1, "receipt_comparison", "采购与两种收货口径", example.actor,
         "独立完成采购和收货，按采购人口对齐", example.actor)).scenario

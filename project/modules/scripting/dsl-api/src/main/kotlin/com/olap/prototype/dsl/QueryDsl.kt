@@ -3,6 +3,7 @@ package com.olap.prototype.dsl
 import com.olap.prototype.calculation.Calculation
 import com.olap.prototype.calculation.CalculationBindings
 import com.olap.prototype.calculation.MetricInstanceRef
+import com.olap.prototype.calculation.MetricRef
 import com.olap.prototype.member.MemberCondition
 import com.olap.prototype.member.MemberRef
 import com.olap.prototype.query.*
@@ -82,7 +83,10 @@ object Computations {
         "computation" to "ONE_CALCULATION_SCOPE_FOR_INLINE_COMPOSITION_QUERY_AND_DEFINITION_BODY",
         "scope" to "RETURNS_THE_FORMAL_COMPUTATION_WITH_ITS_EXACT_INPUTS_AND_ORDERED_STAGES",
         "formalInputs" to "DECLARE_ONLY_FOR_REPLACEABLE_INPUTS_OF_A_PARAMETERIZED_CALCULATION",
-        "meaning" to "IDENTITY_QUANTITY_NULL_AND_KEYS_ARE_ANALYZED_BY_THE_COMMON_ENGINE_NOT_REDECLARED_BY_THE_SDK")
+        "meaning" to "IDENTITY_QUANTITY_NULL_AND_KEYS_ARE_ANALYZED_BY_THE_COMMON_ENGINE_NOT_REDECLARED_BY_THE_SDK",
+        "calls" to Calculation.Call.contract(),
+        "join" to mapOf("inputs" to "COMPLETE_LEFT_AND_RIGHT_COMPUTATIONS", "position" to "AFTER_THE_LEFT_EXISTING_STAGES",
+            "registration" to "SDK_OWNS_THE_RIGHT_RELATION_INPUT_MODE", "choices" to "AUTHOR_OWNS_JOIN_TYPE_CONDITION_AND_OCCURRENCE"))
 
     fun scope(root: Calculation.Root, build: CalculationScopeBuilder.() -> Unit = {}): Calculation.Scope =
         CalculationScopeBuilder().apply(build).build(Calculation.Scope(root, emptyMap(), emptyList()))
@@ -106,6 +110,16 @@ object Computations {
         operations: List<PostOperationContract.ValidatedOperation>): Calculation.Scope =
         Calculation.Scope(computation.root, computation.inputs, computation.stages + operations)
 
+    /** 关系运算接收完整计算；不拆出根，也不让调用者补写内部输入模式。 */
+    fun join(computation: Calculation.Scope, relation: Calculation.Scope,
+        operation: PostOperationContract.JoinInput): Calculation.Scope {
+        val inputs = LinkedHashMap(computation.inputs)
+        val actual = Calculation.InputScope(InputMode.RELATION.name, relation)
+        val previous = inputs.putIfAbsent(operation.inputId, actual)
+        require(previous == null || previous == actual) { "join input identity refers to a different computation or mode: ${operation.inputId}" }
+        return Calculation.Scope(computation.root, inputs, computation.stages + operation)
+    }
+
     fun members(callId: String, source: MemberRef, arguments: Map<String, Calculation.Binding>,
         outputs: List<Calculation.MemberProjection>, range: Calculation.Binding? = null,
         clocks: Map<String, Calculation.Binding> = emptyMap(), condition: MemberCondition = MemberCondition.Unrestricted(),
@@ -124,16 +138,21 @@ object Computations {
         arguments: Map<String, Calculation.Binding> = emptyMap(),
         members: Map<String, CalculationBindings.Member> = emptyMap(),
         relations: Map<String, CalculationBindings.Relation> = emptyMap(),
-        sourceCondition: Calculation.Binding = Calculation.Condition(DimensionCondition.Unrestricted())): Calculation.Call =
-        invoke(Calculation.Instance(instance), callId, outputAlias, arguments, members = members, relations = relations, sourceCondition = sourceCondition)
+        sourceCondition: Calculation.Binding = Calculation.Condition(DimensionCondition.Unrestricted())): Calculation.InstanceCall =
+        Calculation.InstanceCall(callId, instance, outputAlias, arguments, members, relations, sourceCondition)
 
-    fun invoke(target: Calculation.CallTarget, callId: String, outputAlias: String = callId,
+    fun invoke(metric: MetricRef, callId: String, outputAlias: String = callId,
         arguments: Map<String, Calculation.Binding> = emptyMap(),
         dimensionSlots: Map<String, String> = emptyMap(), memberSlots: Map<String, String> = emptyMap(),
         measurementSlots: Map<String, String> = emptyMap(), relationSlots: Map<String, String> = emptyMap(),
-        members: Map<String, CalculationBindings.Member> = emptyMap(), relations: Map<String, CalculationBindings.Relation> = emptyMap(),
-        sourceCondition: Calculation.Binding = Calculation.Condition(DimensionCondition.Unrestricted())): Calculation.Call =
-        Calculation.Call(callId, target, outputAlias, dimensionSlots, memberSlots, measurementSlots, relationSlots, arguments, sourceCondition, members, relations)
+        sourceCondition: Calculation.Binding = Calculation.Condition(DimensionCondition.Unrestricted())): Calculation.DefinitionCall =
+        Calculation.DefinitionCall(callId, metric, outputAlias, dimensionSlots, memberSlots, measurementSlots, relationSlots, arguments, sourceCondition)
+
+    fun measurement(slot: String, callId: String, outputAlias: String = callId,
+        arguments: Map<String, Calculation.Binding> = emptyMap(), memberSlots: Map<String, String> = emptyMap(),
+        relationSlots: Map<String, String> = emptyMap(),
+        sourceCondition: Calculation.Binding = Calculation.Condition(DimensionCondition.Unrestricted())): Calculation.MeasurementCall =
+        Calculation.MeasurementCall(callId, slot, outputAlias, memberSlots, relationSlots, arguments, sourceCondition)
 
     fun measure(calls: List<Calculation.Call>, grouping: List<Calculation.DimensionReference>,
         population: RowPopulationContract.Selection, groupingArguments: List<String> = emptyList(),
@@ -166,9 +185,8 @@ object Computations {
         scope(Calculation.ObservationStatistics(observations, unit, outerKeys, statistics))
 
     fun compute(calculation: Calculation, bindings: CalculationBindings,
-        arguments: Map<String, Calculation.Binding> = emptyMap(), members: Map<String, CalculationBindings.Member> = emptyMap(),
-        relations: Map<String, CalculationBindings.Relation> = emptyMap()): Calculation.Scope =
-        compute(calculation, Calculation.ExplicitBindings(bindings, members, relations), arguments)
+        arguments: Map<String, Calculation.Binding> = emptyMap()): Calculation.Scope =
+        compute(calculation, Calculation.ExplicitBindings(bindings), arguments)
 
     fun compute(calculation: Calculation, bindings: Calculation.ComputeBindings,
         arguments: Map<String, Calculation.Binding> = emptyMap()): Calculation.Scope =

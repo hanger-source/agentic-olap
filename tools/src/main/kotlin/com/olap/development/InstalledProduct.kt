@@ -363,24 +363,6 @@ internal class InstalledProduct(private val tarballs: Path, private val root: Pa
             check(diagnostic.objectAt("location").getValue("startLine").jsonPrimitive.int > 0)
             check(diagnostic["actual"] == text(if (field == "offset") "1" else "0"))
         }
-        val rules = client.call("describe-script-api", objectOf("type" to text("com.olap.prototype.calculation.Calculation.Call"))).jsonObject
-            .objectAt("rules").objectAt("targetRules").objectAt("MEASUREMENT").array("emptyMaps")
-        check(rules == JsonArray(listOf(text("dimensionSlots"), text("measurementSlots"))))
-        for (field in listOf("dimensionSlots", "measurementSlots", "valid")) {
-            val source = """
-                val selected = Computations.invoke(Calculation.Measurement("adopted"), "selected", "total",
-                  dimensionSlots = ${if (field == "dimensionSlots") "mapOf(\"seller\" to \"seller\")" else "emptyMap()"},
-                  measurementSlots = ${if (field == "measurementSlots") "mapOf(\"amount\" to \"amount\")" else "emptyMap()"})
-                olap.output(olap.sources.list(EmptyRequest))
-            """.trimIndent()
-            val execution = client.script(source, JsonObject(emptyMap()), dslVersion, "author-contract.olap.kts")
-            if (field == "valid") execution.succeeded() else {
-                check(execution.report.array("calls").isEmpty())
-                val diagnostic = execution.report.array("diagnostics").map { it.jsonObject }.single { it["code"] == text("MEASUREMENT_BINDING_OVERRIDE") }
-                check(diagnostic["stage"] == text("CONTRACT_INPUT") && diagnostic["fieldPath"] == JsonArray(listOf(text(field))))
-                check(diagnostic.objectAt("location").getValue("startLine").jsonPrimitive.int > 0)
-            }
-        }
         val memberRules = client.call("describe-script-api", objectOf("type" to text("com.olap.prototype.member.MemberResult"))).jsonObject
             .objectAt("rules").objectAt("outputRules").objectAt("quantity")
         check(memberRules["valueType"] == text("NUMBER") && memberRules["unitEquations"] == text("EMPTY_MAP"))

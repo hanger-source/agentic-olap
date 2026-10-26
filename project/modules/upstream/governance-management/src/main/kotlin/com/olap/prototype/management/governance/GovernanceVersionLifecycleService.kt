@@ -145,7 +145,7 @@ class GovernanceVersionLifecycleService(private val database: PlatformDatabase, 
             }
             is MetricCalculation -> {
                 val calculation = definition.calculation
-                calculation.definitionBodies().values.forEach { body -> body.callSites().forEach { site -> (site.call.target as? Calculation.Fixed)?.let {
+                calculation.definitionBodies().values.forEach { body -> body.callSites().forEach { site -> (site.call as? Calculation.DefinitionCall)?.let {
                     val child = metrics.metricSnapshot(it.metric.id, it.metric.version.toLong())
                     referenceable(child.status, "METRIC", child.id, child.currentVersion)
                 } } }

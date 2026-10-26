@@ -55,9 +55,9 @@ object CalculationInstantiation {
         if (!declaration) require(supplied.values.none { it is CalculationBindings.InputParameter }) { "member arguments require an actual source call or local input" }
         return CalculationBindings(bindings.dimensions, bindings.members + supplied, bindings.groupingCandidates, bindings.measurements, bindings.relations)
     }
-    fun localInput(calculation: Calculation, local: CalculationBindings.LocalRef): InputScope {
-        val input = requireNotNull(calculation.computation.children()[local.inputId]) { "frozen local member binding must reference its calculation's own declared input" }
-        require(input.mode == "ROOT") { "frozen local member bindings require an explicitly declared ROOT input" }
+    fun localInput(scope: Scope, local: CalculationBindings.LocalRef): InputScope {
+        val input = requireNotNull(scope.children()[local.inputId]) { "local member binding must reference an input in its declaring lexical scope" }
+        require(input.mode == "ROOT") { "local member bindings require an explicitly declared ROOT input" }
         return input
     }
 
@@ -66,8 +66,7 @@ object CalculationInstantiation {
     }
 
     fun computeBindings(root: Compute, parent: CalculationBindings): CalculationBindings = when (val adoption = root.bindings) {
-        is ExplicitBindings -> relationArguments(root.calculation,
-            memberArguments(root.calculation, adoption.bindings, adoption.members), adoption.relations)
+        is ExplicitBindings -> adoption.bindings
         is ParentSlots -> forwardedBindings(root.calculation, adoption.dimensionSlots, adoption.memberSlots,
             adoption.measurementSlots, adoption.relationSlots, root.arguments, parent)
     }
@@ -75,16 +74,20 @@ object CalculationInstantiation {
     fun compute(root: Compute, parent: Calculation?, parentBindings: CalculationBindings, parentArguments: Map<String, Value>): ComputeApplication {
         if (root.bindings is ParentSlots) require(parent != null) { "parent slot application requires an enclosing parameterized calculation" }
         val adopted = when (val adoption = root.bindings) {
-            is ExplicitBindings -> relationArguments(root.calculation, memberArguments(root.calculation, adoption.bindings,
-                resolveMembers(adoption.members, parentBindings, parentArguments)), adoption.relations)
+            is ExplicitBindings -> {
+                require(parent == null) { "explicit calculation bindings belong to a query rather than a reusable template" }
+                adoption.bindings
+            }
             is ParentSlots -> {
                 val forwarded = computeBindings(root, parentBindings)
+                // 转发来源的参数属于父词法域，不能进入子计算后按同名参数重新解释。
                 CalculationBindings(forwarded.dimensions, resolveMembers(forwarded.members, parentBindings, parentArguments),
                     forwarded.groupingCandidates, forwarded.measurements, forwarded.relations)
             }
         }
         val supplied = root.arguments.mapValues { resolve(it.value, parentBindings, parentArguments) }
         val values = arguments(root.calculation.parameters, emptyMap(), supplied, adopted)
+        // 即时实际绑定中的来源参数属于子计算，须等本次实参与默认值完成后再求值。
         val bound = CalculationBindings(adopted.dimensions, resolveMembers(adopted.members, adopted, values), adopted.groupingCandidates,
             adopted.measurements, adopted.relations)
         return ComputeApplication(bound, values)
@@ -247,9 +250,9 @@ object CalculationInstantiation {
     }
 
     fun child(call: Call, owner: Calculation?, bindings: CalculationBindings, arguments: Map<String, Value>,
-        instances: (MetricInstanceRef) -> MetricInstance, definitions: (MetricRef) -> MetricDefinition): Child = when (val target = call.target) {
-        is Instance -> {
-            val instance = instances(target.instance)
+        instances: (MetricInstanceRef) -> MetricInstance, definitions: (MetricRef) -> MetricDefinition): Child = when (call) {
+        is InstanceCall -> {
+            val instance = instances(call.instance)
             val definition = definitions(instance.definition)
             val actualMembers = resolveMembers(call.members, bindings, arguments)
             val actual = when (definition) {
@@ -258,9 +261,9 @@ object CalculationInstantiation {
             }
             Child(instance.definition, call.arguments.mapValues { resolve(it.value, bindings, arguments) }, actual, instance.fixedArguments, null)
         }
-        is Measurement -> {
-            val instance = instances(requireNotNull(bindings.measurements[target.slot]) { "measurement slot is not bound" })
-            val slot = requireNotNull(requireNotNull(owner).measurementSlots.firstOrNull { it.name == target.slot }) { "measurement slot is not declared" }
+        is MeasurementCall -> {
+            val instance = instances(requireNotNull(bindings.measurements[call.slot]) { "measurement slot is not bound" })
+            val slot = requireNotNull(requireNotNull(owner).measurementSlots.firstOrNull { it.name == call.slot }) { "measurement slot is not declared" }
             val supplied = call.arguments.mapValues { resolve(it.value, bindings, arguments) }
             val definition = definitions(instance.definition)
             val actualMembers = resolveMembers(memberBindings(call, bindings.members), bindings, arguments)
@@ -275,19 +278,23 @@ object CalculationInstantiation {
             }
             Child(instance.definition, supplied, actualBindings, instance.fixedArguments, slot)
         }
-        is Fixed -> {
-            val calculation = (definitions(target.metric) as? MetricCalculation)?.calculation
+        is DefinitionCall -> {
+            val calculation = (definitions(call.metric) as? MetricCalculation)?.calculation
             val adopted = forwardedBindings(calculation, call.dimensionSlots, call.memberSlots, call.measurementSlots, call.relationSlots, call.arguments, bindings)
             val actual = CalculationBindings(adopted.dimensions, resolveMembers(adopted.members, bindings, arguments), adopted.groupingCandidates, adopted.measurements, adopted.relations)
-            Child(target.metric, call.arguments.mapValues { resolve(it.value, bindings, arguments) }, actual, emptyMap(), null)
+            Child(call.metric, call.arguments.mapValues { resolve(it.value, bindings, arguments) }, actual, emptyMap(), null)
         }
     }
 
-    fun memberBindings(call: Call, parent: Map<String, CalculationBindings.Member>): Map<String, CalculationBindings.Member> =
-        if (call.target is Instance) call.members else Collections.unmodifiableMap(call.memberSlots.mapValues { requireNotNull(parent[it.value]) { "nested member slot is not bound" } })
-    fun relationBindings(call: Call, parent: Map<String, CalculationBindings.Relation>, definition: MetricDefinition): Map<String, CalculationBindings.Relation> {
-        if (call.target is Instance) return call.relations
-        return forwardedRelations(call.relationSlots, parent, (definition as? MetricCalculation)?.calculation)
+    fun memberBindings(call: Call, parent: Map<String, CalculationBindings.Member>): Map<String, CalculationBindings.Member> = when (call) {
+        is InstanceCall -> call.members
+        is DefinitionCall -> Collections.unmodifiableMap(call.memberSlots.mapValues { requireNotNull(parent[it.value]) { "nested member slot is not bound" } })
+        is MeasurementCall -> Collections.unmodifiableMap(call.memberSlots.mapValues { requireNotNull(parent[it.value]) { "nested member slot is not bound" } })
+    }
+    fun relationBindings(call: Call, parent: Map<String, CalculationBindings.Relation>, definition: MetricDefinition): Map<String, CalculationBindings.Relation> = when (call) {
+        is InstanceCall -> call.relations
+        is DefinitionCall -> forwardedRelations(call.relationSlots, parent, (definition as? MetricCalculation)?.calculation)
+        is MeasurementCall -> forwardedRelations(call.relationSlots, parent, (definition as? MetricCalculation)?.calculation)
     }
     fun resolve(binding: Binding, bindings: CalculationBindings, arguments: Map<String, Value>): Value = when (binding) {
         is Argument -> requireNotNull(arguments[binding.name]) { "calculation argument is not bound" }

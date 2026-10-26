@@ -77,7 +77,7 @@ internal class DefinitionReferences(private val instances: (MetricInstanceRef) -
             current.children().values.forEach { scope(it.computation) }
         }
         value.definitionBodies().values.forEach { body ->
-            body.callSites().forEach { site -> (site.call.target as? Calculation.Fixed)?.let { emit(Reference("METRIC", it.metric.id, it.metric.version)) } }
+            body.callSites().forEach { site -> (site.call as? Calculation.DefinitionCall)?.let { emit(Reference("METRIC", it.metric.id, it.metric.version)) } }
             body.memberSlots.forEach { slot -> slot.outputs.values.filterIsInstance<Calculation.ScalarMemberOutput>().forEach { it.valueContract?.let(::quantity) } }
             body.parameters.values.forEach { it.valueContract?.let(::quantity) }
             body.relationSlots.forEach { slot -> slot.outputs.forEach { shape(it.shape) } }
@@ -113,7 +113,10 @@ internal fun Calculation.fixedMemberSources(): Map<String, MemberRef> = linkedMa
                 (root.target as? Calculation.MemberSource)?.let { put("$path/root/source", it.source) }
                 members(root.members, "$path/root/members")
             }
-            is Calculation.Measures -> root.calls.forEach { call -> members(call.members, "$path/root/calls/${call.callId}/members") }
+            is Calculation.Measures -> root.calls.forEach { call -> when (call) {
+                is Calculation.InstanceCall -> members(call.members, "$path/root/calls/${call.callId}/members")
+                is Calculation.DefinitionCall, is Calculation.MeasurementCall -> Unit
+            } }
             else -> Unit
         }
         current.children().forEach { (name, child) -> scope(child.computation, "$path/inputs/$name/computation") }

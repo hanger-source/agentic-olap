@@ -53,10 +53,10 @@ class PublishedNestedCustomerTest {
                 val overall = n.save(publication, "${subject}_overall", GovernanceOrderFixture.measurementScope(n.fixed.getValue(subject).instance, emptyList(), mapOf("groups" to Calculation.Grouping(emptyList()))))
                 number(50.0, n.execute(publication, overall).result.resultFrame.rows.single()["value"])
                 val forbidden = listOf(
-                    Calculation.Call("fixed", Calculation.Instance(n.fixed.getValue(subject).instance), "value", emptyMap(), emptyMap(), emptyMap(), emptyMap(), mapOf("groups" to Calculation.Grouping(listOf(grouping)), "minimum" to Calculation.Scalar(ScalarValueType.NUMBER, "0")), Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), emptyMap()),
-                    Calculation.Call("fixed", Calculation.Instance(n.fixed.getValue(subject).instance), "value", emptyMap(), emptyMap(), emptyMap(), emptyMap(), mapOf("groups" to Calculation.Grouping(listOf(grouping)), "window" to NestedCustomerFixture.range("2026-08-01", "2026-09-01")), Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), emptyMap()),
-                    Calculation.Call("fixed", Calculation.Instance(n.fixed.getValue(subject).instance), "value", emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), emptyMap()),
-                    Calculation.Call("fixed", Calculation.Instance(n.internal.getValue(subject).instance), "value", emptyMap(), emptyMap(), emptyMap(), emptyMap(), mapOf("groups" to Calculation.Grouping(listOf(grouping)), "window" to n.july), Calculation.Condition(DimensionCondition.Unrestricted()), emptyMap(), emptyMap()))
+                    Calculation.InstanceCall("fixed", n.fixed.getValue(subject).instance, outputAlias = "value", arguments = mapOf("groups" to Calculation.Grouping(listOf(grouping)), "minimum" to Calculation.Scalar(ScalarValueType.NUMBER, "0"))),
+                    Calculation.InstanceCall("fixed", n.fixed.getValue(subject).instance, outputAlias = "value", arguments = mapOf("groups" to Calculation.Grouping(listOf(grouping)), "window" to NestedCustomerFixture.range("2026-08-01", "2026-09-01"))),
+                    Calculation.InstanceCall("fixed", n.fixed.getValue(subject).instance, outputAlias = "value"),
+                    Calculation.InstanceCall("fixed", n.internal.getValue(subject).instance, outputAlias = "value", arguments = mapOf("groups" to Calculation.Grouping(listOf(grouping)), "window" to n.july)))
                 forbidden.forEachIndexed { index, call -> assertThrows(ProducerContractException::class.java) { n.save(publication, "${subject}_forbidden_$index", NestedCustomerFixture.scope(listOf(call), listOf(grouping))) } }
                 number(50.0, n.execute(publication, fixedSaved).result.resultFrame.rows.single()["value"])
                 if (subject == "travel.trade") independentMembers(n, publication, grouping)

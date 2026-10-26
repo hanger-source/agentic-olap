@@ -13,17 +13,20 @@ internal class MetricBinding(private val session: ExecutableBindingSession, priv
     private val dimensions: ExecutableDimensionBindings, private val memberSources: MemberSources) {
     fun bindChild(declaration: Calculation.Call, parent: CalculationBinding, measures: Calculation.Measures,
         selection: ExecutableMeasureSelection, caller: ScopeAssembly, scope: ScopeId, depth: Int): ExecutableMetricCall {
-        val target = declaration.target
-        require(parent.definition != null || target is Calculation.Instance) { "a query selects an exact published metric instance; formal or fixed definition calls require a parameterized calculation" }
+        require(parent.definition != null || declaration is Calculation.InstanceCall) { "a query selects an exact published metric instance; formal or fixed definition calls require a parameterized calculation" }
         val child = CalculationInstantiation.child(declaration, parent.definition, parent.bindings, parent.arguments,
             catalog::requireMetricInstance, { catalog.requireMetric(it).definition })
         val metric = catalog.requireMetric(child.metric)
         val fact = metric.definition as? MetricDefinition.FactMeasure
         val actualDimensions = if (fact != null) selection.groupingBindings.values.toList() else child.bindings.dimensions.values + child.bindings.groupingCandidates.values.flatten()
         val invocation = InvocationBinding(child)
-        val call = if (target is Calculation.Instance) invocation.published(declaration, scope, catalog.requireMetricInstance(target.instance), caller, depth + 1)
-            else invocation.child(declaration, scope, parent, actualDimensions,
-                declaration.memberSlots.mapValues { (_, parentSlot) -> parent.fullMember(parentSlot, scope, depth) })
+        val call = when (declaration) {
+            is Calculation.InstanceCall -> invocation.published(declaration, scope, catalog.requireMetricInstance(declaration.instance), caller, depth + 1)
+            is Calculation.DefinitionCall -> invocation.child(declaration, scope, parent, actualDimensions,
+                declaration.memberSlots.mapValues { (_, parentSlot) -> parent.fullMember(parentSlot, scope, depth) }, declaration.relationSlots)
+            is Calculation.MeasurementCall -> invocation.child(declaration, scope, parent, actualDimensions,
+                declaration.memberSlots.mapValues { (_, parentSlot) -> parent.fullMember(parentSlot, scope, depth) }, declaration.relationSlots)
+        }
         val timeBinding = (measures.timeRange?.dimension as? Calculation.DimensionParameter)?.let { parent.bindings.dimensions[it.slot] }
         if (fact != null) {
             selection.groupingBindings.values.forEach { catalog.requireDimensionEvent(it, fact.event) }
@@ -51,7 +54,7 @@ internal class MetricBinding(private val session: ExecutableBindingSession, priv
             CalculationInstantiation.resolveMembers(child.bindings.members, child.bindings, arguments), child.bindings.groupingCandidates, child.bindings.measurements, child.bindings.relations)
         init { catalog.requireBoundBindings(metric.definition, bindings) }
 
-        fun published(declaration: Calculation.Call, scope: ScopeId, instance: MetricInstance, caller: ScopeAssembly, depth: Int): ExecutableMetricCall.Invocation {
+        fun published(declaration: Calculation.InstanceCall, scope: ScopeId, instance: MetricInstance, caller: ScopeAssembly, depth: Int): ExecutableMetricCall.Invocation {
             val definition = metric.definition as? MetricCalculation
             val members = if (definition == null) emptyMap() else {
                 val environment = MemberEnvironment(caller.callerInputs(), scope.metric(declaration.callId), scope)
@@ -62,13 +65,14 @@ internal class MetricBinding(private val session: ExecutableBindingSession, priv
                 val environment = MemberEnvironment(caller.callerInputs(), scope.metric(declaration.callId), scope)
                 declaration.relations.keys.associateWith { session.relations.bind(definition.calculation, bindings, it, environment) }
             }
-            return ExecutableMetricCall.Invocation(scope, declaration.callId, CalculationOwner.Metric((declaration.target as Calculation.Instance).instance), instance.displayName,
+            return ExecutableMetricCall.Invocation(scope, declaration.callId, CalculationOwner.Metric(declaration.instance), instance.displayName,
                 declaration.outputAlias, metric, arguments, bindings, null, members, relations)
         }
         fun child(declaration: Calculation.Call, scope: ScopeId, parent: CalculationBinding,
-            actualDimensions: Collection<CalculationBindings.Dimension>, members: Map<String, ExecutableMemberInput>): ExecutableMetricCall.Invocation {
+            actualDimensions: Collection<CalculationBindings.Dimension>, members: Map<String, ExecutableMemberInput>,
+            relationSlots: Map<String, String>): ExecutableMetricCall.Invocation {
             val definition = metric.definition as? MetricCalculation
-            val relations = declaration.relationSlots.mapValues { (slot, parentSlot) ->
+            val relations = relationSlots.mapValues { (slot, parentSlot) ->
                 requireNotNull(definition) { "fact measures do not declare relation slots" }
                 session.relations.adopt(definition.calculation, bindings, slot, parent.fullRelation(parentSlot))
             }

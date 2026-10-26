@@ -1,6 +1,5 @@
 package com.olap.prototype.calculation
 
-import com.olap.prototype.contract.InputContractException
 import com.olap.prototype.member.MemberCondition
 import com.olap.prototype.member.MemberRef
 import com.olap.prototype.member.MemberShape
@@ -12,8 +11,8 @@ import java.util.Collections
 import java.util.TreeMap
 
 /** 共同计算体的形参、作用域与关系操作；结果合同由使用该计算的资产拥有。 */
-class Calculation(dimensionSlots: List<DimensionSlot>, memberSlots: List<MemberSlot>, measurementSlots: List<MeasurementSlot>,
-    relationSlots: List<RelationSlot>, parameters: Map<String, Parameter>, val computation: Scope) {
+class Calculation(dimensionSlots: List<DimensionSlot> = emptyList(), memberSlots: List<MemberSlot> = emptyList(), measurementSlots: List<MeasurementSlot> = emptyList(),
+    relationSlots: List<RelationSlot> = emptyList(), parameters: Map<String, Parameter> = emptyMap(), val computation: Scope) {
     val dimensionSlots: List<DimensionSlot> = java.util.List.copyOf(dimensionSlots)
     val memberSlots: List<MemberSlot> = java.util.List.copyOf(memberSlots)
     val measurementSlots: List<MeasurementSlot> = java.util.List.copyOf(measurementSlots)
@@ -163,52 +162,63 @@ class Calculation(dimensionSlots: List<DimensionSlot>, memberSlots: List<MemberS
         override fun hashCode(): Int = dimensions.hashCode()
     }
 
-    sealed interface CallTarget
-    data class Fixed(val metric: MetricRef) : CallTarget
-    data class Measurement(val slot: String) : CallTarget { init { ScopedInputContract.requireId(slot, listOf("Calculation.Measurement", "slot")) } }
-    data class Instance(val instance: MetricInstanceRef) : CallTarget
-    class Call(val callId: String, val target: CallTarget, val outputAlias: String, dimensionSlots: Map<String, String>, memberSlots: Map<String, String>, measurementSlots: Map<String, String>, relationSlots: Map<String, String>, arguments: Map<String, Binding>, val sourceCondition: Binding,
-        members: Map<String, CalculationBindings.Member>, relations: Map<String, CalculationBindings.Relation>) {
+    /** 三种调用各自拥有合法输入；采用实例的既有绑定不成为调用者可覆盖的字段。 */
+    sealed class Call(val callId: String, val outputAlias: String, arguments: Map<String, Binding>, val sourceCondition: Binding) {
+        val arguments: Map<String, Binding> = Collections.unmodifiableMap(LinkedHashMap(arguments))
+        init {
+            ScopedInputContract.requireId(callId, listOf("Calculation.Call", "callId")); MetricDefinition.text(outputAlias, "outputAlias")
+            require(sourceCondition is Argument || sourceCondition is Condition) { "call source conditions require a condition value or declared condition argument" }
+        }
+        companion object {
+            fun contract(): Map<String, Any> = mapOf("variants" to mapOf(
+                "DefinitionCall" to mapOf("reference" to "EXACT_SHARED_DEFINITION", "inputs" to "EXPLICIT_PARENT_SLOT_FORWARDING"),
+                "MeasurementCall" to mapOf("reference" to "DECLARED_MEASUREMENT_PARAMETER", "bindingOwner" to "ADOPTED_INSTANCE",
+                    "inputs" to "REMAINING_VALUE_ARGUMENTS_AND_PARENT_MEMBER_RELATION_SLOTS"),
+                "InstanceCall" to mapOf("reference" to "EXACT_ADOPTED_INSTANCE", "bindingOwner" to "ADOPTED_INSTANCE",
+                    "inputs" to "REMAINING_VALUE_MEMBER_AND_RELATION_ARGUMENTS")),
+                "composition" to "ALL_VARIANTS_PARTICIPATE_IN_THE_SAME_MEASURES_ROOT_AND_COMMON_ANALYSIS")
+        }
+    }
+    class DefinitionCall(callId: String, val metric: MetricRef, outputAlias: String = callId,
+        dimensionSlots: Map<String, String> = emptyMap(), memberSlots: Map<String, String> = emptyMap(),
+        measurementSlots: Map<String, String> = emptyMap(), relationSlots: Map<String, String> = emptyMap(),
+        arguments: Map<String, Binding> = emptyMap(), sourceCondition: Binding = Condition(DimensionCondition.Unrestricted())) : Call(callId, outputAlias, arguments, sourceCondition) {
         val dimensionSlots: Map<String, String> = java.util.Map.copyOf(dimensionSlots)
         val memberSlots: Map<String, String> = java.util.Map.copyOf(memberSlots)
         val measurementSlots: Map<String, String> = java.util.Map.copyOf(measurementSlots)
         val relationSlots: Map<String, String> = java.util.Map.copyOf(relationSlots)
-        val arguments: Map<String, Binding> = Collections.unmodifiableMap(LinkedHashMap(arguments))
+        override fun equals(other: Any?): Boolean = other is DefinitionCall && callId == other.callId && metric == other.metric && outputAlias == other.outputAlias && dimensionSlots == other.dimensionSlots && memberSlots == other.memberSlots && measurementSlots == other.measurementSlots && relationSlots == other.relationSlots && arguments == other.arguments && sourceCondition == other.sourceCondition
+        override fun hashCode(): Int = listOf(callId, metric, outputAlias, dimensionSlots, memberSlots, measurementSlots, relationSlots, arguments, sourceCondition).hashCode()
+    }
+    class MeasurementCall(callId: String, val slot: String, outputAlias: String = callId,
+        memberSlots: Map<String, String> = emptyMap(), relationSlots: Map<String, String> = emptyMap(),
+        arguments: Map<String, Binding> = emptyMap(), sourceCondition: Binding = Condition(DimensionCondition.Unrestricted())) : Call(callId, outputAlias, arguments, sourceCondition) {
+        val memberSlots: Map<String, String> = java.util.Map.copyOf(memberSlots)
+        val relationSlots: Map<String, String> = java.util.Map.copyOf(relationSlots)
+        init { ScopedInputContract.requireId(slot, listOf("Calculation.MeasurementCall", "slot")) }
+        override fun equals(other: Any?): Boolean = other is MeasurementCall && callId == other.callId && slot == other.slot && outputAlias == other.outputAlias && memberSlots == other.memberSlots && relationSlots == other.relationSlots && arguments == other.arguments && sourceCondition == other.sourceCondition
+        override fun hashCode(): Int = listOf(callId, slot, outputAlias, memberSlots, relationSlots, arguments, sourceCondition).hashCode()
+    }
+    class InstanceCall(callId: String, val instance: MetricInstanceRef, outputAlias: String = callId,
+        arguments: Map<String, Binding> = emptyMap(), members: Map<String, CalculationBindings.Member> = emptyMap(),
+        relations: Map<String, CalculationBindings.Relation> = emptyMap(), sourceCondition: Binding = Condition(DimensionCondition.Unrestricted())) : Call(callId, outputAlias, arguments, sourceCondition) {
         val members: Map<String, CalculationBindings.Member> = java.util.Map.copyOf(members)
         val relations: Map<String, CalculationBindings.Relation> = java.util.Map.copyOf(relations)
-        init {
-            ScopedInputContract.requireId(callId, listOf("Calculation.Call", "callId")); MetricDefinition.text(outputAlias, "outputAlias")
-            if (target is Measurement || target is Instance) {
-                mapOf("dimensionSlots" to this.dimensionSlots, "measurementSlots" to this.measurementSlots).forEach { (field, bindings) ->
-                    if (bindings.isNotEmpty()) throw InputContractException.violation(InputContractException.Rule.MEASUREMENT_BINDING_OVERRIDE,
-                        listOf(field), "adopted measurement calls require an empty $field map; the exact instance owns these bindings",
-                        "EMPTY_MAP", "NONEMPTY_MAP")
-                }
-            }
-            if (target is Instance) require(this.memberSlots.isEmpty() && this.relationSlots.isEmpty()) { "exact instance calls accept actual member and relation arguments, not parent slot rebinding" }
-            else require(this.members.isEmpty() && this.relations.isEmpty()) { "definition and measurement calls forward declared member and relation slots" }
-            require(sourceCondition is Argument || sourceCondition is Condition) { "call source conditions require a condition value or declared condition argument" }
-        }
-        companion object {
-            fun contract(): Map<String, Any> = mapOf("targetRules" to mapOf("MEASUREMENT" to mapOf(
-                "emptyMaps" to listOf("dimensionSlots", "measurementSlots"),
-                "bindingOwner" to "EXACT_ADOPTED_MEASUREMENT_INSTANCE",
-                "parentBindings" to "REJECT_EVEN_IF_IDENTICAL_TO_INSTANCE_BINDINGS",
-                "violationCode" to InputContractException.Rule.MEASUREMENT_BINDING_OVERRIDE.code),
-                "INSTANCE" to mapOf("emptyMaps" to listOf("dimensionSlots", "memberSlots", "measurementSlots", "relationSlots"),
-                    "bindingOwner" to "EXACT_ADOPTED_MEASUREMENT_INSTANCE", "arguments" to "ONLY_REMAINING_VALUE_MEMBER_AND_RELATION_PARAMETERS")))
-        }
-        override fun equals(other: Any?): Boolean = other is Call && callId == other.callId && target == other.target && outputAlias == other.outputAlias && dimensionSlots == other.dimensionSlots && memberSlots == other.memberSlots && measurementSlots == other.measurementSlots && relationSlots == other.relationSlots && arguments == other.arguments && sourceCondition == other.sourceCondition && members == other.members && relations == other.relations
-        override fun hashCode(): Int = listOf(callId, target, outputAlias, dimensionSlots, memberSlots, measurementSlots, relationSlots, arguments, sourceCondition, members, relations).hashCode()
+        override fun equals(other: Any?): Boolean = other is InstanceCall && callId == other.callId && instance == other.instance && outputAlias == other.outputAlias && arguments == other.arguments && sourceCondition == other.sourceCondition && members == other.members && relations == other.relations
+        override fun hashCode(): Int = listOf(callId, instance, outputAlias, arguments, sourceCondition, members, relations).hashCode()
     }
 
     sealed interface Root
     sealed interface ComputeBindings
-    class ExplicitBindings(val bindings: CalculationBindings, members: Map<String, CalculationBindings.Member>, relations: Map<String, CalculationBindings.Relation>) : ComputeBindings {
-        val members: Map<String, CalculationBindings.Member> = java.util.Map.copyOf(members)
-        val relations: Map<String, CalculationBindings.Relation> = java.util.Map.copyOf(relations)
-        override fun equals(other: Any?): Boolean = other is ExplicitBindings && bindings == other.bindings && members == other.members && relations == other.relations
-        override fun hashCode(): Int = listOf(bindings, members, relations).hashCode()
+    class ExplicitBindings(val bindings: CalculationBindings) : ComputeBindings {
+        init {
+            require(bindings.members.values.none { it is CalculationBindings.InputParameter } &&
+                bindings.relations.values.none { it is CalculationBindings.RelationParameter }) {
+                "inline calculation bindings require actual inputs, not adoption placeholders"
+            }
+        }
+        override fun equals(other: Any?): Boolean = other is ExplicitBindings && bindings == other.bindings
+        override fun hashCode(): Int = bindings.hashCode()
     }
     class ParentSlots(dimensionSlots: Map<String, String>, memberSlots: Map<String, String>, measurementSlots: Map<String, String>, relationSlots: Map<String, String>) : ComputeBindings {
         val dimensionSlots: Map<String, String> = java.util.Map.copyOf(dimensionSlots)
@@ -223,7 +233,8 @@ class Calculation(dimensionSlots: List<DimensionSlot>, memberSlots: List<MemberS
         companion object {
             fun contract(): Map<String, Any> = mapOf(
                 "bindingRules" to mapOf(
-                    "ExplicitBindings" to mapOf("context" to "QUERY", "bindings" to "EXACT_ACTUAL_ADOPTION", "membersAndRelations" to "FILL_ALL_AND_ONLY_EXTERNAL_FORMALS"),
+                    "ExplicitBindings" to mapOf("context" to "QUERY", "bindings" to "ALL_AND_ONLY_DECLARED_FORMALS_WITH_ACTUAL_INPUTS",
+                        "localInputs" to "CALLER_LEXICAL_SCOPE", "sourceArguments" to "CHILD_VALUE_PARAMETERS", "adoptionPlaceholders" to false),
                     "ParentSlots" to mapOf("context" to "ENCLOSING_CALCULATION", "maps" to listOf("dimensionSlots", "memberSlots", "measurementSlots", "relationSlots"),
                         "coverage" to "ALL_AND_ONLY_CHILD_FORMALS_TO_DECLARED_PARENT_SLOTS", "acceptance" to "CHILD_INPUT_CONTRACTS_MUST_BE_GUARANTEED_BY_PARENT_FORMALS", "captureAdoptedBindings" to false)),
                 "arguments" to mapOf("owner" to "ENCLOSING_PARAMETERS_AND_BINDINGS", "acceptance" to "CHILD_PARAMETERS_WITH_DECLARED_DEFAULTS", "forwarding" to "EXPLICIT_ARGUMENT_BINDINGS"),
@@ -489,9 +500,9 @@ class Calculation(dimensionSlots: List<DimensionSlot>, memberSlots: List<MemberS
             when (root) {
                 is Input -> result.add(root.inputId)
                 is SetCombination -> root.inputs.forEach { result.add(it.inputId) }
-                is Measures -> root.calls.forEach { members(it.members); relations(it.relations) }
+                is Measures -> root.calls.filterIsInstance<InstanceCall>().forEach { members(it.members); relations(it.relations) }
                 is Members -> { members(root.members); relations(root.relations) }
-                is Compute -> (root.bindings as? ExplicitBindings)?.let { members(it.members); relations(it.relations) }
+                is Compute -> (root.bindings as? ExplicitBindings)?.let { members(it.bindings.members); relations(it.bindings.relations) }
                 else -> Unit
             }
             return Collections.unmodifiableSet(result)
