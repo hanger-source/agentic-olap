@@ -24,17 +24,30 @@ class SemanticCalciteTypeSystem private constructor(private val support: Compila
     override fun deriveSumType(factory: RelDataTypeFactory, argument: RelDataType): RelDataType =
         if (semantic && FiniteDecimalTypes.isFinite(argument)) FiniteDecimalTypes.create(true) else super.deriveSumType(factory, argument)
 
+    // Calcite 的 DelegatingTypeSystem 未委托这些接口默认方法；原生派生必须直接调用精确来源实现。
     override fun deriveDecimalPlusType(factory: RelDataTypeFactory, left: RelDataType, right: RelDataType): RelDataType? =
-        finiteBinary(left, right) { super.deriveDecimalPlusType(factory, left, right) }
+        finiteBinary(left, right) {
+            if (semantic) super.deriveDecimalPlusType(factory, left, right)
+            else nativeSupport.typeSystem.deriveDecimalPlusType(factory, left, right)
+        }
 
     override fun deriveDecimalMultiplyType(factory: RelDataTypeFactory, left: RelDataType, right: RelDataType): RelDataType? =
-        finiteBinary(left, right) { super.deriveDecimalMultiplyType(factory, left, right) }
+        finiteBinary(left, right) {
+            if (semantic) super.deriveDecimalMultiplyType(factory, left, right)
+            else nativeSupport.typeSystem.deriveDecimalMultiplyType(factory, left, right)
+        }
 
     override fun deriveDecimalDivideType(factory: RelDataTypeFactory, left: RelDataType, right: RelDataType): RelDataType? =
-        finiteBinary(left, right) { super.deriveDecimalDivideType(factory, left, right) }
+        finiteBinary(left, right) {
+            if (semantic) super.deriveDecimalDivideType(factory, left, right)
+            else nativeSupport.typeSystem.deriveDecimalDivideType(factory, left, right)
+        }
 
     override fun deriveDecimalModType(factory: RelDataTypeFactory, left: RelDataType, right: RelDataType): RelDataType? =
-        finiteBinary(left, right) { super.deriveDecimalModType(factory, left, right) }
+        finiteBinary(left, right) {
+            if (semantic) super.deriveDecimalModType(factory, left, right)
+            else nativeSupport.typeSystem.deriveDecimalModType(factory, left, right)
+        }
 
     private inline fun finiteBinary(left: RelDataType, right: RelDataType, native: () -> RelDataType?): RelDataType? {
         if (!FiniteDecimalTypes.isFinite(left) && !FiniteDecimalTypes.isFinite(right)) return native()

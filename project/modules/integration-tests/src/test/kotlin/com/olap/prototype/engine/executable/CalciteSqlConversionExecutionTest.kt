@@ -15,6 +15,7 @@ import com.olap.prototype.engine.calcite.SemanticRexCompiler
 import com.olap.prototype.engine.catalog.ExecutablePhysicalExecutionBinding
 import com.olap.prototype.engine.catalog.ExecutableRelationPosition.Id
 import com.olap.prototype.expression.CalciteSqlRendering
+import com.olap.prototype.expression.CalciteCompilation
 import com.olap.prototype.expression.NativeExpressionScope
 import com.olap.prototype.expression.NativeScalarFunction
 import com.olap.prototype.expression.SemanticExpression
@@ -28,6 +29,9 @@ import org.apache.calcite.rel.core.JoinRelType
 import org.apache.calcite.rel.core.Aggregate
 import org.apache.calcite.rel.core.AggregateCall
 import org.apache.calcite.rel.logical.LogicalCalc
+import org.apache.calcite.rel.type.DelegatingTypeSystem
+import org.apache.calcite.rel.type.RelDataType
+import org.apache.calcite.rel.type.RelDataTypeFactory
 import org.apache.calcite.rex.RexNode
 import org.apache.calcite.rex.RexBuilder
 import org.apache.calcite.rex.RexCall
@@ -46,6 +50,7 @@ import org.apache.calcite.sql.`fun`.SqlTrimFunction
 import org.apache.calcite.sql.type.OperandTypes
 import org.apache.calcite.sql.type.ReturnTypes
 import org.apache.calcite.sql.type.SqlTypeName
+import org.apache.calcite.sql.type.SqlTypeUtil
 import org.apache.calcite.tools.RelBuilder
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
@@ -167,6 +172,7 @@ class CalciteSqlConversionExecutionTest {
             source.connection.createStatement().use {
                 it.execute("ALTER TABLE observations ADD finite_amount DECFLOAT(100)")
                 it.execute("UPDATE observations SET finite_amount=amount")
+                it.execute("UPDATE observations SET finite_amount=1.00000000000000000001 WHERE id=1")
                 it.execute("UPDATE observations SET amount=amount*1000")
             }
             val baseSupport = TestConnectors.registry.require(source.spec.connectorRef).compilation
@@ -176,6 +182,15 @@ class CalciteSqlConversionExecutionTest {
                 else baseSupport.nativeAggregate(SqlKind.SUM).inferReturnType(binding)
             }, OperandTypes.NUMERIC)
             val support = object : CompilationSupport by baseSupport {
+                override val typeSystem = object : DelegatingTypeSystem(baseSupport.typeSystem) {
+                    override fun deriveDecimalMultiplyType(factory: RelDataTypeFactory, left: RelDataType, right: RelDataType): RelDataType? {
+                        if (FiniteDecimalTypes.isFinite(left) || FiniteDecimalTypes.isFinite(right)) {
+                            require(SqlTypeUtil.isExactNumeric(left) && SqlTypeUtil.isExactNumeric(right))
+                            return FiniteDecimalTypes.create(left.isNullable || right.isNullable)
+                        }
+                        return baseSupport.typeSystem.deriveDecimalMultiplyType(factory, left, right)
+                    }
+                }
                 override fun nativeAggregate(kind: SqlKind): SqlAggFunction = if (kind == SqlKind.SUM) sum else baseSupport.nativeAggregate(kind)
                 override fun aggregateSql(owner: Aggregate, call: AggregateCall, arguments: List<SqlNode>, expression: SqlNode): SqlNode {
                     if (call.aggregation.kind != SqlKind.SUM ||
@@ -194,9 +209,11 @@ class CalciteSqlConversionExecutionTest {
                     return SqlCase(pos, null, SqlNodeList(listOf(accepted), pos), SqlNodeList(listOf(expression), pos), rejected)
                 }
             }
-            val b = builder(source)
+            val binding = source.adopt("observations", emptyMap())
+            val schema = FrozenCatalogSchema.bind(listOf(binding), binding.physicalColumnBindings.keys, emptySet(), TestConnectors.registry).schema
+            val b = CalciteCompilation.builder(support, schema).scan(FrozenCatalogSchema.path(binding))
             val input = b.build()
-            b.push(input).project(listOf(b.field("region"), b.field("finite_amount"), b.field("amount"),
+            b.push(input).project(listOf(b.field("region"), b.call(Ops.MULTIPLY, b.field("finite_amount"), b.literal(BigDecimal.ONE)), b.field("amount"),
                 b.cast(b.field("amount"), SqlTypeName.REAL)), listOf("region", "finite_amount", "amount", "floating_amount"), true)
             b.aggregate(b.groupKey(b.field("region")),
                 b.aggregateCall(support.nativeAggregate(SqlKind.SUM), listOf(b.field("finite_amount"))).`as`("total"),
@@ -209,14 +226,11 @@ class CalciteSqlConversionExecutionTest {
             val shared = b.build()
             val result = rows(source, shared, support = support)
             assertEquals(listOf("A", "B", "C"), result.map { it[0] })
-            listOf("3", null, "10").forEachIndexed { index, expected ->
-                if (expected == null) result[index].drop(1).forEach { assertNull(it) }
-                else {
-                    decimal(result[index][1], expected)
-                    decimal(result[index][2], BigDecimal(expected).multiply(BigDecimal("1000")).toPlainString())
-                    decimal(result[index][3], BigDecimal(expected).multiply(BigDecimal("1000")).toPlainString())
-                }
-            }
+            val expected = listOf(listOf("3.00000000000000000001", "3000", "3000"),
+                listOf(null, null, null), listOf("10", "10000", "10000"))
+            expected.forEachIndexed { row, values -> values.forEachIndexed { column, value ->
+                if (value == null) assertNull(result[row][column + 1]) else decimal(result[row][column + 1], value)
+            } }
             source.connection.createStatement().use { it.execute("UPDATE observations SET finite_amount=1000 WHERE region='C'") }
             val failure = assertThrows(SQLException::class.java) { rows(source, shared, support = support) }
             assertTrue(failure.message.orEmpty().contains("finite aggregate input outside trial domain"))
