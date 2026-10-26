@@ -27,16 +27,20 @@ internal class ServerResults(private val usage: QueryUsageRepository,
     private val mapper = OlapJsonUtils.mapper()
     private val pages = ResultPages(files)
     fun retainHistory() { usage.purgeHistoryBefore(Instant.now().minus(Duration.ofDays(retentionDays))) }
-    private fun authorizedRun(id: String, principal: ServerAuthorization.Principal, operation: String): QueryUsageRepository.Run {
-        val run = usage.require(id)
+    private fun authorizedAccess(id: String, principal: ServerAuthorization.Principal, operation: String): QueryUsageRepository.ResultAccess {
+        val run = usage.requireResultAccess(id)
         if (run.subject != principal.subject) throw SecurityException("run is not authorized for this subject")
         authorization.publication(principal, operation, run.subjectAreaId, run.publication.releaseId)
         return run
     }
+    private fun authorizedRun(id: String, principal: ServerAuthorization.Principal, operation: String): QueryUsageRepository.Run {
+        authorizedAccess(id, principal, operation)
+        return usage.require(id)
+    }
     fun authorize(request: ServerRequest, reference: QueryResultReference, operation: String): QueryResultReference {
         val permission = CapabilityRegistry.require(operation).permission
         authorization.operation(request.principal, permission)
-        val run = authorizedRun(reference.runId, request.principal, permission)
+        val run = authorizedAccess(reference.runId, request.principal, permission)
         val saved = run.result
         if (saved == null || saved.sha256 != reference.sha256) throw ProducerContractException("saved result reference is unavailable")
         return QueryResultReference(run.runId, saved.sha256)

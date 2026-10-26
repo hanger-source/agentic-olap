@@ -4,6 +4,7 @@ import com.olap.prototype.calculation.MetricInstanceRef
 import com.olap.prototype.calculation.MetricRef
 import com.olap.prototype.calculation.Calculation
 import com.olap.prototype.calculation.CalculationBindings
+import com.olap.prototype.contract.InputContractException
 import com.olap.prototype.member.MemberRef
 import com.olap.prototype.query.contract.*
 import com.olap.prototype.codec.ProtoBytes
@@ -53,6 +54,9 @@ class QueryUsageRepository(private val database: PlatformDatabase, private val l
             require(bytes >= 0 && rows >= 0) { "result size must be nonnegative" }
         }
     }
+    /** 结果读取的授权与交付事实不依赖可选详细历史的模型格式。 */
+    data class ResultAccess(val runId: String, val subject: String, val publication: QueryCapabilityRequest,
+        val subjectAreaId: String, val result: ResultManifest?)
     data class Note(val id: String, val runId: String, val subject: String, val text: String, val createdAt: Instant)
     data class SemanticReference(val assetType: String, val id: String, val version: String)
     class Page<T>(items: List<T>, val nextOffset: Long?) { val items: List<T> = Collections.unmodifiableList(ArrayList(items)) }
@@ -181,15 +185,43 @@ class QueryUsageRepository(private val database: PlatformDatabase, private val l
         }
     }
 
+    fun requireResultAccess(runId: String): ResultAccess {
+        requireRun(runId)
+        return database.inReadSnapshot {
+            query("cannot read saved result access", """
+                SELECT r.run_id,r.subject,r.scenario_id,r.scenario_version,r.release_id,r.release_version,r.subject_area_id,
+                    m.sha256,m.byte_count,m.row_count,m.saved_at
+                FROM query_run r LEFT JOIN query_result_manifest m ON m.run_id=r.run_id WHERE r.run_id=?
+            """.trimIndent(), listOf(runId)) { rows ->
+                require(rows.next()) { "run is unavailable" }
+                ResultAccess(rows.getString("run_id"), rows.getString("subject"),
+                    QueryCapabilityRequest(rows.getString("scenario_id"), rows.getLong("scenario_version"), rows.getString("release_id"), rows.getString("release_version")),
+                    rows.getString("subject_area_id"), readManifest(rows, runId))
+            }
+        }
+    }
+
+    private fun readManifest(row: ResultSet, runId: String): ResultManifest? = row.getTimestamp("saved_at")?.let {
+        ResultManifest(runId, row.getString("sha256"), row.getLong("byte_count"), row.getLong("row_count"), it.toInstant())
+    }
+
+    private fun readIntent(stored: String): QueryIntent {
+        val intent = ProtoBytes.decode(ProtoBytes.stored(stored), com.olap.prototype.wire.query.QueryIntent.getDefaultInstance(), limits.inputFileBytes, limits.inputDepth)
+        if (intent.formatVersion != QueryIntent.FORMAT_VERSION) throw InputContractException.violation(
+            InputContractException.Rule.QUERY_HISTORY_FORMAT, listOf("intent", "formatVersion"),
+            "retained query history format is not supported by this deployment; use a matching product version to read the unchanged history",
+            QueryIntent.FORMAT_VERSION, intent.formatVersion)
+        return QueryProto.fromProto(intent)
+    }
+
     private fun readRun(row: ResultSet): Run {
         val id = row.getString("run_id")
-        val saved = row.getTimestamp("saved_at")
         return Run(id, row.getString("subject"), QueryCapabilityRequest(row.getString("scenario_id"), row.getLong("scenario_version"), row.getString("release_id"), row.getString("release_version")),
             row.getString("subject_area_id"), row.getLong("subject_area_version"), row.getString("catalog_hash"), row.getString("capability_hash"), row.getString("intent_hash"),
             Execution.valueOf(row.getString("execution_state")), Delivery.valueOf(row.getString("delivery_state")), row.getTimestamp("accepted_at").toInstant(), row.getTimestamp("completed_at")?.toInstant(),
-            row.getBoolean("history_enabled"), row.getBoolean("save_requested"), row.getString("intent_proto")?.let { QueryProto.fromProto(ProtoBytes.decode(ProtoBytes.stored(it), com.olap.prototype.wire.query.QueryIntent.getDefaultInstance(), limits.inputFileBytes, limits.inputDepth)) },
+            row.getBoolean("history_enabled"), row.getBoolean("save_requested"), row.getString("intent_proto")?.let(::readIntent),
             row.getString("definition_proto")?.let { QueryProto.fromProto(ProtoBytes.decode(ProtoBytes.stored(it), com.olap.prototype.wire.query.QueryReference.getDefaultInstance(), limits.inputFileBytes, limits.inputDepth)) }, row.getString("question"), row.getString("execution_error"), row.getString("delivery_error"),
-            saved?.let { ResultManifest(id, row.getString("sha256"), row.getLong("byte_count"), row.getLong("row_count"), it.toInstant()) },
+            readManifest(row, id),
             row.getString("service_observation_proto")?.let { com.olap.prototype.codec.QueryUsageProto.fromProto(ProtoBytes.decode(ProtoBytes.stored(it), com.olap.prototype.wire.query.QueryServiceObservation.getDefaultInstance(), limits.inputFileBytes, limits.inputDepth)) },
             row.getString("execution_receipt_proto")?.let { QueryProto.fromProto(ProtoBytes.decode(ProtoBytes.stored(it), com.olap.prototype.wire.query.QueryExecutionReceipt.getDefaultInstance(), limits.inputFileBytes, limits.inputDepth)) })
     }

@@ -105,7 +105,7 @@ class DeploymentAvailabilityService(private val database: PlatformDatabase, priv
             val coordinate = mapOf<String, Any>("runId" to reference.runId, "sha256" to reference.sha256)
             val manifest = check(Kind.RESULT_READ, coordinate) {
                 textRow("SELECT run_id FROM query_run WHERE run_id=?", listOf(reference.runId), "RESULT_RUN_MISSING")
-                val run = runs.require(reference.runId)
+                val run = runs.requireResultAccess(reference.runId)
                 val result = run.result ?: problem(Status.MISSING, "RESULT_MANIFEST_MISSING", "run has no saved result manifest")
                 if (result.sha256 != reference.sha256) problem(Status.INVALID, "RESULT_REFERENCE_MISMATCH", "result hash differs from the committed manifest")
             }

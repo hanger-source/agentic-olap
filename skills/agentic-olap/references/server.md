@@ -67,7 +67,7 @@ agentic-olap call wait-script --payload '{"executionId":"sources-001","waitMilli
 
 升级前核对目标发行的存储格式与连接器 API，再停止前台进程并执行 `npm install --global @hanger-source/agentic-olap@目标版本`。存储格式匹配时，以原 `--home` 或 `--config` 启动；不匹配时使用独立新持久根，原根保留供匹配发行读取。所有随包文件由 npm 替换，没有第二个产品安装步骤。安装完成不会重启已运行的进程，也不会改写配置或转换持久根格式。精确插件引用变化时明确配置插件并登记其兑现采用，数据合同或原生调用依赖改变时再修订相应定义，不自动改变旧发布引用。
 
-元数据库与保存结果分别核对格式：storage 19 描述元数据库；结果文件封套为 `olap-query-result-artifact/v6`、记录为 `olap-query-result-record/v7`。就绪报告披露实际支持格式，并区分旧结果格式不支持与文件损坏。同一元数据库格式不保证新发行能解码所有旧结果；旧文件保留原字节，使用匹配发行读取，不自动转换，也无需重新执行原业务操作来取得历史结果。
+元数据库与保存结果分别核对格式：storage 19 描述元数据库；结果文件封套为 `olap-query-result-artifact/v6`、记录为 `olap-query-result-record/v8`。结果入口先核验运行授权与 manifest，再检查结果文件，不依赖可选详细历史的解码。就绪报告披露实际支持格式，并区分旧结果格式不支持与文件损坏；详细历史的旧 intent 返回 `QUERY_HISTORY_FORMAT_UNSUPPORTED`。同一元数据库格式不保证新发行能解码所有旧结果；旧文件保留原字节，使用匹配发行读取，不自动转换，也无需重新执行原业务操作来取得历史结果。
 
 本地重启后用 `info` 核对安装版本与实际服务版本；不可达或版本不同会返回具体原因及非零退出，报告仍保留配置和安装位置。远程客户端用 `tools` 返回的 `serverInfo.version` 核对。连接器和来源来自已有的授权读取；未获准项明确显示，来源列表不证明真实查询成功，`sourceQuery=NOT_CHECKED` 表示没有执行来源 SQL。所选发布、保存查询与结果的可用前提可通过 `read-deployment-availability` 核对；实际业务确认使用明确选择的查询，不自动重跑全部业务用法。
 

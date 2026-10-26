@@ -191,7 +191,7 @@ internal class ServerApplication private constructor(private val plugins: Connec
     private fun availability(request: ServerRequest, input: DeploymentAvailabilityRequest): com.olap.prototype.governance.contract.DeploymentAvailability {
         authorization.governance(request.principal, "read-deployment-availability")
         input.results.forEach { reference ->
-            val run = usage.require(reference.runId)
+            val run = usage.requireResultAccess(reference.runId)
             if (run.subject != request.principal.subject) throw SecurityException("saved result belongs to another subject")
             authorization.publication(request.principal, "read-deployment-availability", run.subjectAreaId, run.publication.releaseId)
         }
