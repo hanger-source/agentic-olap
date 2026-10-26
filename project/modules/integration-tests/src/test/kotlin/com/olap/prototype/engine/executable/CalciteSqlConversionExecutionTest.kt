@@ -16,6 +16,7 @@ import com.olap.prototype.engine.catalog.ExecutablePhysicalExecutionBinding
 import com.olap.prototype.engine.catalog.ExecutableRelationPosition.Id
 import com.olap.prototype.expression.CalciteSqlRendering
 import com.olap.prototype.expression.CalciteCompilation
+import com.olap.prototype.expression.CompletedRelationCompiler
 import com.olap.prototype.expression.NativeExpressionScope
 import com.olap.prototype.expression.NativeScalarFunction
 import com.olap.prototype.expression.SemanticExpression
@@ -23,6 +24,10 @@ import com.olap.prototype.expression.SemanticNumericRex
 import com.olap.prototype.integration.TestConnectors
 import com.olap.prototype.metric.MetricValueContract
 import com.olap.prototype.query.ScalarValueType
+import com.olap.prototype.query.PostOperationContract
+import com.olap.prototype.query.QueryQuantity
+import com.olap.prototype.query.QueryStageAnalysis
+import com.olap.prototype.query.ResultExpression
 import org.apache.calcite.avatica.util.TimeUnit
 import org.apache.calcite.rel.RelNode
 import org.apache.calcite.rel.core.JoinRelType
@@ -36,6 +41,7 @@ import org.apache.calcite.rel.type.RelDataTypeSystem
 import org.apache.calcite.rex.RexNode
 import org.apache.calcite.rex.RexBuilder
 import org.apache.calcite.rex.RexCall
+import org.apache.calcite.rex.RexLiteral
 import org.apache.calcite.rex.RexProgram
 import org.apache.calcite.rex.RexCorrelVariable
 import org.apache.calcite.rex.RexSubQuery
@@ -193,6 +199,22 @@ class CalciteSqlConversionExecutionTest {
                         return baseSupport.typeSystem.deriveDecimalMultiplyType(factory, left, right)
                     }
                 }
+                override val dialect: SqlDialect = object : H2SqlDialect(H2SqlDialect.DEFAULT_CONTEXT.withDataTypeSystem(typeSystem)) {
+                    override fun prepareUnparse(node: RexNode): RexNode {
+                        if (node is RexCall && node.kind == SqlKind.TIMES && node.operands.any { FiniteDecimalTypes.isFinite(it.type) }) {
+                            val identity = node.operands.singleOrNull { !FiniteDecimalTypes.isFinite(it.type) }
+                            require(identity is RexLiteral &&
+                                BigDecimal(identity.value3.toString()).compareTo(BigDecimal.ONE) == 0) {
+                                "finite multiplication requires a known exact literal-one identity"
+                            }
+                            return node.operands.single { FiniteDecimalTypes.isFinite(it.type) }
+                        }
+                        return baseSupport.dialect.prepareUnparse(node)
+                    }
+                    override fun getCastSpec(type: RelDataType): SqlNode? = baseSupport.dialect.getCastSpec(type)
+                    override fun quoteStringLiteral(builder: StringBuilder, charsetName: String?, value: String) =
+                        baseSupport.dialect.quoteStringLiteral(builder, charsetName, value)
+                }
                 override fun nativeAggregate(kind: SqlKind): SqlAggFunction = if (kind == SqlKind.SUM) sum else baseSupport.nativeAggregate(kind)
                 override fun aggregateSql(owner: Aggregate, call: AggregateCall, arguments: List<SqlNode>, expression: SqlNode): SqlNode {
                     if (call.aggregation.kind != SqlKind.SUM ||
@@ -215,7 +237,35 @@ class CalciteSqlConversionExecutionTest {
             val schema = FrozenCatalogSchema.bind(listOf(binding), binding.physicalColumnBindings.keys, emptySet(), TestConnectors.registry).schema
             val b = CalciteCompilation.builder(support, schema).scan(FrozenCatalogSchema.path(binding))
             val input = b.build()
-            b.push(input).project(listOf(b.field("region"), b.call(Ops.MULTIPLY, b.field("finite_amount"), b.literal(BigDecimal.ONE)), b.field("amount"),
+            val ledgerUnit = MetricValueContract.UnitIdentity("trial", "ledger", 1)
+            val sourceQuantity = MetricValueContract(MetricValueContract.Fixed(MetricValueContract.ONE), MetricValueContract.Exact(),
+                MetricValueContract.FiniteDecimal, emptyMap(), MetricValueContract.Overflow.FAIL)
+            val literalQuantity = MetricValueContract(MetricValueContract.Fixed(ledgerUnit), MetricValueContract.Exact(),
+                MetricValueContract.Integer(32), emptyMap(), MetricValueContract.Overflow.FAIL)
+            val assignedQuantity = MetricValueContract(MetricValueContract.Fixed(ledgerUnit), MetricValueContract.Exact(),
+                MetricValueContract.FiniteDecimal, mapOf("assign_ledger" to MetricValueContract.FixedBinary(
+                    MetricValueContract.BinaryOperator.MULTIPLY, MetricValueContract.ONE, ledgerUnit, ledgerUnit)), MetricValueContract.Overflow.FAIL)
+            fun assign(value: BigDecimal): RelNode {
+                b.push(input)
+                val scope = QueryStageAnalysis.ScopeId.root()
+                val columns = input.rowType.fieldNames.mapIndexed { index, name ->
+                    val origin = QueryStageAnalysis.OperationOrigin(scope, 0, index, PostOperationContract.PROJECT)
+                    if (name == "finite_amount") QueryStageAnalysis.SourceColumn.quantity(name, origin, emptyList(),
+                        QueryQuantity.Source.fixed(sourceQuantity, QueryQuantity.RawSource(listOf("id"))))
+                    else QueryStageAnalysis.SourceColumn.categorical(name, origin)
+                }
+                val operation = PostOperationContract.Derive(ResultExpression.ResultNumeric(
+                    ResultExpression.ResultOperation(ResultExpression.ResultOperator.MULTIPLY,
+                        listOf(ResultExpression.ResultSymbol("finite_amount"), ResultExpression.ResultQuantityLiteral(value, literalQuantity))),
+                    assignedQuantity, "assign_ledger"), "assigned_amount", "ledger amount")
+                val analysis = QueryStageAnalysis.analyze(scope, columns, QueryStageAnalysis.UnknownSourceKey.INSTANCE, emptyMap(),
+                    listOf(operation), QueryStageAnalysis.IntrinsicPopulation(emptySet()), "explicit ledger assignment")
+                assertEquals(QueryQuantity.Fixed(ledgerUnit), analysis.outputs.last().quantity?.unit)
+                CompletedRelationCompiler.compile(b, analysis, linkedMapOf(), mutableListOf(), emptyMap(), mutableListOf(),
+                    NativeExpressionScope(source.spec.connectorRef, support) { null })
+                return b.build()
+            }
+            b.push(assign(BigDecimal.ONE)).project(listOf(b.field("region"), b.field("assigned_amount"), b.field("amount"),
                 b.cast(b.field("amount"), SqlTypeName.REAL)), listOf("region", "finite_amount", "amount", "floating_amount"), true)
             b.aggregate(b.groupKey(b.field("region")),
                 b.aggregateCall(support.nativeAggregate(SqlKind.SUM), listOf(b.field("finite_amount"))).`as`("total"),
@@ -233,6 +283,8 @@ class CalciteSqlConversionExecutionTest {
             expected.forEachIndexed { row, values -> values.forEachIndexed { column, value ->
                 if (value == null) assertNull(result[row][column + 1]) else decimal(result[row][column + 1], value)
             } }
+            val unsupported = assertThrows(IllegalArgumentException::class.java) { CalciteSqlRendering.compile(assign(BigDecimal("2")), support) }
+            assertTrue(unsupported.message.orEmpty().contains("known exact literal-one identity"))
             source.connection.createStatement().use { it.execute("UPDATE observations SET finite_amount=1000 WHERE region='C'") }
             val failure = assertThrows(SQLException::class.java) { rows(source, shared, support = support) }
             assertTrue(failure.message.orEmpty().contains("finite aggregate input outside trial domain"))
@@ -399,10 +451,19 @@ class CalciteSqlConversionExecutionTest {
                         builder.makeLiteral(" "), call.operands.single())
                     val normalized = builder.makeCall(Ops.REPLACE, trimmed, builder.makeLiteral("_"), builder.makeLiteral(""))
                     val parsed = builder.makeCast(call.type, normalized)
-                    val tripled = builder.makeCast(call.type, builder.makeCall(Ops.PLUS, builder.makeCall(Ops.PLUS, parsed, parsed), parsed))
-                    // 判空先在父活动域得到 parsed；非空子域的三个消费者继续读取同一结果。
-                    return builder.makeCall(call.type, Ops.CASE, listOf(builder.makeCall(Ops.IS_NOT_NULL, parsed),
-                        tripled, builder.makeNullLiteral(call.type)))
+                    val hasSeparator = builder.makeCall(Ops.GREATER_THAN,
+                        builder.makeCall(Ops.POSITION, builder.makeLiteral("_"), call.operands.single()), builder.makeExactLiteral(BigDecimal.ZERO))
+                    val present = builder.makeCall(Ops.IS_NOT_NULL, call.operands.single())
+                    val missing = builder.makeNullLiteral(call.type)
+                    val twice = builder.makeCall(Ops.PLUS, parsed, parsed)
+                    val tripled = builder.makeCall(Ops.PLUS, twice, parsed)
+                    // 先在A域消费一次；随后B→A域消费两次。¬A兄弟域仍须取得自己的值。
+                    val first = builder.makeCall(call.type, Ops.CASE, listOf(hasSeparator, parsed, missing))
+                    val rest = builder.makeCall(call.type, Ops.CASE, listOf(present,
+                        builder.makeCall(call.type, Ops.CASE, listOf(hasSeparator, twice, tripled)), missing))
+                    val retained = builder.makeCall(call.type, Ops.COALESCE,
+                        listOf(first, builder.makeExactLiteral(BigDecimal.ZERO, call.type)))
+                    return builder.makeCall(call.type, Ops.PLUS, listOf(retained, rest))
                 }
                 override fun nativeScalarCall(function: String, arguments: List<CompilationSupport.NativeArgument>): SqlNode {
                     require(function == upperFunction.id) { "tripled decimal must use its typed expression mapping" }
@@ -430,7 +491,7 @@ class CalciteSqlConversionExecutionTest {
                     return super.visit(call)
                 }
             })
-            assertEquals(1, replacements, "$dialect duplicated normalization between the parent NULL check and its guarded result consumers; this does not count physical evaluations")
+            assertTrue(replacements in 1..2, "$dialect duplicated normalization after the B→A guard instead of reusing A; the disjoint ¬A population still needs its own value, and this does not count physical evaluations")
             val result = rows(source, rendered.sql)
             assertEquals(listOf(1, 2, 3, 4, 5), result.map { (it[0] as Number).toInt() })
             assertEquals(listOf("A", "A", "B", "C", "D"), result.map { it[2] }, "$dialect changed the ordinary native SQL leaf mapping")

@@ -202,8 +202,8 @@ internal class SqlEvaluationProjection {
         private val width = original.rowType.fieldCount
         private val slots = mutableListOf<Slot>()
         private val reusable = linkedMapOf<Binding, RexInputRef>()
-        private val evaluatedValues = mutableMapOf<Binding, RexInputRef>()
-        private val activityParents = IdentityHashMap<RexNode, RexNode?>()
+        private val evaluatedValues = mutableMapOf<RexNode, MutableMap<RexNode?, RexInputRef>>()
+        private val activityConditions = IdentityHashMap<RexNode, Set<RexNode>>()
         private val checks = linkedMapOf<Check, RexInputRef>()
         private val bounds = guarantees[original].orEmpty().toMutableMap()
         private val names = original.rowType.fieldNames.toMutableSet()
@@ -254,19 +254,20 @@ internal class SqlEvaluationProjection {
                 else -> value
             }
             val result = if ((occurrences[value] ?: 0) >= 2 && stableCandidate) bind(rewritten, active) else rewritten
-            if (stableCandidate && result is RexInputRef) evaluatedValues[Binding(value, active)] = result
+            if (stableCandidate && result is RexInputRef) evaluatedValues.getOrPut(value) { linkedMapOf() }[active] = result
             return result
         }
 
-        /** 已在父活动域求得的稳定列可在其子域读取；不提升尚未执行的表达式。 */
+        /** 本域的全部条件包含原域时，读取其中已经求得的稳定列，不提升计算。 */
         private fun evaluated(value: RexNode, active: RexNode?): RexInputRef? {
-            var scope = active
-            while (scope != null) {
-                evaluatedValues[Binding(value, scope)]?.let { return it }
-                scope = activityParents[scope]
-            }
-            return evaluatedValues[Binding(value, null)]
+            val values = evaluatedValues[value] ?: return null
+            values[active]?.let { return it }
+            val required = conditions(active)
+            return values.entries.firstOrNull { required.containsAll(conditions(it.key)) }?.value
         }
+
+        private fun conditions(active: RexNode?): Set<RexNode> =
+            if (active == null) emptySet() else activityConditions[active] ?: setOf(active)
 
         private fun needsEvaluation(value: RexNode): Boolean = neededExpressions[value] ?: when {
             value is RexOver -> false
@@ -347,7 +348,10 @@ internal class SqlEvaluationProjection {
 
         private fun both(active: RexNode?, predicate: RexNode): RexNode =
             (if (active == null) predicate else rex.makeCall(Ops.AND, active, predicate)).also {
-                if (!activityParents.containsKey(it)) activityParents[it] = active
+                // 只展开由本程序建立的合取及其有名控制值；不推断任意谓词或相反分支。
+                val reference = (predicate as? RexCall)?.takeIf { call -> call.operator === Ops.IS_TRUE }
+                    ?.operands?.singleOrNull() as? RexInputRef
+                activityConditions[it] = conditions(active) + if (reference == null) setOf(predicate) else conditions(reference)
             }
 
         fun guarded(value: RexNode, active: RexNode?): RexNode = if (active == null) value else rex.makeCall(Ops.CASE, active, value, rex.makeNullLiteral(value.type))
@@ -364,8 +368,9 @@ internal class SqlEvaluationProjection {
             while (!names.add(name)) name += "_"
             val reference = RexInputRef(width + slots.size, guarded.type)
             slots.add(Slot(guarded, name, depth))
-            if (active != null) activityParents[reference] = active
-            else if (activityParents.containsKey(value)) activityParents[reference] = activityParents[value]
+            val inherited = activityConditions[value]
+            if (inherited != null) activityConditions[reference] = conditions(active) + inherited
+            else if (active != null) activityConditions[reference] = conditions(active) + reference
             range(value)?.let { bounds[reference.index] = it }
             if (stable) reusable[key] = reference
             if (numeric) numericRoots.add(reference.index)

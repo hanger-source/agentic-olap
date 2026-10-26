@@ -68,8 +68,8 @@ internal class CompletedExpressionCompiler private constructor(private val b: Re
             val value: Any = if (floating.bits == 32) literal.value.toFloat() else literal.value.toDouble()
             return parameter(value, b.typeFactory.createSqlType(if (floating.bits == 32) SqlTypeName.REAL else SqlTypeName.DOUBLE))
         }
-        val type = b.rexBuilder.makeExactLiteral(literal.value).type
-        return SemanticNumericRex.output(b, parameter(literal.value, type), literal.valueContract)
+        val value = b.rexBuilder.makeExactLiteral(literal.value)
+        return SemanticNumericRex.output(b, value, literal.valueContract)
     }
 
     private fun rowField(field: ResultExpression.ResultRowField): RexNode {
