@@ -11,7 +11,6 @@ import org.apache.calcite.rex.RexOver
 import org.apache.calcite.rex.RexSubQuery
 import org.apache.calcite.rex.RexFieldAccess
 import org.apache.calcite.rex.RexInputRef
-import org.apache.calcite.rex.RexLocalRef
 import org.apache.calcite.rex.RexLiteral
 import org.apache.calcite.rex.RexDynamicParam
 import org.apache.calcite.sql.*
@@ -39,7 +38,7 @@ object SemanticCalciteOperators {
         is RexOver, is RexSubQuery -> false
         is RexCall -> statementStable(value) && value.operands.all { statementStableExpression(it, known) }
         is RexFieldAccess -> statementStableExpression(value.referenceExpr, known)
-        is RexInputRef, is RexLocalRef, is RexLiteral, is RexDynamicParam -> true
+        is RexInputRef, is RexLiteral, is RexDynamicParam -> true
         else -> false
     }.also { known[value] = it }
 

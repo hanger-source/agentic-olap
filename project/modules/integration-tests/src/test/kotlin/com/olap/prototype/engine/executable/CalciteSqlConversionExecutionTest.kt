@@ -27,9 +27,11 @@ import org.apache.calcite.rel.RelNode
 import org.apache.calcite.rel.core.JoinRelType
 import org.apache.calcite.rel.core.Aggregate
 import org.apache.calcite.rel.core.AggregateCall
+import org.apache.calcite.rel.logical.LogicalCalc
 import org.apache.calcite.rex.RexNode
 import org.apache.calcite.rex.RexBuilder
 import org.apache.calcite.rex.RexCall
+import org.apache.calcite.rex.RexProgram
 import org.apache.calcite.rex.RexCorrelVariable
 import org.apache.calcite.rex.RexSubQuery
 import org.apache.calcite.sql.*
@@ -377,7 +379,10 @@ class CalciteSqlConversionExecutionTest {
             val parsed = native.compileScalar(b, source.spec.connectorRef, decimalFunction.id, listOf(b.field("raw_text")))
             val upper = native.compileScalar(b, source.spec.connectorRef, upperFunction.id, listOf(b.field("region")))
             val selected = b.call(Ops.CASE, b.field("should_parse"), parsed, b.rexBuilder.makeNullLiteral(parsed.type))
-            b.project(listOf(b.field("id"), selected, upper), listOf("id", "amount", "region"), true).sort(b.field("id"))
+            val outputs = listOf(b.field("id"), selected, upper)
+            val input = b.build()
+            val program = RexProgram.create(input.rowType, outputs, null, listOf("id", "amount", "region"), b.rexBuilder)
+            b.push(LogicalCalc.create(input, program)).sort(b.field("id"))
             val plan = b.build()
             val rendered = CalciteSqlRendering.compile(plan, support)
             var replacements = 0
@@ -395,6 +400,13 @@ class CalciteSqlConversionExecutionTest {
             assertNull(result[2][1]); assertNull(result[3][1])
             source.connection.createStatement().use { it.execute("UPDATE observations SET should_parse=TRUE WHERE id=4") }
             assertThrows(SQLException::class.java) { rows(source, rendered.sql) }
+            val rawType = requireNotNull(input.rowType.getField("raw_text", true, false)).type
+            val volatileText = b.rexBuilder.makeCast(rawType, b.rexBuilder.makeCall(Ops.RAND))
+            val volatileCall = native.compileScalar(b, source.spec.connectorRef, decimalFunction.id, listOf(volatileText))
+            val volatileProgram = RexProgram.create(input.rowType, listOf(volatileCall), null, listOf("amount"), b.rexBuilder)
+            val volatileCalc = LogicalCalc.create(input, volatileProgram)
+            val unstable = assertThrows(IllegalArgumentException::class.java) { CalciteSqlRendering.compile(volatileCalc, support) }
+            assertTrue(unstable.message.orEmpty().contains("statement-stable"))
             useUnpassedAmount = true
             val rejected = assertThrows(IllegalArgumentException::class.java) { CalciteSqlRendering.compile(plan, support) }
             assertTrue(rejected.message.orEmpty().contains("outside its actual arguments"))

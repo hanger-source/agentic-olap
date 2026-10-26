@@ -56,7 +56,7 @@ internal class NativeScalarLowering {
                     current.operands.forEach(::visit)
                 }
                 is RexFieldAccess -> if (current.referenceExpr is RexCorrelVariable) add(current) else visit(current.referenceExpr)
-                is RexInputRef, is RexLocalRef, is RexDynamicParam -> add(current)
+                is RexInputRef, is RexDynamicParam -> add(current)
                 is RexLiteral -> Unit
                 else -> error("native scalar expression has an unsupported reference: ${current.javaClass.simpleName}")
             }

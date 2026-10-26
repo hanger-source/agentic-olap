@@ -84,6 +84,8 @@ object CalciteSqlRendering {
 
     private fun prepare(plan: RelNode, dialect: SqlDialect): RelNode {
         val rules = buildList {
+            // 下沉与稳定性检查必须读取局部表达式的定义，不能将 RexLocalRef 当作独立的稳定输入。
+            add(CoreRules.CALC_SPLIT)
             if (!dialect.supportsGroupByLiteral()) add(AggregateProjectConstantToDummyJoinRule.Config.DEFAULT.toRule())
             if (!dialect.supportsJoinType(JoinRelType.RIGHT)) add(CoreRules.JOIN_COMMUTE_RIGHT_TO_LEFT)
             if (!dialect.supportsOrderByLiteral()) add(CoreRules.SORT_REMOVE_CONSTANT_KEYS)

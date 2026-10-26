@@ -1,5 +1,11 @@
 # Agentic OLAP · 版本与变更
 
+## 0.31.1
+
+公开 Rel 编译入口在原生标量 typed 下沉之前统一展开 Calc 程序，按所属程序还原局部引用后再核验函数、实参及展开树的语句内稳定性。无程序上下文的 LocalRef 不再被直接视为稳定输入；原 CASE 活动域、类型与引用限制保持。
+
+连接器 API18、公开作者 DSL v12、内部运行协议 v15及各持久格式保持不变。
+
 ## 0.31.0
 
 连接器 API 为 `agentic-olap-connector/v18-kotlin-native-scalar-expression-calcite-1.42`，新增必需的 `nativeScalarExpression(builder: RexBuilder, function: NativeScalarFunction, call: RexCall): RexNode`。直接 SQL 映射显式返回原 call；需要复用内部纯中间表达式时返回完整 typed Rex 树，原生叶子继续由 nativeScalarCall 渲染。call.operands 仅包含本次已授权的有序 SCALAR 实参，已授权 PHYSICAL_TABLE 身份仍由原调用持有。返回 type 与原 type 完全相等，不新增输入、参数、表、子查询、相关依赖、窗口或聚合。

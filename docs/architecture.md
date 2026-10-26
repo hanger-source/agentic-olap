@@ -176,6 +176,8 @@ RAW_BAG 没有记录身份并保留重复出现；RECORDS 具有经过实际来�
 
 数量结果的 `FiniteDecimal` 与固定 `Decimal(p,s,rounding)` 共用既有单位、算术保证、NULL 和来源体系。Finite 仅表达有限十进制值域，没有统一 p/s、不隐含量化，不自行赋予 Exact 或工作容量；固定 Integer／Decimal 可进入，反向或与 BinaryFloat 混合须显式处理。原生类型和结果元数据以 `FINITE_DECIMAL` 且 p/s 为空承接该事实，普通 DECIMAL 继续要求固定容量；不以默认类型或观察到的单值补出全域保证。有限值无损交付沿用 DECIMAL 业务值编码，不能有限表示的未量化有理商明确失败。来源运算须由精确插件兑现，H2 DECFLOAT 的原值读取与显式 CORE 承接不外推为其 Finite SOURCE SUM／AVG／CAST 能力；SOURCE 不支持时不自动转 CORE。
 
+公开 Rel 编译入口先在关系准备阶段展开 Calc 程序，按所属程序还原局部引用后，再核验原生标量、实参及展开树的语句内稳定性；没有程序上下文的 LocalRef 不按稳定输入处理。
+
 原生标量在关系方言 prepare 之后、`SqlEvaluationProjection` 之前通过插件必需的 `nativeScalarExpression(builder: RexBuilder, function: NativeScalarFunction, call: RexCall): RexNode` 下沉，结果不再送回后续 Hep 优化或折叠链。直接 SQL 映射显式返回原 call；需要暴露内部纯中间值时返回完整 typed Rex 树。call.operands 只有本次已授权的有序 SCALAR 实参，PHYSICAL_TABLE 精确身份仍由原调用持有。返回 type 必须与原 type 完全相等，不新增输入、参数、表、子查询、相关依赖、窗口或聚合。原函数、实参及展开树必须 statement-stable，VOLATILE 不因替换为纯树而取得更强保证。
 
 纯树进入现有列程序与求值槽，在原 CASE／COALESCE 活动域内用普通当前行投影共享，不建立新 IR 或关系框架，不要求作者添加技术 DERIVE，也不要求伪声明 `CORRELATED_DERIVED_PROJECTION`。真实相关输入继续按原能力检查，可失败表达式不能提前到未匹配行或未选分支。`nativeScalarCall` 保留原生叶子 SQL 渲染；直接渲染与 typed 展开是显式映射选择，不在失败后切换，也不解析最终 SQL 字符串或承诺后端物化、恰好求值一次。
