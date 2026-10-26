@@ -1,6 +1,6 @@
 {
   "name": "@hanger-source/agentic-olap",
-  "version": "0.31.5",
+  "version": "0.31.6",
   "description": "Installable Agentic OLAP service and command-line client with bundled runtimes",
   "license": "Apache-2.0",
   "author": "hanger",

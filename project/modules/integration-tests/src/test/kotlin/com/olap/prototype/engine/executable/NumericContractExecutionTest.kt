@@ -12,6 +12,9 @@ import com.olap.prototype.integration.TestConnectors
 import com.olap.prototype.metric.MetricValueContract
 import com.olap.prototype.metric.MeanTarget
 import com.olap.prototype.query.ResultAggregation
+import com.olap.prototype.query.ResultExpression
+import com.olap.prototype.query.PostOperationContract
+import com.olap.prototype.query.QueryStageAnalysis
 import com.olap.prototype.query.GroupingLevels
 import com.olap.prototype.query.ScalarValueType
 import org.apache.calcite.rel.RelNode
@@ -309,6 +312,42 @@ class NumericContractExecutionTest {
                     val rows = execute(source, relation, parameters)
                     assertEquals(3, rows.size); assertEquals(2, rows.count { it.first() == null })
                     assertEquals(0.5, (rows.mapNotNull { it.first() }.single() as Number).toDouble())
+                }
+            }
+            if (dialect == "h2") {
+                val b = builder(source)
+                val input = b.build()
+                val scope = QueryStageAnalysis.ScopeId.root()
+                val columns = input.rowType.fieldNames.mapIndexed { index, name ->
+                    QueryStageAnalysis.SourceColumn.categorical(name,
+                        QueryStageAnalysis.OperationOrigin(scope, 0, index, PostOperationContract.PROJECT))
+                }
+                val integer = MetricValueContract(MetricValueContract.Fixed(MetricValueContract.ONE), MetricValueContract.Exact(),
+                    MetricValueContract.Integer(64), emptyMap(), MetricValueContract.Overflow.FAIL)
+                val ratio = MetricValueContract(integer.unit, integer.arithmetic, MetricValueContract.Decimal(28, 18, MetricValueContract.Rounding.HALF_UP),
+                    mapOf("ratio" to MetricValueContract.FixedBinary(MetricValueContract.BinaryOperator.DIVIDE,
+                        MetricValueContract.ONE, MetricValueContract.ONE, MetricValueContract.ONE)), integer.overflow)
+                val stages = listOf("wide" to ("-9223372036854775808" to "1000000000000000000"),
+                    "fraction" to ("3" to "2"), "zero" to ("3" to "0")).map { (name, values) ->
+                    PostOperationContract.Derive(ResultExpression.ResultNumeric(ResultExpression.ResultOperation(
+                        if (name == "zero") ResultExpression.ResultOperator.SAFE_DIVIDE else ResultExpression.ResultOperator.DIVIDE,
+                        listOf(ResultExpression.ResultQuantityLiteral(BigDecimal(values.first), integer),
+                            ResultExpression.ResultQuantityLiteral(BigDecimal(values.second), integer))), ratio, "ratio"), name, name)
+                }
+                val analysis = QueryStageAnalysis.analyze(scope, columns, QueryStageAnalysis.UnknownSourceKey.INSTANCE, emptyMap(),
+                    stages, QueryStageAnalysis.IntrinsicPopulation(emptySet()), "explicit exact constant division")
+                val support = TestConnectors.registry.require(source.spec.connectorRef).compilation
+                val parameters = mutableListOf<JdbcParameter>()
+                b.push(input)
+                CompletedRelationCompiler.compile(b, analysis, linkedMapOf(), parameters, emptyMap(), mutableListOf(),
+                    NativeExpressionScope(source.spec.connectorRef, support) { null })
+                b.project(listOf("wide", "fraction", "zero").map(b::field))
+                val result = execute(source, b.build(), parameters)
+                assertEquals(3, result.size)
+                result.forEach { row ->
+                    assertEquals(0, BigDecimal("-9.223372036854775808").compareTo(row[0] as BigDecimal))
+                    assertEquals(0, BigDecimal("1.5").compareTo(row[1] as BigDecimal))
+                    assertNull(row[2])
                 }
             }
         }

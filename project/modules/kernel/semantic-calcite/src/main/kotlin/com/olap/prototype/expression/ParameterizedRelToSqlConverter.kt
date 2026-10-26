@@ -1,6 +1,7 @@
 package com.olap.prototype.expression
 
 import com.olap.prototype.connector.CompilationSupport
+import com.olap.prototype.connector.FiniteDecimalTypes
 import com.olap.prototype.connector.NativeCompilationCapabilityException
 import org.apache.calcite.rel.RelNode
 import org.apache.calcite.rel.SingleRel
@@ -38,7 +39,8 @@ class ParameterizedRelToSqlConverter(private val support: CompilationSupport, pr
         object : AliasContext(dialect, aliases, qualified) {
             override fun toSql(program: RexProgram?, expression: RexNode): SqlNode {
                 fieldAccessEvidence(expression)
-                return subQuery(program, expression, this) ?: super.toSql(program, expression)
+                val converted = subQuery(program, expression, this) ?: super.toSql(program, expression)
+                return preserveDecimalLiteralType(expression, converted)
             }
         }
 
@@ -51,10 +53,21 @@ class ParameterizedRelToSqlConverter(private val support: CompilationSupport, pr
             override fun getAliasContext(variable: RexCorrelVariable): Context = this@ParameterizedRelToSqlConverter.getAliasContext(variable)
             override fun toSql(program: RexProgram?, expression: RexNode): SqlNode {
                 fieldAccessEvidence(expression)
-                return subQuery(program, expression, this) ?: super.toSql(program, expression)
+                val converted = subQuery(program, expression, this) ?: super.toSql(program, expression)
+                return preserveDecimalLiteralType(expression, converted)
             }
         }
     }
+
+    // Calcite的SQL数值字面量只保留值；DECIMAL(p,0)若发为裸整数会让后端选择整数运算。
+    // 在插件仍可读取真实Rex字面量之后，按已经确定的原生类型保留每个嵌套字面量的容量。
+    private fun preserveDecimalLiteralType(expression: RexNode, converted: SqlNode): SqlNode =
+        if (requiresDecimalLiteralType(expression)) Ops.CAST.createCall(converted.parserPosition, converted,
+            requireNotNull(dialect.getCastSpec(expression.type)) { "decimal literal requires its declared native SQL type" })
+        else converted
+
+    private fun requiresDecimalLiteralType(expression: RexNode): Boolean =
+        expression is RexLiteral && expression.type.sqlTypeName == SqlTypeName.DECIMAL && !FiniteDecimalTypes.isFinite(expression.type)
 
     private fun fieldAccessEvidence(expression: RexNode) {
         if (expression is RexFieldAccess && log.isDebugEnabled) log.debug(
@@ -349,7 +362,7 @@ class ParameterizedRelToSqlConverter(private val support: CompilationSupport, pr
     }
 
     private fun requiresProjectionType(value: RexNode): Boolean {
-        if (value is RexLiteral) return value.type.sqlTypeName != SqlTypeName.NULL
+        if (value is RexLiteral) return value.type.sqlTypeName != SqlTypeName.NULL && !requiresDecimalLiteralType(value)
         if (value.type.sqlTypeName !in setOf(SqlTypeName.ARRAY, SqlTypeName.ROW) || !determinedContainerType(value.type)) return false
         val constructors = object : RexVisitorImpl<Void?>(true) {
             var found = false
