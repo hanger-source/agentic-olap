@@ -44,7 +44,7 @@ fun stageAuthorization(stage: String): StageAuthorization {
         ExpressionAuthorization.Kind.QUANTITY_LITERAL, ExpressionAuthorization.Kind.NUMERIC, ExpressionAuthorization.Kind.TYPED_LITERAL, ExpressionAuthorization.Kind.OPERATION, ExpressionAuthorization.Kind.CASE),
         setOf(ResultOperator.EQ, ResultOperator.NE, ResultOperator.LT, ResultOperator.GT, ResultOperator.NOT, ResultOperator.AND, ResultOperator.IS_NULL, ResultOperator.IS_NOT_NULL, ResultOperator.DIVIDE, ResultOperator.SUBTRACT) +
             if (stage == "DERIVE") setOf(ResultOperator.MULTIPLY) else emptySet(), emptySet(), emptySet(), setOf(ScalarValueType.TEXT, ScalarValueType.NUMBER))
-    return StageAuthorization(stage, if (stage == "JOIN_INPUT") setOf(StageAuthorization.JoinType.LEFT) else emptySet(),
+    return StageAuthorization(stage, if (stage == "JOIN_INPUT") setOf(StageAuthorization.JoinType.LEFT, StageAuthorization.JoinType.INNER) else emptySet(),
         if (stage == "REGROUP") setOf(ResultAggregation.Kind.SUM, ResultAggregation.Kind.COUNT, ResultAggregation.Kind.COUNT_DISTINCT, ResultAggregation.Kind.MAX) else emptySet(), expression)
 }
 
@@ -374,6 +374,137 @@ fun sourceRelationCases(e: PopulationExample, entry: PublishedQueryEntry): Map<S
     return mapOf("labelRelationsQuery" to ScriptValue.QueryReferenceValue(labels.query), "labelRelationsResult" to ScriptValue.ResultReferenceValue(labels.result),
         "ledgerOwnershipQuery" to ScriptValue.QueryReferenceValue(ownership.query), "ledgerOwnershipResult" to ScriptValue.ResultReferenceValue(ownership.result),
         "ledgerIntersectionQuery" to ScriptValue.QueryReferenceValue(intersection.query), "ledgerIntersectionResult" to ScriptValue.ResultReferenceValue(intersection.result))
+}
+
+fun ledgerBagColumns(families: List<String>) = listOf("subject", "activity_tuples", "activity_present") +
+    families.flatMap { listOf("${it}_raw", "${it}_raw_present", "${it}_tuples", "${it}_tuple_present") }
+val ledgerBagBothExpected = linkedMapOf(
+    "A" to listOf("2", "1", "3", "1", "2", "1", "5", "1", "4", "1"),
+    "B" to listOf("1", "1", "2", "1", "1", "1", "3", "1", "2", "1"),
+    "C" to listOf("1", "1", null, null, null, null, null, null, null, null),
+    "D" to listOf("1", "1", null, null, null, null, null, null, null, null),
+    "" to listOf("1", "1", null, null, null, null, "1", "1", "1", "1"))
+
+/** 账户归属先形成完整tuple；每账本原袋与其投影tuple分别完成，绝不相乘两份原袋。 */
+fun ledgerBagQuery(e: PopulationExample, families: List<String>, accounts: List<String>, day: String): Calculation.Scope {
+    require(families.isNotEmpty() && families.distinct() == families && families.all { it in setOf("r", "s") })
+    require(accounts.isNotEmpty() && accounts.distinct() == accounts && day.matches(Regex("[0-9]{8}")))
+    val activity = Computations.stages(e.raw("attributed_activity", condition = MemberCondition.All(listOf(
+        condition("business_day", ScalarValueType.TEXT, MemberCondition.Operator.EQ, day),
+        MemberCondition.Any(accounts.map { condition("subject", ScalarValueType.TEXT, MemberCondition.Operator.EQ, it) })))),
+        listOf(regroup(listOf("subject", "document_ref", "business_day"))))
+    val activityCounts = Computations.stages(activity, listOf(
+        Derive(number("1"), "ownership_row", "每个完整账户/引用/业务日归属一次"),
+        regroup(listOf("subject"), counted("ownership_row", "activity_tuples")),
+        Derive(number("1"), "activity_present", "交易归属组真实存在")))
+    val aligned = linkedMapOf("activity" to Computations.aligned(activityCounts, mapOf("subject" to "subject"),
+        listOf("activity_tuples", "activity_present").map { Calculation.AlignedValue(it, it, Calculation.NoMatch.PRESERVE_NULL) }))
+    families.forEach { family ->
+        val tuple = if (family == "r") listOf("document_ref", "settlement_day", "flag", "amount_r", "amount_s")
+            else listOf("document_ref", "settlement_day", "text_amount")
+        val rows = e.raw("book_$family", tuple, MemberCondition.All(listOf(
+            condition("is_current", ScalarValueType.BOOLEAN, MemberCondition.Operator.EQ, "true"),
+            condition("settlement_day", ScalarValueType.TEXT, MemberCondition.Operator.EQ, day))))
+        val attributed = Computations.scope {
+            input("ownership", activity, InputMode.RELATION)
+            Computations.stages(rows, listOf(JoinInput("ownership", "owned", "INNER", op(ResultOperator.AND,
+                op(ResultOperator.EQ, sym("document_ref"), sym("owned__document_ref")),
+                op(ResultOperator.EQ, sym("settlement_day"), sym("owned__business_day"))))))
+        }
+        val raw = Computations.stages(attributed, listOf(
+            Derive(number("1"), "ledger_row", "金额或文本NULL不漏原袋行"),
+            regroup(listOf("owned__subject"), counted("ledger_row", "${family}_raw")),
+            Derive(number("1"), "${family}_raw_present", "本账本原袋有组")))
+        val tuples = Computations.stages(attributed, listOf(
+            regroup(listOf("owned__subject") + tuple),
+            Derive(number("1"), "tuple_row", "完整投影tuple一次，数值保持数值"),
+            regroup(listOf("owned__subject"), counted("tuple_row", "${family}_tuples")),
+            Derive(number("1"), "${family}_tuple_present", "本账本tuple有组")))
+        aligned["${family}_raw"] = Computations.aligned(raw, mapOf("subject" to "owned__subject"),
+            listOf("${family}_raw", "${family}_raw_present").map { Calculation.AlignedValue(it, it, Calculation.NoMatch.PRESERVE_NULL) })
+        aligned["${family}_tuples"] = Computations.aligned(tuples, mapOf("subject" to "owned__subject"),
+            listOf("${family}_tuples", "${family}_tuple_present").map { Calculation.AlignedValue(it, it, Calculation.NoMatch.PRESERVE_NULL) })
+    }
+    return Computations.stages(Computations.align(aligned, listOf("subject"),
+        Calculation.AlignmentPopulation(Calculation.PopulationKind.BASE, listOf("activity"))), listOf(Project(ledgerBagColumns(families))))
+}
+
+fun ledgerBagCases(e: PopulationExample, entry: PublishedQueryEntry): Map<String, ScriptValue> {
+    val output = linkedMapOf<String, ScriptValue>()
+    val completeColumns = ledgerBagColumns(listOf("r", "s")).drop(1)
+    val expected = ledgerBagBothExpected.mapValues { (_, values) -> completeColumns.zip(values).toMap() }
+    listOf("R" to listOf("r"), "S" to listOf("s"), "Both" to listOf("r", "s")).forEach { (name, families) ->
+        val columns = ledgerBagColumns(families)
+        val saved = e.execute(entry, "账户归属后账本${families.joinToString("+")}原袋与完整tuple", ledgerBagQuery(e, families, listOf("A", "B", "C", "D", "", "absent"), "20000102"), QueryExecutionMode.SOURCE)
+        check(saved.rows.all { it.keys.toList() == columns })
+        expect(saved.rows, expected.mapValues { (_, values) -> columns.drop(1).associateWith(values::getValue) })
+        expectSavedQuantities(saved.result, columns.drop(1).associateWith { count })
+        output["ledgerBag${name}Query"] = ScriptValue.QueryReferenceValue(saved.query)
+        output["ledgerBag${name}Result"] = ScriptValue.ResultReferenceValue(saved.result)
+    }
+    return output
+}
+
+val completedPopulationColumns = listOf("subject", "period_uv", "period_nonempty", "daily_total", "observed_days", "payment_uv",
+    "period_present", "daily_present", "payment_present", "daily_mean", "repeat_visits", "payment_per_visitor")
+val completedPopulationExpected = linkedMapOf(
+    "A" to listOf("2", "1", "2", "2", "3", "1", "1", "1", "0.285714285714285714", "1", "1.500000000000000000"),
+    "B" to listOf("1", "0", "0", "1", "0", "1", "1", "1", "0.000000000000000000", "0", "0.000000000000000000"),
+    "C" to listOf(null, null, null, null, "1", null, null, "1", null, null, null),
+    "D" to listOf("0", "0", "0", "1", "1", "1", "1", "1", "0.000000000000000000", "0", null),
+    "E" to listOf("1", "1", "1", "1", null, "1", "1", null, "0.142857142857142857", "0", null))
+
+/** 三个独立完成出口按UNION人口汇合，CORE只计算最后的精确商与差。 */
+fun completedPopulationQuery(e: PopulationExample, from: String, to: String, requestedDays: Int): Calculation.Scope {
+    require(from.matches(Regex("[0-9]{8}")) && to.matches(Regex("[0-9]{8}")) && from <= to && requestedDays > 0)
+    val directorySource = e.members.getValue("observer_directory")
+    // 目录原袋不先排NULL账户；LEFT后按实际归属排除，未将entry_ref声明为唯一。
+    val directory = Computations.members("observer_directory", MemberRef(directorySource.id, directorySource.subjectAreaVersion), emptyMap(),
+        listOf(Calculation.MemberProjection("entry_ref", "entry_ref", null), Calculation.MemberProjection("subject", "subject", Calculation.PublishedDimension(e.axis.reference))),
+        condition = condition("is_current", ScalarValueType.BOOLEAN, MemberCondition.Operator.EQ, "true"))
+    val visits = e.raw("observer_visits", listOf("entry_ref", "visitor_ref", "day"), MemberCondition.All(listOf(
+        condition("day", ScalarValueType.TEXT, MemberCondition.Operator.BETWEEN, from, to),
+        condition("eligible", ScalarValueType.BOOLEAN, MemberCondition.Operator.EQ, "true"))))
+    val attributed = Computations.scope {
+        input("directory", directory, InputMode.RELATION)
+        Computations.stages(visits, listOf(JoinInput("directory", "owned", "LEFT", op(ResultOperator.EQ, sym("entry_ref"), sym("owned__entry_ref"))),
+            PostFilter(nonnull("owned__subject")),
+            Derive(choose(op(ResultOperator.NE, sym("visitor_ref"), text("")), sym("visitor_ref")), "nonempty_visitor", "仅每日/非空期间量排空串，保NULL日期组")))
+    }
+    val period = Computations.stages(attributed, listOf(regroup(listOf("owned__subject"), counted("visitor_ref", "period_uv", true),
+        counted("nonempty_visitor", "period_nonempty", true)), Derive(number("1"), "period_present", "期间访问组存在")))
+    val daily = Computations.stages(attributed, listOf(regroup(listOf("owned__subject", "day"), counted("nonempty_visitor", "daily_uv", true)),
+        regroup(listOf("owned__subject"), sum("daily_uv", "daily_total", count), counted("day", "observed_days")),
+        Derive(number("1"), "daily_present", "有访问记录的日期组存在，不补日历")))
+    val paymentRows = e.raw("observer_payments", condition = condition("day", ScalarValueType.TEXT, MemberCondition.Operator.BETWEEN, from, to))
+    val payment = Computations.stages(paymentRows, listOf(
+        Derive(choose(op(ResultOperator.EQ, sym("initial_flag"), text("Y")), sym("buyer_ref")), "selected_buyer", "只选择Y，不筛掉原交易组"),
+        regroup(listOf("subject"), counted("selected_buyer", "payment_uv", true)), Derive(number("1"), "payment_present", "原交易组存在，计数可为零")))
+    val completed = Computations.align(linkedMapOf(
+        "period" to Computations.aligned(period, mapOf("subject" to "owned__subject"),
+            listOf("period_uv", "period_nonempty", "period_present").map { Calculation.AlignedValue(it, it, Calculation.NoMatch.PRESERVE_NULL) }),
+        "daily" to Computations.aligned(daily, mapOf("subject" to "owned__subject"),
+            listOf("daily_total", "observed_days", "daily_present").map { Calculation.AlignedValue(it, it, Calculation.NoMatch.PRESERVE_NULL) }),
+        "payment" to Computations.aligned(payment, mapOf("subject" to "subject"),
+            listOf("payment_uv", "payment_present").map { Calculation.AlignedValue(it, it, Calculation.NoMatch.PRESERVE_NULL) })),
+        listOf("subject"), Calculation.AlignmentPopulation(Calculation.PopulationKind.UNION, listOf("period", "daily", "payment")))
+    val finalContract = exact(18, MetricValueContract.Rounding.HALF_UP)
+    return Computations.stages(completed, listOf(
+        Derive(ResultNumeric(op(ResultOperator.DIVIDE, sym("daily_total"), number(requestedDays.toString(), daysContract)), finalContract, null), "daily_mean", "只在最终商按明确请求日数量化"),
+        Derive(ResultNumeric(op(ResultOperator.SUBTRACT, sym("daily_total"), sym("period_nonempty")), count, null), "repeat_visits", "跨日重复贡献"),
+        Derive(ResultNumeric(choose(op(ResultOperator.AND, nonnull("period_uv"), op(ResultOperator.NE, sym("period_uv"), number("0"))),
+            op(ResultOperator.DIVIDE, sym("payment_uv"), sym("period_uv"))), finalContract, null), "payment_per_visitor", "不同标识量之比允许大于1，零/缺分母为NULL"),
+        Project(completedPopulationColumns)))
+}
+
+fun completedPopulationCase(e: PopulationExample, entry: PublishedQueryEntry): Map<String, ScriptValue> {
+    val saved = e.execute(entry, "三域完整人口与明确七日精确终算", completedPopulationQuery(e, "20000101", "20000107", 7), QueryExecutionMode.CORE_FINALIZATION)
+    check(saved.rows.all { it.keys.toList() == completedPopulationColumns })
+    expect(saved.rows, completedPopulationExpected.mapValues { (_, values) -> completedPopulationColumns.drop(1).zip(values).toMap() })
+    expectSavedQuantities(saved.result, completedPopulationColumns.drop(1).associateWith { name ->
+        if (name in setOf("daily_mean", "payment_per_visitor")) exact(18, MetricValueContract.Rounding.HALF_UP) else count
+    })
+    return mapOf("completedPopulationQuery" to ScriptValue.QueryReferenceValue(saved.query), "completedPopulationResult" to ScriptValue.ResultReferenceValue(saved.result))
 }
 
 fun independentQuery(e: PopulationExample): Calculation.Scope {
@@ -827,6 +958,13 @@ fun installInputs(e: PopulationExample) {
     e.install("ledger_activity", texts("subject", "reference_key", "activity_day", "partition_key"), filterOperators = factFilters)
     e.install("fee_ledger", numbers("reference_number") + texts("ledger_day", "partition_key"), castReference = true)
     e.install("adjustment_ledger", texts("reference_key", "ledger_day", "partition_key"))
+    e.install("attributed_activity", texts("subject", "document_ref", "business_day"))
+    e.install("book_r", texts("document_ref", "settlement_day", "flag") + numbers("amount_r", "amount_s") + booleans("is_current"),
+        mapOf("amount_r" to floating("book-r-unit"), "amount_s" to floating("book-s-unit")))
+    e.install("book_s", texts("document_ref", "settlement_day", "text_amount") + booleans("is_current"))
+    e.install("observer_directory", texts("entry_ref", "subject") + booleans("is_current"))
+    e.install("observer_visits", texts("entry_ref", "visitor_ref", "day") + booleans("eligible"))
+    e.install("observer_payments", texts("subject", "day", "initial_flag", "buyer_ref"))
     e.createAxis()
 }
 fun references(query: QueryReference, result: QueryResultReference, captionQuery: QueryReference, captionResult: QueryResultReference) = ScriptValue.ObjectValue(mapOf(
@@ -838,6 +976,8 @@ fun build(): ScriptValue.ObjectValue {
     val comparisonTemplate = dailyComparisonTemplate(e.slot, meanTemplate.calculation)
     val inline = e.publication("inline")
     val sourceRelations = sourceRelationCases(e, inline)
+    val ledgerBags = ledgerBagCases(e, inline)
+    val completedPopulation = completedPopulationCase(e, inline)
     val cohort = e.execute(inline, "对象集合后分别测量原始袋", cohortQuery(e))
     expect(cohort.rows, linkedMapOf("" to mapOf("items" to "1", "qualified_items" to "1", "amount" to null, "records" to "1", "known" to "0"),
         "A" to mapOf("items" to "2", "qualified_items" to "2", "amount" to null, "records" to "2", "known" to "0"),
@@ -914,7 +1054,7 @@ fun build(): ScriptValue.ObjectValue {
     val localReferences = mapOf("dailyInlineQuery" to ScriptValue.QueryReferenceValue(inlineDaily.query), "dailyInlineResult" to ScriptValue.ResultReferenceValue(inlineDaily.result),
         "dailyNestedQuery" to ScriptValue.QueryReferenceValue(nestedDaily.query), "dailyNestedResult" to ScriptValue.ResultReferenceValue(nestedDaily.result),
         "dailyPublishedQuery" to ScriptValue.QueryReferenceValue(publishedDaily.query), "dailyPublishedResult" to ScriptValue.ResultReferenceValue(publishedDaily.result))
-    return ScriptValue.ObjectValue(references(primary.query, primary.result, captions.query, captions.result).values + reusePublications(e) + localReferences + sourceRelations + ("dailyInputRejected" to rejected))
+    return ScriptValue.ObjectValue(references(primary.query, primary.result, captions.query, captions.result).values + reusePublications(e) + localReferences + sourceRelations + ledgerBags + completedPopulation + ("dailyInputRejected" to rejected))
 }
 olap.output(when (parameters.text("phase")) {
     "build" -> build()

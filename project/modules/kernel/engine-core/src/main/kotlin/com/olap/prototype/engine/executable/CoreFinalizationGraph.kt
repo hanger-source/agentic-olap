@@ -120,7 +120,11 @@ class CoreFinalizationGraph private constructor(sources: List<SourceCut>, nodes:
         private val nodes = linkedMapOf<ScopeId, Node>()
         private val active = linkedSetOf<ScopeId>()
         private val sources = linkedMapOf<ScopeId, SourceCut>()
+        private val sourceRequired = linkedSetOf<ScopeId>()
         fun select(): CoreFinalizationGraph {
+            // 关系消费者先确定其完整输入的执行位置，再为各计算选择末端标量切点。
+            // 仅登记为 ROOT 并不要求来源完成；只沿实际消费边传播。
+            collectSourceRequirements(ScopeId.root(), linkedSetOf())
             visit(ScopeId.root())
             check(sources.isNotEmpty()) { "core finalization needs actual source completion boundaries" }
             return CoreFinalizationGraph(sources.values.toList(), nodes.values.toList())
@@ -132,7 +136,7 @@ class CoreFinalizationGraph private constructor(sources: List<SourceCut>, nodes:
             try {
                 val input = requireNotNull(graph.scope(scope))
                 val prefix = nativeStageCount(scope)
-                val root = when (val root = input.root) {
+                val root = if (scope in sourceRequired) sourceRoot(scope, analyses.getValue(scope).stages.size) else when (val root = input.root) {
                     is ExecutableInputRoot.Input -> {
                         val child = scope.child(root.inputId)
                         check(graph.scope(child) === input.additionalInputs[root.inputId]) { "root input differs from its bound scope" }
@@ -237,34 +241,66 @@ class CoreFinalizationGraph private constructor(sources: List<SourceCut>, nodes:
                 it.operation !is PostOperationContract.PostFilter
         } + 1
 
-        /** 列投影可在来源保留；标量运算后缀及其透传依赖留在CORE。完整ROOT关系实参是明确来源出口。 */
+        /** 关系消费要求在来源完成其输入；其余末端标量才留在 CORE。 */
         private fun canCompleteNatively(scope: ScopeId): Boolean {
             val analysis = analyses.getValue(scope)
-            if (analysis.stages.drop(nativeStageCount(scope)).any {
+            if (scope !in sourceRequired && analysis.stages.drop(nativeStageCount(scope)).any {
                 it.operation is PostOperationContract.Derive || it.operation is PostOperationContract.PostFilter
             }) return false
             return nativeRoot(scope, requireNotNull(graph.scope(scope)))
         }
 
-        private fun nativeRoot(scope: ScopeId, input: ExecutableInputScope): Boolean {
+        private fun needsSourceRoot(scope: ScopeId, input: ExecutableInputScope): Boolean {
+            if (nativeStageCount(scope) > 0 || input.additionalInputs.values.any { it.inputMode != "ROOT" } ||
+                input.objectRestrictions.isNotEmpty() || input.metrics.any { it.objectRestrictions.isNotEmpty() }) return true
+            return when (val root = input.root) {
+                is ExecutableInputRoot.ObjectMeasure, is ExecutableInputRoot.ObservationStatistics,
+                is ExecutableInputRoot.SetInputs -> true
+                is ExecutableInputRoot.Members -> root.input.let { member ->
+                    member.condition !is MemberCondition.Unrestricted || member.range != null || member.selection.clocks.isNotEmpty()
+                }
+                is ExecutableInputRoot.Measures -> root.groupingLevels != null || root.outputCondition !is DimensionCondition.Unrestricted ||
+                    root.population.mode != "CALLS" || root.calls.any { it is ExecutableMetricCall.Fact }
+                is ExecutableInputRoot.Input, is ExecutableInputRoot.Relation, is ExecutableInputRoot.AlignMeasurements -> false
+            }
+        }
+
+        private fun requireSourceCompletion(scope: ScopeId) {
+            if (!sourceRequired.add(scope)) return
+            sourceDependencies(scope, requireNotNull(graph.scope(scope))).forEach(::requireSourceCompletion)
+        }
+
+        private fun collectSourceRequirements(scope: ScopeId, visited: MutableSet<ScopeId>) {
+            if (!visited.add(scope)) return
+            val input = requireNotNull(graph.scope(scope))
+            val dependencies = sourceDependencies(scope, input)
+            if (needsSourceRoot(scope, input)) dependencies.forEach(::requireSourceCompletion)
+            dependencies.forEach { collectSourceRequirements(it, visited) }
+        }
+
+        private fun nativeRoot(scope: ScopeId, input: ExecutableInputScope): Boolean =
+            sourceDependencies(scope, input).all(::canCompleteNatively)
+
+        private fun sourceDependencies(scope: ScopeId, input: ExecutableInputScope): List<ScopeId> {
             val calendars = analyses.getValue(scope).stages.map { it.operation }.filterIsInstance<PostOperationContract.ObserveWindow>()
                 .mapNotNull { it.calendar?.inputId }.toSet()
-            if (input.additionalInputs.any { (id, child) -> (child.inputMode != "ROOT" || id in calendars) && !canCompleteNatively(scope.child(id)) }) return false
-            if ((input.objectRestrictions + input.metrics.flatMap { it.objectRestrictions }).any { !canCompleteNatively(it.objectsScope) }) return false
-            return when (val root = input.root) {
-            is ExecutableInputRoot.Input -> canCompleteNatively(scope.child(root.inputId))
-            is ExecutableInputRoot.Measures -> input.metricCalls.all { call -> call.calculationScopes(scope).keys.all(::canCompleteNatively) }
-            is ExecutableInputRoot.AlignMeasurements -> root.keys.keys.all { canCompleteNatively(scope.child(it)) }
+            val auxiliary = input.additionalInputs.filter { (id, child) -> child.inputMode != "ROOT" || id in calendars }.keys.map(scope::child) +
+                (input.objectRestrictions + input.metrics.flatMap { it.objectRestrictions }).map { it.objectsScope }
+            val rootDependencies = when (val root = input.root) {
+            is ExecutableInputRoot.Input -> listOf(scope.child(root.inputId))
+            is ExecutableInputRoot.Measures -> input.metricCalls.flatMap { call -> call.calculationScopes(scope).keys }
+            is ExecutableInputRoot.AlignMeasurements -> root.keys.keys.map(scope::child)
             is ExecutableInputRoot.Members -> when (val member = root.input) {
-                is ExecutableMemberInput.Computed -> canCompleteNatively(member.computationScope)
-                is ExecutableMemberInput.Local -> canCompleteNatively(member.inputScope)
-                is ExecutableMemberInput.Projection -> true
+                is ExecutableMemberInput.Computed -> listOf(member.computationScope)
+                is ExecutableMemberInput.Local -> listOf(member.inputScope)
+                is ExecutableMemberInput.Projection -> emptyList()
             }
-            is ExecutableInputRoot.ObjectMeasure -> canCompleteNatively(scope.child("measurement")) && canCompleteNatively(scope.child("objects"))
-            is ExecutableInputRoot.ObservationStatistics -> canCompleteNatively(scope.child("observations"))
-            is ExecutableInputRoot.SetInputs -> root.inputs.all { canCompleteNatively(scope.child(it.inputId)) }
-            is ExecutableInputRoot.Relation -> canCompleteNatively(root.input.inputScope)
+            is ExecutableInputRoot.ObjectMeasure -> listOf(scope.child("measurement"), scope.child("objects"))
+            is ExecutableInputRoot.ObservationStatistics -> listOf(scope.child("observations"))
+            is ExecutableInputRoot.SetInputs -> root.inputs.map { scope.child(it.inputId) }
+            is ExecutableInputRoot.Relation -> listOf(root.input.inputScope)
             }
+            return (auxiliary + rootDependencies).distinct()
         }
 
         private fun requireScalarAssembly(input: ExecutableInputScope, scope: ScopeId, prefix: Int) {
@@ -277,7 +313,7 @@ class CoreFinalizationGraph private constructor(sources: List<SourceCut>, nodes:
             if (!nativeRoot(scope, requireNotNull(graph.scope(scope))))
                 CoreFinalizationExpressions.unsupported(path(scope), "a source relational boundary depends on a value or population completed in CORE")
             val stages = analyses.getValue(scope).stages
-            val scalar = stages.drop(stageCount).indexOfFirst {
+            val scalar = if (scope in sourceRequired) -1 else stages.drop(stageCount).indexOfFirst {
                 it.operation is PostOperationContract.Derive || it.operation is PostOperationContract.PostFilter
             }
             requireSource(SourceCut(scope, if (scalar < 0) stages.size else stageCount + scalar), scope)

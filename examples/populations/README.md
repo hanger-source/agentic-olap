@@ -1,8 +1,8 @@
 # Agentic OLAP · 对象人口、独立测量与完成关系复用
 
-本用法用公开合成数据，通过完整服务的正式 MCP 建设来源与定义、冻结发布、保存查询、执行计算并读取结果。完整问题覆盖对象集合、日去重、独立事实、名义数量转换、属性袋贡献、多值标签完整身份、账本完成关系及结果恢复；目录同时展示 Unicode 逻辑出口和 BOOLEAN 三值，属性贡献展示零 Metric 内联 guard 和六个保存算法两种责任形态。共享资格、归属和完成量再由独立消费者继续组合。输入和独立预期由示例作者给出，客户端只提交 Kotlin 作者程序、读取正式回执并核对结果，不在外围实现 OLAP 计算。
+本用法用公开合成数据，通过完整服务的正式 MCP 建设来源与定义、冻结发布、保存查询、执行计算并读取结果。完整问题覆盖对象集合、日去重、独立事实、名义数量转换、属性袋贡献、多值标签完整身份、账本完成关系、归属后的原袋与完整 tuple、三域完成出口的 UNION 人口及结果恢复；目录同时展示 Unicode 逻辑出口和 BOOLEAN 三值，属性贡献展示零 Metric 内联 guard 和六个保存算法两种责任形态。共享资格、归属和完成量再由独立消费者继续组合。输入和独立预期由示例作者给出，客户端只提交 Kotlin 作者程序、读取正式回执并核对结果，不在外围实现 OLAP 计算。
 
-[Populations.kt](Populations.kt) 只准备原始 DuckDB 数据；[main.olap.kts](main.olap.kts) 构造正式模型并完成业务操作；[consume.olap.kts](consume.olap.kts) 在独立会话中发现并消费已发布定义。全部十四张表、78 个物理列均可空，无 PK、UNIQUE 或记录唯一性声明，共 89 条原始记录。对象／数量场景使用九表、58 列、55 行；标签与账本使用独立五表、20 列、34 行，两组输入互不改写。重复行、空串、NULL 和历史分区保留，不把样本中的单次匹配推断为一对一。
+[Populations.kt](Populations.kt) 只准备原始 DuckDB 数据；[main.olap.kts](main.olap.kts) 构造正式模型并完成业务操作；[consume.olap.kts](consume.olap.kts) 在独立会话中发现并消费已发布定义。全部二十张表、102 个物理列均可空，无 PK、UNIQUE 或记录唯一性声明，共 138 条原始记录。对象／数量场景使用九表、58 列、55 行；标签与账本关系使用五表、20 列、34 行；账户归属账本使用三表、13 列、20 行；三域观察使用三表、11 列、29 行。各组输入互不改写。重复行、空串、NULL 和历史分区保留，不把样本中的单次匹配推断为一对一。
 
 ## 运行与交付
 
@@ -13,6 +13,8 @@ Unicode 逻辑出口已通过本用法的正式建模、发布、查询及完整
 正式共享定义、Q1／Q2／Q3 消费和目录资格显式修订已通过完整用法验收。五次消费者调用使用各自独立会话，从获准精确发布发现定义并完整读取保存结果；修订后再消费原发布，保留其原有口径。下述预期由原始数据独立给出，不代表其他后端或私有业务已完成同样采用。
 
 多值标签与账本关系的三个 SOURCE 查询通过同一建模、保存及完整分页入口核对独立预期，完整标签元组、引用日归属和两侧缺组事实均保留。它们不证明其他后端的实际业务已验收，也不涵盖不同 CORE 完成出口的汇合或 CORE 输出继续关系消费。
+
+账户归属账本的 R／S／R+S 三份 SOURCE 查询及三域 UNION 人口的 CORE 查询采用同一正式流程，运行时核对下文的独立预期、完整输出列与保存数量合同。
 
 在仓库根使用 JDK 21，显式执行本用法；输出目录必须不存在。
 
@@ -489,5 +491,102 @@ fee 另有一条 103／`20010106` 的旧分区行，adjustment 另有一条 104�
 两份问题分别显式 SOURCE 保存、执行及全页读取，按完整五列／九列元组比较；保存后的袋行数、账户数与调查组数另核对 ONE／Exact／INTEGER64／FAIL 数量合同。最终调查人口仍为五个活动坐标，COUNT 前直接双 LEFT 原袋会制造另一种权重，不能得到本预期。build 返回 `ledgerOwnershipQuery`／`ledgerOwnershipResult` 和 `ledgerIntersectionQuery`／`ledgerIntersectionResult` 的正式引用。
 
 这是关系调查，不计算财务金额，不宣布重复袋行有误，也不从本次分布推出跨期间账户唯一性。三个关系查询不增加独立 runner；最新分区内容变化、空预建分区、所有 NULL／空串域及不同核心完成出口组合均不在这些有限输入的验收范围内。
+
+## 十、账户归属后分别观察账本原袋与完整 tuple
+
+本问题显式选择账户 `A、B、C、D、空串、absent` 和业务日 `20000102`；absent 没有交易归属，因此不造行。`ledgerBagQuery` 的 `families` 必填，允许无重复、非空的 R／S 选择；只构造所选账本支路。R、S、R+S 是三次明确问题选择，失败不会改选账本重试。
+
+`attributed_activity` 是原袋，先按完整 `(subject,document_ref,business_day)` 形成归属集合：
+
+| subject | document_ref | 原袋行数 | 归属 tuple 数 |
+| --- | --- | ---: | ---: |
+| A | x | 2 | 1 |
+| A | y | 1 | 1 |
+| B | x | 1 | 1 |
+| C | z | 1 | 1 |
+| D | NULL | 1 | 1 |
+| 空串 | e | 1 | 1 |
+| NULL | x | 1 | 不选 |
+
+账本各自按 `is_current=TRUE` 和履约日 `20000102` 选择。`is_current` 是本受控来源明确提供的事实，不是动态分区目录，也不冒充 `MAX_PT`。本组所有账本行均为当前行：
+
+| R document_ref | flag | amount_r | amount_s | 原袋行数 |
+| --- | --- | ---: | ---: | ---: |
+| x | Y | 2 | 3 | 2 |
+| y | N | NULL | 5 | 1 |
+| NULL | Y | 7 | 8 | 1 |
+| unmatched | Y | 9 | 9 | 1 |
+
+| S document_ref | text_amount | 原袋行数 |
+| --- | --- | ---: |
+| x | `"1.0"` | 2 |
+| x | `"1.00"` | 1 |
+| y | NULL | 1 |
+| y | `""` | 1 |
+| e | `"4"` | 1 |
+| NULL | `"9"` | 1 |
+
+每侧先 INNER 归属，得到真实匹配账户；普通 EQ 不让 NULL 引用相互匹配。随后各自分两支：原袋每行给 ONE 再 COUNT；完整 tuple key-only 归约后每 tuple 给 ONE 再 COUNT。R 的完整五列是 `(document_ref,settlement_day,flag,amount_r,amount_s)`，再带归属账户；两金额保留各自名义单位的 NativeFloating／BinaryFloat64，不转 TEXT 作键。S 的完整三列是 `(document_ref,settlement_day,text_amount)`，保留原始词法，不解析、trim 或把 NULL 当空串。
+
+两支都完成到每账户一行后，按交易归属账户为 BASE、PRESERVE_NULL 对齐。完整 R+S 结果为 11 列：subject、activity_tuples／activity_present，以及 R、S 各自的 raw／raw_present／tuples／tuple_present。以下省略存在列的重复展示：
+
+| subject | activity_tuples | r_raw | r_tuples | s_raw | s_tuples |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| A | 2 | 3 | 2 | 5 | 4 |
+| B | 1 | 2 | 1 | 3 | 2 |
+| C | 1 | NULL | NULL | NULL | NULL |
+| D | 1 | NULL | NULL | NULL | NULL |
+| 空串 | 1 | NULL | NULL | 1 | 1 |
+
+所有有组侧的 present 为 1；缺组侧的计数与 present 一起为 NULL。D 的归属 tuple 真实存在，NULL 引用仍不匹配账本。x 同时归属 A／B，两者分别获得匹配原袋；不选 MAX 账户，也不把跨账户匹配量相加冒充全局财务量。`"1.0"`／`"1.00"` 是两个 TEXT tuple，NULL／空串也是两个 tuple。
+
+R、S 单侧问题分别保存完整七列、五行，R+S 保存完整十一列、五行；`readAll` 逐页读取后核对每列及全部账户。所有计数与存在标记另外核对 ONE／Exact／INTEGER64／FAIL。`http/report.json` 的 `ledgerBagCases` 保存三份实际 Query／结果引用，不新增执行框架。
+
+## 十一、三个完成出口的独立人口与七日核心终算
+
+`observer_directory`、`observer_visits`、`observer_payments` 是三份独立原袋。期间明确为 `20000101—20000107`，请求日数明确为 7；不按观察日期数推算分母。
+
+当前目录为 x→A 两条、y→A、z→B、u→C、w→D、e→E 和 n→NULL；另有 x→outside 的非当前行。entry_ref 没有唯一性声明。访问先选择 eligible=TRUE，再 LEFT 当前目录并排除实际归属为 NULL 的记录，原始映射袋不提前去重：
+
+| entry_ref | day | visitor_ref | 原袋行数 |
+| --- | --- | --- | ---: |
+| x | 20000101 | v | 2 |
+| x | 20000102 | v | 1 |
+| y | 20000101 | 空串 | 1 |
+| y | 20000102 | NULL | 1 |
+| z | 20000101 | 空串 | 1 |
+| z | 20000101 | NULL | 1 |
+| w | 20000101 | NULL | 1 |
+| e | 20000101 | e | 1 |
+
+还有 e 上 eligible=FALSE／UNKNOWN 的两条访问，不进入访问人口；n 和 missing 各一条 TRUE 访问，分别因 NULL 归属和无目录匹配被排除。目录 x 重复可以扩张 LEFT 原袋，但不会增加本问题的 COUNT DISTINCT；不能据此反推目录唯一。
+
+交易原袋为 A 的 Y/p 两条、Y/空串一条、Y/q 一条，B 的 N/b 一条，C 的 Y/c 一条，D 的 Y/d 一条；E 没有交易。buyer_ref 与 visitor_ref 不声明共同人员身份，也不限制两者比例小于等于 1。
+
+三个来源完成出口分别拥有自己的观察人口：
+
+1. period：按账户 COUNT DISTINCT visitor_ref，忽略 NULL、保空串；另计非空 visitor 的期间去重数。
+2. daily：CASE 非空 visitor、ELSE NULL，再按账户／日期 COUNT DISTINCT，最后按账户 SUM，并 COUNT 实际有记录的日期。空串／NULL-only 日期组保留真实 0，不先 WHERE 非空，不补缺日。
+3. payment：CASE initial_flag=Y 选择 buyer_ref，按账户 COUNT DISTINCT；原交易组全不满足时仍是有组的 0。
+
+三个完成出口按完整账户键、UNION 人口、PRESERVE_NULL 对齐，分别保留存在标记。核心随后计算 `daily_total/7`、`daily_total-period_nonempty` 和 `payment_uv/period_uv`；最后一个商仅在分母非 NULL 且非 0 时计算。两商只在各自最终 NUMERIC 节点做一次 DECIMAL(38,18)／HALF_UP 量化，保持 Exact／ONE／FAIL，不改来源算法或客户端替换值。
+
+完整十二列的独立预期如下，存在列按 period／daily／payment 顺序展示：
+
+| subject | period_uv | period_nonempty | daily_total | observed_days | payment_uv | 三侧 present | daily_mean | repeat_visits | payment_per_visitor |
+| --- | ---: | ---: | ---: | ---: | ---: | --- | --- | ---: | --- |
+| A | 2 | 1 | 2 | 2 | 3 | 1／1／1 | 0.285714285714285714 | 1 | 1.500000000000000000 |
+| B | 1 | 0 | 0 | 1 | 0 | 1／1／1 | 0.000000000000000000 | 0 | 0.000000000000000000 |
+| C | NULL | NULL | NULL | NULL | 1 | NULL／NULL／1 | NULL | NULL | NULL |
+| D | 0 | 0 | 0 | 1 | 1 | 1／1／1 | 0.000000000000000000 | 0 | NULL |
+| E | 1 | 1 | 1 | 1 | NULL | 1／1／NULL | 0.142857142857142857 | 0 | NULL |
+
+A 只观察两日仍除请求 7 日；B 的空串进入 period UV、但不进入 daily 非空 UV；D 有访问组且全 NULL，因此 COUNT=0，与 C 缺访问组不同。保存请求和执行请求都明确 CORE_FINALIZATION。保存后全页读取五行、十二列，并核对九个整数计数／存在／差值出口和两个精确商的数量合同；`http/report.json` 的 `completedPopulationCase` 记录实际 Query／结果引用。
+
+## 尚未由本用法证明的组合
+
+本组账本原袋／tuple 调查不计算解析金额。`scaled` 的文本转 DOUBLE 不等于“归属后插件 Exact 解析→有界 Exact SUM→完成后显式 NativeFloating 混合”；后者仍需真实插件声明及 NULL、非法输入和容量护栏的完整正式用法。SQL 文本复用不证明物理只求值一次、单扫描或同一快照。
+
+已有四个 Computed、两个实际计数和独立消费者链，不等于“两层 Computed＋五个完整 Metric（含两个精确均值）”的完整消费；既有 daily 关系参数模板也不替代那组保存 owner。六个独立名义评分单位、各自 NULL 人口的 RAW_BAG 数学 AVG，同样未由本例的每日完成计数相除证明。它们分别保留实际支持边界，不以改 SOURCE_NATIVE、降 Double、自动 SUM／COUNT 或展开保存 Metric 伪装同图成功。
 
 正常使用方式见[作者使用指引](../../docs/agent-usage.md)，部署、认证和预算见[服务说明](../../skills/agentic-olap/references/server.md)。本用法不要求业务项目读服务器私有文件、放宽合同、改写生成 SQL 或维护外围计算器。

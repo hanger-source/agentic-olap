@@ -26,14 +26,18 @@ class NativeScalarOperator private constructor(connector: ConnectorRef,
     override fun isDeterministic(): Boolean = declaration.stability == NativeScalarFunction.Stability.IMMUTABLE
     override fun isDynamicFunction(): Boolean = declaration.stability != NativeScalarFunction.Stability.IMMUTABLE
 
-    override fun unparse(writer: SqlWriter, call: SqlCall, left: Int, right: Int) {
+    internal fun expand(call: SqlCall): SqlNode {
         val values = arguments.map {
             when (it) {
                 is Argument.Scalar -> CompilationSupport.ScalarArgument(call.operand(it.index))
                 is Argument.Table -> it.value
             }
         }
-        support.nativeScalarCall(declaration.id, values).unparse(writer, left, right)
+        return support.nativeScalarCall(declaration.id, values)
+    }
+
+    override fun unparse(writer: SqlWriter, call: SqlCall, left: Int, right: Int) {
+        expand(call).unparse(writer, left, right)
     }
 
     companion object {

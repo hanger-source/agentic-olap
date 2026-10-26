@@ -184,6 +184,51 @@ object Populations {
           ('105','20010103','20010108'),
           (NULL,'20010103','20010108'),
           ('104','20010103','20010107')
+        """.trimIndent(),
+        "CREATE TABLE attributed_activity(subject VARCHAR,document_ref VARCHAR,business_day VARCHAR)",
+        """
+        INSERT INTO attributed_activity VALUES
+          ('A','x','20000102'),('A','x','20000102'),('A','y','20000102'),
+          ('B','x','20000102'),('C','z','20000102'),('D',NULL,'20000102'),
+          ('','e','20000102'),(NULL,'x','20000102')
+        """.trimIndent(),
+        "CREATE TABLE book_r(document_ref VARCHAR,settlement_day VARCHAR,flag VARCHAR,amount_r DOUBLE,amount_s DOUBLE,is_current BOOLEAN)",
+        """
+        INSERT INTO book_r VALUES
+          ('x','20000102','Y',2,3,TRUE),('x','20000102','Y',2,3,TRUE),
+          ('y','20000102','N',NULL,5,TRUE),(NULL,'20000102','Y',7,8,TRUE),
+          ('unmatched','20000102','Y',9,9,TRUE)
+        """.trimIndent(),
+        "CREATE TABLE book_s(document_ref VARCHAR,settlement_day VARCHAR,text_amount VARCHAR,is_current BOOLEAN)",
+        """
+        INSERT INTO book_s VALUES
+          ('x','20000102','1.0',TRUE),('x','20000102','1.0',TRUE),('x','20000102','1.00',TRUE),
+          ('y','20000102',NULL,TRUE),('y','20000102','',TRUE),('e','20000102','4',TRUE),
+          (NULL,'20000102','9',TRUE)
+        """.trimIndent(),
+        "CREATE TABLE observer_directory(entry_ref VARCHAR,subject VARCHAR,is_current BOOLEAN)",
+        """
+        INSERT INTO observer_directory VALUES
+          ('x','A',TRUE),('x','A',TRUE),('y','A',TRUE),('z','B',TRUE),
+          ('u','C',TRUE),('w','D',TRUE),('e','E',TRUE),
+          ('x','outside',FALSE),('n',NULL,TRUE)
+        """.trimIndent(),
+        "CREATE TABLE observer_visits(entry_ref VARCHAR,visitor_ref VARCHAR,day VARCHAR,eligible BOOLEAN)",
+        """
+        INSERT INTO observer_visits VALUES
+          ('x','v','20000101',TRUE),('x','v','20000101',TRUE),('x','v','20000102',TRUE),
+          ('y','','20000101',TRUE),('y',NULL,'20000102',TRUE),
+          ('z','','20000101',TRUE),('z',NULL,'20000101',TRUE),
+          ('w',NULL,'20000101',TRUE),('e','e','20000101',TRUE),
+          ('e','ignored-false','20000101',FALSE),('e','ignored-unknown','20000101',NULL),
+          ('n','null-account','20000101',TRUE),('missing','unmapped','20000101',TRUE)
+        """.trimIndent(),
+        "CREATE TABLE observer_payments(subject VARCHAR,day VARCHAR,initial_flag VARCHAR,buyer_ref VARCHAR)",
+        """
+        INSERT INTO observer_payments VALUES
+          ('A','20000101','Y','p'),('A','20000101','Y','p'),
+          ('A','20000101','Y',''),('A','20000102','Y','q'),
+          ('B','20000101','N','b'),('C','20000101','Y','c'),('D','20000101','Y','d')
         """.trimIndent()
     )
 }

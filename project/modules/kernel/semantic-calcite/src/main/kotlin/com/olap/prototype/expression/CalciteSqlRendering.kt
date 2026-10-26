@@ -57,11 +57,17 @@ object CalciteSqlRendering {
         statement = requireNotNull(statement.accept(object : SqlShuttle() {
             override fun visit(call: SqlCall): SqlNode {
                 val converted = super.visit(call) as SqlCall
-                val check = converted.operator as? SemanticNumericRex.NumericCheck ?: return converted
-                numericChecks++
-                return check.expand(converted, dialect)
+                // 类型化调用在完整实参上只映射一次；统计和渲染共同读取插件已展开的实际 AST。
+                return when (val operator = converted.operator) {
+                    is SemanticNumericRex.NumericCheck -> {
+                        numericChecks++
+                        operator.expand(converted, dialect)
+                    }
+                    is NativeScalarOperator -> operator.expand(converted)
+                    else -> converted
+                }
             }
-        })) { "numeric SQL expansion must preserve the statement" }
+        })) { "native SQL expansion must preserve the statement" }
         var cases = 0
         statement.accept(object : SqlShuttle() {
             override fun visit(call: SqlCall): SqlNode {

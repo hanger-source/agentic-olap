@@ -32,6 +32,8 @@ import org.apache.calcite.sql.`fun`.SqlStdOperatorTable as Ops
 import org.apache.calcite.sql.parser.SqlParserPos
 import org.apache.calcite.sql.parser.SqlParser
 import org.apache.calcite.sql.util.SqlBasicVisitor
+import org.apache.calcite.sql.util.SqlString
+import org.apache.calcite.sql.`fun`.SqlCase
 import org.apache.calcite.sql.type.OperandTypes
 import org.apache.calcite.sql.type.ReturnTypes
 import org.apache.calcite.sql.type.SqlTypeName
@@ -54,9 +56,10 @@ class CalciteSqlConversionExecutionTest {
     private fun builder(source: NativeWarehouse, binding: ExecutablePhysicalExecutionBinding = source.adopt("observations", emptyMap())): RelBuilder =
         CalciteQueryCompiler.inputs(listOf(binding), binding.physicalColumnBindings.keys, emptySet(), TestConnectors.registry).builder.scan(FrozenCatalogSchema.path(binding))
     private fun rows(source: NativeWarehouse, plan: RelNode, parameters: List<JdbcParameter> = emptyList(),
-        support: CompilationSupport = TestConnectors.registry.require(source.spec.connectorRef).compilation): List<List<Any?>> {
+        support: CompilationSupport = TestConnectors.registry.require(source.spec.connectorRef).compilation): List<List<Any?>> =
+        rows(source, CalciteSqlRendering.render(plan, support, parameters), parameters)
+    private fun rows(source: NativeWarehouse, sql: SqlString, parameters: List<JdbcParameter> = emptyList()): List<List<Any?>> {
         val connector = TestConnectors.registry.require(source.spec.connectorRef)
-        val sql = CalciteSqlRendering.render(plan, support, parameters)
         val ordered = CalciteSqlRendering.orderedParameters(sql, parameters)
         return source.connection.prepareStatement(sql.sql).use { statement ->
             ordered.forEachIndexed { index, parameter -> parameter.bind(statement, index + 1) }
@@ -293,7 +296,10 @@ class CalciteSqlConversionExecutionTest {
                     parserExpansions++
                     val value = (arguments.single() as CompilationSupport.ScalarArgument).value
                     val pos = SqlParserPos.ZERO
-                    return Ops.CAST.createCall(pos, value, SqlDataTypeSpec(SqlBasicTypeNameSpec(SqlTypeName.DECIMAL, 38, 18, pos), pos))
+                    val type = SqlDataTypeSpec(SqlBasicTypeNameSpec(SqlTypeName.DECIMAL, 38, 18, pos), pos)
+                    return SqlCase(pos, null, SqlNodeList(listOf(Ops.IS_NULL.createCall(pos, value)), pos),
+                        SqlNodeList(listOf(Ops.CAST.createCall(pos, SqlLiteral.createNull(pos), type)), pos),
+                        Ops.CAST.createCall(pos, value, type))
                 }
             }
             val observations = source.adopt("observations", emptyMap())
@@ -321,7 +327,16 @@ class CalciteSqlConversionExecutionTest {
                 b.count(false, "parsed_count", b.field("parsed_number")), b.count(false, "amount_count", b.field("amount")))
                 .sort(b.field("region"))
             val plan = CalciteQueryCompiler.optimize(b.build(), emptyList())
-            val result = rows(source, plan, support = support)
+            val rendered = CalciteSqlRendering.compile(plan, support)
+            val result = rows(source, rendered.sql)
+            var emittedCases = 0
+            SqlParser.create(rendered.sql.sql).parseQuery().accept(object : SqlBasicVisitor<Void>() {
+                override fun visit(call: SqlCall): Void? {
+                    if (call.kind == SqlKind.CASE) emittedCases++
+                    return super.visit(call)
+                }
+            })
+            assertEquals(emittedCases, rendered.caseExpressions, "$dialect omitted native parser CASE expressions from the executed SQL scale")
             assertEquals(listOf("A", "B"), result.map { it[0] }, "$dialect changed INNER matching or group population")
             decimal(result[0][1], "24.00")
             assertEquals(listOf(3L, 3L), result[0].drop(2).map { (it as Number).toLong() }, "$dialect lost repeated matched occurrences")

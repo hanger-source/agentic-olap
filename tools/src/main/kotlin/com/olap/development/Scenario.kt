@@ -152,6 +152,14 @@ internal class Scenario(private val name: String, private val distribution: Path
                             "query" to references.objectAt("${case}Query").objectAt("reference").getValue("query"),
                             "result" to references.objectAt("${case}Result").objectAt("reference").getValue("result"))
                     })
+                    report["ledgerBagCases"] = JsonObject(listOf("R", "S", "Both").associate { family ->
+                        family to objectOf(
+                            "query" to references.objectAt("ledgerBag${family}Query").objectAt("reference").getValue("query"),
+                            "result" to references.objectAt("ledgerBag${family}Result").objectAt("reference").getValue("result"))
+                    })
+                    report["completedPopulationCase"] = objectOf(
+                        "query" to references.objectAt("completedPopulationQuery").objectAt("reference").getValue("query"),
+                        "result" to references.objectAt("completedPopulationResult").objectAt("reference").getValue("result"))
                 }
             }
             val savedParameters = parameters.with(
