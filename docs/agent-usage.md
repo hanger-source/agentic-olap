@@ -615,7 +615,8 @@ val explained = olap.queries.explain(QueryExplanationRequest(
     QueryExecutionMode.CORE_FINALIZATION
 ))
 val summary = (explained.content as QueryExplanationContent.Summary).value
-olap.output(summary.sourceOutputScopes)
+// 脚本内直接读取 summary；向 Agent 交付时输出实际能力响应，保留正式类型和原回执。
+olap.output(explained)
 ~~~
 
 `QueryExplanationSection.EXECUTION_REQUIREMENTS` 给出当前计划需要的来源能力、仍需执行的关系检查及其已知语义作用域、身份键和原因。`sourceConstraints` 按精确来源绑定、连接器及物理表版本列出实际采用的约束；每项保留种类、约束名或非空列名、原生列到精确物理列版本的映射，以及 `adoptedFor`：非空原生列类型、优化器键元数据、引用元数据或时态关系规则。单表 RAW_BAG 也可能采用非空列类型；这不等于 Query 做了去重或唯一键归约。

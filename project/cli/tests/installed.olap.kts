@@ -296,8 +296,10 @@ olap.output(when (parameters.text("phase")) {
             meanStage("rounded_days"))))
         fun explainReduction(intent: QueryIntent, work: Boolean): QueryExplanationView.Summary {
             val selected = QuerySelection.Inline(intent)
-            val summary = (olap.queries.explain(QueryExplanationRequest(selected, QueryExplanationSection.SUMMARY,
-                0, 1000, QueryExecutionMode.CORE_FINALIZATION)).content as QueryExplanationContent.Summary).value
+            val response = olap.queries.explain(QueryExplanationRequest(selected, QueryExplanationSection.SUMMARY,
+                0, 1000, QueryExecutionMode.CORE_FINALIZATION))
+            olap.output(response)
+            val summary = (response.content as QueryExplanationContent.Summary).value
             verifyReductionChoice(summary, work)
             val output = summary.sourceOutputScopes.single()
             val scopes = (olap.queries.explain(QueryExplanationRequest(selected, QueryExplanationSection.SCOPES,

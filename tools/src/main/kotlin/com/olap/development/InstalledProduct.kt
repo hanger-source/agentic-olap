@@ -77,6 +77,8 @@ internal class InstalledProduct(private val tarballs: Path, private val root: Pa
             val numericReference = built.objectAt("numericResult").objectAt("reference").objectAt("result")
             val sourceWork = built.objectAt("sourceWorkResult").objectAt("reference").objectAt("result")
             val sourceBag = built.objectAt("sourceBagResult").objectAt("reference").objectAt("result")
+            val sourceWorkSummary = sourceReductionSummary(sourceWork, true)
+            val sourceBagSummary = sourceReductionSummary(sourceBag, false)
             orderColumnVersion = built.objectAt("orderColumnVersion").string("text")
             salesResult(result); salesResult(continued)
             val usagePagination = usagePagination(result)
@@ -88,6 +90,8 @@ internal class InstalledProduct(private val tarballs: Path, private val root: Pa
             stop(); start("analysis-reopened"); initializeClient()
             salesResult(result)
             check(divisionResult(numericReference) == numeric)
+            check(sourceReductionSummary(sourceWork, true) == sourceWorkSummary)
+            check(sourceReductionSummary(sourceBag, false) == sourceBagSummary)
             val reopened = program(objectOf("phase" to text("reopen"), "definitionId" to query.getValue("definitionId"),
                 "definitionVersion" to query.getValue("definitionVersion"), "querySha256" to query.getValue("sha256"),
                 "resultRunId" to result.getValue("runId"), "resultSha256" to result.getValue("sha256"),
@@ -104,6 +108,7 @@ internal class InstalledProduct(private val tarballs: Path, private val root: Pa
                 "runIds" to JsonArray(listOf(result.getValue("runId"), continued.getValue("runId"), repeated.getValue("runId"))),
                 "expected" to objectOf("sales_amount" to text("175.00"), "order_count" to text("4")), "integerDivision" to numeric,
                 "sourceReductionResults" to objectOf("work" to sourceWork, "bag" to sourceBag),
+                "sourceReductionExplanations" to objectOf("work" to sourceWorkSummary, "bag" to sourceBagSummary),
                 "serialCapabilities" to serialCalls, "sourceAdoption" to sourceAdoption, "stageAuthorization" to approvals, "usagePagination" to usagePagination,
                 "completeResponseDelivery" to complete))
         } catch (failure: Throwable) {
@@ -136,7 +141,40 @@ internal class InstalledProduct(private val tarballs: Path, private val root: Pa
     private fun program(parameters: JsonObject): JsonObject {
         val execution = client.script(author, parameters, dslVersion).succeeded()
         check(execution.report.array("calls").size > 1)
-        return execution.references()
+        val outputs = execution.report.array("outputs").map { it.jsonObject }.filter { it.string("kind") == "VALUE" }
+        if (parameters.string("phase") == "build") {
+            check(outputs.size == 3)
+            outputs.take(2).zip(listOf(true, false)).forEach { (output, work) ->
+                val reply = output.objectAt("value").objectAt("registeredReply")
+                check(reply.string("operationId") == "explain-query")
+                val response = reply.objectAt("content")
+                check(response.string("section") == "SUMMARY")
+                sourceReductionChoice(response.objectAt("content").objectAt("summary"), work)
+            }
+        } else check(outputs.size == 1)
+        return outputs.last().objectAt("value").objectAt("object").objectAt("values")
+    }
+    private fun sourceReductionChoice(summary: JsonObject, work: Boolean): JsonObject {
+        val output = summary.array("sourceOutputScopes").single().jsonObject
+        check(output.objectAt("scope").array("path").isEmpty())
+        if (work) {
+            check(output.string("representation") == "EXACT_AGGREGATE_WORK" && output.getValue("reductionStage").jsonPrimitive.int == 0)
+            check("reductionReason" !in output && "attemptedReductionStage" !in output)
+        } else {
+            check(output.string("representation") == "OBSERVATION_BAG" && "reductionStage" !in output)
+            check(output.getValue("attemptedReductionStage").jsonPrimitive.int == 1 &&
+                output.string("reductionReason") == "PRECEDING_STAGE_NOT_SUPPORTED_BY_SOURCE_REDUCTION")
+        }
+        return output
+    }
+    private fun sourceReductionSummary(reference: JsonObject, work: Boolean): JsonObject {
+        val page = client.call("read-query-result", objectOf("resultReference" to reference, "offset" to number(0), "limit" to number(10))).jsonObject
+        check(page.getValue("totalRows").jsonPrimitive.long == 1L && page.array("rows").size == 1)
+        val value = page.array("rows").single().jsonObject.array("values").single().jsonObject.objectAt("complete").objectAt("scalar").string("value")
+        check(value.toBigDecimal().compareTo((if (work) "121" else "40.333333333333333333").toBigDecimal()) == 0)
+        val metadata = client.call("read-query-result-metadata", objectOf("resultReference" to reference, "section" to text("EXPLANATION"),
+            "explanationSection" to text("SUMMARY"), "offset" to number(0), "limit" to number(1000))).jsonObject
+        return sourceReductionChoice(metadata.objectAt("content").objectAt("explanation").objectAt("summary"), work)
     }
     private fun usagePagination(reference: JsonObject): JsonObject {
         val runId = reference.getValue("runId")
