@@ -32,6 +32,7 @@ import org.apache.calcite.rel.logical.LogicalCalc
 import org.apache.calcite.rel.type.DelegatingTypeSystem
 import org.apache.calcite.rel.type.RelDataType
 import org.apache.calcite.rel.type.RelDataTypeFactory
+import org.apache.calcite.rel.type.RelDataTypeSystem
 import org.apache.calcite.rex.RexNode
 import org.apache.calcite.rex.RexBuilder
 import org.apache.calcite.rex.RexCall
@@ -47,6 +48,7 @@ import org.apache.calcite.sql.util.SqlString
 import org.apache.calcite.sql.`fun`.SqlCase
 import org.apache.calcite.sql.`fun`.SqlBasicAggFunction
 import org.apache.calcite.sql.`fun`.SqlTrimFunction
+import org.apache.calcite.sql.dialect.H2SqlDialect
 import org.apache.calcite.sql.type.OperandTypes
 import org.apache.calcite.sql.type.ReturnTypes
 import org.apache.calcite.sql.type.SqlTypeName
@@ -362,17 +364,35 @@ class CalciteSqlConversionExecutionTest {
                 it.execute("ALTER TABLE observations ADD should_parse BOOLEAN")
                 it.execute("UPDATE observations SET raw_text=CASE id WHEN 1 THEN ' 1_0.25 ' WHEN 2 THEN ' 2.5 ' WHEN 4 THEN 'bad' END, should_parse=(id<>4), region=LOWER(region)")
             }
+            val finite = dialect == "h2"
             val decimalFunction = NativeScalarFunction("tripled_decimal", listOf(NativeScalarFunction.Parameter(
-                NativeScalarFunction.ParameterKind.SCALAR, ScalarValueType.TEXT)), NativeValueType("DECIMAL", 38, 18, true),
+                NativeScalarFunction.ParameterKind.SCALAR, ScalarValueType.TEXT)),
+                if (finite) NativeValueType("FINITE_DECIMAL", null, null, true) else NativeValueType("DECIMAL", 38, 18, true),
                 MetricValueContract.Exact(), NativeScalarFunction.Stability.IMMUTABLE)
             val upperFunction = NativeScalarFunction("upper_region", listOf(NativeScalarFunction.Parameter(
                 NativeScalarFunction.ParameterKind.SCALAR, ScalarValueType.TEXT)), NativeValueType("VARCHAR", 8, null, true),
                 null, NativeScalarFunction.Stability.IMMUTABLE)
             val baseSupport = TestConnectors.registry.require(source.spec.connectorRef).compilation
-            val b = builder(source)
-            val unpassedAmount = b.field("amount")
+            lateinit var unpassedAmount: RexNode
             var useUnpassedAmount = false
             val support = object : CompilationSupport by baseSupport {
+                // DECFLOAT(100)仅兑现本试验输入，不声明生产H2支持全域Finite运算。
+                override val typeSystem: RelDataTypeSystem = if (!finite) baseSupport.typeSystem else object : DelegatingTypeSystem(baseSupport.typeSystem) {
+                    override fun deriveDecimalPlusType(factory: RelDataTypeFactory, left: RelDataType, right: RelDataType): RelDataType? {
+                        if (FiniteDecimalTypes.isFinite(left) || FiniteDecimalTypes.isFinite(right)) {
+                            require(SqlTypeUtil.isExactNumeric(left) && SqlTypeUtil.isExactNumeric(right))
+                            return FiniteDecimalTypes.create(left.isNullable || right.isNullable)
+                        }
+                        return baseSupport.typeSystem.deriveDecimalPlusType(factory, left, right)
+                    }
+                }
+                override val dialect: SqlDialect = if (!finite) baseSupport.dialect else object : H2SqlDialect(H2SqlDialect.DEFAULT_CONTEXT.withDataTypeSystem(baseSupport.typeSystem)) {
+                    override fun getCastSpec(type: RelDataType): SqlNode? = if (FiniteDecimalTypes.isFinite(type))
+                        SqlDataTypeSpec(SqlAlienSystemTypeNameSpec("DECFLOAT", SqlTypeName.DECIMAL, 100, SqlParserPos.ZERO), SqlParserPos.ZERO)
+                    else baseSupport.dialect.getCastSpec(type)
+                    override fun quoteStringLiteral(builder: StringBuilder, charsetName: String?, value: String) =
+                        baseSupport.dialect.quoteStringLiteral(builder, charsetName, value)
+                }
                 override val nativeScalarFunctions = listOf(decimalFunction, upperFunction)
                 override fun requireNativeScalarFunction(id: String): NativeScalarFunction = nativeScalarFunctions.single { it.id == id }
                 override fun nativeScalarExpression(builder: RexBuilder, function: NativeScalarFunction, call: RexCall): RexNode {
@@ -389,10 +409,14 @@ class CalciteSqlConversionExecutionTest {
                     return Ops.UPPER.createCall(SqlParserPos.ZERO, (arguments.single() as CompilationSupport.ScalarArgument).value)
                 }
             }
+            val binding = source.adopt("observations", emptyMap())
+            val schema = FrozenCatalogSchema.bind(listOf(binding), binding.physicalColumnBindings.keys, emptySet(), TestConnectors.registry).schema
+            val b = CalciteCompilation.builder(support, schema).scan(FrozenCatalogSchema.path(binding))
+            unpassedAmount = b.field("amount")
             val native = NativeExpressionScope(source.spec.connectorRef, support) { null }
             val parsed = native.compileScalar(b, source.spec.connectorRef, decimalFunction.id, listOf(b.field("raw_text")))
             val upper = native.compileScalar(b, source.spec.connectorRef, upperFunction.id, listOf(b.field("region")))
-            val selected = b.call(Ops.CASE, b.field("should_parse"), parsed, b.rexBuilder.makeNullLiteral(parsed.type))
+            val selected = b.rexBuilder.makeCall(parsed.type, Ops.CASE, listOf(b.field("should_parse"), parsed, b.literal(null)))
             val outputs = listOf(b.field("id"), selected, upper)
             val input = b.build()
             val program = RexProgram.create(input.rowType, outputs, null, listOf("id", "amount", "region"), b.rexBuilder)

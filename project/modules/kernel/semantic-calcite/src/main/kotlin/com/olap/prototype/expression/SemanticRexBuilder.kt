@@ -12,6 +12,11 @@ import java.math.BigDecimal
 
 /** 有限变尺度值不进入 Calcite 默认定点字面量舍入及 CAST 常量折叠。 */
 internal class SemanticRexBuilder(types: RelDataTypeFactory) : RexBuilder(types) {
+    override fun makeNullLiteral(type: RelDataType): RexLiteral =
+        if (FiniteDecimalTypes.isFinite(type))
+            super.makeLiteral(null, typeFactory.createTypeWithNullability(type, true), SqlTypeName.NULL)
+        else super.makeNullLiteral(type)
+
     override fun makeExactLiteral(value: BigDecimal?, type: RelDataType): RexLiteral =
         if (FiniteDecimalTypes.isFinite(type)) super.makeLiteral(value, type, SqlTypeName.DECIMAL) else super.makeExactLiteral(value, type)
 

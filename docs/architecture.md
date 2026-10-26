@@ -176,7 +176,7 @@ RAW_BAG 没有记录身份并保留重复出现；RECORDS 具有经过实际来�
 
 数量结果的 `FiniteDecimal` 与固定 `Decimal(p,s,rounding)` 共用既有单位、算术保证、NULL 和来源体系。Finite 仅表达有限十进制值域，没有统一 p/s、不隐含量化，不自行赋予 Exact 或工作容量；固定 Integer／Decimal 可进入，反向或与 BinaryFloat 混合须显式处理。原生类型和结果元数据以 `FINITE_DECIMAL` 且 p/s 为空承接该事实，普通 DECIMAL 继续要求固定容量；不以默认类型或观察到的单值补出全域保证。有限值无损交付沿用 DECIMAL 业务值编码，不能有限表示的未量化有理商明确失败。来源运算须由精确插件兑现，H2 DECFLOAT 的原值读取与显式 CORE 承接不外推为其 Finite SOURCE SUM／AVG／CAST 能力；SOURCE 不支持时不自动转 CORE。
 
-原生十进制加、乘、除及取模的返回类型推导显式委托当前连接器的 typeSystem；中立语义推导与 Finite 结果的无损映射核验仍由共同类型系统分别负责。
+原生十进制加、乘、除及取模的返回类型推导显式委托当前连接器的 typeSystem；中立语义推导与 Finite 结果的无损映射核验仍由共同类型系统分别负责。Finite NULL 由共同 Rex 构造器直接生成可空的 typed 字面量，保留有限类型标记，供 CASE 及共享投影使用。
 
 公开 Rel 编译入口先在关系准备阶段展开 Calc 程序，按所属程序还原局部引用后，再核验原生标量、实参及展开树的语句内稳定性；没有程序上下文的 LocalRef 不按稳定输入处理。
 
