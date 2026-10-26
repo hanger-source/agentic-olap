@@ -1,8 +1,8 @@
 # Agentic OLAP · 对象人口、独立测量与完成关系复用
 
-本用法用公开合成数据，通过完整服务的正式 MCP 建设来源与定义、冻结发布、保存查询、执行计算并读取结果。完整问题覆盖对象集合、日去重、独立事实、名义数量转换、属性袋贡献、多值标签完整身份、账本完成关系、归属后的原袋与完整 tuple、三域完成出口的 UNION 人口及结果恢复；目录同时展示 Unicode 逻辑出口和 BOOLEAN 三值，属性贡献展示零 Metric 内联 guard 和六个保存算法两种责任形态。共享资格、归属和完成量再由独立消费者继续组合。输入和独立预期由示例作者给出，客户端只提交 Kotlin 作者程序、读取正式回执并核对结果，不在外围实现 OLAP 计算。
+本用法用公开合成数据，通过完整服务的正式 MCP 建设来源与定义、冻结发布、保存查询、执行计算并读取结果。完整问题覆盖对象集合、日去重、独立事实、名义数量转换、属性袋贡献、多值标签完整身份、账本完成关系、归属后的原袋与完整 tuple、追加测量时固定 owner 的人口和权重、三域完成出口的 UNION 人口及结果恢复；目录同时展示 Unicode 逻辑出口和 BOOLEAN 三值，属性贡献展示零 Metric 内联 guard 和六个保存算法两种责任形态。共享资格、归属和完成量再由独立消费者继续组合。输入和独立预期由示例作者给出，客户端只提交 Kotlin 作者程序、读取正式回执并核对结果，不在外围实现 OLAP 计算。
 
-[Populations.kt](Populations.kt) 只准备原始 DuckDB 数据；[main.olap.kts](main.olap.kts) 构造正式模型并完成业务操作；[consume.olap.kts](consume.olap.kts) 在独立会话中发现并消费已发布定义。全部二十张表、102 个物理列均可空，无 PK、UNIQUE 或记录唯一性声明，共 138 条原始记录。对象／数量场景使用九表、58 列、55 行；标签与账本关系使用五表、20 列、34 行；账户归属账本使用三表、13 列、20 行；三域观察使用三表、11 列、29 行。各组输入互不改写。重复行、空串、NULL 和历史分区保留，不把样本中的单次匹配推断为一对一。
+[Populations.kt](Populations.kt) 只准备原始 DuckDB 数据；[main.olap.kts](main.olap.kts) 构造正式模型并完成业务操作；[consume.olap.kts](consume.olap.kts) 在独立会话中发现并消费已发布定义。全部二十张表、104 个物理列均可空，无 PK、UNIQUE 或记录唯一性声明，共 141 条原始记录。对象／数量场景使用九表、58 列、55 行；标签与账本关系使用五表、20 列、34 行；账户归属账本及追加测量问题使用三表、15 列、23 行；三域观察使用三表、11 列、29 行。各问题按显式选择消费原始输入，不改写其他问题的数据。重复行、空串、NULL 和历史分区保留，不把样本中的单次匹配推断为一对一。
 
 ## 运行与交付
 
@@ -15,6 +15,8 @@ Unicode 逻辑出口已通过本用法的正式建模、发布、查询及完整
 多值标签与账本关系的三个 SOURCE 查询通过同一建模、保存及完整分页入口核对独立预期，完整标签元组、引用日归属和两侧缺组事实均保留。它们不证明其他后端的实际业务已验收，也不涵盖不同 CORE 完成出口的汇合或 CORE 输出继续关系消费。
 
 账户归属账本的 R／S／R+S 三份 SOURCE 查询及三域 UNION 人口的 CORE 查询采用同一正式流程，运行时核对下文的独立预期、完整输出列与保存数量合同。
+
+追加分类测量的两份 SOURCE 查询采用同一保存与完整读取流程，分别核对固定 owner 的独立预期、数量合同及追加测量前后的全部原列。
 
 在仓库根使用 JDK 21，显式执行本用法；输出目录必须不存在。
 
@@ -582,6 +584,40 @@ R、S 单侧问题分别保存完整七列、五行，R+S 保存完整十一列�
 | E | 1 | 1 | 1 | 1 | NULL | 1／1／NULL | 0.142857142857142857 | 0 | NULL |
 
 A 只观察两日仍除请求 7 日；B 的空串进入 period UV、但不进入 daily 非空 UV；D 有访问组且全 NULL，因此 COUNT=0，与 C 缺访问组不同。保存请求和执行请求都明确 CORE_FINALIZATION。保存后全页读取五行、十二列，并核对九个整数计数／存在／差值出口和两个精确商的数量合同；`http/report.json` 的 `completedPopulationCase` 记录实际 Query／结果引用。
+
+## 十二、追加分类测量时保持既有 owner 的人口与权重
+
+同一账户、期间与受控内容下，已经定义的测量不会因结果旁边增加一个测量而改变输入。这个问题复用 `attributed_activity` 与 `book_r`，明确选择账户 W、业务日 `20000102`；其他账本问题仍选择原账户，原有预期不变。
+
+两表的 nullable 列 `gross` 与 `category` 在原有记录中都为 NULL。本问题单独使用下面三条原始记录：
+
+| 来源 | subject | document_ref | 业务日／履约日 | flag | gross | amount_r | amount_s | category |
+| --- | --- | --- | --- | --- | ---: | ---: | ---: | --- |
+| attributed_activity | W | weight-x | 20000102 | — | 100 | — | — | — |
+| book_r | 由归属取得 W | weight-x | 20000102 | Y | — | 10 | NULL | alpha |
+| book_r | 由归属取得 W | weight-x | 20000102 | Y | — | 10 | NULL | beta |
+
+两条账本都是当前原袋行，没有记录唯一键。gross 保留独立名义单位 activity-gross，amount_r 保留 book-r-unit，两者均为 NativeFloating／BinaryFloat64／FAIL；整数小值恰可精确表示，不因此升级算术保证。
+
+`measurementSelectionCases` 先固定四个实际 `Calculation.Scope`：
+
+- rawOwner：原账本 INNER 完整账户归属后，按 Y 选择 amount_r、ELSE NULL，再按账户 SUM；全部两条匹配袋行参与，贡献 20、原袋行数 2。
+- tupleOwner：作者为这个独立问题明确选择固定集合 K=`(document_ref,settlement_day,flag,amount_r,amount_s)`，连同账户 key-only 归约后再按同一 Y 规则 SUM；两条记录在 K 中相同，贡献 10、tuple 行数 1。category 始终不属于 K。
+- grossOwner：在原事实 ROOT 上独立完成 gross SUM，结果 100，不在账本关联后求和。
+- categoryOwner：在匹配账本自己的分支按账户 COUNT DISTINCT category，结果 2。
+
+K 是本合成问题的显式输入选择，不是从所选结果列反推的 DISTINCT，也不是财务记录身份或通用去重规则。rawOwner 与 tupleOwner 表达不同人口，不能自动互换，不宣称 10 或 20 哪个是真实业务的财务答案。
+
+基础查询只组合前三个已经完成的 owner；扩展查询沿用同三个计算体，仅增加 categoryOwner。两份都按 gross 为 BASE、PRESERVE_NULL 对齐，不 JOIN 两份原袋，也不按所选测量改写 K 或把独立事实金额重复计入：
+
+| 查询 | subject | raw_contribution | tuple_contribution | gross_total | raw_rows | tuple_rows | category_count |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| base | W | 20 | 10 | 100 | 2 | 1 | 未选择 |
+| withCategory | W | 20 | 10 | 100 | 2 | 1 | 2 |
+
+两份查询分别通过正式 SOURCE 保存、执行与 `readAll` 完整读取，基础结果为一行六列，扩展结果为一行七列。除逐份核对上表独立预期，还比较扩展结果的全部原列与基础结果完全相等，并分别核对原袋／tuple 的 NF 数量、独立事实单位及 ONE／Exact／INTEGER64 计数合同。保留原分量而不只检查比值，避免同时膨胀的分子和分母掩盖权重变化。`http/report.json` 的 `measurementSelectionCase.base`／`withCategory` 投影两份实际 Query／结果引用。
+
+这次比较期间没有写入受控来源；正式读基础仍为 UNKNOWN，不声称两次请求具有数据库快照保证。来源若在两次请求之间变化，需要另以实际读基础判断，不能把跨时间数值差异直接归为测量选择改变了 owner。
 
 ## 尚未由本用法证明的组合
 

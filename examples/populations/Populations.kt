@@ -185,19 +185,25 @@ object Populations {
           (NULL,'20010103','20010108'),
           ('104','20010103','20010107')
         """.trimIndent(),
-        "CREATE TABLE attributed_activity(subject VARCHAR,document_ref VARCHAR,business_day VARCHAR)",
+        "CREATE TABLE attributed_activity(subject VARCHAR,document_ref VARCHAR,business_day VARCHAR,gross DOUBLE)",
         """
-        INSERT INTO attributed_activity VALUES
+        INSERT INTO attributed_activity(subject,document_ref,business_day) VALUES
           ('A','x','20000102'),('A','x','20000102'),('A','y','20000102'),
           ('B','x','20000102'),('C','z','20000102'),('D',NULL,'20000102'),
           ('','e','20000102'),(NULL,'x','20000102')
         """.trimIndent(),
-        "CREATE TABLE book_r(document_ref VARCHAR,settlement_day VARCHAR,flag VARCHAR,amount_r DOUBLE,amount_s DOUBLE,is_current BOOLEAN)",
+        "INSERT INTO attributed_activity VALUES ('W','weight-x','20000102',100)",
+        "CREATE TABLE book_r(document_ref VARCHAR,settlement_day VARCHAR,flag VARCHAR,amount_r DOUBLE,amount_s DOUBLE,is_current BOOLEAN,category VARCHAR)",
         """
-        INSERT INTO book_r VALUES
+        INSERT INTO book_r(document_ref,settlement_day,flag,amount_r,amount_s,is_current) VALUES
           ('x','20000102','Y',2,3,TRUE),('x','20000102','Y',2,3,TRUE),
           ('y','20000102','N',NULL,5,TRUE),(NULL,'20000102','Y',7,8,TRUE),
           ('unmatched','20000102','Y',9,9,TRUE)
+        """.trimIndent(),
+        """
+        INSERT INTO book_r VALUES
+          ('weight-x','20000102','Y',10,NULL,TRUE,'alpha'),
+          ('weight-x','20000102','Y',10,NULL,TRUE,'beta')
         """.trimIndent(),
         "CREATE TABLE book_s(document_ref VARCHAR,settlement_day VARCHAR,text_amount VARCHAR,is_current BOOLEAN)",
         """

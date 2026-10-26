@@ -445,6 +445,60 @@ fun ledgerBagCases(e: PopulationExample, entry: PublishedQueryEntry): Map<String
     return output
 }
 
+/** 固定owner的人口与权重不随旁边追加分类测量改变；tuple是本问题明确选择的输入集合。 */
+fun measurementSelectionCases(e: PopulationExample, entry: PublishedQueryEntry): Map<String, ScriptValue> {
+    val facts = e.raw("attributed_activity", listOf("subject", "document_ref", "business_day", "gross"), MemberCondition.All(listOf(
+        condition("subject", ScalarValueType.TEXT, MemberCondition.Operator.EQ, "W"),
+        condition("business_day", ScalarValueType.TEXT, MemberCondition.Operator.EQ, "20000102"))))
+    val ownership = Computations.stages(facts, listOf(regroup(listOf("subject", "document_ref", "business_day"))))
+    val gross = Computations.stages(facts, listOf(regroup(listOf("subject"), sum("gross", "gross_total", floating("activity-gross")))))
+    val ledger = e.raw("book_r", listOf("document_ref", "settlement_day", "flag", "amount_r", "amount_s", "category"), MemberCondition.All(listOf(
+        condition("is_current", ScalarValueType.BOOLEAN, MemberCondition.Operator.EQ, "true"),
+        condition("settlement_day", ScalarValueType.TEXT, MemberCondition.Operator.EQ, "20000102"))))
+    val matched = Computations.scope {
+        input("ownership", ownership, InputMode.RELATION)
+        Computations.stages(ledger, listOf(JoinInput("ownership", "owned", "INNER", op(ResultOperator.AND,
+            op(ResultOperator.EQ, sym("document_ref"), sym("owned__document_ref")),
+            op(ResultOperator.EQ, sym("settlement_day"), sym("owned__business_day"))))))
+    }
+    // K在测量选择之前已固定；category不是K的一部分，也不随结果列反推K。
+    val fixedTuple = Computations.stages(matched, listOf(regroup(listOf("owned__subject", "document_ref", "settlement_day", "flag", "amount_r", "amount_s"))))
+    fun contribution(rows: Calculation.Scope, value: String, rowCount: String): Calculation.Scope = Computations.stages(rows, listOf(
+        Derive(choose(op(ResultOperator.EQ, sym("flag"), text("Y")), sym("amount_r")), "selected_amount", "本owner明确的Y贡献，ELSE NULL"),
+        Derive(number("1"), "contribution_row", "本owner实际输入的每行一次"),
+        regroup(listOf("owned__subject"), sum("selected_amount", value, floating("book-r-unit")), counted("contribution_row", rowCount))))
+    val rawOwner = contribution(matched, "raw_contribution", "raw_rows")
+    val tupleOwner = contribution(fixedTuple, "tuple_contribution", "tuple_rows")
+    val categoryOwner = Computations.stages(matched, listOf(regroup(listOf("owned__subject"), counted("category", "category_count", true))))
+    val ownerInputs = linkedMapOf(
+        "gross" to Computations.aligned(gross, mapOf("subject" to "subject"), listOf(Calculation.AlignedValue("gross_total", "gross_total", Calculation.NoMatch.PRESERVE_NULL))),
+        "raw" to Computations.aligned(rawOwner, mapOf("subject" to "owned__subject"),
+            listOf("raw_contribution", "raw_rows").map { Calculation.AlignedValue(it, it, Calculation.NoMatch.PRESERVE_NULL) }),
+        "tuple" to Computations.aligned(tupleOwner, mapOf("subject" to "owned__subject"),
+            listOf("tuple_contribution", "tuple_rows").map { Calculation.AlignedValue(it, it, Calculation.NoMatch.PRESERVE_NULL) }))
+    val baseContracts = linkedMapOf("raw_contribution" to floating("book-r-unit"), "tuple_contribution" to floating("book-r-unit"),
+        "gross_total" to floating("activity-gross"), "raw_rows" to count, "tuple_rows" to count)
+    val expected = linkedMapOf("raw_contribution" to "20", "tuple_contribution" to "10", "gross_total" to "100", "raw_rows" to "2", "tuple_rows" to "1")
+    fun selected(includeCategory: Boolean): Calculation.Scope {
+        val inputs = LinkedHashMap(ownerInputs)
+        if (includeCategory) inputs["category"] = Computations.aligned(categoryOwner, mapOf("subject" to "owned__subject"),
+            listOf(Calculation.AlignedValue("category_count", "category_count", Calculation.NoMatch.PRESERVE_NULL)))
+        return Computations.stages(Computations.align(inputs, listOf("subject"),
+            Calculation.AlignmentPopulation(Calculation.PopulationKind.BASE, listOf("gross"))),
+            listOf(Project(listOf("subject") + baseContracts.keys + if (includeCategory) listOf("category_count") else emptyList())))
+    }
+    val base = e.execute(entry, "固定原袋/tuple贡献与独立事实", selected(false), QueryExecutionMode.SOURCE)
+    val extended = e.execute(entry, "固定owner旁增加独立分类测量", selected(true), QueryExecutionMode.SOURCE)
+    expect(base.rows, mapOf("W" to expected))
+    expect(extended.rows, mapOf("W" to (expected + ("category_count" to "2"))))
+    expectSavedQuantities(base.result, baseContracts)
+    expectSavedQuantities(extended.result, baseContracts + ("category_count" to count))
+    // 两份都已完成正式保存及全页读取；增加测量后，原人口、原列与原袋权重保持相同。
+    check(extended.rows.map { row -> (listOf("subject") + baseContracts.keys).associateWith(row::getValue) } == base.rows)
+    return mapOf("measurementSelectionBaseQuery" to ScriptValue.QueryReferenceValue(base.query), "measurementSelectionBaseResult" to ScriptValue.ResultReferenceValue(base.result),
+        "measurementSelectionWithCategoryQuery" to ScriptValue.QueryReferenceValue(extended.query), "measurementSelectionWithCategoryResult" to ScriptValue.ResultReferenceValue(extended.result))
+}
+
 val completedPopulationColumns = listOf("subject", "period_uv", "period_nonempty", "daily_total", "observed_days", "payment_uv",
     "period_present", "daily_present", "payment_present", "daily_mean", "repeat_visits", "payment_per_visitor")
 val completedPopulationExpected = linkedMapOf(
@@ -958,8 +1012,8 @@ fun installInputs(e: PopulationExample) {
     e.install("ledger_activity", texts("subject", "reference_key", "activity_day", "partition_key"), filterOperators = factFilters)
     e.install("fee_ledger", numbers("reference_number") + texts("ledger_day", "partition_key"), castReference = true)
     e.install("adjustment_ledger", texts("reference_key", "ledger_day", "partition_key"))
-    e.install("attributed_activity", texts("subject", "document_ref", "business_day"))
-    e.install("book_r", texts("document_ref", "settlement_day", "flag") + numbers("amount_r", "amount_s") + booleans("is_current"),
+    e.install("attributed_activity", texts("subject", "document_ref", "business_day") + numbers("gross"), mapOf("gross" to floating("activity-gross")))
+    e.install("book_r", texts("document_ref", "settlement_day", "flag", "category") + numbers("amount_r", "amount_s") + booleans("is_current"),
         mapOf("amount_r" to floating("book-r-unit"), "amount_s" to floating("book-s-unit")))
     e.install("book_s", texts("document_ref", "settlement_day", "text_amount") + booleans("is_current"))
     e.install("observer_directory", texts("entry_ref", "subject") + booleans("is_current"))
@@ -977,6 +1031,7 @@ fun build(): ScriptValue.ObjectValue {
     val inline = e.publication("inline")
     val sourceRelations = sourceRelationCases(e, inline)
     val ledgerBags = ledgerBagCases(e, inline)
+    val measurementSelection = measurementSelectionCases(e, inline)
     val completedPopulation = completedPopulationCase(e, inline)
     val cohort = e.execute(inline, "对象集合后分别测量原始袋", cohortQuery(e))
     expect(cohort.rows, linkedMapOf("" to mapOf("items" to "1", "qualified_items" to "1", "amount" to null, "records" to "1", "known" to "0"),
@@ -1054,7 +1109,7 @@ fun build(): ScriptValue.ObjectValue {
     val localReferences = mapOf("dailyInlineQuery" to ScriptValue.QueryReferenceValue(inlineDaily.query), "dailyInlineResult" to ScriptValue.ResultReferenceValue(inlineDaily.result),
         "dailyNestedQuery" to ScriptValue.QueryReferenceValue(nestedDaily.query), "dailyNestedResult" to ScriptValue.ResultReferenceValue(nestedDaily.result),
         "dailyPublishedQuery" to ScriptValue.QueryReferenceValue(publishedDaily.query), "dailyPublishedResult" to ScriptValue.ResultReferenceValue(publishedDaily.result))
-    return ScriptValue.ObjectValue(references(primary.query, primary.result, captions.query, captions.result).values + reusePublications(e) + localReferences + sourceRelations + ledgerBags + completedPopulation + ("dailyInputRejected" to rejected))
+    return ScriptValue.ObjectValue(references(primary.query, primary.result, captions.query, captions.result).values + reusePublications(e) + localReferences + sourceRelations + ledgerBags + measurementSelection + completedPopulation + ("dailyInputRejected" to rejected))
 }
 olap.output(when (parameters.text("phase")) {
     "build" -> build()
