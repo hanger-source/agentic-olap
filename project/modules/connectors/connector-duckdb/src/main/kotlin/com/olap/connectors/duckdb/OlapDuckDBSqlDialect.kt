@@ -1,5 +1,6 @@
 package com.olap.connectors.duckdb
 
+import com.olap.prototype.connector.FiniteDecimalTypes
 import org.apache.calcite.avatica.util.TimeUnit
 import org.apache.calcite.rel.RelFieldCollation
 import org.apache.calcite.rel.type.RelDataType
@@ -26,6 +27,7 @@ internal object OlapDuckDBSqlDialect : DuckDBSqlDialect(DuckDBSqlDialect.DEFAULT
         super.quoteStringLiteral(builder, null, value)
     }
     override fun getCastSpec(type: RelDataType): SqlNode? = when {
+        FiniteDecimalTypes.isFinite(type) -> throw UnsupportedOperationException("DuckDB finite decimal CAST has no verified exact native mapping")
         type.sqlTypeName == SqlTypeName.ROW -> SqlDataTypeSpec(StructType(type), SqlParserPos.ZERO)
         type.sqlTypeName == SqlTypeName.ARRAY -> SqlDataTypeSpec(ArrayType(type), SqlParserPos.ZERO)
         DuckdbNativeTypes.wideInteger(type) -> SqlDataTypeSpec(SqlUserDefinedTypeNameSpec("HUGEINT", SqlParserPos.ZERO), SqlParserPos.ZERO)

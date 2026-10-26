@@ -11,7 +11,7 @@ import java.math.BigInteger
 import java.util.Collections
 import java.util.TreeMap
 
-/** 作者拥有的可执行量值声明：单位、算术保证、评价范围与输出容量各自明确。 */
+/** 作者拥有的可执行量值声明：单位、算术保证、评价范围与结果表示各自明确。 */
 class MetricValueContract(val unit: Unit, val arithmetic: Arithmetic, val result: Result, unitEquations: Map<String, UnitEquation>, val overflow: Overflow) {
     val unitEquations: Map<String, UnitEquation> = Collections.unmodifiableMap(TreeMap(unitEquations))
     init {
@@ -73,6 +73,7 @@ class MetricValueContract(val unit: Unit, val arithmetic: Arithmetic, val result
                 require(value >= limit.negate() && value < limit) { "numeric scalar exceeds declared integer capacity" }
             }
             is Decimal -> require(maxOf(0, number.stripTrailingZeros().scale()) <= capacity.scale && number.abs() < BigDecimal.ONE.scaleByPowerOfTen(capacity.precision - capacity.scale)) { "numeric scalar exceeds declared decimal capacity" }
+            FiniteDecimal -> kotlin.Unit // BigDecimal 已核验有限十进制；这里不补统一容量或量化。
             is BinaryFloat -> require(number.toDouble().isFinite() && (capacity.bits != 32 || number.toFloat().isFinite())) { "numeric scalar exceeds declared floating capacity" }
         }
         if (arithmetic is Approximate)
@@ -87,7 +88,21 @@ class MetricValueContract(val unit: Unit, val arithmetic: Arithmetic, val result
         init { require(decimal(minimum) <= decimal(maximum) && decimal(absoluteTolerance).signum() >= 0 && decimal(relativeTolerance).signum() >= 0) { "approximation requires an ordered evaluation domain and nonnegative tolerances" } }
     }
 
-    sealed interface Result
+    sealed interface Result {
+        companion object {
+            fun contract(): Map<String, Any> = mapOf(
+                "finiteDecimal" to "FINITE_DECIMAL_VALUES_WITHOUT_A_COMMON_PRECISION_SCALE_OR_IMPLICIT_QUANTIZATION",
+                "fixedDecimal" to "EXPLICIT_PRECISION_SCALE_AND_NODE_ROUNDING",
+                "arithmetic" to "REPRESENTATION_DOES_NOT_ASSIGN_EXACTNESS_OR_UPGRADE_INPUT_GUARANTEES",
+                "acceptance" to "INTEGER_AND_FIXED_DECIMAL_FIT_FINITE_DECIMAL_REVERSE_NOT_STATICALLY_GUARANTEED",
+                "floating" to "NO_IMPLICIT_COMMON_REPRESENTATION_WITH_BINARY_FLOAT",
+                "workCapacity" to "FINITE_VALUES_DO_NOT_PROVE_AGGREGATE_WORK_CAPACITY_OR_UNLIMITED_RESOURCES",
+                "division" to "UNQUANTIZED_RATIONAL_REQUIRES_A_FINITE_DECIMAL_RESULT_OR_EXPLICIT_QUANTIZATION",
+            )
+        }
+    }
+    /** 有限十进制值域，不预定共同 precision／scale，不执行舍入或承诺聚合工作容量。 */
+    data object FiniteDecimal : Result
     data class Decimal(val precision: Int, val scale: Int, val rounding: Rounding) : Result {
         init { require(precision > 0 && scale in 0..precision) { "decimal result needs explicit precision, scale and output rounding" } }
     }
@@ -196,6 +211,7 @@ class MetricValueContract(val unit: Unit, val arithmetic: Arithmetic, val result
         }
 
         fun resultFits(actual: Result, expected: Result): Boolean = when {
+            expected == FiniteDecimal -> actual == FiniteDecimal || actual is Integer || actual is Decimal
             actual is Integer && expected is Integer -> actual.bits <= expected.bits
             actual is BinaryFloat && expected is BinaryFloat -> actual.bits <= expected.bits
             actual is Decimal && expected is Decimal -> actual.scale <= expected.scale && actual.precision - actual.scale <= expected.precision - expected.scale
@@ -205,16 +221,18 @@ class MetricValueContract(val unit: Unit, val arithmetic: Arithmetic, val result
 
         /** 分支选择只统一已有值的表示，不执行舍入，也不补充输入的算术保证。 */
         fun commonResult(results: List<Result>): Result {
-            require(results.isNotEmpty()) { "common numeric capacity requires at least one input" }
+            require(results.isNotEmpty()) { "common numeric representation requires at least one input" }
             return when {
                 results.all { it is Integer } -> Integer(results.maxOf { (it as Integer).bits })
                 results.all { it is BinaryFloat } -> BinaryFloat(results.maxOf { (it as BinaryFloat).bits })
+                results.any { it == FiniteDecimal } && results.all { it == FiniteDecimal || it is Integer || it is Decimal } -> FiniteDecimal
                 results.all { it is Integer || it is Decimal } -> {
                     val scale = results.maxOf { (it as? Decimal)?.scale ?: 0 }
                     val integer = results.maxOf { result ->
                         when (result) {
                             is Decimal -> result.precision - result.scale
                             is Integer -> integerDigits(result.bits)
+                            FiniteDecimal -> error("finite decimal values have no common fixed capacity")
                             is BinaryFloat -> error("floating capacity has no exact decimal common representation")
                         }
                     }

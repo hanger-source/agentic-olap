@@ -2,6 +2,7 @@ package com.olap.prototype.expression
 
 import com.olap.prototype.connector.CompilationSupport
 import com.olap.prototype.connector.NativeAggregateMappingException
+import com.olap.prototype.connector.FiniteDecimalTypes
 import com.olap.prototype.metric.MetricAggregation
 import org.apache.calcite.rel.type.DelegatingTypeSystem
 import org.apache.calcite.rel.type.RelDataType
@@ -20,8 +21,31 @@ class SemanticCalciteTypeSystem private constructor(private val support: Compila
     val maximumDeclaredDecimalPrecision: Int get() = support?.maximumDeclaredDecimalPrecision ?: getMaxPrecision(SqlTypeName.DECIMAL)
     fun supports(capability: CompilationSupport.Capability): Boolean = support?.supports(capability) == true
 
+    override fun deriveSumType(factory: RelDataTypeFactory, argument: RelDataType): RelDataType =
+        if (semantic && FiniteDecimalTypes.isFinite(argument)) FiniteDecimalTypes.create(true) else super.deriveSumType(factory, argument)
+
+    override fun deriveDecimalPlusType(factory: RelDataTypeFactory, left: RelDataType, right: RelDataType): RelDataType? =
+        finiteBinary(left, right) { super.deriveDecimalPlusType(factory, left, right) }
+
+    override fun deriveDecimalMultiplyType(factory: RelDataTypeFactory, left: RelDataType, right: RelDataType): RelDataType? =
+        finiteBinary(left, right) { super.deriveDecimalMultiplyType(factory, left, right) }
+
+    override fun deriveDecimalDivideType(factory: RelDataTypeFactory, left: RelDataType, right: RelDataType): RelDataType? =
+        finiteBinary(left, right) { super.deriveDecimalDivideType(factory, left, right) }
+
+    override fun deriveDecimalModType(factory: RelDataTypeFactory, left: RelDataType, right: RelDataType): RelDataType? =
+        finiteBinary(left, right) { super.deriveDecimalModType(factory, left, right) }
+
+    private inline fun finiteBinary(left: RelDataType, right: RelDataType, native: () -> RelDataType?): RelDataType? {
+        if (!FiniteDecimalTypes.isFinite(left) && !FiniteDecimalTypes.isFinite(right)) return native()
+        if (semantic) return FiniteDecimalTypes.create(left.isNullable || right.isNullable)
+        return native().also { result -> require(result != null && FiniteDecimalTypes.isFinite(result)) {
+            "native finite decimal arithmetic requires an explicit value-preserving result mapping; default fixed precision/scale is not a mapping"
+        } }
+    }
+
     override fun deriveAvgAggType(factory: RelDataTypeFactory, argument: RelDataType): RelDataType = try {
-        super.deriveAvgAggType(factory, argument)
+        if (semantic && FiniteDecimalTypes.isFinite(argument)) FiniteDecimalTypes.create(true) else super.deriveAvgAggType(factory, argument)
     } catch (failure: NativeAggregateMappingException) {
         throw failure
     } catch (failure: IllegalArgumentException) {

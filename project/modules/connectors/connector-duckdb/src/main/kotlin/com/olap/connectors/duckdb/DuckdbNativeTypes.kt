@@ -1,5 +1,6 @@
 package com.olap.connectors.duckdb
 
+import com.olap.prototype.connector.FiniteDecimalTypes
 import org.apache.calcite.rel.type.RelDataType
 import org.apache.calcite.rel.type.RelDataTypeFactory
 import org.apache.calcite.rel.type.RelDataTypeSystemImpl
@@ -15,10 +16,12 @@ internal class DuckdbNativeTypes : RelDataTypeSystemImpl() {
     }
     override fun getMaxScale(name: SqlTypeName): Int = if (name == SqlTypeName.DECIMAL) 38 else super.getMaxScale(name)
     override fun deriveAvgAggType(factory: RelDataTypeFactory, argument: RelDataType): RelDataType {
+        requireNativeArithmetic(argument)
         require(SqlTypeUtil.isNumeric(argument)) { "AVG requires a numeric input" }
         return factory.createTypeWithNullability(factory.createSqlType(SqlTypeName.DOUBLE), true)
     }
     override fun deriveSumType(factory: RelDataTypeFactory, argument: RelDataType): RelDataType {
+        requireNativeArithmetic(argument)
         val result = when (argument.sqlTypeName) {
             SqlTypeName.TINYINT, SqlTypeName.SMALLINT, SqlTypeName.INTEGER, SqlTypeName.BIGINT -> factory.createSqlType(SqlTypeName.DECIMAL, 39, 0)
             SqlTypeName.DECIMAL -> factory.createSqlType(SqlTypeName.DECIMAL, if (wideInteger(argument)) 39 else 38, argument.scale)
@@ -27,10 +30,25 @@ internal class DuckdbNativeTypes : RelDataTypeSystemImpl() {
         }
         return factory.createTypeWithNullability(result, argument.isNullable)
     }
-    override fun deriveDecimalPlusType(factory: RelDataTypeFactory, left: RelDataType, right: RelDataType): RelDataType? = decimal(factory, left, right, super.deriveDecimalPlusType(factory, left, right))
+    override fun deriveDecimalPlusType(factory: RelDataTypeFactory, left: RelDataType, right: RelDataType): RelDataType? {
+        requireNativeArithmetic(left, right)
+        return decimal(factory, left, right, super.deriveDecimalPlusType(factory, left, right))
+    }
     override fun deriveDecimalMultiplyType(factory: RelDataTypeFactory, left: RelDataType, right: RelDataType): RelDataType? {
+        requireNativeArithmetic(left, right)
         require(left.sqlTypeName != SqlTypeName.DECIMAL || right.sqlTypeName != SqlTypeName.DECIMAL || left.scale + right.scale <= 38) { "DuckDB decimal multiplication exceeds native scale; declare rounding before multiplication" }
         return decimal(factory, left, right, super.deriveDecimalMultiplyType(factory, left, right))
+    }
+    override fun deriveDecimalDivideType(factory: RelDataTypeFactory, left: RelDataType, right: RelDataType): RelDataType? {
+        requireNativeArithmetic(left, right)
+        return super.deriveDecimalDivideType(factory, left, right)
+    }
+    override fun deriveDecimalModType(factory: RelDataTypeFactory, left: RelDataType, right: RelDataType): RelDataType? {
+        requireNativeArithmetic(left, right)
+        return super.deriveDecimalModType(factory, left, right)
+    }
+    private fun requireNativeArithmetic(vararg inputs: RelDataType) {
+        require(inputs.none(FiniteDecimalTypes::isFinite)) { "DuckDB finite decimal arithmetic has no verified exact native mapping" }
     }
     private fun decimal(factory: RelDataTypeFactory, left: RelDataType, right: RelDataType, derived: RelDataType?): RelDataType? {
         if (wideInteger(left) || wideInteger(right)) {

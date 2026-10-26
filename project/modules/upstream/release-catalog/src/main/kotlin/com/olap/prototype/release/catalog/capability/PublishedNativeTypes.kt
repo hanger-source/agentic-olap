@@ -181,7 +181,10 @@ class PublishedNativeTypes(mappings: List<ReleaseDimensionMapping>, private val 
                     if (physical.referenceKind != SemanticExpression.ReferenceKind.PHYSICAL_COLUMN) this.reference(physical)
                     else {
                         val type = requireNotNull(unit.physicalColumnTypes[this@PublishedNativeTypes.key(physical.id, physical.version)]) { "frozen native column type is required" }
-                        builder.rexBuilder.makeInputRef(compilation(context).jdbcType(builder.typeFactory, type), 0)
+                        val nativeType = compilation(context).jdbcType(builder.typeFactory, type)
+                        // 先核验精确插件交付的原生类型，不能让下游谓词或运算掩盖未定容量。
+                        SemanticNativeTypes.describe(nativeType)
+                        builder.rexBuilder.makeInputRef(nativeType, 0)
                     }
                 })
             } finally { resolving.remove(key) }

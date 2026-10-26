@@ -103,7 +103,7 @@ sealed interface ResultExpression {
         val value: BigDecimal = value.stripTrailingZeros().let { if (it.scale() < 0) it.setScale(0) else it }
         init {
             require(valueContract.unit is MetricValueContract.Fixed) { "quantity literal requires a fixed unit identity" }
-            if (valueContract.result is MetricValueContract.Integer || valueContract.result is MetricValueContract.BinaryFloat)
+            if (valueContract.result !is MetricValueContract.Decimal)
                 valueContract.requireScalar(Calculation.Scalar(ScalarValueType.NUMBER, this.value.toPlainString()))
         }
         override fun equals(other: Any?): Boolean = other is ResultQuantityLiteral && value == other.value && valueContract == other.valueContract

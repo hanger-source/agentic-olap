@@ -2,7 +2,7 @@
 
 完整 MCP 服务通过来源插件访问数据。使用方提供与其网络、鉴权和查询协议相符的插件，服务负责语义管理、发布、规划、SQL 生成、执行要求检查及结果合同校验。HTTP 查询服务是来源访问实现，不需要数据库端口、JDBC URL、数据库凭据或 catalog 权限。业务公式、资格规则和指标组合仍通过语义定义和 Query 表达。
 
-本文描述源码中的来源访问合同：连接器 API 为 `agentic-olap-connector/v15-kotlin-aggregate-work-calcite-1.42`，元数据存储格式为 `19`。产品运行构件按同一发行装配；独立插件核对目标宿主的连接器合同与实际运行要求，产品版或 SDK 坐标变化本身不要求重构原插件，具体采用规则见[安装与发布](installation-release.md)。旧存储格式明确拒绝，服务不会自动改写已有持久根。
+本文描述源码中的来源访问合同：连接器 API 为 `agentic-olap-connector/v16-kotlin-finite-decimal-calcite-1.42`，元数据存储格式为 `19`。产品运行构件按同一发行装配；独立插件核对目标宿主的连接器合同与实际运行要求，产品版或 SDK 坐标变化本身不要求重构原插件，具体采用规则见[安装与发布](installation-release.md)。旧存储格式明确拒绝，服务不会自动改写已有持久根。
 
 ## 配置来源
 
@@ -85,7 +85,7 @@ JDBC 实现的 `identityParameters` 为 `jdbcUrl`、可选 `username` 和 `drive
 
 `sourceRequirements` 持有稳定 `dataContract`、明确选定的 `adoption`、本次实际使用的 `columns` 与 `constraintUses`。前者给出 P 的精确列和约束要求，后者给出实际绑定、连接器、方言、表坐标及该 S 的冻结证据；不能从 P 的原出处推导执行来源。`NOT_NULL.name` 直接标识列，其他约束项定位 P 的实际键或规则，插件无需解析 SQL 猜测来源列。`relationChecks` 另行给出 SQL、类型参数与违例码。两者都属于执行合同，参数顺序、比较语义与检查范围必须保留。
 
-API v15 的插件按上述两个正式对象实现纯能力声明及执行核验，不自行登记或选择采用。`adoption.requireContract(dataContract)` 只核冻结证据能否兑现 P，`requireDeployment(source)` 只核当前精确绑定；实际保证仍由本次 `execute` 兑现。`JdbcSourceRequirement.snapshotUniqueKeys` 来自 P，`sourceCollections` 只选取兑现 P 声明的登记，不能把 B 的其他观察自动提升为查询要求。可选 `JdbcSupport.supportsColumnInspection` 和 `supportsConstraintSnapshot` 接收 `PhysicalSourceEvidence`，核验使用所选 S 的出处和数据库／驱动观察，不沿用 P 原出处的技术信息。完整签名与字段责任见[连接器 API](../project/modules/kernel/connector-api/README.md#数据合同与兑现采用)。
+API v16 的插件按上述两个正式对象实现纯能力声明及执行核验，不自行登记或选择采用。`adoption.requireContract(dataContract)` 只核冻结证据能否兑现 P，`requireDeployment(source)` 只核当前精确绑定；实际保证仍由本次 `execute` 兑现。`JdbcSourceRequirement.snapshotUniqueKeys` 来自 P，`sourceCollections` 只选取兑现 P 声明的登记，不能把 B 的其他观察自动提升为查询要求。可选 `JdbcSupport.supportsColumnInspection` 和 `supportsConstraintSnapshot` 接收 `PhysicalSourceEvidence`，核验使用所选 S 的出处和数据库／驱动观察，不沿用 P 原出处的技术信息。完整签名与字段责任见[连接器 API](../project/modules/kernel/connector-api/README.md#数据合同与兑现采用)。
 
 源端原生强制约束可以免去同一非空条件的数据扫描，但插件必须核验约束确实作用于本次精确来源和列、覆盖已有数据与本次可读数据，而且在主查询期间不会因 DDL、表替换或连接切换失效。仅约束名称相同、目录返回 `nullable=false`、只约束后续写入、一次历史 catalog 观察或 `DECLARED` 结构都不足以证明这些条件。核验与使用之间的 schema 稳定性应由来源实际机制保证，例如同一受保护事务或 statement 的稳定 schema；不能靠先查目录再独立提交查询推断。源端只兑现非空约束时，也不能据此声明可以为优化器兑现所有冻结 PK／UK 等约束。
 
@@ -101,7 +101,7 @@ API v15 的插件按上述两个正式对象实现纯能力声明及执行核验
 
 `MeanTarget.MATHEMATICAL` 对实际参与值求数学均值，再完成该节点声明的最终量化；`SOURCE_NATIVE` 有意采用本发布所选实现的原生均值，再应用输出合同。目标与 `Exact / Approximate / NativeFloating` 独立，结果表示为 DECIMAL 不会恢复输入已失去的保证。作者声明人口、NULL、单位、结果容量和最终舍入，不填写后端原生舍入。所选执行位置无法兑现目标时明确拒绝，不改变业务目标或自动换算法。
 
-显式选择 CORE_FINALIZATION 后，完成关系 REGROUP 的 MATHEMATICAL AVG 可消费 Exact 整数或固定 Decimal，在核心完成最终除法和该节点的一次量化。引擎可以按完整输入域、工作容量及实际聚合行为证明，生成来源精确工作 SUM 和每列独立非 NULL 计数状态；需要 PROPAGATE 时还保留总次数。工作输入在聚合前无损转换为足够容量，不能在已经舍入或溢出的 SUM 后补 CAST。状态保留原袋重复、各列 NULL 人口及精确分组键，不是新增业务指标；作者仍提交原 Average，无需手写 SUM／COUNT 或重包 ROOT。没有充分保证时保留原袋运输，由核心归约，不在失败后换计划。两条路径都不调用未知原生 AVG。来源 NativeCall、LEFT 与用于形成观察的 CASE 保留在原来源前缀，不能由核心重做或用样本补保证。事实 AVG、窗口 AVG、快照 MEAN 和 SOURCE_NATIVE AVG 不因此成为核心执行能力；它们在来源执行时仍核验实际原生节点。
+显式选择 CORE_FINALIZATION 后，完成关系 REGROUP 的 MATHEMATICAL AVG 可消费 Exact 整数、固定 Decimal 或 FiniteDecimal，在核心完成最终除法和该节点的一次量化。引擎可以按完整输入域、工作容量及实际聚合行为证明，生成来源精确工作 SUM 和每列独立非 NULL 计数状态；需要 PROPAGATE 时还保留总次数。工作输入在聚合前无损转换为足够容量，不能在已经舍入或溢出的 SUM 后补 CAST。FiniteDecimal 本身不提供共同容量，不能据此生成某个足够宽的工作 CAST。状态保留原袋重复、各列 NULL 人口及精确分组键，不是新增业务指标；作者仍提交原 Average，无需手写 SUM／COUNT 或重包 ROOT。没有充分工作保证时，该显式 CORE 计划保留原袋运输，由核心归约，不在失败后换计划。两条路径都不调用未知原生 AVG。来源 NativeCall、LEFT 与用于形成观察的 CASE 保留在原来源前缀，不能由核心重做或用样本补保证。事实 AVG、窗口 AVG、快照 MEAN 和 SOURCE_NATIVE AVG 不因此成为核心执行能力；它们在来源执行时仍核验实际原生节点。
 
 连接器的 `aggregateBehavior(Aggregate, AggregateCall)` 与 `aggregateBehavior(RexOver)` 读取实际节点的输入、原生结果类型、分组／窗口、FILTER 和 DISTINCT，返回 `NativeAggregateBehavior?`；未声明为 null。`ExactOrFail` 表示本次 SUM／COUNT 的工作过程精确、无中间量化或静默溢出，同时保留 actual owner 分组键的精确值身份、NULL 与袋人口，不能让原生文本 collation 合并不同身份。实际返回容量仍由 call.type 界定，不能由声明推成无限容量。`QuantizedMean(rounding)` 表示 AVG 精确累加与计数后，仅向实际原生 DECIMAL scale 量化一次；`NativeFloating` 不提供误差上界。AVG 不能用 ExactOrFail 冒充均值行为。内核核验真实调用的类型推导与适用行为，不用空人口全局聚合代替本次形态，也不把 DECIMAL 类型、舍入名相同或多保留几位当作证明。
 
@@ -109,9 +109,17 @@ H2 的精确 SUM 声明仅覆盖已核实的输入和实际分组键域；未知
 
 原生 AVG 静默算错或已有越界证据时，合法的最终容量、有限返回值及 Overflow.FAIL 不会修复其实际算法。该路径不能声明 Exact，SOURCE_NATIVE 和扩大最终 Decimal 也不能洗掉已有精度损失或工作溢出。已知错误或尚无数值依据的映射明确拒绝，返回 `NATIVE_AGGREGATE_MAPPING_UNAVAILABLE`、实际输入类型和受控 `reason`；不猜 DECIMAL、不转 DOUBLE、不在客户端补算。H2 已有依据的精确路径允许声明 QuantizedMean(HALF_DOWN)，数学目标的支持范围仍须与实际最终量化相容；这不是所有来源的通用数值政策。
 
-当前精确 Decimal 表示使用固定 precision／scale。后端类型名 NUMERIC、`NativeValueType` 中缺失的 precision／scale 或一次 JDBC 观察，都不声明可变尺度有限数值域；未知工作容量也不等于无限容量。纯外部类型和函数的映射由插件按真实后端保证兑现，不能只修改内核看到的类型名称来扩大输入域。来源可变尺度数值需要怎样约束、解析或拒绝，须在接入合同中明确；核心不从已读样本推导这种保证。
+`MetricValueContract.FiniteDecimal` 明确表示有限十进制值域，不预定全列或全部结果共同的 precision／scale，不隐含舍入。它与 `Exact / Approximate / NativeFloating` 的算术保证独立，不自行赋予 Exact、误差界限或聚合工作容量。Integer 和固定 Decimal 可无损进入 FiniteDecimal；反向没有静态容量保证，与 BinaryFloat 也不隐式合并。最终需要固定结果时，作者在 NUMERIC 的 `Decimal(p,s,rounding)` 或显式 CAST 中声明固定容量与舍入，ROUND 继续只表达其节点的 scale 和舍入；未量化的有理商不能有限表示时明确拒绝。
+
+技术声明使用 `NativeValueType("FINITE_DECIMAL",null,null,nullable)`，结果元数据使用同名 `ResultValueType.Scalar`；precision 和 scale 必须均为空。普通 `DECIMAL` 仍要求完整合法 p/s，缺失容量、后端 NUMERIC 标签或一次 JDBC 观察都不会自动变成 FiniteDecimal。插件可用 SDK 的 `FiniteDecimalTypes.create(nullable)` 产生对应的实际 Calcite 类型，并通过实际数值载体无损交付有限值；业务值继续使用 DECIMAL 编码，类型列保留明确的 FINITE_DECIMAL 身份。插件拥有解析、后端类型映射及算术兑现，不能把 Float／Double 包装成 BigDecimal 后宣称原值精确。
+
+H2 将实际 DECFLOAT 映射为有限十进制原值读取，使用 BigDecimal 交付并可由显式 CORE 计算承接；当前不声明该域的 SOURCE SUM／AVG／CAST 等原生数值运算或参数映射。读取支持不证明原生算术精确，也不使别的后端自动获得相同能力。SOURCE 未兑现时准确拒绝，不默认转 CORE；CORE 也不能替来源重做尚未映射的解析函数、LEFT 或用于形成来源观察的 CASE。本参考映射不证明 Hologres 的解析、聚合、混合收入公式或原规模业务已验收。
+
+显式 CORE 的末端 Exact SUM、数值 MIN／MAX 及其混合的已支持 COUNT 不以数学 AVG 为触发前提，也不只针对 FiniteDecimal。来源仍负责完整原袋交付和自身必须完成的前缀；实际来源关系消费者或后续来源表达需要该结果时，仍要求它在来源完整完成，不把 CORE 值搬回来源。该边界不放开浮点核心计算、本地 JOIN 或未知原生 AVG。
 
 输入表示与解析、聚合工作行为及容量、节点最终表示分别承担保证。某个值能放入 Decimal，不证明同袋 SUM 的工作和或结果也能放入；最终输出 precision／scale 不能代替来源累加器的容量依据。`DECIMAL(38,20)` 有18位整数容量，`DECIMAL(38,18)` 有20位整数容量：前者增加两位小数，同时减少两位整数，并非对后者的全面无损扩大。解析是否保留原值、聚合是否会在最终量化前舍入或溢出、节点是否满足声明的舍入与 FAIL，各自都须成立。
+
+TEXT 收入先精确解析并按真实袋人口求 Exact SUM，再与两个原生 float8 分量组合时，必须保留原公式的括号、COALESCE 顺序和 NULL 政策。在实际进入浮点的节点明确 NativeFloating／BinaryFloat64，不把最终混合收入声明为全 Exact，也不把转换提前到精确 SUM 的原记录上。FiniteDecimal 解决有限值表示，不能代替实际工作 SUM 的 ExactOrFail 及容量保证，更不能证明原生 AVG。
 
 `DIVIDE` 与 `SAFE_DIVIDE` 表达允许小数的算术商，不按输入的整数技术类型自动截断。显式 `SUM(x)/COUNT(x)` 使用 `CompilationSupport.division`，不使用 AVG 的原生均值行为合同；来源表达式、完成关系及分摊计算使用同一除法入口。两个输入都是整数 SQL 类型时，核心按各自完整整数域无损转换为 `DECIMAL(p,0)` 并保留 NULL，例如 BIGINT 转为 `DECIMAL(19,0)`。这是输入表示规范化，不会将最终输出的 precision／scale 提前施加给操作数，也不改变 SAFE_DIVIDE 的零分母 NULL 政策。
 
@@ -146,7 +154,7 @@ olap.output(olap.sources.connectorCapabilities(
 ))
 ~~~
 
-`aggregation` 使用正式聚合枚举；`inputType` 是传入聚合的表达式原生类型，包含实际可空性和完整容量，不是最终业务结果合同。DECIMAL 必须指定 precision、scale，有长度的文本必须指定 precision；类型或容量不能被后端类型工厂静默改写。`grouped=false` 表示没有分组键的全局聚合，`true` 表示存在普通分组键；分组集合中的空分组按全局方式查询。该上下文用于原生结果可空性推导。
+`aggregation` 使用正式聚合枚举；`inputType` 是传入聚合的表达式原生类型，包含实际可空性和表示，不是最终业务结果合同。DECIMAL 必须指定 precision、scale，FINITE_DECIMAL 则必须明确名称且两者均为空，有长度的文本必须指定 precision；类型或容量不能被后端类型工厂静默改写。`grouped=false` 表示没有分组键的全局聚合，`true` 表示存在普通分组键；分组集合中的空分组按全局方式查询。该上下文用于原生结果可空性推导。
 
 响应的 `aggregate.mapping` 为 `MAPPED` 时给出 `resultType` 和可空的 `behavior`。SUM／COUNT／AVG 通过同一实际行为入口披露该发现形态的声明；null 不代表精确工作已获证明，MAPPED 也不等于可做工作归约。发现与真实编译消费同一行为合同。`UNAVAILABLE` 携带受控不可用原因，不返回猜测的容量或数值行为。精确连接器必须属于本主体获准的来源。
 
@@ -202,7 +210,7 @@ olap.output(olap.sources.connectorCapabilities(
 
 结果行序由完整主 SQL 的最终排序语义决定，访问实现按来源返回顺序物化，核心继续保留该行列表。窗口内的排序、TopN 的选行顺序和集合内部排序不自动构成最终结果的展示排序；没有最终 `ORDER BY` 时不承诺稳定行序，排序键未区分的并列行不额外确定顺序。`SourceSqlRequest` 不另给独立排序键，列别名映射与输出类型不能当作排序合同。运输封装、分页和预算处理必须保留主 SQL 已有的选行及行序，不把有序子查询包进聚合后就宣称保序，也不解析 SQL 自行重建排序或在客户端重算；不能兑现时准确失败，不交付被重排、少行或截断的成功结果。
 
-请求中的 `ResultValueType.Scalar` 用可空的 `Integer precision/scale` 表达 SQL 类型容量；未指定时为 `null`，不使用负数哨兵，也不能擅自补成零。DECIMAL 必须给出正精度及 `0..precision` 内的小数位。插件明确处理这些可空字段，装载器按精确连接器 API 标识检查接口。
+请求中的 `ResultValueType.Scalar` 用可空的 `Integer precision/scale` 表达 SQL 类型容量；未指定时为 `null`，不使用负数哨兵，也不能擅自补成零。DECIMAL 必须给出正精度及 `0..precision` 内的小数位；FINITE_DECIMAL 必须显式命名并将两项均留空，不能由缺容量的 DECIMAL 推断。插件明确处理这些类型与字段，装载器按精确连接器 API 标识检查接口。
 
 HTTP 服务的分页、截断或未完成状态由插件识别；必须按明确的一致性合同取完或准确失败，不能把一页或已截断的数据当作完整结果返回。
 

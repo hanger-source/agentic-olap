@@ -1,6 +1,7 @@
 package com.olap.prototype.expression
 
 import com.olap.prototype.connector.CompilationSupport
+import com.olap.prototype.connector.FiniteDecimalTypes
 import com.olap.prototype.metric.MetricAggregation
 import com.olap.prototype.metric.MetricValueContract
 import com.olap.prototype.query.ResultAggregation
@@ -17,7 +18,7 @@ import java.math.RoundingMode
 
 /** 优化前确定原生运算、容量、有限值边界与显式舍入。 */
 object SemanticNumericRex {
-    fun isNumericCheck(value: RexNode): Boolean = value is RexCall && value.operator is NumericCheck
+    fun isNumericCheck(value: RexNode): Boolean = value is RexCall && (value.operator is NumericCheck || value.operator is ScaleCheck)
     fun requireExactMemberCode(input: RexNode) {
         require(SqlTypeUtil.isExactNumeric(input.type)) { "numeric unit member codes require an exact native value" }
         input.accept(object : RexVisitorImpl<Void?>(true) {
@@ -35,15 +36,39 @@ object SemanticNumericRex {
         require(SqlTypeUtil.isNumeric(input.type)) { "quantity output requires a numeric native value" }
         var value = arithmetic(builder, input, declaration, false)
         when (val result = declaration.result) {
+            MetricValueContract.FiniteDecimal -> {
+                require(SqlTypeUtil.isExactNumeric(value.type)) { "finite decimal output needs an exact native decimal representation; floating conversion must be explicit" }
+                return when (val guarantee = declaration.arithmetic) {
+                    is MetricValueContract.Approximate -> domain(builder, value, BigDecimal(guarantee.minimum), BigDecimal(guarantee.maximum))
+                    else -> value
+                }
+            }
             is MetricValueContract.Decimal -> if (result.rounding == MetricValueContract.Rounding.NONE) {
                 require(!SqlTypeUtil.isApproximateNumeric(value.type) && !(value.type.sqlTypeName == SqlTypeName.DECIMAL && value.type.scale > result.scale)) {
                     "quantity output scale would discard digits without an explicit rounding policy"
                 }
+                value = requireScale(builder, value, result.scale)
             } else value = round(builder, value, result.scale, result.rounding)
-            is MetricValueContract.Integer -> require(!SqlTypeUtil.isApproximateNumeric(value.type) && !(value.type.sqlTypeName == SqlTypeName.DECIMAL && value.type.scale != 0)) {
-                "integer output requires an exact integral input; declare rounding and a decimal cast before conversion"
+            is MetricValueContract.Integer -> {
+                require(!SqlTypeUtil.isApproximateNumeric(value.type) && !(value.type.sqlTypeName == SqlTypeName.DECIMAL && !FiniteDecimalTypes.isFinite(value.type) && value.type.scale != 0)) {
+                    "integer output requires an exact integral input; declare rounding and a decimal cast before conversion"
+                }
+                value = requireScale(builder, value, 0)
             }
             is MetricValueContract.BinaryFloat -> Unit
+        }
+        if (FiniteDecimalTypes.isFinite(value.type) && !system(builder).semantic) {
+            value = when (val capacity = declaration.result) {
+                is MetricValueContract.Decimal -> {
+                    val limit = BigDecimal.ONE.scaleByPowerOfTen(capacity.precision - capacity.scale).subtract(BigDecimal.ONE.scaleByPowerOfTen(-capacity.scale))
+                    guard(builder, value, limit.negate(), limit)
+                }
+                is MetricValueContract.Integer -> {
+                    val limit = BigDecimal(BigInteger.ONE.shiftLeft(capacity.bits - 1))
+                    guard(builder, value, limit.negate(), limit.subtract(BigDecimal.ONE))
+                }
+                else -> value
+            }
         }
         val result = builder.rexBuilder.makeCast(resultType(builder, declaration, value.type.isNullable), value, true, false)
         if (system(builder).semantic) return result
@@ -61,6 +86,7 @@ object SemanticNumericRex {
     fun resultType(builder: RelBuilder, declaration: MetricValueContract, nullable: Boolean): RelDataType {
         val factory = builder.typeFactory
         val target = when (val result = declaration.result) {
+            MetricValueContract.FiniteDecimal -> FiniteDecimalTypes.create(nullable)
             is MetricValueContract.Decimal -> {
                 require(result.precision <= system(builder).maximumDeclaredDecimalPrecision) { "quantity decimal output exceeds its native type capacity" }
                 factory.createSqlType(SqlTypeName.DECIMAL, result.precision, result.scale)
@@ -180,6 +206,7 @@ object SemanticNumericRex {
     private fun floatingLimit(type: RelDataType): BigDecimal = if (type.sqlTypeName == SqlTypeName.REAL) BigDecimal(java.lang.Float.toString(Float.MAX_VALUE)) else BigDecimal.valueOf(Double.MAX_VALUE)
 
     private fun domain(builder: RelBuilder, value: RexNode, minimum: BigDecimal, maximum: BigDecimal): RexNode {
+        if (FiniteDecimalTypes.isFinite(value.type)) return guard(builder, value, minimum, maximum)
         val type = value.type
         var lower = minimum
         var upper = maximum
@@ -255,6 +282,30 @@ object SemanticNumericRex {
         }
     }
 
+    /** NONE检查保留原值；不先量化再把舍入结果包装成通过。 */
+    fun requireScale(builder: RelBuilder, input: RexNode, scale: Int): RexNode {
+        if (!FiniteDecimalTypes.isFinite(input.type) || system(builder).semantic) return input
+        val support = system(builder).nativeSupport
+        support.requireNativeCast(input.type)
+        val truncated = round(builder, input, scale, MetricValueContract.Rounding.TRUNCATE)
+        return builder.rexBuilder.makeCall(input.type, ScaleCheck(input.type, support), listOf(input, truncated))
+    }
+
+    internal class ScaleCheck(private val type: RelDataType, private val support: CompilationSupport) :
+        SqlSpecialOperator("NUMERIC_EXACT_SCALE_CHECK", SqlKind.OTHER_FUNCTION) {
+        override fun unparse(writer: SqlWriter, call: SqlCall, leftPrec: Int, rightPrec: Int) {
+            expand(call, writer.dialect).unparse(writer, leftPrec, rightPrec)
+        }
+        fun expand(call: SqlCall, dialect: SqlDialect): SqlNode {
+            val pos = call.parserPosition
+            val value = call.operand<SqlNode>(0)
+            val valid = Ops.OR.createCall(pos, Ops.IS_NULL.createCall(pos, value),
+                Ops.IS_TRUE.createCall(pos, Ops.EQUALS.createCall(pos, value, call.operand<SqlNode>(1))))
+            val failure = Ops.CAST.createCall(pos, support.numericFailure(value, type, pos), dialect.getCastSpec(type))
+            return SqlCase(pos, null, SqlNodeList(listOf(valid), pos), SqlNodeList(listOf(value), pos), failure)
+        }
+    }
+
     private fun requireExact(type: RelDataType) { require(!SqlTypeUtil.isApproximateNumeric(type)) { "floating native arithmetic cannot satisfy an exact quantity contract" } }
     private fun requireNativeArithmetic(operator: SqlOperator, expected: MetricValueContract.Arithmetic) {
         (operator as? NativeScalarOperator)?.declaration?.arithmetic?.let { MetricValueContract.requireArithmeticInput(expected, it) }
@@ -264,7 +315,7 @@ object SemanticNumericRex {
     fun round(builder: RelBuilder, input: RexNode, scale: Int, mode: MetricValueContract.Rounding): RexNode {
         if (mode == MetricValueContract.Rounding.NONE) return input
         require(system(builder).supports(CompilationSupport.Capability.NUMERIC_ROUNDING)) { "numeric rounding is not bound for the execution dialect" }
-        if (SqlTypeUtil.isExactNumeric(input.type) && (if (input.type.sqlTypeName != SqlTypeName.DECIMAL) scale >= 0 else input.type.scale <= scale)) return input
+        if (!FiniteDecimalTypes.isFinite(input.type) && SqlTypeUtil.isExactNumeric(input.type) && (if (input.type.sqlTypeName != SqlTypeName.DECIMAL) scale >= 0 else input.type.scale <= scale)) return input
         val scaleValue = builder.literal(scale)
         if (mode == MetricValueContract.Rounding.HALF_UP) return nativeRound(builder, input, scaleValue, scale, true)
         val truncation = SqlFunction("TRUNC", SqlKind.OTHER_FUNCTION, ReturnTypes.ARG0, null, OperandTypes.NUMERIC_INTEGER, SqlFunctionCategory.NUMERIC)
@@ -290,6 +341,10 @@ object SemanticNumericRex {
         builder.rexBuilder.makeCall(roundType(builder, input.type, scale, roundUp), Ops.ROUND, listOf(input, scaleValue))
 
     private fun roundType(builder: RelBuilder, input: RelDataType, scale: Int, roundUp: Boolean): RelDataType {
+        if (FiniteDecimalTypes.isFinite(input)) {
+            if (!system(builder).semantic) system(builder).nativeSupport.requireNativeCast(input)
+            return input
+        }
         if (input.sqlTypeName != SqlTypeName.DECIMAL) return input
         val targetScale = minOf(input.scale, maxOf(0, scale))
         val precision = if (system(builder).supports(CompilationSupport.Capability.ROUND_KEEPS_INPUT_PRECISION)) input.precision

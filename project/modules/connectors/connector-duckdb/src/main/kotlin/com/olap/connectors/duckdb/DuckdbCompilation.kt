@@ -1,6 +1,7 @@
 package com.olap.connectors.duckdb
 
 import com.olap.prototype.connector.CompilationSupport
+import com.olap.prototype.connector.FiniteDecimalTypes
 import com.olap.prototype.connector.StandardJdbcTypes
 import com.olap.prototype.contract.*
 import com.olap.prototype.expression.NativeScalarFunction
@@ -30,7 +31,10 @@ internal class DuckdbCompilation : CompilationSupport {
     override fun nativeAggregate(kind: SqlKind): SqlAggFunction = when (kind) {
         SqlKind.SUM -> SqlStdOperatorTable.SUM
         SqlKind.AVG -> SqlStdOperatorTable.AVG
-        SqlKind.STDDEV_SAMP -> SqlBasicAggFunction.create(SqlKind.STDDEV_SAMP, ReturnTypes.DOUBLE_NULLABLE, OperandTypes.NUMERIC)
+        SqlKind.STDDEV_SAMP -> SqlBasicAggFunction.create(SqlKind.STDDEV_SAMP, { binding ->
+            require(!FiniteDecimalTypes.isFinite(binding.getOperandType(0))) { "DuckDB finite decimal deviation has no verified native mapping" }
+            ReturnTypes.DOUBLE_NULLABLE.inferReturnType(binding)
+        }, OperandTypes.NUMERIC)
         SqlKind.MIN -> SqlStdOperatorTable.MIN
         SqlKind.MAX -> SqlStdOperatorTable.MAX
         SqlKind.COUNT -> SqlStdOperatorTable.COUNT
@@ -54,11 +58,13 @@ internal class DuckdbCompilation : CompilationSupport {
         // HUGEINT 结果类型本身不足以声明所有 SUM 形态的 ExactOrFail，COUNT 也不据 BIGINT 标签推保证。
         if (call.aggregation.kind != SqlKind.AVG) return null
         require(call.aggregation == nativeAggregate(SqlKind.AVG) && call.argList.size == 1 && !call.isDistinct) { "DuckDB requires its actual scalar AVG mapping" }
+        if (FiniteDecimalTypes.isFinite(owner.input.rowType.fieldList[call.argList.single()].type)) return null
         return meanBehavior(owner.input.rowType.fieldList[call.argList.single()].type, call.type)
     }
     override fun aggregateBehavior(over: RexOver): NativeAggregateBehavior? {
         if (over.aggOperator.kind != SqlKind.AVG) return null
         require(over.aggOperator == nativeAggregate(SqlKind.AVG) && over.operands.size == 1 && !over.isDistinct) { "DuckDB requires its actual scalar window AVG mapping" }
+        if (FiniteDecimalTypes.isFinite(over.operands.single().type)) return null
         return meanBehavior(over.operands.single().type, over.type)
     }
     private fun meanBehavior(input: RelDataType, result: RelDataType): NativeAggregateBehavior {
@@ -79,7 +85,12 @@ internal class DuckdbCompilation : CompilationSupport {
     }
     private fun collectionCall(builder: RelBuilder, name: String, type: RelDataType, arguments: List<RexNode>): RexNode = builder.rexBuilder.makeCall(type,
         SqlFunction(name, SqlKind.OTHER_FUNCTION, ReturnTypes.explicit(type), null, OperandTypes.VARIADIC, SqlFunctionCategory.SYSTEM), arguments)
-    override val division: SqlOperator get() = SqlBinaryOperator("/", SqlKind.DIVIDE, 60, true, ReturnTypes.DOUBLE_NULLABLE, null, OperandTypes.NUMERIC_NUMERIC)
+    override val division: SqlOperator get() = SqlBinaryOperator("/", SqlKind.DIVIDE, 60, true, { binding ->
+        require((0 until binding.operandCount).none { FiniteDecimalTypes.isFinite(binding.getOperandType(it)) }) {
+            "DuckDB finite decimal division has no verified exact native mapping"
+        }
+        ReturnTypes.DOUBLE_NULLABLE.inferReturnType(binding)
+    }, null, OperandTypes.NUMERIC_NUMERIC)
     override fun jdbcType(factory: RelDataTypeFactory, column: JdbcColumnType): RelDataType {
         if (DuckdbSourceTypes.container(column.typeName)) return DuckdbSourceTypes.resolve(factory, column.typeName, requireNotNull(column.nullable))
         if (column.typeName.equals("HUGEINT", ignoreCase = true)) return factory.createTypeWithNullability(factory.createSqlType(SqlTypeName.DECIMAL, 39, 0), requireNotNull(column.nullable))
@@ -120,6 +131,7 @@ internal class DuckdbCompilation : CompilationSupport {
     override fun numericFailure(value: SqlNode, type: RelDataType, position: SqlParserPos): SqlNode =
         SqlFunction("ERROR", SqlKind.OTHER_FUNCTION, ReturnTypes.ARG0, null, OperandTypes.CHARACTER, SqlFunctionCategory.SYSTEM).createCall(position, SqlLiteral.createCharString("numeric contract violation", position))
     override fun parameter(type: RelDataType, value: Any?): JdbcParameter {
+        require(!FiniteDecimalTypes.isFinite(type)) { "DuckDB finite decimal parameters have no verified native mapping" }
         if (DuckdbNativeTypes.wideInteger(type)) {
             val integer = when (value) {
                 is BigDecimal -> value.toBigIntegerExact()
@@ -136,7 +148,10 @@ internal class DuckdbCompilation : CompilationSupport {
         return JdbcParameter.of(type.sqlTypeName.jdbcOrdinal, name, type.precision, type.scale,
             requireNotNull(value) { "SQL NULL must remain a typed literal, not a bound parameter" })
     }
-    override fun requireNativeCast(target: RelDataType) { require(target.sqlTypeName != SqlTypeName.TIMESTAMP || target.precision in setOf(0, 3, 6, 9)) { "DuckDB timestamp cast requires a native fractional precision: 0, 3, 6 or 9" } }
+    override fun requireNativeCast(target: RelDataType) {
+        require(!FiniteDecimalTypes.isFinite(target)) { "DuckDB finite decimal CAST has no verified exact native mapping" }
+        require(target.sqlTypeName != SqlTypeName.TIMESTAMP || target.precision in setOf(0, 3, 6, 9)) { "DuckDB timestamp cast requires a native fractional precision: 0, 3, 6 or 9" }
+    }
     override fun tablePath(catalog: String?, schema: String?, table: String): List<String> {
         require(!schema.isNullOrBlank() && table.isNotBlank()) { "exact JDBC coordinate is required" }
         return buildList { if (!catalog.isNullOrEmpty()) add(catalog); add(schema); add(table) }

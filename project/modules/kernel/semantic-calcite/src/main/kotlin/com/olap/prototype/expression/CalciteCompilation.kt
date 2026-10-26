@@ -8,7 +8,6 @@ import org.apache.calcite.plan.RelOptCluster
 import org.apache.calcite.plan.volcano.VolcanoPlanner
 import org.apache.calcite.prepare.CalciteCatalogReader
 import org.apache.calcite.rel.RelCollationTraitDef
-import org.apache.calcite.rex.RexBuilder
 import org.apache.calcite.schema.SchemaPlus
 import org.apache.calcite.tools.Frameworks
 import org.apache.calcite.tools.RelBuilder
@@ -26,7 +25,7 @@ object CalciteCompilation {
             addRelTraitDef(ConventionTraitDef.INSTANCE)
             addRelTraitDef(RelCollationTraitDef.INSTANCE)
         }
-        val cluster = RelOptCluster.create(planner, RexBuilder(types))
+        val cluster = RelOptCluster.create(planner, SemanticRexBuilder(types))
         cluster.setMetadataQuerySupplier { SemanticRelMetadataQuery(cluster) }
         val reader = CalciteCatalogReader(CalciteSchema.from(schema), emptyList(), types, CalciteConnectionConfigImpl(Properties()))
         return RelBuilder.proto().create(cluster, reader)

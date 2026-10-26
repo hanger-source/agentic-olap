@@ -10,8 +10,13 @@ import com.olap.prototype.warehouse.jdbc.StandardJdbcConstraints
 import com.olap.prototype.warehouse.jdbc.StandardJdbcSupport
 import java.sql.Connection
 import java.sql.DriverManager
+import java.sql.ResultSet
 
 internal class H2JdbcSupport : StandardJdbcSupport("org.h2.Driver") {
+    override fun scalar(rows: ResultSet, index: Int): Any? =
+        if (rows.metaData.getColumnTypeName(index).equals("DECFLOAT", ignoreCase = true)) rows.getBigDecimal(index)
+        else super.scalar(rows, index)
+
     override fun capabilities(source: SourceConfiguration): SourceCapabilities = SourceCapabilities(setOf(
         SourceCapabilities.Capability.PARAMETER_BINDING, SourceCapabilities.Capability.CANCELLATION,
         SourceCapabilities.Capability.TRANSACTION_SNAPSHOT, SourceCapabilities.Capability.CONSISTENT_READ,

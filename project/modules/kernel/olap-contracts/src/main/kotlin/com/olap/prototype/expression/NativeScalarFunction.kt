@@ -35,7 +35,7 @@ class NativeScalarFunction(
         ScopedInputContract.requireId(id)
         require(resultType.elementType == null && resultType.fields == null) { "native scalar functions cannot return containers" }
         require(resultType.name !in setOf("ANY", "NULL", "OTHER")) { "native scalar function result type must be determined" }
-        val numeric = resultType.name in setOf("TINYINT", "SMALLINT", "INTEGER", "BIGINT", "DECIMAL", "REAL", "FLOAT", "DOUBLE")
+        val numeric = resultType.name in setOf("TINYINT", "SMALLINT", "INTEGER", "BIGINT", "DECIMAL", "FINITE_DECIMAL", "REAL", "FLOAT", "DOUBLE")
         require(numeric == (arithmetic != null)) { "native numeric results require their arithmetic guarantee" }
         require(arithmetic !is MetricValueContract.Exact || resultType.name !in setOf("REAL", "FLOAT", "DOUBLE")) { "native floating results cannot declare exact arithmetic" }
     }
@@ -70,6 +70,7 @@ class NativeScalarFunction(
             "BIGINT" -> MetricValueContract.Integer(64)
             "REAL" -> MetricValueContract.BinaryFloat(32)
             "FLOAT", "DOUBLE" -> MetricValueContract.BinaryFloat(64)
+            "FINITE_DECIMAL" -> MetricValueContract.FiniteDecimal
             "DECIMAL" -> MetricValueContract.Decimal(
                 requireNotNull(resultType.precision) { "completed native DECIMAL result for $id requires a declared precision" },
                 requireNotNull(resultType.scale) { "completed native DECIMAL result for $id requires a declared scale" }, MetricValueContract.Rounding.NONE)

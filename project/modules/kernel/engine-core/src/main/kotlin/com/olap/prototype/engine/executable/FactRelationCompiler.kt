@@ -112,9 +112,10 @@ internal class FactRelationCompiler(val sourceRows: SourceRelationCompiler) {
             aggregates.add(FactAtomCompiler.aggregate(b, column.input.metric.factMeasure(), b.field(column.value), b.field(column.predicate), column.aggregate, column.inputGuarantees))
             if (projection.dimensions.isNotEmpty()) aggregates.add(b.aggregateCall(Ops.COUNT, false, b.field(column.population), column.matches, b.literal(1)))
         }
-        b.aggregate(b.groupKey(projection.dimensions.map(b::field)), aggregates)
+        RelationalAggregates.aggregate(b, projection.dimensions, null, aggregates)
         projection.columns.forEach { column ->
             val measure = column.input.metric.factMeasure()
+            if (measure.aggregation == MetricAggregation.SUM) NativeAggregateTypes.requireFiniteSum(b, column.aggregate)
             if (measure.aggregation == MetricAggregation.AVG) NativeAggregateTypes.requireAverage(b, column.aggregate,
                 requireNotNull(measure.meanTarget), measure.valueContract, column.inputGuarantees)
         }
@@ -187,9 +188,10 @@ internal class FactRelationCompiler(val sourceRows: SourceRelationCompiler) {
     private fun aggregateFacts(builder: RelBuilder, projection: FactAtomCompiler.Projection, levels: GroupingLevels.Bound?) {
         val calls = projection.columns.map { FactAtomCompiler.aggregate(builder, it.measure(), builder.field(it.value), it.predicate?.let(builder::field), it.aggregate, it.inputGuarantees) }.toMutableList()
         if (levels != null && projection.dimensions.isNotEmpty()) calls.add(builder.aggregateCall(Ops.GROUPING, projection.dimensions.map(builder::field)).`as`(levels.outputAlias))
-        builder.aggregate(RelationalAggregates.groupKey(builder, projection.dimensions, levels), calls)
+        RelationalAggregates.aggregate(builder, projection.dimensions, levels, calls)
         projection.columns.forEach { column ->
             val measure = column.measure()
+            if (measure.aggregation == MetricAggregation.SUM) NativeAggregateTypes.requireFiniteSum(builder, column.aggregate)
             if (measure.aggregation == MetricAggregation.AVG) NativeAggregateTypes.requireAverage(builder, column.aggregate,
                 requireNotNull(measure.meanTarget), measure.valueContract, column.inputGuarantees)
         }

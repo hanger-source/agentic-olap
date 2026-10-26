@@ -4,6 +4,8 @@ import com.olap.fixtures.http.HttpSqlService
 import com.olap.prototype.codec.GovernanceProto
 import com.olap.prototype.codec.ProtoBytes
 import com.olap.prototype.codec.QueryProto
+import com.olap.prototype.codec.QueryResultProto
+import com.olap.prototype.api.ResultValueType
 import com.olap.prototype.connector.ConnectorRegistry
 import com.olap.prototype.connector.JdbcAccess
 import com.olap.prototype.connector.HttpSourceAccessTest
@@ -52,6 +54,59 @@ import java.nio.file.Path
 import java.nio.file.Files
 
 class PublishedCalculationArgumentsTest {
+    @Test
+    fun publishesFiniteDecimalRelationAcceptanceAndReadsAnUnquantizedCoreResult(@TempDir directory: Path) {
+        val metadata = directory.resolve("finite-decimal-platform")
+        val finite = GovernanceOrderFixture.money().let {
+            MetricValueContract(it.unit, it.arithmetic, MetricValueContract.FiniteDecimal, it.unitEquations, it.overflow)
+        }
+        val definition = MetricCalculation(Calculation(relationSlots = listOf(Calculation.RelationSlot("completed",
+            listOf(SetOutputContract("amount", SetOutputContract.Quantity(finite))), emptyList())),
+            computation = Calculation.Scope(Calculation.Relation("completed"), emptyMap(), listOf(
+                Derive(ResultNumeric(ResultOperation(ResultOperator.ADD, listOf(ResultSymbol("amount"),
+                    ResultQuantityLiteral(BigDecimal("0.000000000000000000000000000001"), finite))), finite, null),
+                    "value", "保留有限十进制的完整尾数"), Project(listOf("value"))))), "value", emptyList(), finite)
+        var selectedAdoptions: List<SourceAdoptionRef> = emptyList()
+        PlatformDatabase.openSingleInstance(metadata).use { database ->
+            val f = GovernanceOrderFixture(database, directory, orders)
+            f.seed()
+            val request = MetricCalculationCreateRequest("finite_completed_amount", "完成金额的有限十进制计算", "trade", definition,
+                "固定DECIMAL完成输入可由更宽的有限十进制合同接受，不先量化新增尾数", GovernanceOrderFixture.amountMeaning(), "golden")
+            val encoded = ProtoBytes.encode(GovernanceProto.toProto(request))
+            val decoded = GovernanceProto.fromProto(ProtoBytes.decode(encoded,
+                com.olap.prototype.wire.governance.MetricCalculationCreateRequest.getDefaultInstance()))
+            val metric = f.metrics.createMetricCalculation(decoded).metric
+            f.activate("METRIC", metric.id)
+            f.adopt(metric.id, bindings = CalculationBindings(emptyMap(), emptyMap(), emptyMap(), emptyMap(),
+                mapOf("completed" to CalculationBindings.RelationParameter())))
+            f.grantMetric(metric.id, order = 2)
+            f.activateSubjectGraph()
+            selectedAdoptions = f.sourceAdoptions
+        }
+        // 先从持久化定义建设发布，再重开读取发布制品，避免以内存构造代替NumericResult跨边界承接。
+        PlatformDatabase.openSingleInstance(metadata).use { database ->
+            val f = GovernanceOrderFixture(database, directory)
+            f.sourceAdoptions = selectedAdoptions
+            f.build("finite_completed_amount")
+        }
+        PlatformDatabase.openSingleInstance(metadata).use { database ->
+            val f = GovernanceOrderFixture(database, directory)
+            val publication = f.publication("finite_completed_amount")
+            val fixedAmount = measures(listOf(invocation("amount", instance(f, "pay_amount"), "amount")))
+            val call = Calculation.InstanceCall("finite", instance(f, "finite_completed_amount"), outputAlias = "value",
+                relations = mapOf("completed" to CalculationBindings.LocalRelation("basis", mapOf("amount" to "amount"))))
+            val query = Calculation.Scope(measures(listOf(call)).root,
+                mapOf("basis" to Calculation.InputScope("ROOT", fixedAmount)), emptyList())
+            val execution = f.execute(publication, query, QueryExecutionMode.CORE_FINALIZATION)
+            val result = QueryResultProto.fromProto(ProtoBytes.decode(ProtoBytes.encode(QueryResultProto.toProto(execution.businessResult)),
+                com.olap.prototype.wire.query.BusinessResult.getDefaultInstance()))
+            val column = result.columns.single()
+            number("220.000000000000000000000000000001", (result.rows.single().single() as ExecutableBusinessResult.ScalarValue).value)
+            assertEquals(finite, requireNotNull(column.symbol.quantity).declaration, "发布、CORE及结果传输保持数量合同，不推断固定容量")
+            assertEquals("FINITE_DECIMAL", (column.type as ResultValueType.Scalar).name)
+        }
+    }
+
     @Test
     fun filtersAPublishedCompletedCountInCoreWithoutDroppingZeroGroups(@TempDir directory: Path) {
         val metadata = directory.resolve("completed-count-platform")

@@ -2,6 +2,7 @@ package com.olap.prototype.engine.executable
 
 import com.olap.prototype.api.ResultFrame
 import com.olap.prototype.connector.CompilationSupport
+import com.olap.prototype.connector.FiniteDecimalTypes
 import com.olap.prototype.calculation.Calculation
 import com.olap.prototype.engine.EngineExecutionException
 import com.olap.prototype.expression.SemanticNativeTypes
@@ -201,7 +202,10 @@ class CoreFinalizationPlan private constructor(private val sourceLayout: Executa
                 ExecutableBusinessResult.ScalarValue(ExecutableBusinessResult.ValueKind.INTEGER, integer.toString())
             }
             SqlTypeName.DECIMAL -> {
-                val decimal = try { value.value.decimal().setScale(type.scale, RoundingMode.UNNECESSARY) }
+                val decimal = try {
+                    val exact = value.value.decimal()
+                    if (FiniteDecimalTypes.isFinite(type)) exact else exact.setScale(type.scale, RoundingMode.UNNECESSARY)
+                }
                 catch (failure: CoreArithmeticFailure) { throw failure }
                 catch (failure: ArithmeticException) {
                     throw CoreArithmeticFailure("CORE_FINALIZATION_ROUNDING_REQUIRED", "final decimal representation would discard digits without a quantization node", failure)

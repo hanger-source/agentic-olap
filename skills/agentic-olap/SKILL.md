@@ -31,7 +31,7 @@ agentic-olap call describe-script-api --payload '{}'
 
 首次启动生成本机配置、随机令牌与持久目录，仅监听回环地址。已有远程服务可直接接入 MCP；CLI 使用 `--url https://actual-service/mcp --token-env OLAP_TOKEN`。令牌由实际服务方提供，不写入仓库或日志。模型账号、提示词与会话由外部客户端持有。
 
-配置与认证见[服务使用与部署](references/server.md)；连接业务源时再读[来源接入](references/connections.md)。服务、SDK 与插件须匹配实际服务披露的连接器 API；本仓库源码为 `agentic-olap-connector/v15-kotlin-aggregate-work-calcite-1.42`，存储格式为 `19`。安装不会自动重启原服务或转换旧持久根。
+配置与认证见[服务使用与部署](references/server.md)；连接业务源时再读[来源接入](references/connections.md)。服务、SDK 与插件须匹配实际服务披露的连接器 API；本仓库源码为 `agentic-olap-connector/v16-kotlin-finite-decimal-calcite-1.42`，存储格式为 `19`。安装不会自动重启原服务或转换旧持久根。
 
 ## 从服务发现 Kotlin API
 
@@ -48,10 +48,10 @@ agentic-olap call describe-script-api --payload '{"type":"com.olap.prototype.cal
 
 计算以共同 `Calculation.Scope` 为中心，直接构造、内联组合、引用定义以及成为更高层定义的计算体使用同一规则。`Computations` 的类型发现披露这些入口。具体集合、测量与完成结果直接组合；只有真实可替换输入才声明形式槽。`Computations.scope { ... }` 内用 `relation(id, computation, outputs)` 或 `member(...)` 一次登记完成输入并取得正式局部引用，供内联计算、算法或计算成员调用，不再分开填写 ROOT 与局部引用。已有身份、数量与键由引擎核验传播，作者明确期间、人口、列映射与缺失政策。成员必须具有实际来源与角色，不能将完成测量包装成属性。完整构造见[共同计算使用方式](https://github.com/hanger-source/agentic-olap/blob/main/docs/agent-usage.md#以计算及其结果继续组合)。
 
-`execute-script` 向持续 Kotlin 会话提交一个完整片段。DSL 为 `agentic-olap-kotlin-dsl/v10`，以服务发现结果为准。`executionId` 必填；不填 `sessionId` 创建会话，后续使用实际返回的会话 ID：
+`execute-script` 向持续 Kotlin 会话提交一个完整片段。DSL 为 `agentic-olap-kotlin-dsl/v11`，以服务发现结果为准。`executionId` 必填；不填 `sessionId` 创建会话，后续使用实际返回的会话 ID：
 
 ~~~sh
-agentic-olap call execute-script --payload '{"executionId":"sources-001","waitMillis":0,"source":"val sources = olap.sources.list(EmptyRequest)\nolap.output(sources)","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v10","parameters":{}}'
+agentic-olap call execute-script --payload '{"executionId":"sources-001","waitMillis":0,"source":"val sources = olap.sources.list(EmptyRequest)\nolap.output(sources)","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v11","parameters":{}}'
 agentic-olap call wait-script --payload '{"executionId":"sources-001","waitMillis":1000}'
 ~~~
 
@@ -103,9 +103,13 @@ agentic-olap call wait-script --payload '{"executionId":"sources-001","waitMilli
 
 本次内联 Query 可以在 NUMERIC 的 `valueContract.unitEquations` 中显式声明名义单位方程，不必先创建 Metric，也不借用已发布 Metric 的输出合同授权方程。方程只作用于这个 NUMERIC 直接包住的运算；引擎核对实际单位、运算符、精确倍率及输出合同，场景对输入、节点和算子的权限继续生效。声明不登记或覆盖长期定义；需要复用完整口径时保存真实计算，不创建只有方程的空壳 Metric。成员出口和关系形参只声明数量事实，方程留在计算体。规则与可定位的单位错误见[数量合同与人口](https://github.com/hanger-source/agentic-olap/blob/main/docs/agent-usage.md#数量合同与人口)。
 
-均值由 `MeanTarget.MATHEMATICAL` 或 `SOURCE_NATIVE` 显式选择；作者声明最终数量与量化，不照填插件原生舍入。显式 CORE_FINALIZATION 支持完成关系 REGROUP 对 Exact 整数或固定 Decimal 求 MATHEMATICAL AVG，各列独立处理 NULL、保留重复权重，在该节点一次最终量化。引擎可在完整输入域、工作容量和实际聚合行为均已证明时生成精确工作 SUM 与独立非 NULL 计数，最终除法和量化仍在 CORE；保证未知则交付原袋。作者无需改成 SUM／COUNT、重建 ROOT 或另存指标。事实 AVG、窗口 AVG、快照 MEAN 和 SOURCE_NATIVE AVG 继续核对其实际来源节点，快照中间量化保留；DECIMAL 或精确算法不升级输入保证。来源 NativeCall、LEFT、形成观察的 CASE 保留在原来源前缀，不因拒绝自动切换位置或改 DOUBLE。完整语义与来源边界见[数量合同与人口](https://github.com/hanger-source/agentic-olap/blob/main/docs/agent-usage.md#数量合同与人口)及[来源接入](references/connections.md)。
+`MetricValueContract.FiniteDecimal` 表达有限十进制值域，不预定共同 p/s、不隐含量化，也不赋予 Exact、工作容量或原生 AVG 保证。技术类型必须明确为 `FINITE_DECIMAL` 且 p/s 为空，普通 DECIMAL 缺容量不能代替。Integer／固定 Decimal 可进入 Finite，反向或与 BinaryFloat 混合须显式处理；最终 `Decimal(p,s,rounding)` 仍由实际节点声明，不能有限表示的未量化商准确失败。TEXT 先精确解析和 Exact SUM，再按原 COALESCE 顺序混合 float8 时，实际浮点节点保持 NativeFloating／BinaryFloat64，不把最终收入写成全 Exact。H2 的 DECFLOAT 仅有有限原值读取及显式 CORE 承接，其 Finite SOURCE SUM／AVG／CAST 未兑现；不能外推为 Hologres 验收通过。来源不支持时准确拒绝，不默认换 CORE。
+
+均值由 `MeanTarget.MATHEMATICAL` 或 `SOURCE_NATIVE` 显式选择；作者声明最终数量与量化，不照填插件原生舍入。显式 CORE_FINALIZATION 支持完成关系 REGROUP 对 Exact 整数、固定 Decimal 或 FiniteDecimal 求 MATHEMATICAL AVG，各列独立处理 NULL、保留重复权重，在该节点一次最终量化。引擎可在完整输入域、工作容量和实际聚合行为均已证明时生成精确工作 SUM 与独立非 NULL 计数，最终除法和量化仍在 CORE；工作保证未知则在该模式内交付原袋，不能从 Finite 猜一个工作容量。作者无需改成 SUM／COUNT、重建 ROOT 或另存指标。事实 AVG、窗口 AVG、快照 MEAN 和 SOURCE_NATIVE AVG 继续核对其实际来源节点，快照中间量化保留；DECIMAL 或精确算法不升级输入保证。来源 NativeCall、LEFT、形成观察的 CASE 保留在原来源前缀，不因拒绝自动切换位置或改 DOUBLE。完整语义与来源边界见[数量合同与人口](https://github.com/hanger-source/agentic-olap/blob/main/docs/agent-usage.md#数量合同与人口)及[来源接入](references/connections.md)。
 
 聚合发现的 `behavior` 来自实际 `aggregateBehavior`；未声明为 NULL，不从 DECIMAL／BIGINT 推保证。`ExactOrFail` 要求实际 SUM／COUNT 保留分组身份、NULL 与袋人口，无中间量化或静默溢出，AVG 不能用它冒充均值行为。文本工作分组由 `textIdentityKey` 产生保 NULL 的精确二进制辅助键，与原文本共同分组后移除；未知 collation 不自动获得精确身份保证。H2 原生 COUNT、DuckDB SUM／COUNT 保持未声明，其他来源必须交出自身实际依据。
+
+显式 CORE 可承接末端完成关系的 Exact SUM、数值 MIN／MAX 及其混合的已支持 COUNT，无需数学 AVG 触发，也不是 Finite 特判。实际来源关系消费者和后续来源表达仍要求完整来源输入；不能让来源再消费 CORE 输出，不放开浮点核心计算或本地 JOIN。SOURCE 未兑现时仍准确拒绝，不自动换模式。
 
 核心按完整作用域关系执行。同一精确来源的一条 SQL 通过 UNION ALL 运输各自原袋或已证明的编译工作状态、实际类型及独立存在标记，不用运输 JOIN 或假唯一键；各分支完成归约、原量化与过滤后，再按正式完整键和声明的 UNION／INTERSECTION／BASE 人口装配。运输不提供任意本地 JOIN、跨来源联邦或保存结果导入。单出口保持实际载荷布局，缺组与存在但值为 NULL 分开，ZERO_WHEN_ABSENT 只在声明位置生效。
 

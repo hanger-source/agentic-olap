@@ -9,6 +9,14 @@ sealed interface ResultValueType {
         init {
             require((precision == null || precision >= 0) && (scale == null || scale >= 0)) { "result type capacity must use null when unspecified" }
             require(name != "DECIMAL" || precision != null && scale != null && precision > 0 && scale in 0..precision) { "decimal result requires a complete precision and scale" }
+            require(name != "FINITE_DECIMAL" || precision == null && scale == null) { "finite decimal result cannot declare a common precision or scale" }
+        }
+        companion object {
+            fun contract(): Map<String, Any> = mapOf(
+                "finiteDecimal" to "EXPLICIT_FINITE_DECIMAL_NAME_WITH_NULL_PRECISION_AND_SCALE_VALUES_USE_LOSSLESS_DECIMAL_ENCODING",
+                "fixedDecimal" to "DECIMAL_REQUIRES_COMPLETE_PRECISION_AND_SCALE",
+                "guarantee" to "TECHNICAL_REPRESENTATION_DOES_NOT_ASSIGN_EXACT_ARITHMETIC_OR_IMPLICIT_QUANTIZATION",
+            )
         }
     }
     data class Array(val element: ResultValueType, override val nullable: Boolean) : ResultValueType

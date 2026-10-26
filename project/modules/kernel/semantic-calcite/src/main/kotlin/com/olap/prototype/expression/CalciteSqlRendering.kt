@@ -63,6 +63,10 @@ object CalciteSqlRendering {
                         numericChecks++
                         operator.expand(converted, dialect)
                     }
+                    is SemanticNumericRex.ScaleCheck -> {
+                        numericChecks++
+                        operator.expand(converted, dialect)
+                    }
                     is NativeScalarOperator -> operator.expand(converted)
                     else -> converted
                 }

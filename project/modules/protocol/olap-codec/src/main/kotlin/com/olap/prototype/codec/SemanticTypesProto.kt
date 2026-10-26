@@ -92,11 +92,13 @@ internal object SemanticTypesProto {
         is DV.Decimal -> setDecimal(DecimalResult.newBuilder().setPrecision(v.precision).setScale(v.scale).setRounding(v.rounding.name))
         is DV.Integer -> setIntegerBits(v.bits)
         is DV.BinaryFloat -> setBinaryFloatBits(v.bits)
+        DV.FiniteDecimal -> setFiniteDecimal(Empty.getDefaultInstance())
     } }.build()
     private fun result(v: NumericResult): DV.Result = when (v.kindCase) {
         NumericResult.KindCase.DECIMAL -> v.decimal.let { DV.Decimal(it.precision, it.scale, DV.Rounding.valueOf(it.rounding)) }
         NumericResult.KindCase.INTEGER_BITS -> DV.Integer(v.integerBits)
         NumericResult.KindCase.BINARY_FLOAT_BITS -> DV.BinaryFloat(v.binaryFloatBits)
+        NumericResult.KindCase.FINITE_DECIMAL -> DV.FiniteDecimal
         else -> error("quantity result kind is required")
     }
     private fun equation(v: DV.UnitEquation): UnitEquation = UnitEquation.newBuilder().apply { when (v) {

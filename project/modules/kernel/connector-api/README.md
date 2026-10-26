@@ -2,7 +2,7 @@
 
 `connector-api` 为独立后端实现提供共同合同和 Calcite 1.42.0 的公开类型。它不依赖治理、服务应用或内部编译实现。连接器实现已定义语义的原生映射与来源访问，业务指标、对象资格、数量、NULL 与查询组织仍由语义定义和共同内核拥有。
 
-SDK 按精确发行标签发布到 JitPack。`agentic-olap sdk` 返回本版 API、随包文档、Maven 仓库及 `artifacts` 中的完整坐标；`sdk --repository` 只输出仓库地址。构件使用 `com.github.hanger-source.agentic-olap` group，版本为 `v` 加产品版本，公开入口为 `connector-api`，可复用 JDBC 支持为 `warehouse-jdbc`，应用装载器为 `connector-loader`。新建或确需重新构建的插件使用目标宿主命令返回的精确坐标，不使用 SNAPSHOT。API 标识为 `agentic-olap-connector/v15-kotlin-aggregate-work-calcite-1.42`。插件须实现该 API 的实际公开签名，不能仅改 manifest 的版本标签。
+SDK 按精确发行标签发布到 JitPack。`agentic-olap sdk` 返回本版 API、随包文档、Maven 仓库及 `artifacts` 中的完整坐标；`sdk --repository` 只输出仓库地址。构件使用 `com.github.hanger-source.agentic-olap` group，版本为 `v` 加产品版本，公开入口为 `connector-api`，可复用 JDBC 支持为 `warehouse-jdbc`，应用装载器为 `connector-loader`。新建或确需重新构建的插件使用目标宿主命令返回的精确坐标，不使用 SNAPSHOT。API 标识为 `agentic-olap-connector/v16-kotlin-finite-decimal-calcite-1.42`。插件须实现该 API 的实际公开签名，不能仅改 manifest 的版本标签。
 
 SDK 的 JAR、POM 由插件工程的 Gradle 从 JitPack 匿名取得，第三方传递依赖从 Maven Central 取得。插件开发仍需 Kotlin/Gradle 工具链；运行产品无需这些构建工具。部署到其他服务前核对该服务的实际 API，不能把本地安装版本当作远程运行版本。
 
@@ -21,7 +21,7 @@ SDK 的 JAR、POM 由插件工程的 Gradle 从 JitPack 匿名取得，第三方
 ```json
 {
   "connectorRef": {"id": "backend", "version": "1.0.0", "sha256": "完整插件组摘要"},
-  "apiVersion": "agentic-olap-connector/v15-kotlin-aggregate-work-calcite-1.42",
+  "apiVersion": "agentic-olap-connector/v16-kotlin-finite-decimal-calcite-1.42",
   "jars": [
     {"file": "connector-backend.jar", "sha256": "该JAR摘要"},
     {"file": "backend-jdbc.jar", "sha256": "该JAR摘要"}
@@ -41,7 +41,7 @@ SDK 的 JAR、POM 由插件工程的 Gradle 从 JitPack 匿名取得，第三方
 
 ## 数据合同与兑现采用
 
-API v15 的来源输入分为两个明确对象：
+API v16 的来源输入分为两个明确对象：
 
 | 对象 | 内容与责任 |
 | --- | --- |
@@ -70,11 +70,17 @@ fun supportsConstraintVerification(
 
 `CompilationSupport` 提供 `SqlDialect`、`RelDataTypeSystem`、JDBC 类型映射、表坐标、参数、精确文本身份比较、类型化集合展开及原生数值操作。`matchesNativeResult(NativeValueType, JdbcColumnType)` 核验来源响应或显式合同提供的 SQL 标量类型能否承载编译类型；原始观察元数据保持原值，DuckDB 的 HUGEINT 等专属匹配由对应插件拥有。共同编译器继续组织关系与阶段、进行类型和数量分析并生成 SQL，内核保留结果容器形态、NULL 与逐值数值约束。
 
+有限十进制采用明确的 `NativeValueType("FINITE_DECIMAL",null,null,nullable)`；结果元数据使用同名 Scalar，p/s 必须同时为空，普通 DECIMAL 仍要求完整合法容量。SDK 的 `FiniteDecimalTypes.create(nullable)` 构造该实际 Calcite 类型，`isFinite(type)` 核验其身份，不能用缺容量的普通 DECIMAL 代替。对应数量结果为 `MetricValueContract.FiniteDecimal`，不预定共同 p/s、不隐含舍入，也不自行赋予 Exact 或聚合工作容量；原生函数仍单独声明 `arithmetic`。Integer／固定 Decimal 可无损进入 Finite，反向及与 BinaryFloat 的共同表示不自动成立；最终量化由明确的节点承担。来源以 BigDecimal 等无损精确数值载体交付有限值，业务值沿用 DECIMAL 编码，不通过 Double 转换伪造精确输入。
+
+H2 只将真实 DECFLOAT 映射为有限原值读取，并支持显式 CORE 承接；其 Finite SOURCE SUM／AVG／CAST 及参数映射尚无兑现声明。DuckDB 不声明 Finite 原生数值运算。插件必须逐实际类型和节点兑现，不能从输入有限、返回 DECIMAL、最终容量足够或某个后端的成功推定原生工作精确；SOURCE 不支持时准确拒绝，不自动切到 CORE。本参考实现不证明 Hologres 的解析、收入混合公式或原规模业务已通过。
+
+显式 CORE 可将末端 Exact SUM、数值 MIN／MAX 及其混合的已支持 COUNT 留在核心，不要求同时出现数学 AVG，也不以 Finite 输入特判。实际来源关系消费者及后续来源表达仍要求完整来源前缀，不会读取先前 CORE 结果；来源插件继续兑现自身节点。该边界不增加本地 JOIN、浮点核心运算或未知原生 AVG，也不改变 SOURCE 的执行选择。
+
 `nativeAggregate(SqlKind)` 返回该精确来源的 `SqlAggFunction`，包括真实返回类型推导。核心将已定义的聚合映射为原生 kind，并继续组织 DISTINCT、分组、窗口和数量保证；插件不接收业务指标公式。不支持的 kind 明确拒绝。例如 `STDDEV_SAMP` 的返回类型由该来源实现声明，不能由共同编译器统一假定为 DOUBLE。
 
 `aggregateBehavior(Aggregate, AggregateCall)` 和 `aggregateBehavior(RexOver)` 描述当前真实调用，返回可空的 `NativeAggregateBehavior`；NULL 表示未声明，原生结果容量仍取自实际节点。`ExactOrFail` 声明本次 SUM／COUNT 保留实际分组身份、NULL 与袋人口，不做中间量化，容量不足必须失败，不能静默溢出或回绕。`QuantizedMean(rounding)` 必须兑现对参与值精确累加、精确计数且仅最后向原生 DECIMAL scale 量化；`NativeFloating` 不提供误差上界。不能根据 DECIMAL／BIGINT 结果类型猜工作保证，AVG 也不能用 `ExactOrFail` 代替均值行为。
 
-AVG 的业务目标由 `MeanTarget` 表达，最终数量合同声明输出容量与量化。共同编译器据实际输入、原生行为和节点类型判断 MATHEMATICAL 或 SOURCE_NATIVE 能否兑现，不把原生舍入字段交给作者照填。完成关系 REGROUP 的数学 AVG 还可在 CORE 求值：来源可以无损交付原袋，或由引擎在完整输入域、工作容量及实际聚合行为均已证明时生成精确工作 SUM 和各列独立非 NULL 计数状态，最后除法与量化仍在 CORE。作者无需另写 SUM／COUNT、重建 ROOT 或改保存定义；保证未知时保留原袋路线，不在执行失败后换计划。内置 H2 的适用 SUM 有明确工作声明，原生 COUNT 保持未声明；DuckDB 的 SUM／COUNT 也不因数值类型而取得精确工作保证。
+AVG 的业务目标由 `MeanTarget` 表达，最终数量合同声明输出表示与量化。共同编译器据实际输入、原生行为和节点类型判断 MATHEMATICAL 或 SOURCE_NATIVE 能否兑现，不把原生舍入字段交给作者照填。完成关系 REGROUP 的数学 AVG 还可在显式 CORE 求值：来源可以无损交付原袋，或由引擎在完整输入域、工作容量及实际聚合行为均已证明时生成精确工作 SUM 和各列独立非 NULL 计数状态，最后除法与量化仍在 CORE。Finite 本身不能证明固定工作容量或原生 AVG；未量化输出仍须能有限表示。作者无需另写 SUM／COUNT、重建 ROOT 或改保存定义；工作保证未知时保留原袋路线，不在执行失败后换计划。内置 H2 的适用固定域 SUM 有明确工作声明，原生 COUNT 保持未声明；DuckDB 的 SUM／COUNT 也不因数值类型而取得精确工作保证。
 
 原生行为按实际聚合或窗口节点声明，需涵盖其输入类型、参与人口、NULL 与中间容量；不能仅以少量小值、一个常量执行路径或最终结果类型为依据。不同执行形态可以具有不同的原生 scale，核心使用各自实际结果检查目标，不要求它们共享一个全局舍入值。单纯增大声明 precision／scale 不能恢复丢失的位数。若插件提供有依据的原生输入转换或聚合映射，SQL AST 与类型推导必须一致，保留人口、权重和错误含义，不在执行失败后切换策略。
 

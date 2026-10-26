@@ -6,7 +6,7 @@ Agentic OLAP 由可复用语义定义、完整查询语言和确定性计算内�
 
 [项目文档导航](README.md)
 
-主服务 JVM 直接持有 MCP/HTTP、认证、治理应用、权威元数据、结果及进程句柄。固定 JVM 的 Kotlin 代码会话保留语言历史；独立工作进程承接来源调查、规划和执行。实际进程边界使用 `agentic-olap-runtime/v13` 的具体 Protobuf 消息，同进程方法直接传递正式对象。代码会话使用 `agentic-olap-kotlin-dsl/v10`；模型对话仍由外部客户端持有。业务后端通过独立 JVM 连接器接入，元数据使用 H2；H2 与 DuckDB 业务后端也走同一插件合同。驱动或协议相同不代表类型、算术、函数、关系保证和一致性相同。Web 工作台与跨数据库联邦计算由各自的独立系统负责。
+主服务 JVM 直接持有 MCP/HTTP、认证、治理应用、权威元数据、结果及进程句柄。固定 JVM 的 Kotlin 代码会话保留语言历史；独立工作进程承接来源调查、规划和执行。实际进程边界使用 `agentic-olap-runtime/v14` 的具体 Protobuf 消息，同进程方法直接传递正式对象。代码会话使用 `agentic-olap-kotlin-dsl/v11`；模型对话仍由外部客户端持有。业务后端通过独立 JVM 连接器接入，元数据使用 H2；H2 与 DuckDB 业务后端也走同一插件合同。驱动或协议相同不代表类型、算术、函数、关系保证和一致性相同。Web 工作台与跨数据库联邦计算由各自的独立系统负责。
 
 ## 工程边界
 
@@ -170,9 +170,13 @@ RAW_BAG 没有记录身份并保留重复出现；RECORDS 具有经过实际来�
 
 完成关系及观察统计表达语义粒度，本身不指定物理执行位置。执行、校验与解释请求的 `QueryExecutionMode` 由共同入口及正式 Protobuf 传给内核，执行回执记录实际模式；共享定义与 QueryIntent 继续表达原语义。SOURCE 模式将完整计算编译为来源 SQL。CORE_FINALIZATION 模式统一绑定、授权并分析完整计算后，沿实际消费边确定必须在来源完成的扫描、来源函数、关联和窗口等依赖，再选择支持的完成关系 REGROUP 与标量阶段，编译为 `CoreFinalizationPlan`。形成原始观察的来源 NativeCall、LEFT 与 CASE 保留在相应来源前缀；仅登记 ROOT 不产生额外来源消费要求。来源执行一次，核心按作用域依赖处理每个完整关系的列映射、嵌套定义、归约、独立调用数量合同、过滤及人口选择，分支不共用可覆盖的同名符号状态。不为适配执行器强迫作者增加一层输入，也不将已在核心计算或量化的值搬回来源。解释的 sourceOutputScopes 及各根、阶段位置反映实际来源前缀与核心阶段；来源或核心不能兑现实际合同则在提交前拒绝，不用失败推动切点或切换执行位置。
 
+显式 CORE 可选择末端完成关系的 Exact SUM、数值 MIN／MAX 及其混合的已支持 COUNT，无需同时存在数学 AVG；这适用于整数、固定 Decimal 与 FiniteDecimal，不是某一输入表示的特判。实际来源关系消费者或后续来源表达仍要求其输入在来源完整完成，不能让来源消费先前 CORE 的归约结果。该选择不开放浮点核心运算、本地 JOIN 或未知原生 AVG，也不改变 SOURCE 的完整来源执行责任。
+
 `ExecutableLoweringResult` 交出真实来源 SQL、参数、来源要求、关系检查与 `ExecutableSourceLayout`。布局记录真实物理列及各作用域的实际载荷类型，原袋出口保留自己的完整合同和 `outputScope`；编译生成的工作状态不冒充完整业务出口。`CoreFinalizationPlan` 独立拥有切点输入核验、完整关系执行及最终出口合同，按被调用定义阶段、调用投影及数量合同、调用者阶段的顺序执行。共同数量、单位、键、人口和来源分析不由本地求值器重新解释。精确数值使用瞬时有理数执行，在实际 NUMERIC／ROUND／CAST 节点按各自舍入与容量政策量化。
 
-完成关系的数学 AVG 可消费 Exact 整数或固定 Decimal 原袋，也可由引擎在完整输入域、工作容量与本次 `NativeAggregateBehavior.ExactOrFail` 均已证明时，生成来源精确工作 SUM 和每列独立非 NULL 计数状态；PROPAGATE 另保留总次数。工作输入在聚合前无损转换，不借最终 AVG 容量限制累加，也不借未声明的原生 COUNT 保证。文本分组用 `textIdentityKey` 的保 NULL、注入式二进制辅助键与原键共同分组，实际分组身份继续核验，辅助键不成为业务输出。两种物理路线都保留重复权重和各列 NULL 人口，最终除法与一次节点量化仍在 CORE；保证未知则运输原袋，不调用未知 AVG 或失败后换计划。作者继续表达原 Average，不另写 SUM／COUNT 或增加 ROOT。事实 AVG、窗口 AVG 与快照 MEAN 继续遵守各自来源执行及中间量化责任，不因核心 REGROUP 支持数学均值而自动迁移。
+数量结果的 `FiniteDecimal` 与固定 `Decimal(p,s,rounding)` 共用既有单位、算术保证、NULL 和来源体系。Finite 仅表达有限十进制值域，没有统一 p/s、不隐含量化，不自行赋予 Exact 或工作容量；固定 Integer／Decimal 可进入，反向或与 BinaryFloat 混合须显式处理。原生类型和结果元数据以 `FINITE_DECIMAL` 且 p/s 为空承接该事实，普通 DECIMAL 继续要求固定容量；不以默认类型或观察到的单值补出全域保证。有限值无损交付沿用 DECIMAL 业务值编码，不能有限表示的未量化有理商明确失败。来源运算须由精确插件兑现，H2 DECFLOAT 的原值读取与显式 CORE 承接不外推为其 Finite SOURCE SUM／AVG／CAST 能力；SOURCE 不支持时不自动转 CORE。
+
+完成关系的数学 AVG 可消费 Exact 整数、固定 Decimal 或 FiniteDecimal 原袋，也可由引擎在完整输入域、工作容量与本次 `NativeAggregateBehavior.ExactOrFail` 均已证明时，生成来源精确工作 SUM 和每列独立非 NULL 计数状态；PROPAGATE 另保留总次数。工作输入在聚合前无损转换，不借最终 AVG 容量限制累加，也不借 Finite 或未声明的原生 COUNT 保证推工作容量。文本分组用 `textIdentityKey` 的保 NULL、注入式二进制辅助键与原键共同分组，实际分组身份继续核验，辅助键不成为业务输出。两种物理路线都保留重复权重和各列 NULL 人口，最终除法与一次节点量化仍在 CORE；保证未知则在显式 CORE 计划中运输原袋，不调用未知 AVG 或失败后换计划。作者继续表达原 Average，不另写 SUM／COUNT 或增加 ROOT。事实 AVG、窗口 AVG 与快照 MEAN 继续遵守各自来源执行及中间量化责任，不因核心 REGROUP 支持数学均值而自动迁移。
 
 定义调用、完成关系对齐和计算成员的投影共同进入核心作用域图。同一精确来源的一条 SQL 以 UNION ALL 运输各作用域的独立载荷：未经工作归约时为完整原袋，有充分证明时为编译生成的精确工作状态。每个作用域拥有自己的真实类型 payload 和 BOOLEAN 存在标记，每条物理行恰好属于一个作用域，其他 payload 为 typed NULL、标记为 FALSE。运输不关联、去重或要求原袋唯一，也不提前决定最终人口；辅助列不成为业务 Symbol。单出口保持其实际载荷布局。核心恢复各作用域的紧凑载荷，依其原袋或工作状态含义完成每个分支的原归约、量化与过滤后，才按正式组合映射的完整键及 UNION、INTERSECTION 或 BASE 人口装配。键的身份不能凭列名或来源相同推断；观察键非空检查作用于真正完成且存在的分支。缺组与存在组中的 NULL 分开，缺组不执行本分支的 COALESCE，ZERO_WHEN_ABSENT 只在明确声明的位置产生零值。无分组 REGROUP 按其聚合语义处理空袋，运输本身不制造业务行。此路径不提供任意本地 JOIN 或联邦；来源关系阶段不能消费先前核心求值的结果，不支持的执行方式在来源提交前明确拒绝。
 

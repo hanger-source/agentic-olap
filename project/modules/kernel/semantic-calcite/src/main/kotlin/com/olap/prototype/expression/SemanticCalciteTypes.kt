@@ -4,12 +4,31 @@ import org.apache.calcite.jdbc.JavaTypeFactoryImpl
 import org.apache.calcite.rel.type.RelDataType
 import org.apache.calcite.sql.SqlCollation
 import org.apache.calcite.sql.parser.SqlParserUtil
+import org.apache.calcite.sql.type.SqlTypeMappingRule
+import org.apache.calcite.sql.type.SqlTypeName
+import org.apache.calcite.sql.type.SqlTypeUtil
+import com.olap.prototype.connector.FiniteDecimalTypes
 import java.nio.charset.Charset
 import java.nio.charset.StandardCharsets
 
 /** 共同表达式使用 Unicode 文本；精确来源的数值规则与显式字符类型仍由其原生合同决定。 */
 class SemanticCalciteTypes(typeSystem: SemanticCalciteTypeSystem) : JavaTypeFactoryImpl(typeSystem) {
     override fun getDefaultCharset(): Charset = StandardCharsets.UTF_8
+
+    override fun copyType(type: RelDataType): RelDataType =
+        if (FiniteDecimalTypes.isFinite(type)) FiniteDecimalTypes.create(type.isNullable) else super.copyType(type)
+
+    override fun createTypeWithNullability(type: RelDataType, nullable: Boolean): RelDataType =
+        if (FiniteDecimalTypes.isFinite(type)) FiniteDecimalTypes.create(nullable) else super.createTypeWithNullability(type, nullable)
+
+    override fun leastRestrictive(types: List<RelDataType>, mapping: SqlTypeMappingRule): RelDataType? {
+        if (types.any(FiniteDecimalTypes::isFinite)) {
+            if (types.all { SqlTypeUtil.isExactNumeric(it) || it.sqlTypeName == SqlTypeName.NULL })
+                return FiniteDecimalTypes.create(types.any { it.isNullable || it.sqlTypeName == SqlTypeName.NULL })
+            return null
+        }
+        return super.leastRestrictive(types, mapping)
+    }
 
     override fun createTypeWithCharsetAndCollation(type: RelDataType, charset: Charset, collation: SqlCollation): RelDataType {
         val actual = if (charset == defaultCharset) when {

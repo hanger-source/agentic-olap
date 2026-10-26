@@ -3,12 +3,14 @@ package com.olap.prototype.release.catalog
 import com.olap.prototype.contract.ProducerContractException
 import com.olap.prototype.engine.catalog.ExecutableCatalog
 import com.olap.prototype.engine.catalog.ExecutableLogicUnit
+import com.olap.prototype.expression.SemanticCalciteTypeSystem
+import com.olap.prototype.expression.SemanticCalciteTypes
 import com.olap.prototype.expression.SemanticExpressionValueType
+import com.olap.prototype.expression.SemanticNativeTypes
 import com.olap.prototype.query.ScalarValueType
 import com.olap.prototype.query.SetOutputContract
 import com.olap.prototype.query.contract.QueryExecutionTypes
 import com.olap.prototype.release.contract.ReleaseDimensionMapping
-import org.apache.calcite.sql.type.SqlTypeName
 import java.util.Collections
 
 /** 单次发布的精确类型索引，公开语义与查询能力共用同一类型事实。 */
@@ -18,13 +20,15 @@ class PublishedValueTypes(private val assets: ExecutableCatalog) {
     fun shape(id: String, version: Long): SetOutputContract.Container? = unit(id, version).valueShape
     fun dimensions(mappings: List<ReleaseDimensionMapping>, nativeTypes: QueryExecutionTypes): Map<String, String> {
         val result = linkedMapOf<String, String>()
+        val factory = SemanticCalciteTypes(SemanticCalciteTypeSystem())
         mappings.forEach { mapping ->
             val matches = nativeTypes.dimensions.filter { value ->
                 value.dimension.id == mapping.analysisDimensionId && value.dimension.version == mapping.analysisDimensionVersion.toString() &&
                     value.dimension.levelCode == mapping.levelCode && value.eventId == mapping.eventId && value.eventVersion == mapping.eventVersion
             }
             if (matches.size != 1) throw ProducerContractException("published dimension requires its exact frozen native type")
-            val type = SemanticExpressionValueType.scalarType(SqlTypeName.valueOf(matches.single().type.name)).name
+            val native = SemanticNativeTypes.resolve(factory, matches.single().type)
+            val type = SemanticExpressionValueType.scalarType(native.sqlTypeName).name
             val previous = result.putIfAbsent(mapping.levelCode, type)
             if (previous != null && previous != type) throw ProducerContractException("published dimension level has incompatible event scalar types: ${mapping.analysisDimensionId}@${mapping.analysisDimensionVersion}")
         }

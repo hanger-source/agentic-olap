@@ -1,5 +1,6 @@
 package com.olap.connectors.h2
 
+import com.olap.prototype.connector.FiniteDecimalTypes
 import org.apache.calcite.avatica.util.TimeUnitRange
 import org.apache.calcite.rel.RelFieldCollation
 import org.apache.calcite.rel.type.RelDataType
@@ -19,6 +20,7 @@ internal object H2Dialect {
             super.quoteStringLiteral(builder, null, value)
         }
         override fun getCastSpec(type: RelDataType): SqlNode? {
+            require(!FiniteDecimalTypes.isFinite(type)) { "H2 finite decimal CAST has no verified exact native mapping" }
             if (type.sqlTypeName != SqlTypeName.ROW) return super.getCastSpec(type)
             val pos = SqlParserPos.ZERO
             // H2 row fields reject the default explicit NULL modifiers.

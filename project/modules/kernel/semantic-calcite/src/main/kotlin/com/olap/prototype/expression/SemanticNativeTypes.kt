@@ -3,6 +3,7 @@ package com.olap.prototype.expression
 import com.olap.prototype.api.ResultValueType
 import com.olap.prototype.calculation.Calculation
 import com.olap.prototype.contract.NativeValueType
+import com.olap.prototype.connector.FiniteDecimalTypes
 import com.olap.prototype.metric.MetricValueContract
 import com.olap.prototype.query.ScalarValueType
 import com.olap.prototype.query.SetOutputContract
@@ -30,6 +31,7 @@ object SemanticNativeTypes {
     }
 
     fun describe(type: RelDataType): NativeValueType {
+        if (FiniteDecimalTypes.isFinite(type)) return NativeValueType("FINITE_DECIMAL", null, null, type.isNullable)
         val name = type.sqlTypeName
         requireDetermined(name)
         return NativeValueType(name.name, type.precision.takeIf { name.allowsPrec() && it >= 0 },
@@ -38,6 +40,7 @@ object SemanticNativeTypes {
     }
 
     fun resolve(factory: RelDataTypeFactory, type: NativeValueType): RelDataType {
+        if (type.name == "FINITE_DECIMAL") return FiniteDecimalTypes.create(type.nullable)
         val name = SqlTypeName.valueOf(type.name)
         val precision = type.precision
         val scale = type.scale
@@ -85,6 +88,8 @@ object SemanticNativeTypes {
     }
 
     fun preservesCapacity(input: RelDataType, output: RelDataType): Boolean {
+        if (FiniteDecimalTypes.isFinite(output)) return SqlTypeUtil.isExactNumeric(input)
+        if (FiniteDecimalTypes.isFinite(input)) return false
         if (SqlTypeUtil.isExactNumeric(input) && SqlTypeUtil.isExactNumeric(output))
             return output.scale >= input.scale && output.precision - output.scale >= input.precision - input.scale
         if (SqlTypeUtil.isApproximateNumeric(input) && SqlTypeUtil.isApproximateNumeric(output))
@@ -155,7 +160,7 @@ object SemanticNativeTypes {
         }
     }
 
-    private fun numericResult(type: RelDataType): MetricValueContract.Result = when (type.sqlTypeName) {
+    private fun numericResult(type: RelDataType): MetricValueContract.Result = if (FiniteDecimalTypes.isFinite(type)) MetricValueContract.FiniteDecimal else when (type.sqlTypeName) {
         SqlTypeName.TINYINT -> MetricValueContract.Integer(8)
         SqlTypeName.SMALLINT -> MetricValueContract.Integer(16)
         SqlTypeName.INTEGER -> MetricValueContract.Integer(32)
@@ -183,6 +188,7 @@ object SemanticNativeTypes {
     fun describe(type: ResultValueType.Scalar): NativeValueType = NativeValueType(type.name, type.precision, type.scale, type.nullable)
 
     fun resultType(type: RelDataType): ResultValueType {
+        if (FiniteDecimalTypes.isFinite(type)) return ResultValueType.Scalar("FINITE_DECIMAL", null, null, type.isNullable)
         type.componentType?.let { return ResultValueType.Array(resultType(it), type.isNullable) }
         if (type.isStruct) return ResultValueType.Row(type.fieldList.map { ResultValueType.Field(it.name, resultType(it.type)) }, type.isNullable)
         require(type.keyType == null) { "MAP output requires an explicit published value contract" }

@@ -246,7 +246,10 @@ class LogicalModelGovernanceService(
         val name = SqlTypeName.getNameForJdbcType(declared.jdbcType)
         if (name == null || name in setOf(SqlTypeName.ANY, SqlTypeName.OTHER, SqlTypeName.ARRAY, SqlTypeName.STRUCTURED)) return null
         val precision = declared.precision
-        if (name == SqlTypeName.DECIMAL && precision != null && precision > builder.typeFactory.typeSystem.getMaxPrecision(name)) return null
+        if (name == SqlTypeName.DECIMAL) {
+            // 缺失容量不表示有限十进制；保留未中立定型，发布时由精确连接器明确承接。
+            if (precision == null || declared.scale == null || precision > builder.typeFactory.typeSystem.getMaxPrecision(name)) return null
+        }
         if (name in setOf(SqlTypeName.TIMESTAMP, SqlTypeName.TIME, SqlTypeName.TIMESTAMP_WITH_LOCAL_TIME_ZONE,
                 SqlTypeName.TIME_WITH_LOCAL_TIME_ZONE, SqlTypeName.TIMESTAMP_TZ, SqlTypeName.TIME_TZ)) {
             // 原始 JDBC 描述不一定提供时间小数精度；精确来源类型由发布所选连接器核验。

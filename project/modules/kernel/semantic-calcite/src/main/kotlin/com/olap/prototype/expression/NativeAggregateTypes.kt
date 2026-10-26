@@ -2,6 +2,7 @@ package com.olap.prototype.expression
 
 import com.olap.prototype.connector.CompilationSupport
 import com.olap.prototype.connector.NativeAggregateMappingException
+import com.olap.prototype.connector.FiniteDecimalTypes
 import com.olap.prototype.contract.NativeValueType
 import com.olap.prototype.contract.ProducerContractException
 import com.olap.prototype.metric.MetricAggregation
@@ -73,15 +74,28 @@ object NativeAggregateTypes {
         inputGuarantees: List<MetricValueContract.Arithmetic>) {
         val system = builder.typeFactory.typeSystem as SemanticCalciteTypeSystem
         if (system.semantic) return
+        val (owner, call) = actualAggregate(builder, alias)
+        val inputType = owner.input.rowType.fieldList[call.argList.single()].type
+        requireTarget(inputType, call.type, behavior(system.nativeSupport, owner, call), target, contract, inputGuarantees)
+    }
+
+    /** 可变尺度来源 SUM 必须兑现真实累计行为；表示标签不能替代算术声明。 */
+    fun requireFiniteSum(builder: RelBuilder, alias: String) {
+        if ((builder.typeFactory.typeSystem as SemanticCalciteTypeSystem).semantic) return
+        val (owner, call) = actualAggregate(builder, alias)
+        if (FiniteDecimalTypes.isFinite(inputType(owner, call)) || FiniteDecimalTypes.isFinite(call.type)) requireExactWork(owner, call)
+    }
+
+    private fun actualAggregate(builder: RelBuilder, alias: String): Pair<Aggregate, AggregateCall> {
         var node: RelNode = builder.peek()
         var index = node.rowType.fieldNames.indexOf(alias)
-        require(index >= 0) { "AVG output is outside its actual relation" }
+        require(index >= 0) { "aggregate output is outside its actual relation" }
         val outputType = node.rowType.fieldList[index].type
         while (node is Project || node is Calc) {
             val expression = when (val current = node) {
                 is Project -> current.projects[index]
                 is Calc -> current.program.expandLocalRef(current.program.projectList[index])
-                else -> error("transparent AVG output")
+                else -> error("transparent aggregate output")
             }
             val reference = expression as? RexInputRef ?: reject(outputType, NativeAggregateMappingException.Reason.NATIVE_BEHAVIOR_UNAVAILABLE)
             index = reference.index
@@ -92,8 +106,24 @@ object NativeAggregateTypes {
             ?: reject(outputType, NativeAggregateMappingException.Reason.NATIVE_BEHAVIOR_UNAVAILABLE)
         if (!SqlTypeUtil.equalSansNullability(builder.typeFactory, outputType, call.type))
             reject(outputType, NativeAggregateMappingException.Reason.NATIVE_RESULT_TYPE_MISMATCH)
-        val inputType = owner.input.rowType.fieldList[call.argList.single()].type
-        requireTarget(inputType, call.type, behavior(system.nativeSupport, owner, call), target, contract, inputGuarantees)
+        return owner to call
+    }
+
+    fun requireFiniteSum(builder: RelBuilder, value: RexNode) {
+        val system = builder.typeFactory.typeSystem as SemanticCalciteTypeSystem
+        if (system.semantic) return
+        value.accept(object : RexVisitorImpl<Void?>(true) {
+            override fun visitOver(over: RexOver): Void? {
+                if (over.aggOperator.kind != SqlKind.SUM || !FiniteDecimalTypes.isFinite(over.type) && over.operands.none { FiniteDecimalTypes.isFinite(it.type) }) return null
+                val input = over.operands.single().type
+                val inferred = over.aggOperator.inferReturnType(RexCallBinding(builder.typeFactory, over.aggOperator, over.operands, emptyList()))
+                if (inferred == null || !SqlTypeUtil.equalSansNullability(builder.typeFactory, over.type, inferred) ||
+                    system.nativeSupport.aggregateBehavior(over) != NativeAggregateBehavior.ExactOrFail)
+                    throw NativeAggregateMappingException(MetricAggregation.SUM, input.fullTypeString,
+                        IllegalArgumentException("finite decimal window SUM needs its actual ExactOrFail mapping"), NativeAggregateMappingException.Reason.NATIVE_BEHAVIOR_UNAVAILABLE)
+                return null
+            }
+        })
     }
 
     /** toRex 已形成真实窗口，NULL 政策与最终量化尚未包裹它。 */
@@ -143,7 +173,11 @@ object NativeAggregateTypes {
         }
         if (inferred == null || !SqlTypeUtil.equalSansNullability(owner.cluster.typeFactory, call.type, inferred))
             reject(call, input, NativeAggregateMappingException.Reason.NATIVE_RESULT_TYPE_MISMATCH)
-        return try { support.aggregateBehavior(owner, call) }
+        return try { support.aggregateBehavior(owner, call).also { actual ->
+            if (actual is NativeAggregateBehavior.QuantizedMean &&
+                (call.type.sqlTypeName != SqlTypeName.DECIMAL || FiniteDecimalTypes.isFinite(call.type)))
+                reject(call, input, NativeAggregateMappingException.Reason.NATIVE_RESULT_TYPE_MISMATCH)
+        } }
         catch (failure: NativeAggregateMappingException) { throw failure }
         catch (failure: IllegalArgumentException) { throw NativeAggregateMappingException(aggregation(call), input.fullTypeString, failure) }
         catch (failure: UnsupportedOperationException) { throw NativeAggregateMappingException(aggregation(call), input.fullTypeString, failure) }
@@ -164,7 +198,8 @@ object NativeAggregateTypes {
             reject(input, NativeAggregateMappingException.Reason.APPROXIMATION_PROPAGATION_UNAVAILABLE)
         when (behavior) {
             is NativeAggregateBehavior.QuantizedMean -> {
-                if (result.sqlTypeName != SqlTypeName.DECIMAL) reject(input, NativeAggregateMappingException.Reason.NATIVE_RESULT_TYPE_MISMATCH)
+                if (result.sqlTypeName != SqlTypeName.DECIMAL || FiniteDecimalTypes.isFinite(result))
+                    reject(input, NativeAggregateMappingException.Reason.NATIVE_RESULT_TYPE_MISMATCH)
                 if (target == MeanTarget.MATHEMATICAL && behavior.rounding != MetricValueContract.Rounding.NONE) {
                     val output = contract.result as? MetricValueContract.Decimal
                     if (output == null || output.scale != result.scale || output.rounding != behavior.rounding)
@@ -194,6 +229,7 @@ object NativeAggregateTypes {
         throw NativeAggregateMappingException(MetricAggregation.AVG, input.fullTypeString, null, reason)
 
     private fun requireDetermined(type: RelDataType) {
+        if (FiniteDecimalTypes.isFinite(type)) return
         SemanticNativeTypes.describe(type)
         require(type.sqlTypeName != SqlTypeName.DECIMAL || type.precision > 0 && type.scale >= 0) { "native decimal aggregate requires precision and scale" }
         type.componentType?.let(::requireDetermined)

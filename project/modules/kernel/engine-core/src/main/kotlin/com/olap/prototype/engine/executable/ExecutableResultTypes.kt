@@ -2,6 +2,7 @@ package com.olap.prototype.engine.executable
 
 import com.olap.prototype.api.SqlResultValues
 import com.olap.prototype.connector.CompilationSupport
+import com.olap.prototype.connector.FiniteDecimalTypes
 import com.olap.prototype.contract.JdbcColumnType
 import com.olap.prototype.expression.SemanticNativeTypes
 import org.apache.calcite.rel.type.RelDataType
@@ -44,8 +45,10 @@ internal object ExecutableResultTypes {
             }
             SqlTypeName.DECIMAL -> {
                 val decimal = if (value is BigDecimal) value else if (integral(value)) BigDecimal(value.toString()) else throw mismatch(expected, value)
-                try { if (decimal.setScale(expected.scale, RoundingMode.UNNECESSARY).precision() > expected.precision) throw ArithmeticException("precision exceeds contract") }
-                catch (failure: ArithmeticException) { throw IllegalStateException("decimal result exceeds compiled precision or scale: $expected", failure) }
+                if (!FiniteDecimalTypes.isFinite(expected)) {
+                    try { if (decimal.setScale(expected.scale, RoundingMode.UNNECESSARY).precision() > expected.precision) throw ArithmeticException("precision exceeds contract") }
+                    catch (failure: ArithmeticException) { throw IllegalStateException("decimal result exceeds compiled precision or scale: $expected", failure) }
+                }
             }
             SqlTypeName.FLOAT, SqlTypeName.REAL, SqlTypeName.DOUBLE -> if ((value !is Double && value !is Float) || !(value as Number).toDouble().isFinite()) throw mismatch(expected, value)
             SqlTypeName.CHAR, SqlTypeName.VARCHAR -> if (value !is String || expected.precision >= 0 && value.codePointCount(0, value.length) > expected.precision) throw mismatch(expected, value)

@@ -235,8 +235,9 @@ object CompletedRelationCompiler {
         rowCount?.let { calls.add(b.count().`as`(it)) }
         val levels = grouping.groupingLevels
         if (levels != null && grouping.groupBy.isNotEmpty()) calls.add(b.aggregateCall(Ops.GROUPING, grouping.groupBy.map(b::field)).`as`(levels.outputAlias))
-        b.aggregate(RelationalAggregates.groupKey(b, grouping.groupBy, levels), calls)
+        RelationalAggregates.aggregate(b, grouping.groupBy, levels, calls)
         grouping.aggregates.forEach { aggregate ->
+            if (aggregate.aggregation is ResultAggregation.Sum) NativeAggregateTypes.requireFiniteSum(b, aggregate.outputAlias)
             val average = aggregate.aggregation as? ResultAggregation.Average ?: return@forEach
             NativeAggregateTypes.requireAverage(b, aggregate.outputAlias, average.meanTarget, average.valueContract,
                 averageGuarantees(stage, aggregate.input, average))

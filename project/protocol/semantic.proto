@@ -53,7 +53,7 @@ message SlotDimensionUnit { string slot = 1; UnitAxis axis = 2; }
 message AnalysisDimensionUnit { DimensionRef dimension = 1; UnitAxis axis = 2; }
 message Arithmetic { oneof kind { Empty exact = 1; Empty native_floating = 2; Approximation approximate = 3; } }
 message Approximation { string minimum = 1; string maximum = 2; string absolute_tolerance = 3; string relative_tolerance = 4; }
-message NumericResult { oneof kind { DecimalResult decimal = 1; int32 integer_bits = 2; int32 binary_float_bits = 3; } }
+message NumericResult { oneof kind { DecimalResult decimal = 1; int32 integer_bits = 2; int32 binary_float_bits = 3; Empty finite_decimal = 4; } }
 message DecimalResult { int32 precision = 1; int32 scale = 2; string rounding = 3; }
 message NativeAggregateBehavior { oneof kind { string quantized_mean_rounding = 1; Empty native_floating = 2; Empty exact_or_fail = 3; } }
 message UnitEquation { oneof kind { PreserveUnit preserve_unit = 1; FixedBinaryUnit fixed_binary = 2; Empty same_unit_ratio = 3; ScaleUnit scale = 4; PreserveUnitScale preserve_unit_scale = 5; } }

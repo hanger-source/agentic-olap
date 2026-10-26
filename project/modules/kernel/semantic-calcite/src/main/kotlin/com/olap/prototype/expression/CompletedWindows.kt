@@ -24,6 +24,7 @@ internal object CompletedWindows {
         val value = b.aggregateCall(function, listOf(input)).distinct(RelationalAggregates.distinct(op.aggregation))
             .over().partitionBy(partitions).rowsBetween(b.unboundedPreceding(), b.unboundedFollowing()).toRex()
         if (aggregation is ResultAggregation.Average) NativeAggregateTypes.requireAverage(b, value, function, aggregation.meanTarget, aggregation.valueContract, inputGuarantees)
+        if (aggregation is ResultAggregation.Sum) NativeAggregateTypes.requireFiniteSum(b, value)
         if (aggregation !is ResultAggregation.Scalar || aggregation.nullPolicy != ResultAggregation.NullPolicy.PROPAGATE) return value
         val known = b.aggregateCall(Ops.COUNT, listOf(b.field(op.input))).over().partitionBy(partitions)
             .rowsBetween(b.unboundedPreceding(), b.unboundedFollowing()).toRex()
@@ -48,6 +49,7 @@ internal object CompletedWindows {
         val function = RelationalAggregates.aggregateFunction(op.aggregation, (b.typeFactory.typeSystem as SemanticCalciteTypeSystem).nativeSupport)
         val value = framedWindow(b, b.aggregateCall(function, listOf(input)).distinct(RelationalAggregates.distinct(op.aggregation)), op)
         if (aggregation is ResultAggregation.Average) NativeAggregateTypes.requireAverage(b, value, function, aggregation.meanTarget, aggregation.valueContract, inputGuarantees)
+        if (aggregation is ResultAggregation.Sum) NativeAggregateTypes.requireFiniteSum(b, value)
         if (aggregation is ResultAggregation.Collect) {
             val total = framedWindow(b, b.count(), op)
             return b.call(Ops.CASE, b.equals(total, b.literal(0)), b.rexBuilder.makeNullLiteral(value.type), value)

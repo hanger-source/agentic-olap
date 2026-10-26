@@ -192,10 +192,10 @@ class CoreFinalizationGraph private constructor(sources: List<SourceCut>, nodes:
 
         private fun hasCoreMean(scope: ScopeId): Boolean = analyses.getValue(scope).stages.any { isCoreMean(it.operation) }
 
-        private fun dependsOnCoreMean(scope: ScopeId, active: MutableSet<ScopeId> = linkedSetOf()): Boolean {
+        private fun dependsOnCoreReduction(scope: ScopeId, active: MutableSet<ScopeId> = linkedSetOf()): Boolean {
             check(active.add(scope)) { "core scope dependencies contain a cycle" }
-            return try { hasCoreMean(scope) || sourceDependencies(scope, requireNotNull(graph.scope(scope))).any {
-                dependsOnCoreMean(it, active)
+            return try { coreReductionIndex(scope) >= 0 || sourceDependencies(scope, requireNotNull(graph.scope(scope))).any {
+                dependsOnCoreReduction(it, active)
             } } finally { active.remove(scope) }
         }
 
@@ -206,13 +206,13 @@ class CoreFinalizationGraph private constructor(sources: List<SourceCut>, nodes:
 
         private fun nativeStageCount(scope: ScopeId): Int {
             val stages = analyses.getValue(scope).stages
-            val mean = stages.indexOfFirst { isCoreMean(it.operation) }
-            val inherited = sourceDependencies(scope, requireNotNull(graph.scope(scope))).any { dependsOnCoreMean(it) }
-            if (mean < 0 && !inherited) return stages.indexOfLast {
+            val reduction = coreReductionIndex(scope)
+            val inherited = sourceDependencies(scope, requireNotNull(graph.scope(scope))).any { dependsOnCoreReduction(it) }
+            if (reduction < 0 && !inherited) return stages.indexOfLast {
                 it.operation !is PostOperationContract.Derive && it.operation !is PostOperationContract.Project &&
                     it.operation !is PostOperationContract.PostFilter
             } + 1
-            val boundary = if (inherited) 0 else mean
+            val boundary = if (inherited) 0 else reduction
             val prefix = stages.take(boundary).indexOfLast { stage -> when (val operation = stage.operation) {
                 is PostOperationContract.Project -> false
                 is PostOperationContract.Derive -> CoreFinalizationExpressions.needsSource(operation.expression)
@@ -230,12 +230,42 @@ class CoreFinalizationGraph private constructor(sources: List<SourceCut>, nodes:
             return prefix
         }
 
+        /** 显式CORE承接末端精确归约；实际来源关系消费者仍要求自己的完整来源输入。 */
+        private fun coreReductionIndex(scope: ScopeId): Int {
+            val stages = analyses.getValue(scope).stages
+            val mean = stages.indexOfFirst { isCoreMean(it.operation) }
+            if (mean >= 0 || scope in sourceRequired) return mean
+            val sourceEnd = stages.indexOfLast { stage -> when (val operation = stage.operation) {
+                is PostOperationContract.Project, is PostOperationContract.Regroup -> false
+                is PostOperationContract.Derive -> CoreFinalizationExpressions.needsSource(operation.expression)
+                is PostOperationContract.PostFilter -> CoreFinalizationExpressions.needsSource(operation.expression)
+                else -> true
+            } }
+            return stages.indices.firstOrNull { it > sourceEnd && exactRegroup(stages[it]) } ?: -1
+        }
+
+        private fun exactRegroup(stage: QueryStageAnalysis.Stage): Boolean {
+            val grouping = (stage.operation as? PostOperationContract.Regroup)?.grouping ?: return false
+            if (grouping.groupingLevels != null || grouping.aggregates.none { it.aggregation !is ResultAggregation.Count }) return false
+            return grouping.aggregates.all { aggregate ->
+                val input = stage.inputs.first { it.name == aggregate.input }.quantity?.declaration
+                when (val aggregation = aggregate.aggregation) {
+                    is ResultAggregation.Count -> true
+                    is ResultAggregation.Sum -> input?.arithmetic is MetricValueContract.Exact &&
+                        input.result !is MetricValueContract.BinaryFloat && aggregation.valueContract.arithmetic is MetricValueContract.Exact &&
+                        aggregation.valueContract.result !is MetricValueContract.BinaryFloat
+                    is ResultAggregation.Minimum, is ResultAggregation.Maximum -> input?.arithmetic is MetricValueContract.Exact && input.result !is MetricValueContract.BinaryFloat
+                    is ResultAggregation.Average, is ResultAggregation.SampleDeviation, is ResultAggregation.Collect -> false
+                }
+            }
+        }
+
         /** 关系消费要求在来源完成其输入；其余末端标量才留在 CORE。 */
         private fun canCompleteNatively(scope: ScopeId): Boolean {
             if (hasCoreMean(scope)) return false
             val analysis = analyses.getValue(scope)
             if (scope !in sourceRequired && analysis.stages.drop(nativeStageCount(scope)).any {
-                it.operation is PostOperationContract.Derive || it.operation is PostOperationContract.PostFilter
+                it.operation is PostOperationContract.Derive || it.operation is PostOperationContract.PostFilter || exactRegroup(it)
             }) return false
             return nativeRoot(scope, requireNotNull(graph.scope(scope)))
         }
@@ -304,7 +334,7 @@ class CoreFinalizationGraph private constructor(sources: List<SourceCut>, nodes:
                 CoreFinalizationExpressions.unsupported(path(scope), "a source relational boundary depends on a value or population completed in CORE")
             val stages = analyses.getValue(scope).stages
             val scalar = if (scope in sourceRequired) -1 else stages.drop(stageCount).indexOfFirst {
-                it.operation is PostOperationContract.Derive || it.operation is PostOperationContract.PostFilter || isCoreMean(it.operation)
+                it.operation is PostOperationContract.Derive || it.operation is PostOperationContract.PostFilter || isCoreMean(it.operation) || exactRegroup(it)
             }
             requireSource(SourceCut(scope, if (scalar < 0) stages.size else stageCount + scalar), scope)
             return Root.Source

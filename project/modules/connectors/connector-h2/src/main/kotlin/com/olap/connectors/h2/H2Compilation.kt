@@ -1,6 +1,7 @@
 package com.olap.connectors.h2
 
 import com.olap.prototype.connector.CompilationSupport
+import com.olap.prototype.connector.FiniteDecimalTypes
 import com.olap.prototype.connector.NativeAggregateKeys
 import com.olap.prototype.connector.StandardJdbcTypes
 import com.olap.prototype.contract.*
@@ -19,6 +20,7 @@ import org.apache.calcite.sql.`fun`.*
 import org.apache.calcite.sql.parser.SqlParserPos
 import org.apache.calcite.sql.type.*
 import org.apache.calcite.tools.RelBuilder
+import java.sql.Types
 import java.util.function.Supplier
 
 internal class H2Compilation : CompilationSupport {
@@ -27,7 +29,10 @@ internal class H2Compilation : CompilationSupport {
     override fun nativeAggregate(kind: SqlKind): SqlAggFunction = when (kind) {
         SqlKind.SUM -> SqlStdOperatorTable.SUM
         SqlKind.AVG -> SqlStdOperatorTable.AVG
-        SqlKind.STDDEV_SAMP -> SqlBasicAggFunction.create(SqlKind.STDDEV_SAMP, ReturnTypes.DOUBLE_NULLABLE, OperandTypes.NUMERIC)
+        SqlKind.STDDEV_SAMP -> SqlBasicAggFunction.create(SqlKind.STDDEV_SAMP, { binding ->
+            require(!FiniteDecimalTypes.isFinite(binding.getOperandType(0))) { "H2 finite decimal deviation has no verified native mapping" }
+            ReturnTypes.DOUBLE_NULLABLE.inferReturnType(binding)
+        }, OperandTypes.NUMERIC)
         SqlKind.MIN -> SqlStdOperatorTable.MIN
         SqlKind.MAX -> SqlStdOperatorTable.MAX
         SqlKind.COUNT -> SqlStdOperatorTable.COUNT
@@ -47,6 +52,7 @@ internal class H2Compilation : CompilationSupport {
         if (kind !in setOf(SqlKind.SUM, SqlKind.AVG)) return null
         require(call.aggregation == nativeAggregate(kind) && call.argList.size == 1 && !call.isDistinct) { "H2 requires its actual scalar aggregate mapping" }
         val input = owner.input.rowType.fieldList[call.argList.single()].type
+        if (FiniteDecimalTypes.isFinite(input)) return null
         if (kind == SqlKind.AVG) return meanBehavior(input, call.type)
         // VARCHAR 经数据库 CompareMode 比较；仅在实际分组同时保留精确二进制身份时准入文本键。
         if (!NativeAggregateKeys.preservesExactIdentity(owner, this)) return null
@@ -61,6 +67,7 @@ internal class H2Compilation : CompilationSupport {
     override fun aggregateBehavior(over: RexOver): NativeAggregateBehavior? {
         if (over.aggOperator.kind != SqlKind.AVG) return null
         require(over.aggOperator == nativeAggregate(SqlKind.AVG) && over.operands.size == 1 && !over.isDistinct) { "H2 requires its actual scalar window AVG mapping" }
+        if (FiniteDecimalTypes.isFinite(over.operands.single().type)) return null
         return meanBehavior(over.operands.single().type, over.type)
     }
     private fun meanBehavior(input: RelDataType, result: RelDataType): NativeAggregateBehavior {
@@ -77,7 +84,13 @@ internal class H2Compilation : CompilationSupport {
     override val division: SqlOperator = SqlStdOperatorTable.DIVIDE
     override fun sortCollection(builder: RelBuilder, value: RexNode, descending: Boolean, nullsFirst: Boolean): RexNode = throw UnsupportedOperationException("H2 connector has no verified collection ordering mapping")
     override fun collectionText(builder: RelBuilder, value: RexNode, delimiter: String, nullReplacement: String?): RexNode = throw UnsupportedOperationException("H2 connector has no verified collection text mapping")
-    override fun jdbcType(factory: RelDataTypeFactory, column: JdbcColumnType): RelDataType = StandardJdbcTypes.resolve(factory, column)
+    override fun jdbcType(factory: RelDataTypeFactory, column: JdbcColumnType): RelDataType {
+        if (column.typeName.equals("DECFLOAT", ignoreCase = true)) {
+            require(column.jdbcType in setOf(Types.NUMERIC, Types.DECIMAL)) { "H2 DECFLOAT requires its actual numeric JDBC type" }
+            return FiniteDecimalTypes.create(requireNotNull(column.nullable) { "source nullability must be investigated before Calcite binding" })
+        }
+        return StandardJdbcTypes.resolve(factory, column)
+    }
     override fun textIdentityEquals(builder: RelBuilder, left: RexNode, right: RexNode): RexNode = builder.equals(codeBytes(builder, left), codeBytes(builder, right))
     override fun textIdentityKey(builder: RelBuilder, value: RexNode): RexNode = codeBytes(builder, value)
     override fun expandCollection(outputType: RelDataType, tableAlias: String): CompilationSupport.CollectionExpansion =
@@ -94,9 +107,14 @@ internal class H2Compilation : CompilationSupport {
         }, listOf(value))
     override fun numericFailure(value: SqlNode, type: RelDataType, position: SqlParserPos): SqlNode = SqlStdOperatorTable.CONCAT.createCall(position,
         SqlLiteral.createCharString("numeric contract violation", position), SqlStdOperatorTable.CAST.createCall(position, value, SqlDataTypeSpec(SqlBasicTypeNameSpec(SqlTypeName.VARCHAR, 64, position), position)))
-    override fun parameter(type: RelDataType, value: Any?): JdbcParameter = JdbcParameter.of(type.sqlTypeName.jdbcOrdinal, type.sqlTypeName.name, type.precision, type.scale,
-        requireNotNull(value) { "SQL NULL must remain a typed literal, not a bound parameter" })
-    override fun requireNativeCast(target: RelDataType) = Unit
+    override fun parameter(type: RelDataType, value: Any?): JdbcParameter {
+        require(!FiniteDecimalTypes.isFinite(type)) { "H2 finite decimal parameters have no verified native mapping" }
+        return JdbcParameter.of(type.sqlTypeName.jdbcOrdinal, type.sqlTypeName.name, type.precision, type.scale,
+            requireNotNull(value) { "SQL NULL must remain a typed literal, not a bound parameter" })
+    }
+    override fun requireNativeCast(target: RelDataType) {
+        require(!FiniteDecimalTypes.isFinite(target)) { "H2 finite decimal CAST has no verified exact native mapping" }
+    }
     override fun tablePath(catalog: String?, schema: String?, table: String): List<String> {
         require(!schema.isNullOrBlank() && table.isNotBlank()) { "exact JDBC coordinate is required" }
         return listOf(schema, table)

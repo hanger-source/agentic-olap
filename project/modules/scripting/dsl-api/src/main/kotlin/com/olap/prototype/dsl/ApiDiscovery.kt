@@ -41,7 +41,7 @@ data class ApiOverview(val formatVersion: String, val dslApiVersion: String, val
 
 /** 结构来自真实公开声明；局部语义规则只读取已知模型自身合同，不执行任意 getter 或工厂。 */
 object ApiDiscovery {
-    const val VERSION = "agentic-olap-kotlin-dsl/v10"
+    const val VERSION = "agentic-olap-kotlin-dsl/v11"
     val imports: List<String> = listOf("com.olap.prototype.dsl.*", "com.olap.prototype.governance.contract.*",
         "com.olap.prototype.governance.contract.GovernanceReadRequests.AssetVersionRequest",
         "com.olap.prototype.governance.contract.GovernanceReadRequests.DefinitionDependenciesRequest",
@@ -192,6 +192,10 @@ object ApiDiscovery {
             ResultExpression.ResultCall::class -> mapOf("coalesceAlternatives" to QueryValueSemantics.alternativeContract())
             ResultExpression.ResultRound::class -> ResultExpression.ResultRound.contract()
             ResultExpression.ResultOperation::class -> ResultExpression.ResultOperation.contract()
+            com.olap.prototype.metric.MetricValueContract.Result::class,
+            com.olap.prototype.metric.MetricValueContract.FiniteDecimal::class -> com.olap.prototype.metric.MetricValueContract.Result.contract()
+            com.olap.prototype.contract.NativeValueType::class -> com.olap.prototype.contract.NativeValueType.contract()
+            com.olap.prototype.api.ResultValueType.Scalar::class -> com.olap.prototype.api.ResultValueType.Scalar.contract()
             com.olap.prototype.metric.MetricValueContract.FixedBinary::class -> com.olap.prototype.metric.MetricValueContract.FixedBinary.contract()
             com.olap.prototype.metric.MetricValueContract.UnitEquation::class -> mapOf(
                 "fixedBinary" to com.olap.prototype.metric.MetricValueContract.FixedBinary.contract())

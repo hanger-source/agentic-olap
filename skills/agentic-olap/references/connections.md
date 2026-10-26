@@ -20,7 +20,7 @@ agentic-olap sdk --repository
 
 HTTP 或其他后端由使用方提供匹配其 SQL 后端及实际协议的插件；SQL 协议兼容不证明类型、数值、时间或一致性映射已经成立。业务 Agent 通过正式 MCP 使用已配置的来源。
 
-本仓库源码的连接器 API 为 `agentic-olap-connector/v15-kotlin-aggregate-work-calcite-1.42`；安装发行物时以实际服务及 `agentic-olap sdk` 披露的 API 为准。`connectorRef` 是 manifest 中实际的 `{id,version,sha256}`，数据源逐项引用该完整对象。服务核验 API 和摘要，驱动只由 JDBC 实现核验。
+本仓库源码的连接器 API 为 `agentic-olap-connector/v16-kotlin-finite-decimal-calcite-1.42`；安装发行物时以实际服务及 `agentic-olap sdk` 披露的 API 为准。`connectorRef` 是 manifest 中实际的 `{id,version,sha256}`，数据源逐项引用该完整对象。服务核验 API 和摘要，驱动只由 JDBC 实现核验。
 
 产品版本或 SDK Maven 坐标变化本身不要求重新构建既有插件。原插件与目标宿主的连接器 API 相同、所用公共接口的二进制合同及 JVM、Kotlin、Calcite 要求满足时，可原样保留完整插件组。宿主仍逐项核验原 manifest、JAR 摘要、完整 `connectorRef` 和 provider 身份；不因产品升级改写它们。API 字符串相同和装载成功都不能单独证明尚未调用的分支成立，升级须用原精确插件完成实际使用能力的查询验证。原字节和来源身份配置均未改变时，来源绑定也不变，无需仅为产品版本重登记目录或修订资产。
 
@@ -100,9 +100,13 @@ olap.output(olap.sources.connectorCapabilities(ConnectorCapabilitiesRequest(aggr
 
 `MeanTarget.MATHEMATICAL` 对实际参与值求数学均值，再完成该节点声明的最终量化；`SOURCE_NATIVE` 有意采用本发布所选实现的原生均值，再应用输出合同。目标与 `Exact / Approximate / NativeFloating` 独立，结果表示为 DECIMAL 不会恢复输入已失去的保证。作者声明人口、NULL、单位、结果容量和最终舍入，不填写后端原生舍入。所选执行位置无法兑现目标时明确拒绝，不改变业务目标或自动换算法。 AVG 的 `valueContract` 与 `meanTarget` 必填，快照 MEAN 的 `meanValueContract` 是该实体时间归约自己的量化，外层聚合继续独立。发现的原生行为供理解实现范围，真实 Query 才检查实际形态和目标。
 
-显式 CORE_FINALIZATION 支持完成关系 REGROUP 对来源无损交付的 Exact 整数或固定 Decimal 求 MATHEMATICAL AVG；它按各列独立 NULL 人口、重复权重及一次节点最终量化执行。引擎可在完整输入域、工作容量与实际行为已证明时生成精确工作 SUM 和独立非 NULL 计数状态，最终除法和量化仍在 CORE；保证未知则运输原袋，不调用未知原生 AVG。作者无需改成 SUM／COUNT、重建 ROOT 或另存指标。来源原袋和编译状态不消费最终业务结果限额，来源执行仍受取消、原生内存及自身真实约束，最终业务 Value 由结果 owner 统一计量。形成观察的来源 NativeCall、LEFT、CASE 仍由来源兑现。事实、窗口、快照及 SOURCE_NATIVE 的均值不自动移入核心，来源原生 AVG 仍须有实际行为和容量依据；已有精度损失或越界证据不能因最终改 Decimal 或选择 SOURCE_NATIVE 而变 Exact。
+显式 CORE_FINALIZATION 支持完成关系 REGROUP 对来源无损交付的 Exact 整数、固定 Decimal 或 FiniteDecimal 求 MATHEMATICAL AVG；它按各列独立 NULL 人口、重复权重及一次节点最终量化执行。引擎可在完整输入域、工作容量与实际行为已证明时生成精确工作 SUM 和独立非 NULL 计数状态，最终除法和量化仍在 CORE；工作保证未知则在该模式内运输原袋，不调用未知原生 AVG。作者无需改成 SUM／COUNT、重建 ROOT 或另存指标。来源原袋和编译状态不消费最终业务结果限额，来源执行仍受取消、原生内存及自身真实约束，最终业务 Value 由结果 owner 统一计量。形成观察的来源 NativeCall、LEFT、CASE 仍由来源兑现。事实、窗口、快照及 SOURCE_NATIVE 的均值不自动移入核心，来源原生 AVG 仍须有实际行为和容量依据；已有精度损失或越界证据不能因最终改 Decimal 或选择 SOURCE_NATIVE 而变 Exact。
 
-精确 Decimal 当前为固定 precision／scale；NUMERIC 标签或缺失 p/s 不代表支持可变尺度输入，未知工作容量不代表无限容量。输入解析、聚合工作和节点最终容量是不同保证：单值可容纳不证明 SUM 可容纳，38,20 比38,18多两位小数、少两位整数，并非全面无损扩大。完整边界见[来源接入的数值职责](https://github.com/hanger-source/agentic-olap/blob/main/docs/source-access.md)。
+`MetricValueContract.FiniteDecimal` 明确表示有限十进制值域，未预定共同 p/s、不隐含量化，不自行赋 Exact 或工作容量。原生及结果类型明确写 `FINITE_DECIMAL` 且 p/s 均为空；普通 DECIMAL 仍要求固定容量，NUMERIC 标签或空 p/s 不能替代显式声明。Integer／固定 Decimal 可无损进入 Finite，反向没有静态保证，与 BinaryFloat 不隐式合并；最终量化仍用明确的 Decimal／ROUND／CAST 节点，不能有限表示的未量化有理商准确拒绝。输入解析、聚合工作和节点最终容量分别保证：Finite 不证明精确 SUM 中间容量或原生 AVG，工作 SUM 仍需实际 ExactOrFail 与容量依据；38,20 比38,18多两位小数、少两位整数，并非全面无损扩大。
+
+H2 仅把实际 DECFLOAT 作为有限原值无损读取，再由显式 CORE 承接；当前未兑现 Finite SOURCE SUM／AVG／CAST 等原生算术。来源不支持时拒绝，不自动换模式，也不能以此参考映射声称 Hologres 业务已通过。真实收入中的 TEXT 先 Exact 解析／SUM，再按原 COALESCE、括号和 NULL 顺序与两个 float8 分量混合，实际浮点节点应保留 NativeFloating／BinaryFloat64，不提前转 Double 后求和或把最终结果标成全 Exact。完整边界见[来源接入的数值职责](https://github.com/hanger-source/agentic-olap/blob/main/docs/source-access.md)。
+
+显式 CORE 可选择末端 Exact SUM、数值 MIN／MAX 及其混合的已支持 COUNT，不依赖数学 AVG 或 Finite 输入触发。实际来源关系消费者和后续来源表达仍要求完整来源前缀，不能将 CORE 输出送回来源；浮点、本地 JOIN 和未知原生 AVG 不因此进入核心能力。SOURCE 的选择保持，不在失败后自动转 CORE。
 
 ## 显式提供结构
 

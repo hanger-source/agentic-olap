@@ -1,6 +1,7 @@
 package com.olap.prototype.engine.executable
 
 import com.olap.prototype.engine.EngineExecutionException
+import com.olap.prototype.connector.FiniteDecimalTypes
 import com.olap.prototype.expression.SemanticExpression
 import com.olap.prototype.expression.ScalarFunction
 import com.olap.prototype.expression.SemanticNativeTypes
@@ -82,6 +83,7 @@ internal class CoreFinalizationExpressions(private val symbols: Map<String, Core
         val type = CoreScalarType(CoreScalarType.Kind.NUMBER, input.type.nullable, resultType(contract.result, input.type.nullable))
         return expression(type, path) { row, control -> input.evaluate(row, control).numberOrNull { number ->
             val result = when (val capacity = contract.result) {
+                MetricValueContract.FiniteDecimal -> number.also { it.decimal() }
                 is MetricValueContract.Decimal -> number.rounded(capacity.scale, capacity.rounding).also { requireDecimal(it, capacity.precision, capacity.scale) }
                 is MetricValueContract.Integer -> number.also { requireInteger(it, capacity.bits) }
                 is MetricValueContract.BinaryFloat -> error("floating contract was not admitted")
@@ -109,6 +111,7 @@ internal class CoreFinalizationExpressions(private val symbols: Map<String, Core
                 val scale = (result as? MetricValueContract.Decimal)?.scale ?: 0
                 val rounded = number.rounded(scale, cast.rounding)
                 when (result) {
+                    MetricValueContract.FiniteDecimal -> error("finite decimal CAST is not a fixed-capacity conversion")
                     is MetricValueContract.Decimal -> requireDecimal(rounded, result.precision, result.scale)
                     is MetricValueContract.Integer -> requireInteger(rounded, result.bits)
                     is MetricValueContract.BinaryFloat -> error("floating cast was not admitted")
@@ -158,7 +161,9 @@ internal class CoreFinalizationExpressions(private val symbols: Map<String, Core
             ScalarFunction.NULLIF -> {
                 requireComparable(ResultOperator.EQ, arguments, path)
                 val firstType = arguments.first().type
-                val type = firstType.copy(nullable = true, storage = firstType.storage?.let { factory.createTypeWithNullability(it, true) })
+                val type = firstType.copy(nullable = true, storage = firstType.storage?.let {
+                    if (FiniteDecimalTypes.isFinite(it)) FiniteDecimalTypes.create(true) else factory.createTypeWithNullability(it, true)
+                })
                 expression(type, path) { row, control ->
                     val first = arguments[0].evaluate(row, control)
                     val second = arguments[1].evaluate(row, control)
@@ -181,9 +186,12 @@ internal class CoreFinalizationExpressions(private val symbols: Map<String, Core
                 val types = values.filter { it.type.kind != CoreScalarType.Kind.NULL }.map { it.type.storage }
                 if (types.any { it == null }) null else {
                     val actualTypes = types.filterNotNull()
-                    val scale = actualTypes.maxOf { maxOf(0, it.scale) }
-                    val integer = actualTypes.maxOf { it.precision - maxOf(0, it.scale) }
-                    decimalType(maxOf(1, Math.addExact(integer, scale)), scale, nullable)
+                    if (actualTypes.any(FiniteDecimalTypes::isFinite)) FiniteDecimalTypes.create(nullable)
+                    else {
+                        val scale = actualTypes.maxOf { maxOf(0, it.scale) }
+                        val integer = actualTypes.maxOf { it.precision - maxOf(0, it.scale) }
+                        decimalType(maxOf(1, Math.addExact(integer, scale)), scale, nullable)
+                    }
                 }
             }
             CoreScalarType.Kind.PRESERVED -> error("preserved alternatives were not admitted")
@@ -311,10 +319,16 @@ internal class CoreFinalizationExpressions(private val symbols: Map<String, Core
             val kinds = types.map { it.kind }.filter { it != CoreScalarType.Kind.NULL }.distinct()
             if (kinds.size > 1) unsupported(path, "completed identity projections require the same actual scalar kind")
             val storage = types.map { requireNotNull(it.storage) { "completed projection needs its actual representation" } }
+            if (storage.any(FiniteDecimalTypes::isFinite)) {
+                if (storage.any { it.sqlTypeName != SqlTypeName.NULL && !SqlTypeUtil.isExactNumeric(it) })
+                    unsupported(path, "finite decimal identity projections require exact numeric alternatives")
+                return CoreScalarType(CoreScalarType.Kind.NUMBER, nullable, FiniteDecimalTypes.create(nullable))
+            }
             val common = SemanticNativeTypes.commonType(factory, storage, "completed projection")
             return CoreScalarType(kinds.singleOrNull() ?: CoreScalarType.Kind.NULL, nullable, factory.createTypeWithNullability(common, nullable))
         }
         fun resultType(result: MetricValueContract.Result, nullable: Boolean): RelDataType = when (result) {
+            MetricValueContract.FiniteDecimal -> FiniteDecimalTypes.create(nullable)
             is MetricValueContract.Decimal -> decimalType(result.precision, result.scale, nullable)
             is MetricValueContract.Integer -> when (result.bits) {
                 8 -> sqlType(SqlTypeName.TINYINT, nullable)

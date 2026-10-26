@@ -48,6 +48,7 @@ internal object ExecutableQuantityValues {
     private fun requireQuantity(quantity: QueryQuantity, value: Value, context: Map<ValuePosition, Value>) {
         check(value is ScalarValue && value.type in setOf(INTEGER, DECIMAL, FLOAT)) { "quantity has a nonnumeric result encoding" }
         check(quantity.declaration.arithmetic !is MetricValueContract.Exact || value.type != FLOAT) { "floating result violates exact quantity arithmetic" }
+        check(quantity.declaration.result != MetricValueContract.FiniteDecimal || value.type in setOf(INTEGER, DECIMAL)) { "finite decimal quantity requires an exact numeric result encoding" }
         quantity.declaration.requireScalar(Calculation.Scalar(ScalarValueType.NUMBER, value.value))
         val unit = quantity.unit as? QueryQuantity.Dimension ?: return
         val identities = unit.keys.mapNotNull { key ->

@@ -372,6 +372,69 @@ class MemberRelationExecutionTest {
     private fun coreQuery(definitions: Definitions, calculation: Calculation, basis: Calculation.Scope,
         outerStages: List<PostOperationContract.ValidatedOperation>) = Calculation.Scope(Calculation.Compute(calculation, Calculation.ExplicitBindings(CalculationBindings(dimensions = observationBindings(definitions, emptyMap(), emptyMap()).dimensions, relations = mapOf("completed" to CalculationBindings.LocalRelation("basis", listOf("customer", "numerator", "denominator").associateWith { it })))), emptyMap()), mapOf("basis" to Calculation.InputScope("ROOT", basis)), outerStages)
 
+    @Test fun finiteDecimalInputsKeepTheirValuesThroughCoreGroupingAndNodeQuantization(@TempDir directory: Path) {
+        val finite = MetricValueContract(MetricValueContract.Fixed(MetricValueContract.ONE), MetricValueContract.Exact(),
+            MetricValueContract.FiniteDecimal, emptyMap(), MetricValueContract.Overflow.FAIL)
+        NativeWarehouse(directory, "h2", listOf(
+            "CREATE TABLE orders(id INTEGER PRIMARY KEY,customer INTEGER,period INTEGER,kind INTEGER,amount DECFLOAT(100))",
+            """INSERT INTO orders VALUES
+                (1,1,1,0,1.00000000000000000001),(2,1,1,0,2.00000000000000000002),(3,1,1,0,NULL),
+                (4,2,1,0,100000000000000000000),(5,2,1,0,-99999999999999999999.99999999999999999999),
+                (6,3,1,0,NULL),(7,3,1,0,NULL),(8,4,1,0,1),(9,4,1,0,0),(10,4,1,0,0),
+                (11,5,1,0,100000000000000000000.00000000000000000001)
+            """.trimIndent())).use { warehouse ->
+            val definitions = coreDefinitions(warehouse)
+            val original = definitions.members.getValue("orders@1") as MemberSource.Projection
+            val declared = original.definition.result
+            definitions.members["orders@1"] = MemberSource.Projection("orders", 1, MemberSourceDefinition.Projection(original.definition.event,
+                MemberResult(declared.entity, declared.role, MemberShape.RAW_BAG, emptyList(), declared.outputs +
+                    ("amount" to property("有限原值", "amount", ScalarValueType.NUMBER, "orders.amount", contract = finite)),
+                    declared.filterOperators, null, emptyMap(), null)), original.outputExpressions)
+            fun query(condition: MemberCondition, tail: List<PostOperationContract.ValidatedOperation> = emptyList()): Calculation.Scope {
+                val root = Calculation.Members("finite_records", Calculation.MemberSource(MemberRef("orders", 1)), listOf(
+                    Calculation.MemberProjection("customer", "customer", Calculation.PublishedDimension(ScopedInputContract.DimensionRef("customers", "1", "customer"))),
+                    Calculation.MemberProjection("amount", "amount", null)), null, emptyMap(), condition, emptyMap(), emptyMap(), emptyMap())
+                return Calculation.Scope(root, emptyMap(), listOf(regroup(listOf("customer"), listOf(
+                    reduction("amount", ResultAggregation.Sum(finite, ResultAggregation.NullPolicy.IGNORE), "total"),
+                    reduction("amount", ResultAggregation.Count(false, ResultAggregation.NullPolicy.IGNORE), "known")))) + tail)
+            }
+            warehouse.finishSetup()
+            val catalog = definitions.catalog()
+            val engine = engine(warehouse)
+            var sequence = 0
+            fun execute(query: Calculation.Scope, mode: QueryExecutionMode = QueryExecutionMode.CORE_FINALIZATION): ExecutableBusinessResult {
+                val restored = SemanticProto.fromProto(ProtoBytes.decode(ProtoBytes.encode(SemanticProto.toProto(query)),
+                    com.olap.prototype.wire.semantic.CalculationScope.getDefaultInstance()))
+                return engine.execute(catalog, ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION, "finite-${sequence++}",
+                    catalog.manifest.catalogId, restored, mode), observer, RuntimeDeploymentLimits.CONTROL).businessResult
+            }
+            val result = execute(query(MemberCondition.Unrestricted(), listOf(Derive(ResultNumeric(
+                ResultCall(ScalarFunction.COALESCE, listOf(symbol("total"), ResultQuantityLiteral(BigDecimal.ZERO, finite))), finite, null),
+                "presented_total", "只在完成后补零"))))
+            assertEquals(listOf(
+                listOf(decimal("1"), decimal("3.00000000000000000003"), decimal("2"), decimal("3.00000000000000000003")),
+                listOf(decimal("2"), decimal("0.00000000000000000001"), decimal("2"), decimal("0.00000000000000000001")),
+                listOf(decimal("3"), null, decimal("0"), decimal("0")),
+                listOf(decimal("4"), decimal("1"), decimal("3"), decimal("1")),
+                listOf(decimal("5"), decimal("100000000000000000000.00000000000000000001"), decimal("1"), decimal("100000000000000000000.00000000000000000001"))
+            ), numericRows(result), "来源逐值读取不能先套统一38,18或38,20，NULL和袋累计由正式CORE执行")
+            val quantized = query(memberEquals("customer", 1), listOf(Derive(ResultNumeric(symbol("total"),
+                coreDecimal(38, 18, MetricValueContract.Rounding.HALF_UP), null), "rounded", "最终节点量化"), Project(listOf("customer", "rounded"))))
+            assertEquals(listOf(listOf(decimal("1"), decimal("3"))), numericRows(execute(quantized)))
+            val third = ResultOperation(ResultOperator.DIVIDE, listOf(symbol("total"), symbol("known")))
+            val unquantized = query(memberEquals("customer", 4), listOf(Derive(ResultNumeric(third, finite, null), "third", "有限出口不接受循环小数")))
+            val failure = assertThrows(EngineExecutionException::class.java) { execute(unquantized) }
+            assertEquals("CORE_FINALIZATION_EXACT_RESULT_NOT_REPRESENTABLE", failure.code)
+            assertEquals(SourceExecutionState.SUCCEEDED, requireNotNull(failure.sourceReadEvidence).request.execution)
+            val rounded = query(memberEquals("customer", 4), listOf(Derive(ResultNumeric(third,
+                coreDecimal(38, 18, MetricValueContract.Rounding.HALF_UP), null), "third", "显式最终量化"), Project(listOf("customer", "third"))))
+            assertEquals(listOf(listOf(decimal("4"), decimal("0.333333333333333333"))), numericRows(execute(rounded)))
+            // 同一来源的DECFLOAT输入可读，不代表它的SUM/AVG映射已经具有精确原生保证。
+            val refused = assertThrows(EngineExecutionException::class.java) { execute(query(MemberCondition.Unrestricted()), QueryExecutionMode.SOURCE) }
+            assertEquals(false, refused.sourceExecutionStarted)
+        }
+    }
+
     @Test fun finalizesSixMathematicalAveragesWithIndependentNullPopulations(@TempDir directory: Path) {
         for (dialect in listOf("h2", "duckdb")) NativeWarehouse(directory, dialect, listOf(
             "CREATE TABLE orders(id INTEGER PRIMARY KEY,customer INTEGER,period INTEGER,kind INTEGER,amount DECIMAL(38,0)," +
@@ -530,6 +593,15 @@ class MemberRelationExecutionTest {
             assertEquals(5, transported, "12000条观察只运输五组工作状态，原NULL过滤仍在同一来源请求中")
             assertEquals(1, submissions)
             assertEquals(SourceExecutionState.SUCCEEDED, result.sourceReadEvidence.request.execution)
+            val sourceGrouped = Calculation.Scope(raw, emptyMap(), listOf(query.stages.first(), regroup(listOf("region"), listOf(
+                reduction("amount", ResultAggregation.Sum(total, ResultAggregation.NullPolicy.IGNORE), "total"),
+                reduction("amount", ResultAggregation.Count(false, ResultAggregation.NullPolicy.IGNORE), "known")))))
+            val native = engine.execute(catalog, ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION, "native-exact-groups",
+                catalog.manifest.catalogId, sourceGrouped, QueryExecutionMode.SOURCE), observer, RuntimeDeploymentLimits.CONTROL)
+            val nativeRows = native.businessResult.rows.associate { row -> (row[0] as ExecutableBusinessResult.ScalarValue).value to
+                row.drop(1).map { decimal((it as ExecutableBusinessResult.ScalarValue).value) } }
+            assertEquals(expected.mapValues { (_, values) -> values.drop(1).map { it.stripTrailingZeros() } }, nativeRows,
+                "同一不区分大小写的来源上，正式SOURCE分组也保留精确文本身份")
             // 相同小最终配额仍应约束真实的大业务结果，不因为来源工作配额退出而失效。
             val ungrouped = Calculation.Scope(raw, emptyMap(), emptyList())
             val oversized = ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION, "large-final-result", catalog.manifest.catalogId, ungrouped)

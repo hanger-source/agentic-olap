@@ -15,6 +15,7 @@ object StandardJdbcTypes {
         val observedScale = observed.scale
         val expectedPrecision = expected.precision
         val expectedScale = expected.scale
+        if (expected.name == "FINITE_DECIMAL") return expectedPrecision == null && expectedScale == null && jdbc in setOf(Types.DECIMAL, Types.NUMERIC)
         return when (val type = SqlTypeName.valueOf(expected.name)) {
             SqlTypeName.TINYINT, SqlTypeName.SMALLINT, SqlTypeName.INTEGER, SqlTypeName.BIGINT -> integerBits(jdbc) >= integerBits(type.jdbcOrdinal)
             SqlTypeName.DECIMAL -> jdbc in setOf(Types.DECIMAL, Types.NUMERIC) && observedPrecision != null && observedScale != null && expectedPrecision != null && expectedScale != null &&

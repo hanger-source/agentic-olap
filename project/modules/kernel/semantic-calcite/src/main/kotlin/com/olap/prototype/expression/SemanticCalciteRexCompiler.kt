@@ -66,6 +66,7 @@ class SemanticCalciteRexCompiler(private val builder: RelBuilder, private val pa
                 require(!SqlTypeUtil.isApproximateNumeric(input.type) && !(input.type.sqlTypeName == SqlTypeName.DECIMAL && input.type.scale > targetScale)) {
                     "numeric cast would discard digits without an explicit rounding policy"
                 }
+                value = SemanticNumericRex.requireScale(builder, input, targetScale)
             } else value = SemanticNumericRex.round(builder, input, targetScale, rounding)
         }
         val factory = builder.typeFactory

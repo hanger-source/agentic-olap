@@ -97,7 +97,9 @@ object SemanticExpressionValueType {
                     }
                 }
                 val type = declaration.resultType
-                placeholder(SqlTypeName.valueOf(type.name), type.precision, type.scale)
+                // 本入口只判定标量类别；有限十进制用 NUMBER 值作占位，不虚构共同 DECIMAL 容量。
+                if (type.name == "FINITE_DECIMAL") SqlLiteral.createExactNumeric("0", pos)
+                else placeholder(SqlTypeName.valueOf(type.name), type.precision, type.scale)
             }
             is SemanticExpression.Call -> SemanticCalciteOperators.sqlCall(expression, ::recurse)
             is SemanticExpression.Operation -> {

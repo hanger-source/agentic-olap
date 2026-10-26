@@ -33,10 +33,10 @@ agentic-olap call describe-script-api --payload '{"type":"com.olap.prototype.cal
 
 ## 会话中调用正式能力
 
-`execute-script` 向持续 Kotlin 会话提交一个完整代码片段。DSL 为 `agentic-olap-kotlin-dsl/v10`，实际版本取服务发现结果。省略或留空 `sessionId` 创建会话；后续用实际返回的 `sessionId` 在同一 JVM 中继续。首次调用可以读取来源并保留 Kotlin 对象：
+`execute-script` 向持续 Kotlin 会话提交一个完整代码片段。DSL 为 `agentic-olap-kotlin-dsl/v11`，实际版本取服务发现结果。省略或留空 `sessionId` 创建会话；后续用实际返回的 `sessionId` 在同一 JVM 中继续。首次调用可以读取来源并保留 Kotlin 对象：
 
 ~~~sh
-agentic-olap call execute-script --payload '{"executionId":"sources-001","waitMillis":0,"source":"val sources = olap.sources.list(EmptyRequest)\nolap.output(sources)","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v10","parameters":{}}'
+agentic-olap call execute-script --payload '{"executionId":"sources-001","waitMillis":0,"source":"val sources = olap.sources.list(EmptyRequest)\nolap.output(sources)","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v11","parameters":{}}'
 agentic-olap call wait-script --payload '{"executionId":"sources-001","waitMillis":1000}'
 ~~~
 
@@ -347,7 +347,11 @@ val dayStatistics = Calculation.Scope(
 
 ## 数量合同与人口
 
-数量合同分别声明单位、算术保证、结果容量与溢出行为。`COUNT` 的单位必须是 `MetricValueContract.Fixed(MetricValueContract.ONE)`：它产生无量纲计数，不能改成自定义的“订单”或“访客”单位。数的是哪类对象、是否去重以及选择哪批人口，由事件、输入、`distinct` 和计算人口表达。
+数量合同分别声明单位、算术保证、结果表示与溢出行为。`COUNT` 的单位必须是 `MetricValueContract.Fixed(MetricValueContract.ONE)`：它产生无量纲计数，不能改成自定义的“订单”或“访客”单位。数的是哪类对象、是否去重以及选择哪批人口，由事件、输入、`distinct` 和计算人口表达。
+
+`result = MetricValueContract.FiniteDecimal` 表达有限十进制值域，没有预定共同 precision／scale，也不执行量化。Integer／固定 Decimal 可无损进入 Finite；Finite 不能隐式进入固定容量或与 BinaryFloat 合并，后续节点仍可明确 `Decimal(p,s,rounding)`。选择 Finite 不会自行赋予 Exact，也不证明来源解析、SUM 的中间容量或原生 AVG。技术类型和结果元数据使用显式 `FINITE_DECIMAL` 且 p/s 均为空；普通 DECIMAL 缺容量不能当作它。类型、封闭变体和规则从 `describe-script-api` 继续读取。
+
+TEXT 分量先由有保证的原生函数精确解析、按原袋完成 Exact SUM，之后才与原生 float8 分量按原 COALESCE、NULL 和括号顺序混合。实际浮点节点声明 NativeFloating／BinaryFloat64，不提前把原记录转 Double 再 SUM，也不把最终混合结果写成全 Exact。选择 SOURCE 或 CORE 仍须由该实际执行路径兑现；来源未支持时准确拒绝，不自动换模式。H2 的 DECFLOAT 仅提供有限原值读取及显式 CORE 承接，不证明它的 Finite SOURCE SUM／AVG／CAST，也不证明 Hologres 业务已通过。
 
 结果算术的局部规则从 `ResultExpression.ResultNumeric`、`ResultRound`、`ResultOperation` 和 `ResultOperator` 的 `rules` 读取。`ResultNumeric` 提供当前位置可见的数量声明；声明可以传给 CASE 的结果分支、ROUND、CAST 或算术操作数，内层 NUMERIC 则使用自己的声明。单位方程的作用域更窄：`unitEquation` 只供这个 NUMERIC **直接包住的算术节点**使用，不穿透 ROUND、CASE、CAST、函数或操作数。乘除双方均为单位 ONE 时可省略方程，其他乘除必须在实际算术位置显式声明。
 
@@ -405,11 +409,13 @@ Unit
 
 事实 AVG 使用 `FactMeasure.meanTarget`，完成关系、partition／window 与观察窗口使用 `ResultAggregation.Average(valueContract, nullPolicy, meanTarget)`，快照 MEAN 使用 `MetricSnapshotRule.meanTarget`。快照的 `meanValueContract` 在每个实体的时间均值处量化，随后外层聚合是另一项计算；不能把两步压成一次全总体均值。非 AVG／MEAN 不携带均值目标。
 
-选择 CORE_FINALIZATION 时，完成关系 REGROUP 的 `Average(..., MATHEMATICAL)` 可以直接消费来源无损交付的 Exact 整数或 Decimal 原袋，由核心按组求数学均值，在该节点应用一次最终数量和量化合同。各列独立遵守自己的 NULL 政策及参与次数，重复行保留权重；全 NULL 组的均值为 NULL，无记录的有键分组不制造结果行，无分组的空袋归约依聚合语义返回一行。工作和与计数不按最终 Decimal 容量提前截断。作者无需改写为 SUM／COUNT，也不依赖原生 AVG 的映射来执行这个核心节点。
+选择 CORE_FINALIZATION 时，完成关系 REGROUP 的 `Average(..., MATHEMATICAL)` 可以直接消费来源无损交付的 Exact 整数、固定 Decimal 或 FiniteDecimal 原袋，由核心按组求数学均值，在该节点应用一次最终数量和量化合同。各列独立遵守自己的 NULL 政策及参与次数，重复行保留权重；全 NULL 组的均值为 NULL，无记录的有键分组不制造结果行，无分组的空袋归约依聚合语义返回一行。工作和与计数不按最终 Decimal 容量提前截断；Finite 输出若不能有限表示数学结果，则须明示量化或接受准确失败。作者无需改写为 SUM／COUNT，也不依赖原生 AVG 的映射来执行这个核心节点。
 
-来源已证明本次精确工作行为、完整分组身份和足够工作容量时，引擎可以生成工作 SUM 与各列独立非 NULL 计数状态，最终除法和量化仍在 CORE。计数也需要精确工作保证，不因 BIGINT 返回类型而默认安全；PROPAGATE 另保留总次数。引擎在聚合前按完整输入域选择无损工作表示，不复用最终 AVG 的 Decimal 容量限制累加。文本分组由插件的 `textIdentityKey` 提供保 NULL 的精确二进制身份，与原键共同分组后移除辅助键，不让原生 collation 合并不同文本。保证未知则继续交付原袋，不调用未知 AVG，也不在执行失败后重试另一计划。同一作者计算体、人口、NULL 政策和最终合同适用于两种物理路线；物理工作状态不要求作者重建 ROOT 或额外保存指标。
+来源已证明本次精确工作行为、完整分组身份和足够工作容量时，引擎可以生成工作 SUM 与各列独立非 NULL 计数状态，最终除法和量化仍在 CORE。计数也需要精确工作保证，不因 BIGINT 返回类型而默认安全；PROPAGATE 另保留总次数。引擎在聚合前按完整输入域选择无损工作表示，不复用最终 AVG 的 Decimal 容量限制累加，也不从 Finite 推定某个固定工作容量。文本分组由插件的 `textIdentityKey` 提供保 NULL 的精确二进制身份，与原键共同分组后移除辅助键，不让原生 collation 合并不同文本。保证未知则在该显式 CORE 计划中继续交付原袋，不调用未知 AVG，也不在执行失败后重试另一计划。同一作者计算体、人口、NULL 政策和最终合同适用于两种物理路线；物理工作状态不要求作者重建 ROOT 或额外保存指标。
 
 这项能力不将事实 AVG、窗口 AVG 或快照 MEAN 自动移到核心，SOURCE_NATIVE 也不改为数学均值。来源执行的均值仍须提供该实际节点的原生类型及保证映射。形成观察袋的 NativeCall、LEFT 和来源 CASE 保留在原来源前缀；后续不支持的关系或函数不能消费核心结果。原生映射拒绝的回执保留受控原因，区分类型／行为不可用、输入保证升级与数学量化尚未证明；来源未提交不表示数据库已执行失败。显式组织统计量和除法属于另一份明确计算，不能用它替代原 AVG 的语义或场景权限。
+
+显式 CORE 也可直接承接末端完成关系的 Exact SUM、数值 MIN／MAX 及其混合的已支持 COUNT，不要求先出现数学 AVG；整数、固定 Decimal、FiniteDecimal 遵守同一选择规则。若该结果仍被实际来源关系阶段或后续来源表达消费，输入仍须在来源完整完成，不能把 CORE 输出搬回来源。它不开放浮点核心运算或任意本地 JOIN；SOURCE 不会因来源拒绝而自动转 CORE。
 
 真实输入的算术保证在投影前保留；选择数学算法、扩大容量或显式转成 DECIMAL 都不将 NativeFloating 提升为 Exact 或已知误差界。当前没有为非零 Approximate 误差建立通用均值传播规则，不能仅凭相同容差继续承诺。作者可保留诚实的数量声明；执行器无法满足组合时返回受控原因，不自动改变声明。已完成数值继续可以参与 CASE、SET、求和及后续定义，数量来历保留均值目标、NULL 政策与实际量化，不把未证明等价当作计算非法。
 

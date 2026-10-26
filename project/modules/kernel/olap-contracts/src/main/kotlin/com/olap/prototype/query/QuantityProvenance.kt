@@ -58,6 +58,7 @@ internal object QuantityProvenance {
         is Quantized -> when (val result = value.inputDeclaration.result) {
             is MetricValueContract.Decimal -> result.scale <= value.scale
             is MetricValueContract.Integer -> value.scale >= 0
+            MetricValueContract.FiniteDecimal -> false
             is MetricValueContract.BinaryFloat -> false
         }
         is Cast -> when (value.targetType) {
@@ -69,6 +70,7 @@ internal object QuantityProvenance {
                 is MetricValueContract.BinaryFloat -> result.bits <= 64
                 is MetricValueContract.Integer -> result.bits <= 32
                 is MetricValueContract.Decimal -> result.scale == 0 && result.precision <= 15
+                MetricValueContract.FiniteDecimal -> false
             }
             else -> false
         }

@@ -210,6 +210,7 @@ internal class CoreSourceReduction private constructor(
                 } <= result.bits
                 is MetricValueContract.Decimal -> result.scale >= scale && result.precision - result.scale >= precision - scale
                 is MetricValueContract.BinaryFloat -> false
+                MetricValueContract.FiniteDecimal -> true
             }
             // 每组合法INTEGER64次数的完整输入域：p位定点累计最多需要p+19位，不用样本估界。
             if (!domainCovered || precision + 19 > support.maximumDeclaredDecimalPrecision) return null
