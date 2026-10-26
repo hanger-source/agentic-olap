@@ -4,6 +4,7 @@ import com.olap.prototype.expression.ScalarFunction
 
 import com.olap.prototype.connector.JdbcAccess
 import com.olap.prototype.connector.CompilationSupport
+import com.olap.prototype.connector.FiniteDecimalTypes
 import com.olap.prototype.connector.NativeCompilationCapabilityException
 import com.olap.prototype.contract.JdbcParameter
 import com.olap.prototype.contract.NativeTableDependency
@@ -24,6 +25,8 @@ import com.olap.prototype.query.ScalarValueType
 import org.apache.calcite.avatica.util.TimeUnit
 import org.apache.calcite.rel.RelNode
 import org.apache.calcite.rel.core.JoinRelType
+import org.apache.calcite.rel.core.Aggregate
+import org.apache.calcite.rel.core.AggregateCall
 import org.apache.calcite.rex.RexNode
 import org.apache.calcite.rex.RexCorrelVariable
 import org.apache.calcite.rex.RexSubQuery
@@ -34,6 +37,7 @@ import org.apache.calcite.sql.parser.SqlParser
 import org.apache.calcite.sql.util.SqlBasicVisitor
 import org.apache.calcite.sql.util.SqlString
 import org.apache.calcite.sql.`fun`.SqlCase
+import org.apache.calcite.sql.`fun`.SqlBasicAggFunction
 import org.apache.calcite.sql.type.OperandTypes
 import org.apache.calcite.sql.type.ReturnTypes
 import org.apache.calcite.sql.type.SqlTypeName
@@ -151,6 +155,71 @@ class CalciteSqlConversionExecutionTest {
             val result = rows(source, b.build())
             assertEquals(listOf("A", "C", "C"), result.map { it[0] })
             listOf("3", "10", "10").forEachIndexed { index, value -> decimal(result[index][1], value) }
+        }
+    }
+    @Test fun typedAggregateSqlGuardsOnlyItsActualFiniteInputAcrossSharedConsumers(@TempDir directory: Path) {
+        source(directory, "h2").use { source ->
+            source.connection.createStatement().use {
+                it.execute("ALTER TABLE observations ADD finite_amount DECFLOAT(100)")
+                it.execute("UPDATE observations SET finite_amount=amount")
+                it.execute("UPDATE observations SET amount=amount*1000")
+            }
+            val baseSupport = TestConnectors.registry.require(source.spec.connectorRef).compilation
+            // 这里只执行受守卫的有限样本，不声明H2的全域Finite SUM具有ExactOrFail保证。
+            val sum = SqlBasicAggFunction.create(SqlKind.SUM, { binding ->
+                if (FiniteDecimalTypes.isFinite(binding.getOperandType(0))) FiniteDecimalTypes.create(true)
+                else baseSupport.nativeAggregate(SqlKind.SUM).inferReturnType(binding)
+            }, OperandTypes.NUMERIC)
+            val support = object : CompilationSupport by baseSupport {
+                override fun nativeAggregate(kind: SqlKind): SqlAggFunction = if (kind == SqlKind.SUM) sum else baseSupport.nativeAggregate(kind)
+                override fun aggregateSql(owner: Aggregate, call: AggregateCall, arguments: List<SqlNode>, expression: SqlNode): SqlNode {
+                    if (call.aggregation.kind != SqlKind.SUM ||
+                        !FiniteDecimalTypes.isFinite(owner.input.rowType.fieldList[call.argList.single()].type)) return expression
+                    require(FiniteDecimalTypes.isFinite(call.type) && arguments.size == 1 && !call.isDistinct &&
+                        !call.hasFilter() && call.collation.fieldCollations.isEmpty())
+                    val pos = SqlParserPos.ZERO
+                    val largest = Ops.MAX.createCall(pos, Ops.ABS.createCall(pos, arguments.single()))
+                    val accepted = Ops.OR.createCall(pos, Ops.IS_NULL.createCall(pos, largest),
+                        Ops.LESS_THAN_OR_EQUAL.createCall(pos, largest, SqlLiteral.createExactNumeric("100", pos)))
+                    val text = SqlDataTypeSpec(SqlBasicTypeNameSpec(SqlTypeName.VARCHAR, 128, pos), pos)
+                    val decimal = SqlDataTypeSpec(SqlBasicTypeNameSpec(SqlTypeName.DECIMAL, 18, 2, pos), pos)
+                    val rejected = Ops.CAST.createCall(pos, Ops.CONCAT.createCall(pos,
+                        SqlLiteral.createCharString("finite aggregate input outside trial domain:", pos),
+                        Ops.CAST.createCall(pos, largest, text)), decimal)
+                    return SqlCase(pos, null, SqlNodeList(listOf(accepted), pos), SqlNodeList(listOf(expression), pos), rejected)
+                }
+            }
+            val b = builder(source)
+            val input = b.build()
+            b.push(input).project(listOf(b.field("region"), b.field("finite_amount"), b.field("amount"),
+                b.cast(b.field("amount"), SqlTypeName.REAL)), listOf("region", "finite_amount", "amount", "floating_amount"), true)
+            b.aggregate(b.groupKey(b.field("region")),
+                b.aggregateCall(support.nativeAggregate(SqlKind.SUM), listOf(b.field("finite_amount"))).`as`("total"),
+                b.aggregateCall(support.nativeAggregate(SqlKind.SUM), listOf(b.field("amount"))).`as`("fixed_total"),
+                b.aggregateCall(support.nativeAggregate(SqlKind.SUM), listOf(b.field("floating_amount"))).`as`("floating_total"))
+            val completed = b.build()
+            b.push(completed).filter(b.isNotNull(b.field("total"))); val known = b.build()
+            b.push(completed).filter(b.isNull(b.field("total"))); val missing = b.build()
+            b.push(known).push(missing).union(true).sort(b.field("region"))
+            val shared = b.build()
+            val result = rows(source, shared, support = support)
+            assertEquals(listOf("A", "B", "C"), result.map { it[0] })
+            listOf("3", null, "10").forEachIndexed { index, expected ->
+                if (expected == null) result[index].drop(1).forEach { assertNull(it) }
+                else {
+                    decimal(result[index][1], expected)
+                    decimal(result[index][2], BigDecimal(expected).multiply(BigDecimal("1000")).toPlainString())
+                    decimal(result[index][3], BigDecimal(expected).multiply(BigDecimal("1000")).toPlainString())
+                }
+            }
+            source.connection.createStatement().use { it.execute("UPDATE observations SET finite_amount=1000 WHERE region='C'") }
+            val failure = assertThrows(SQLException::class.java) { rows(source, shared, support = support) }
+            assertTrue(failure.message.orEmpty().contains("finite aggregate input outside trial domain"))
+            b.push(input).aggregate(b.groupKey(b.field("region")),
+                b.aggregateCall(support.nativeAggregate(SqlKind.SUM), listOf(b.field("amount"))).`as`("total")).sort(b.field("region"))
+            val ordinary = rows(source, b.build(), support = support)
+            assertEquals(listOf("A", "B", "C"), ordinary.map { it[0] })
+            decimal(ordinary[0][1], "3000"); assertNull(ordinary[1][1]); decimal(ordinary[2][1], "10000")
         }
     }
     @Test fun fourConsumersShareStatementStableQualificationBeforeIndependentAggregates(@TempDir directory: Path) {

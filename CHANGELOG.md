@@ -1,5 +1,13 @@
 # Agentic OLAP · 版本与变更
 
+## 0.30.0
+
+连接器 API 为 `agentic-olap-connector/v17-kotlin-typed-aggregate-sql-calcite-1.42`，新增必需的普通聚合 SQL 入口 `aggregateSql(owner,call,arguments,expression)`。插件取得本次实际 Aggregate／AggregateCall 的输入与结果类型、call.argList 顺序的当前 SQL 作用域输入列表达式，以及 Calcite 完成 DISTINCT、FILTER、排序及方言基础改写后的整项聚合表达式；最外层 AS 由共同转换器保留。普通映射显式返回 expression，特殊映射保持原分组、人口、NULL、重复及排序，不解析生成 SQL 或在类型推导中缓存渲染状态。窗口不经过此普通聚合入口。
+
+`nativeAggregate` 的类型推导、类型化 SQL 映射和 `aggregateBehavior` 的真实算术保证分别负责。接口交付不证明 Hologres 候选 TO_NUMBER、跨 scale SUM 或 NUMERIC→TEXT 保真，也不替代真实业务采用。内置 H2／DuckDB 显式保留标准聚合映射，不增加未知 Finite 原生运算保证。
+
+独立插件按 API v17 的正式 SDK 实现并构建，不能只修改 manifest 标签。公开作者 DSL v12、内部运行协议 v15、storage19、Query intent10、查询定义制品14、结果记录9、结果封套6及发行清单4保持各自职责。
+
 ## 0.29.3
 
 正式解释的 `SUMMARY.sourceOutputScopes` 直接交付本次来源布局的类型化条目：作用域、`OBSERVATION_BAG`／`EXACT_AGGREGATE_WORK`、已经选择的原 REGROUP 索引，以及保留原袋的实际原因和已定位候选索引。已选归约与尝试过的归约分开记录，不从 SUM 数量或 SQL 形状推断。原袋表示当前来源切点的行袋运输，不承诺扫描原数据库明细，也不否认切点之前已完成的来源聚合。编译器的归约选择、正式 Protobuf、客户端读取和类型发现使用同一事实；解释仍不执行来源 SQL 或验证来源保证。

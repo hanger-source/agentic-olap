@@ -114,6 +114,15 @@ interface CompilationSupport {
     data class CollectionValues(val element: SqlNode, val ordinal: SqlNode)
     fun sortCollection(builder: RelBuilder, value: RexNode, descending: Boolean, nullsFirst: Boolean): RexNode
     fun collectionText(builder: RelBuilder, value: RexNode, delimiter: String, nullReplacement: String?): RexNode
+    /**
+     * 映射本次真实普通聚合的 SQL 表达式，不通过类型推导回调保存渲染状态。
+     * arguments 按 call.argList 顺序提供当前 SQL 作用域中的输入列表达式，类型取自 owner.input；
+     * expression 已包含本调用的 DISTINCT、FILTER、排序及方言基础改写，不含输出 AS 别名。
+     * 保留本次分组、人口、NULL、重复与排序含义；未支持的形态明确拒绝，普通映射显式返回 expression。
+     * 返回类型仍由实际聚合定型，aggregateBehavior 独立说明算术保证；SQL 映射本身不构成保证。
+     * 不能引入其他来源或改写整个关系。窗口调用不经过此普通 Aggregate 入口。
+     */
+    fun aggregateSql(owner: Aggregate, call: AggregateCall, arguments: List<SqlNode>, expression: SqlNode): SqlNode
     /** 描述真实聚合的分组、FILTER、DISTINCT 及输入／结果类型对应的行为；未声明返回 null，类型不代替工作保证。 */
     fun aggregateBehavior(owner: Aggregate, call: AggregateCall): NativeAggregateBehavior?
     /** 描述真实窗口调用的行为，不用普通全局聚合的声明代替实际窗口；未声明返回 null。 */

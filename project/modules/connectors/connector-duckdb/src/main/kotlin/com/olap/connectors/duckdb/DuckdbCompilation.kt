@@ -53,6 +53,7 @@ internal class DuckdbCompilation : CompilationSupport {
         CompilationSupport.Capability.SAMPLE_STDDEV, CompilationSupport.Capability.RECURSIVE_ANCESTORS, CompilationSupport.Capability.ELAPSED_TIMESTAMPDIFF,
         CompilationSupport.Capability.WIDE_INTEGER, CompilationSupport.Capability.TIMESTAMP_PARAMETER_NATIVE_CAST, CompilationSupport.Capability.ROUND_KEEPS_INPUT_PRECISION,
         CompilationSupport.Capability.CORRELATED_DERIVED_PROJECTION)
+    override fun aggregateSql(owner: Aggregate, call: AggregateCall, arguments: List<SqlNode>, expression: SqlNode): SqlNode = expression
     override fun aggregateBehavior(owner: Aggregate, call: AggregateCall): NativeAggregateBehavior? {
         // v1.5.6 SumState<hugeint_t>::Combine 使用未检查溢出的 operator+=；
         // HUGEINT 结果类型本身不足以声明所有 SUM 形态的 ExactOrFail，COUNT 也不据 BIGINT 标签推保证。

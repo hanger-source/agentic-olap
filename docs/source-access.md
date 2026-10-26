@@ -2,7 +2,7 @@
 
 完整 MCP 服务通过来源插件访问数据。使用方提供与其网络、鉴权和查询协议相符的插件，服务负责语义管理、发布、规划、SQL 生成、执行要求检查及结果合同校验。HTTP 查询服务是来源访问实现，不需要数据库端口、JDBC URL、数据库凭据或 catalog 权限。业务公式、资格规则和指标组合仍通过语义定义和 Query 表达。
 
-本文描述源码中的来源访问合同：连接器 API 为 `agentic-olap-connector/v16-kotlin-finite-decimal-calcite-1.42`，元数据存储格式为 `19`。产品运行构件按同一发行装配；独立插件核对目标宿主的连接器合同与实际运行要求，产品版或 SDK 坐标变化本身不要求重构原插件，具体采用规则见[安装与发布](installation-release.md)。旧存储格式明确拒绝，服务不会自动改写已有持久根。
+本文描述源码中的来源访问合同：连接器 API 为 `agentic-olap-connector/v17-kotlin-typed-aggregate-sql-calcite-1.42`，元数据存储格式为 `19`。产品运行构件按同一发行装配；独立插件核对目标宿主的连接器合同与实际运行要求，产品版或 SDK 坐标变化本身不要求重构原插件，具体采用规则见[安装与发布](installation-release.md)。旧存储格式明确拒绝，服务不会自动改写已有持久根。
 
 ## 配置来源
 
@@ -85,7 +85,7 @@ JDBC 实现的 `identityParameters` 为 `jdbcUrl`、可选 `username` 和 `drive
 
 `sourceRequirements` 持有稳定 `dataContract`、明确选定的 `adoption`、本次实际使用的 `columns` 与 `constraintUses`。前者给出 P 的精确列和约束要求，后者给出实际绑定、连接器、方言、表坐标及该 S 的冻结证据；不能从 P 的原出处推导执行来源。`NOT_NULL.name` 直接标识列，其他约束项定位 P 的实际键或规则，插件无需解析 SQL 猜测来源列。`relationChecks` 另行给出 SQL、类型参数与违例码。两者都属于执行合同，参数顺序、比较语义与检查范围必须保留。
 
-API v16 的插件按上述两个正式对象实现纯能力声明及执行核验，不自行登记或选择采用。`adoption.requireContract(dataContract)` 只核冻结证据能否兑现 P，`requireDeployment(source)` 只核当前精确绑定；实际保证仍由本次 `execute` 兑现。`JdbcSourceRequirement.snapshotUniqueKeys` 来自 P，`sourceCollections` 只选取兑现 P 声明的登记，不能把 B 的其他观察自动提升为查询要求。可选 `JdbcSupport.supportsColumnInspection` 和 `supportsConstraintSnapshot` 接收 `PhysicalSourceEvidence`，核验使用所选 S 的出处和数据库／驱动观察，不沿用 P 原出处的技术信息。完整签名与字段责任见[连接器 API](../project/modules/kernel/connector-api/README.md#数据合同与兑现采用)。
+API v17 的插件按上述两个正式对象实现纯能力声明及执行核验，不自行登记或选择采用。`adoption.requireContract(dataContract)` 只核冻结证据能否兑现 P，`requireDeployment(source)` 只核当前精确绑定；实际保证仍由本次 `execute` 兑现。`JdbcSourceRequirement.snapshotUniqueKeys` 来自 P，`sourceCollections` 只选取兑现 P 声明的登记，不能把 B 的其他观察自动提升为查询要求。可选 `JdbcSupport.supportsColumnInspection` 和 `supportsConstraintSnapshot` 接收 `PhysicalSourceEvidence`，核验使用所选 S 的出处和数据库／驱动观察，不沿用 P 原出处的技术信息。完整签名与字段责任见[连接器 API](../project/modules/kernel/connector-api/README.md#数据合同与兑现采用)。
 
 源端原生强制约束可以免去同一非空条件的数据扫描，但插件必须核验约束确实作用于本次精确来源和列、覆盖已有数据与本次可读数据，而且在主查询期间不会因 DDL、表替换或连接切换失效。仅约束名称相同、目录返回 `nullable=false`、只约束后续写入、一次历史 catalog 观察或 `DECLARED` 结构都不足以证明这些条件。核验与使用之间的 schema 稳定性应由来源实际机制保证，例如同一受保护事务或 statement 的稳定 schema；不能靠先查目录再独立提交查询推断。源端只兑现非空约束时，也不能据此声明可以为优化器兑现所有冻结 PK／UK 等约束。
 
@@ -102,6 +102,10 @@ API v16 的插件按上述两个正式对象实现纯能力声明及执行核验
 `MeanTarget.MATHEMATICAL` 对实际参与值求数学均值，再完成该节点声明的最终量化；`SOURCE_NATIVE` 有意采用本发布所选实现的原生均值，再应用输出合同。目标与 `Exact / Approximate / NativeFloating` 独立，结果表示为 DECIMAL 不会恢复输入已失去的保证。作者声明人口、NULL、单位、结果容量和最终舍入，不填写后端原生舍入。所选执行位置无法兑现目标时明确拒绝，不改变业务目标或自动换算法。
 
 显式选择 CORE_FINALIZATION 后，完成关系 REGROUP 的 MATHEMATICAL AVG 可消费 Exact 整数、固定 Decimal 或 FiniteDecimal，在核心完成最终除法和该节点的一次量化。引擎可以按完整输入域、工作容量及实际聚合行为证明，生成来源精确工作 SUM 和每列独立非 NULL 计数状态；需要 PROPAGATE 时还保留总次数。工作输入在聚合前无损转换为足够容量，不能在已经舍入或溢出的 SUM 后补 CAST。FiniteDecimal 本身不提供共同容量，不能据此生成某个足够宽的工作 CAST。状态保留原袋重复、各列 NULL 人口及精确分组键，不是新增业务指标；作者仍提交原 Average，无需手写 SUM／COUNT 或重包 ROOT。没有充分工作保证时，该显式 CORE 计划保留原袋运输，由核心归约，不在失败后换计划。两条路径都不调用未知原生 AVG。来源 NativeCall、LEFT 与用于形成观察的 CASE 保留在原来源前缀，不能由核心重做或用样本补保证。事实 AVG、窗口 AVG、快照 MEAN 和 SOURCE_NATIVE AVG 不因此成为核心执行能力；它们在来源执行时仍核验实际原生节点。
+
+普通聚合在 SQL 发射时调用必需的 `aggregateSql(owner: Aggregate, call: AggregateCall, arguments: List<SqlNode>, expression: SqlNode): SqlNode`。插件可读取本次 owner 输入及 call 结果的真实类型；arguments 严格对应 call.argList 顺序，是当前 SQL 作用域中的输入列表达式。expression 已包含 Calcite 完成的 DISTINCT、FILTER、聚合内排序及方言基础改写，不含最外层 AS，别名由共同转换器保留。普通映射显式返回 expression，特殊映射须保留全部人口、NULL、重复与排序含义，不能只映射函数名而丢弃修饰。接口没有默认实现，不通过类型推导保存渲染状态，也不解析最终 SQL 或失败后改换策略；窗口不经过此普通 Aggregate 入口。
+
+该 SQL 映射与 `nativeAggregate` 的返回类型推导、`aggregateBehavior` 的实际算术保证分别负责。Hologres 候选 TO_NUMBER、跨 scale SUM 和 NUMERIC→TEXT 保真仍需由精确插件与真实来源分别兑现，不能从 hook 已交付推成已支持或业务已验收。
 
 连接器的 `aggregateBehavior(Aggregate, AggregateCall)` 与 `aggregateBehavior(RexOver)` 读取实际节点的输入、原生结果类型、分组／窗口、FILTER 和 DISTINCT，返回 `NativeAggregateBehavior?`；未声明为 null。`ExactOrFail` 表示本次 SUM／COUNT 的工作过程精确、无中间量化或静默溢出，同时保留 actual owner 分组键的精确值身份、NULL 与袋人口，不能让原生文本 collation 合并不同身份。实际返回容量仍由 call.type 界定，不能由声明推成无限容量。`QuantizedMean(rounding)` 表示 AVG 精确累加与计数后，仅向实际原生 DECIMAL scale 量化一次；`NativeFloating` 不提供误差上界。AVG 不能用 ExactOrFail 冒充均值行为。内核核验真实调用的类型推导与适用行为，不用空人口全局聚合代替本次形态，也不把 DECIMAL 类型、舍入名相同或多保留几位当作证明。
 

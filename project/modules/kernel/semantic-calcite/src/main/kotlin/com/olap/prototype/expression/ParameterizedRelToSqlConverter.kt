@@ -222,6 +222,27 @@ class ParameterizedRelToSqlConverter(private val support: CompilationSupport, pr
         return super.visit(LogicalWindow.create(window.traitSet, window.hints, window.input, window.constants, window.rowType, groups))
     }
 
+    override fun buildAggregate(aggregate: Aggregate, builder: Builder, selectList: MutableList<SqlNode>,
+        groupByList: MutableList<SqlNode>): Builder {
+        val firstAggregate = selectList.size
+        val completed = super.buildAggregate(aggregate, builder, selectList, groupByList)
+        check(selectList.size == firstAggregate + aggregate.aggCallList.size) {
+            "aggregate SQL outputs differ from the actual aggregate calls"
+        }
+        aggregate.aggCallList.forEachIndexed { index, call ->
+            val output = selectList[firstAggregate + index]
+            val alias = (output as? SqlCall)?.takeIf { it.kind == SqlKind.AS }
+            val expression = alias?.operand<SqlNode>(0) ?: output
+            val arguments = call.argList.map(builder.context::field)
+            val mapped = support.aggregateSql(aggregate, call, arguments, expression)
+            selectList[firstAggregate + index] = if (alias == null) mapped else
+                alias.operator.createCall(alias.functionQuantifier, alias.parserPosition,
+                    *(listOf(mapped) + alias.operandList.drop(1)).toTypedArray())
+        }
+        completed.setSelect(SqlNodeList(selectList, POS))
+        return completed
+    }
+
     override fun visit(project: Project): Result {
         if (project.projects.any(::requiresProjectionType)) return typedProjection(project)
         if (!RexUtil.isIdentity(project.projects, project.input.rowType) || project.variablesSet.isNotEmpty()) return super.visit(project)

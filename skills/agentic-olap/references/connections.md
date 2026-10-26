@@ -20,7 +20,7 @@ agentic-olap sdk --repository
 
 HTTP 或其他后端由使用方提供匹配其 SQL 后端及实际协议的插件；SQL 协议兼容不证明类型、数值、时间或一致性映射已经成立。业务 Agent 通过正式 MCP 使用已配置的来源。
 
-本仓库源码的连接器 API 为 `agentic-olap-connector/v16-kotlin-finite-decimal-calcite-1.42`；安装发行物时以实际服务及 `agentic-olap sdk` 披露的 API 为准。`connectorRef` 是 manifest 中实际的 `{id,version,sha256}`，数据源逐项引用该完整对象。服务核验 API 和摘要，驱动只由 JDBC 实现核验。
+本仓库源码的连接器 API 为 `agentic-olap-connector/v17-kotlin-typed-aggregate-sql-calcite-1.42`；安装发行物时以实际服务及 `agentic-olap sdk` 披露的 API 为准。`connectorRef` 是 manifest 中实际的 `{id,version,sha256}`，数据源逐项引用该完整对象。服务核验 API 和摘要，驱动只由 JDBC 实现核验。
 
 产品版本或 SDK Maven 坐标变化本身不要求重新构建既有插件。原插件与目标宿主的连接器 API 相同、所用公共接口的二进制合同及 JVM、Kotlin、Calcite 要求满足时，可原样保留完整插件组。宿主仍逐项核验原 manifest、JAR 摘要、完整 `connectorRef` 和 provider 身份；不因产品升级改写它们。API 字符串相同和装载成功都不能单独证明尚未调用的分支成立，升级须用原精确插件完成实际使用能力的查询验证。原字节和来源身份配置均未改变时，来源绑定也不变，无需仅为产品版本重登记目录或修订资产。
 
@@ -96,7 +96,9 @@ olap.output(olap.sources.connectorCapabilities(ConnectorCapabilitiesRequest(aggr
 
 需要来源 SUM、COUNT、AVG 等聚合时，可用 `ConnectorCapabilitiesRequest.Aggregate(connectorRef, aggregation, inputType, grouped)` 读取该输入的正式映射。`aggregation` 是 `ResultAggregation.Kind`；`inputType` 是 `NativeValueType`，给出实际类型、容量和可空性，不能拿最终输出合同代替。DECIMAL 须明确 precision/scale。全局聚合用 `grouped=false`，普通非空分组键用 true，空分组集合按全局处理。`mapping` 给出 `resultType` 和可空 `behavior`；类型映射成功但行为未知，不证明精确工作可用。发现不连接来源，也不代替真实 Query 的实际 owner、分组、FILTER、DISTINCT 及类型核验。
 
-`aggregateBehavior(Aggregate,AggregateCall)` 与 `aggregateBehavior(RexOver)` 返回实际节点的 `NativeAggregateBehavior?`。`ExactOrFail` 表示本次 SUM／COUNT 保留真实键身份、NULL 与袋人口，无中间量化或静默溢出，实际容量仍由调用类型界定；AVG 只按其适用的 `QuantizedMean` 或 `NativeFloating` 行为核验，不能用 ExactOrFail 冒充。文本工作分组可通过 `textIdentityKey` 的保 NULL、注入式 BINARY／VARBINARY 辅助键与原键共同分组，完成后只输出原键；未提供精确身份映射时不能猜原生 collation。H2 原生 COUNT、DuckDB SUM／COUNT 均未声明精确工作保证，其他来源不得照抄后端名称或 DECIMAL／BIGINT 标签。
+普通聚合的必需入口为 `aggregateSql(owner: Aggregate, call: AggregateCall, arguments: List<SqlNode>, expression: SqlNode): SqlNode`。本次输入类型从 owner.input 按 call.argList 读取，结果类型为 call.type；arguments 严格按 call.argList 顺序提供当前 SQL 作用域中的输入列表达式。expression 是 Calcite 已组织 DISTINCT、FILTER、排序及方言基础改写后的整项表达式，不含最外层 AS。插件保留这些含义与原分组人口，普通映射显式返回 expression；不缓存类型推导状态、不解析最终 SQL、不提供默认实现或失败后切换。窗口不经过此普通 Aggregate 入口。具体签名及责任见[连接器 API](../../../project/modules/kernel/connector-api/README.md)。
+
+`aggregateBehavior(Aggregate,AggregateCall)` 与 `aggregateBehavior(RexOver)` 返回实际节点的 `NativeAggregateBehavior?`，独立于上述 SQL 映射。`ExactOrFail` 表示本次 SUM／COUNT 保留真实键身份、NULL 与袋人口，无中间量化或静默溢出，实际容量仍由调用类型界定；AVG 只按其适用的 `QuantizedMean` 或 `NativeFloating` 行为核验，不能用 ExactOrFail 冒充。文本工作分组可通过 `textIdentityKey` 的保 NULL、注入式 BINARY／VARBINARY 辅助键与原键共同分组，完成后只输出原键；未提供精确身份映射时不能猜原生 collation。H2 原生 COUNT、DuckDB SUM／COUNT 均未声明精确工作保证，其他来源不得照抄后端名称或 DECIMAL／BIGINT 标签。该入口的交付不证明 Hologres TO_NUMBER、跨 scale SUM 或 NUMERIC→TEXT 已保真，实际候选仍需真实映射及采用证据。
 
 `MeanTarget.MATHEMATICAL` 对实际参与值求数学均值，再完成该节点声明的最终量化；`SOURCE_NATIVE` 有意采用本发布所选实现的原生均值，再应用输出合同。目标与 `Exact / Approximate / NativeFloating` 独立，结果表示为 DECIMAL 不会恢复输入已失去的保证。作者声明人口、NULL、单位、结果容量和最终舍入，不填写后端原生舍入。所选执行位置无法兑现目标时明确拒绝，不改变业务目标或自动换算法。 AVG 的 `valueContract` 与 `meanTarget` 必填，快照 MEAN 的 `meanValueContract` 是该实体时间归约自己的量化，外层聚合继续独立。发现的原生行为供理解实现范围，真实 Query 才检查实际形态和目标。
 

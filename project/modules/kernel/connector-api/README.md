@@ -2,7 +2,7 @@
 
 `connector-api` 为独立后端实现提供共同合同和 Calcite 1.42.0 的公开类型。它不依赖治理、服务应用或内部编译实现。连接器实现已定义语义的原生映射与来源访问，业务指标、对象资格、数量、NULL 与查询组织仍由语义定义和共同内核拥有。
 
-SDK 按精确发行标签发布到 JitPack。`agentic-olap sdk` 返回本版 API、随包文档、Maven 仓库及 `artifacts` 中的完整坐标；`sdk --repository` 只输出仓库地址。构件使用 `com.github.hanger-source.agentic-olap` group，版本为 `v` 加产品版本，公开入口为 `connector-api`，可复用 JDBC 支持为 `warehouse-jdbc`，应用装载器为 `connector-loader`。新建或确需重新构建的插件使用目标宿主命令返回的精确坐标，不使用 SNAPSHOT。API 标识为 `agentic-olap-connector/v16-kotlin-finite-decimal-calcite-1.42`。插件须实现该 API 的实际公开签名，不能仅改 manifest 的版本标签。
+SDK 按精确发行标签发布到 JitPack。`agentic-olap sdk` 返回本版 API、随包文档、Maven 仓库及 `artifacts` 中的完整坐标；`sdk --repository` 只输出仓库地址。构件使用 `com.github.hanger-source.agentic-olap` group，版本为 `v` 加产品版本，公开入口为 `connector-api`，可复用 JDBC 支持为 `warehouse-jdbc`，应用装载器为 `connector-loader`。新建或确需重新构建的插件使用目标宿主命令返回的精确坐标，不使用 SNAPSHOT。API 标识为 `agentic-olap-connector/v17-kotlin-typed-aggregate-sql-calcite-1.42`。插件须实现该 API 的实际公开签名，不能仅改 manifest 的版本标签。
 
 SDK 的 JAR、POM 由插件工程的 Gradle 从 JitPack 匿名取得，第三方传递依赖从 Maven Central 取得。插件开发仍需 Kotlin/Gradle 工具链；运行产品无需这些构建工具。部署到其他服务前核对该服务的实际 API，不能把本地安装版本当作远程运行版本。
 
@@ -21,7 +21,7 @@ SDK 的 JAR、POM 由插件工程的 Gradle 从 JitPack 匿名取得，第三方
 ```json
 {
   "connectorRef": {"id": "backend", "version": "1.0.0", "sha256": "完整插件组摘要"},
-  "apiVersion": "agentic-olap-connector/v16-kotlin-finite-decimal-calcite-1.42",
+  "apiVersion": "agentic-olap-connector/v17-kotlin-typed-aggregate-sql-calcite-1.42",
   "jars": [
     {"file": "connector-backend.jar", "sha256": "该JAR摘要"},
     {"file": "backend-jdbc.jar", "sha256": "该JAR摘要"}
@@ -41,7 +41,7 @@ SDK 的 JAR、POM 由插件工程的 Gradle 从 JitPack 匿名取得，第三方
 
 ## 数据合同与兑现采用
 
-API v16 的来源输入分为两个明确对象：
+API v17 的来源输入分为两个明确对象：
 
 | 对象 | 内容与责任 |
 | --- | --- |
@@ -77,6 +77,23 @@ H2 只将真实 DECFLOAT 映射为有限原值读取，并支持显式 CORE 承�
 显式 CORE 可将末端 Exact SUM、数值 MIN／MAX 及其混合的已支持 COUNT 留在核心，不要求同时出现数学 AVG，也不以 Finite 输入特判。实际来源关系消费者及后续来源表达仍要求完整来源前缀，不会读取先前 CORE 结果；来源插件继续兑现自身节点。该边界不增加本地 JOIN、浮点核心运算或未知原生 AVG，也不改变 SOURCE 的执行选择。
 
 `nativeAggregate(SqlKind)` 返回该精确来源的 `SqlAggFunction`，包括真实返回类型推导。核心将已定义的聚合映射为原生 kind，并继续组织 DISTINCT、分组、窗口和数量保证；插件不接收业务指标公式。不支持的 kind 明确拒绝。例如 `STDDEV_SAMP` 的返回类型由该来源实现声明，不能由共同编译器统一假定为 DOUBLE。
+
+普通聚合的 SQL 发射使用必需的类型化入口：
+
+```kotlin
+fun aggregateSql(
+    owner: Aggregate,
+    call: AggregateCall,
+    arguments: List<SqlNode>,
+    expression: SqlNode
+): SqlNode
+```
+
+`owner` 和 `call` 是本次实际普通聚合，输入类型从 `owner.input` 按 `call.argList` 读取，结果类型为 `call.type`。`arguments` 严格按 `call.argList` 顺序提供当前 SQL 作用域中的输入列表达式，不能用另一层的列引用替代。`expression` 是 Calcite 已完成 DISTINCT、FILTER、聚合内排序及方言基础改写的整项标准聚合表达式，不含最外层 AS；输出别名由共同转换器保留。插件据本次实际类型和形态返回 SQL AST，必须保留分组、人口、NULL、重复及排序含义；不能重写整个关系、引入另一来源、解析最终 SQL 字符串或在类型推导时缓存渲染状态。
+
+所有实现都须显式提供此方法；普通映射直接 `return expression`，接口没有默认实现或失败后替换路线。特殊映射不能因为取得原始参数就忽略 `expression` 中已组织的 FILTER、DISTINCT 或排序；尚不能兑现的形态应明确拒绝。窗口不经过该普通 Aggregate 入口；窗口的映射和行为保证仍分别核验。
+
+该入口只提供类型化 SQL 映射位置，`nativeAggregate` 的返回类型推导和 `aggregateBehavior` 的实际算术保证继续独立。提供 hook 不证明任何后端的 TO_NUMBER 有限解析、跨 scale SUM 或 NUMERIC→TEXT 无损往返；Hologres 候选必须分别取得真实映射与采用证据，不能由接口存在、类型标签或少量正常值推成支持。
 
 `aggregateBehavior(Aggregate, AggregateCall)` 和 `aggregateBehavior(RexOver)` 描述当前真实调用，返回可空的 `NativeAggregateBehavior`；NULL 表示未声明，原生结果容量仍取自实际节点。`ExactOrFail` 声明本次 SUM／COUNT 保留实际分组身份、NULL 与袋人口，不做中间量化，容量不足必须失败，不能静默溢出或回绕。`QuantizedMean(rounding)` 必须兑现对参与值精确累加、精确计数且仅最后向原生 DECIMAL scale 量化；`NativeFloating` 不提供误差上界。不能根据 DECIMAL／BIGINT 结果类型猜工作保证，AVG 也不能用 `ExactOrFail` 代替均值行为。
 

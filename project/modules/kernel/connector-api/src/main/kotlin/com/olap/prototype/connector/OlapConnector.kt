@@ -8,7 +8,7 @@ interface OlapConnector {
     val compilation: CompilationSupport
     fun access(verifiedIdentity: ConnectorRef): SourceAccess
 
-    companion object { const val API_VERSION = "agentic-olap-connector/v16-kotlin-finite-decimal-calcite-1.42" }
+    companion object { const val API_VERSION = "agentic-olap-connector/v17-kotlin-typed-aggregate-sql-calcite-1.42" }
 }
 
 /** 已核验字节的单个实现；生命周期由部署装载者持有。 */

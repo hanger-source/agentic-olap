@@ -47,6 +47,7 @@ internal class H2Compilation : CompilationSupport {
     override val maximumDeclaredDecimalPrecision: Int = 100000
     override fun supports(capability: CompilationSupport.Capability): Boolean = capability in setOf(CompilationSupport.Capability.COLLECTION_RESULTS,
         CompilationSupport.Capability.NUMERIC_FAILURE, CompilationSupport.Capability.NUMERIC_ROUNDING, CompilationSupport.Capability.SAMPLE_STDDEV)
+    override fun aggregateSql(owner: Aggregate, call: AggregateCall, arguments: List<SqlNode>, expression: SqlNode): SqlNode = expression
     override fun aggregateBehavior(owner: Aggregate, call: AggregateCall): NativeAggregateBehavior? {
         val kind = call.aggregation.kind
         if (kind !in setOf(SqlKind.SUM, SqlKind.AVG)) return null
