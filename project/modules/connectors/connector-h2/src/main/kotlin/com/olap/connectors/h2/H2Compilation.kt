@@ -1,10 +1,11 @@
 package com.olap.connectors.h2
 
 import com.olap.prototype.connector.CompilationSupport
+import com.olap.prototype.connector.NativeAggregateKeys
 import com.olap.prototype.connector.StandardJdbcTypes
 import com.olap.prototype.contract.*
 import com.olap.prototype.expression.NativeScalarFunction
-import com.olap.prototype.expression.NativeAverageBehavior
+import com.olap.prototype.expression.NativeAggregateBehavior
 import com.olap.prototype.metric.MetricValueContract
 import org.apache.calcite.plan.Strong
 import org.apache.calcite.rel.type.*
@@ -41,23 +42,36 @@ internal class H2Compilation : CompilationSupport {
     override val maximumDeclaredDecimalPrecision: Int = 100000
     override fun supports(capability: CompilationSupport.Capability): Boolean = capability in setOf(CompilationSupport.Capability.COLLECTION_RESULTS,
         CompilationSupport.Capability.NUMERIC_FAILURE, CompilationSupport.Capability.NUMERIC_ROUNDING, CompilationSupport.Capability.SAMPLE_STDDEV)
-    override fun averageBehavior(owner: Aggregate, call: AggregateCall): NativeAverageBehavior {
-        require(call.aggregation == nativeAggregate(SqlKind.AVG) && call.argList.size == 1 && !call.isDistinct) { "H2 requires its actual scalar AVG mapping" }
-        return averageBehavior(owner.input.rowType.fieldList[call.argList.single()].type, call.type)
+    override fun aggregateBehavior(owner: Aggregate, call: AggregateCall): NativeAggregateBehavior? {
+        val kind = call.aggregation.kind
+        if (kind !in setOf(SqlKind.SUM, SqlKind.AVG)) return null
+        require(call.aggregation == nativeAggregate(kind) && call.argList.size == 1 && !call.isDistinct) { "H2 requires its actual scalar aggregate mapping" }
+        val input = owner.input.rowType.fieldList[call.argList.single()].type
+        if (kind == SqlKind.AVG) return meanBehavior(input, call.type)
+        // VARCHAR 经数据库 CompareMode 比较；仅在实际分组同时保留精确二进制身份时准入文本键。
+        if (!NativeAggregateKeys.preservesExactIdentity(owner, this)) return null
+        val factory = owner.cluster.typeFactory
+        require(SqlTypeUtil.equalSansNullability(factory, typeSystem.deriveSumType(factory, input), call.type)) { "H2 SUM result differs from its actual native type" }
+        // H2 2.2.224 AggregateDataDefault SUM 使用 ValueBigint.add 的溢出检查，
+        // 或 ValueNumeric.add 无 MathContext 的 BigDecimal 累加；最后 convertTo 仍核实际返回容量。
+        // AggregateDataCount 的 long 自增没有溢出检查，因此 COUNT 保持未声明。
+        return if (SqlTypeUtil.isExactNumeric(input) && SqlTypeUtil.isExactNumeric(call.type)) NativeAggregateBehavior.ExactOrFail
+            else if (SqlTypeUtil.isApproximateNumeric(call.type)) NativeAggregateBehavior.NativeFloating else null
     }
-    override fun averageBehavior(over: RexOver): NativeAverageBehavior {
+    override fun aggregateBehavior(over: RexOver): NativeAggregateBehavior? {
+        if (over.aggOperator.kind != SqlKind.AVG) return null
         require(over.aggOperator == nativeAggregate(SqlKind.AVG) && over.operands.size == 1 && !over.isDistinct) { "H2 requires its actual scalar window AVG mapping" }
-        return averageBehavior(over.operands.single().type, over.type)
+        return meanBehavior(over.operands.single().type, over.type)
     }
-    private fun averageBehavior(input: RelDataType, result: RelDataType): NativeAverageBehavior {
+    private fun meanBehavior(input: RelDataType, result: RelDataType): NativeAggregateBehavior {
         val factory = JavaTypeFactoryImpl(typeSystem)
         val expected = typeSystem.deriveAvgAggType(factory, input)
         require(SqlTypeUtil.equalSansNullability(factory, expected, result)) { "H2 AVG result differs from its actual native type" }
         // H2 2.2.224 的普通、分区及有序窗口共用 AggregateDataAvg。
         // NUMERIC 以 BigDecimal 无中间 MathContext 累加，计数后仅向原生 scale 做一次 HALF_DOWN 除法。
         return if (result.sqlTypeName == SqlTypeName.DECIMAL && input.sqlTypeName in setOf(SqlTypeName.BIGINT, SqlTypeName.DECIMAL))
-            NativeAverageBehavior.QuantizedMean(MetricValueContract.Rounding.HALF_DOWN)
-        else if (SqlTypeUtil.isApproximateNumeric(result)) NativeAverageBehavior.NativeFloating
+            NativeAggregateBehavior.QuantizedMean(MetricValueContract.Rounding.HALF_DOWN)
+        else if (SqlTypeUtil.isApproximateNumeric(result)) NativeAggregateBehavior.NativeFloating
         else throw UnsupportedOperationException("H2 AVG numerical behavior is not mapped for the actual types")
     }
     override val division: SqlOperator = SqlStdOperatorTable.DIVIDE
@@ -65,6 +79,7 @@ internal class H2Compilation : CompilationSupport {
     override fun collectionText(builder: RelBuilder, value: RexNode, delimiter: String, nullReplacement: String?): RexNode = throw UnsupportedOperationException("H2 connector has no verified collection text mapping")
     override fun jdbcType(factory: RelDataTypeFactory, column: JdbcColumnType): RelDataType = StandardJdbcTypes.resolve(factory, column)
     override fun textIdentityEquals(builder: RelBuilder, left: RexNode, right: RexNode): RexNode = builder.equals(codeBytes(builder, left), codeBytes(builder, right))
+    override fun textIdentityKey(builder: RelBuilder, value: RexNode): RexNode = codeBytes(builder, value)
     override fun expandCollection(outputType: RelDataType, tableAlias: String): CompilationSupport.CollectionExpansion =
         throw UnsupportedOperationException("H2 connector has no verified typed collection expansion mapping")
     private fun codeBytes(builder: RelBuilder, value: RexNode): RexNode {

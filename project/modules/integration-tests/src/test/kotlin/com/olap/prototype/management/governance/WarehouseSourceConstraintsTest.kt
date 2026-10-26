@@ -62,7 +62,7 @@ class WarehouseSourceConstraintsTest {
             val originalBinding = binding(contract, selected)
             val original = identityPlan(originalBinding)
             val provider = SourceProvider(source, connectors)
-            fun execute(plan: SourceSqlRequest) = provider.execute(plan, control, RuntimeDeploymentLimits.result,
+            fun execute(plan: SourceSqlRequest) = provider.execute(plan, control,
                 RuntimeDeploymentLimits.nativeMemoryBytes) { _, _ -> }.frame
             assertEquals(3, execute(original).rows.size)
 

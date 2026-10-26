@@ -33,10 +33,10 @@ agentic-olap call describe-script-api --payload '{"type":"com.olap.prototype.cal
 
 ## 会话中调用正式能力
 
-`execute-script` 向持续 Kotlin 会话提交一个完整代码片段。DSL 为 `agentic-olap-kotlin-dsl/v9`，实际版本取服务发现结果。省略或留空 `sessionId` 创建会话；后续用实际返回的 `sessionId` 在同一 JVM 中继续。首次调用可以读取来源并保留 Kotlin 对象：
+`execute-script` 向持续 Kotlin 会话提交一个完整代码片段。DSL 为 `agentic-olap-kotlin-dsl/v10`，实际版本取服务发现结果。省略或留空 `sessionId` 创建会话；后续用实际返回的 `sessionId` 在同一 JVM 中继续。首次调用可以读取来源并保留 Kotlin 对象：
 
 ~~~sh
-agentic-olap call execute-script --payload '{"executionId":"sources-001","waitMillis":0,"source":"val sources = olap.sources.list(EmptyRequest)\nolap.output(sources)","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v9","parameters":{}}'
+agentic-olap call execute-script --payload '{"executionId":"sources-001","waitMillis":0,"source":"val sources = olap.sources.list(EmptyRequest)\nolap.output(sources)","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v10","parameters":{}}'
 agentic-olap call wait-script --payload '{"executionId":"sources-001","waitMillis":1000}'
 ~~~
 
@@ -99,7 +99,7 @@ page
 | JSON 输入 | `limits.requestBytes/inputNodes/inputDepth` 检查实际输入文档；根值为第 1 层且计一个节点，容器、标量和 NULL 都计节点，对象键不计节点。节点及深度检查在首次越界停止 |
 | 完整消息交付 | 官方 SDK 生成的最终完整 JSON/MCP 消息不超过 `limits.responseBytes` 时直接返回；超过时自动完整保存到 `dataRoot/responses`，当前消息提供位置与正式分段读取入口 |
 | 正式能力回执 | 按操作对应的具体 Protobuf 类型和实际返回体解码，不借用输入深度，也不设置独立输出容量或深度门槛 |
-| SQL 业务结果 | `resultRows/resultValues/resultBytes/resultDepth` 约束查询结果物化，独立于普通参数及完整消息交付；`resultDepth` 不作为普通 `ScriptValue` 的深度限制 |
+| SQL 业务结果 | `resultRows/resultValues/resultBytes/resultDepth` 约束最终业务 Value 的物化，独立于普通参数、来源工作结果及完整消息交付；`resultDepth` 不作为普通 `ScriptValue` 的深度限制 |
 
 每次 MCP HTTP 请求承载一份 JSON-RPC 请求；多步业务可以在一个片段内组织，也可以在同一会话继续，不支持 JSON-RPC batch。工具调用的大响应保留原成功／失败封套并给出读取入口。协议初始化、工具发现等响应没有通用提示结果类型，超限时使用 JSON-RPC 交付提示 `-32001`，在 `error.data` 给出原 `originalSuccess` 及保存位置、读取入口；不会把工具列表替换为空列表。
 
@@ -407,6 +407,8 @@ Unit
 
 选择 CORE_FINALIZATION 时，完成关系 REGROUP 的 `Average(..., MATHEMATICAL)` 可以直接消费来源无损交付的 Exact 整数或 Decimal 原袋，由核心按组求数学均值，在该节点应用一次最终数量和量化合同。各列独立遵守自己的 NULL 政策及参与次数，重复行保留权重；全 NULL 组的均值为 NULL，无记录的有键分组不制造结果行，无分组的空袋归约依聚合语义返回一行。工作和与计数不按最终 Decimal 容量提前截断。作者无需改写为 SUM／COUNT，也不依赖原生 AVG 的映射来执行这个核心节点。
 
+来源已证明本次精确工作行为、完整分组身份和足够工作容量时，引擎可以生成工作 SUM 与各列独立非 NULL 计数状态，最终除法和量化仍在 CORE。计数也需要精确工作保证，不因 BIGINT 返回类型而默认安全；PROPAGATE 另保留总次数。引擎在聚合前按完整输入域选择无损工作表示，不复用最终 AVG 的 Decimal 容量限制累加。文本分组由插件的 `textIdentityKey` 提供保 NULL 的精确二进制身份，与原键共同分组后移除辅助键，不让原生 collation 合并不同文本。保证未知则继续交付原袋，不调用未知 AVG，也不在执行失败后重试另一计划。同一作者计算体、人口、NULL 政策和最终合同适用于两种物理路线；物理工作状态不要求作者重建 ROOT 或额外保存指标。
+
 这项能力不将事实 AVG、窗口 AVG 或快照 MEAN 自动移到核心，SOURCE_NATIVE 也不改为数学均值。来源执行的均值仍须提供该实际节点的原生类型及保证映射。形成观察袋的 NativeCall、LEFT 和来源 CASE 保留在原来源前缀；后续不支持的关系或函数不能消费核心结果。原生映射拒绝的回执保留受控原因，区分类型／行为不可用、输入保证升级与数学量化尚未证明；来源未提交不表示数据库已执行失败。显式组织统计量和除法属于另一份明确计算，不能用它替代原 AVG 的语义或场景权限。
 
 真实输入的算术保证在投影前保留；选择数学算法、扩大容量或显式转成 DECIMAL 都不将 NativeFloating 提升为 Exact 或已知误差界。当前没有为非零 Approximate 误差建立通用均值传播规则，不能仅凭相同容差继续承诺。作者可保留诚实的数量声明；执行器无法满足组合时返回受控原因，不自动改变声明。已完成数值继续可以参与 CASE、SET、求和及后续定义，数量来历保留均值目标、NULL 政策与实际量化，不把未证明等价当作计算非法。
@@ -583,13 +585,13 @@ olap.output(receipt)
 
 切点沿实际依赖和阶段位置确定：先沿必须由来源完成的关系消费边确定原生计算要求，再选择支持的完成关系归约与标量阶段。来源 NativeCall、LEFT、来源 CASE 等形成实际观察袋，核心 REGROUP 消费其真实输出；仅登记一个 ROOT 输入不会使它自动成为来源依赖。不需要仅为适配执行器再包一层 ROOT。保存定义采用同一规则；关系根的列映射、嵌套调用、调用出口的数量合同、归约和后续标量阶段按真实作用域执行。
 
-多个定义可以各自具有来源关系前缀和核心归约、标量阶段，再按正式测量调用或 ALIGN 的身份映射汇合。同一精确来源的一条 SQL 通过 UNION ALL 运输各作用域独立的原袋，不先 JOIN、去重或要求原袋唯一。每个作用域保留自己的原生类型及存在标记；每条物理行恰好一个标记为 TRUE，其他作用域为 typed NULL payload 和 FALSE 标记。核心按原合同恢复各自的完整袋，完成原定义后，才按本次正式映射的完整键和作者选择的 UNION、INTERSECTION 或 BASE 人口投影。键不能凭同名列、相同数据源或相似 SQL 猜测。一个分支在核心 POST_FILTER 后缺组，不影响其他分支；缺组、存在但值为 NULL，以及显式 ZERO_WHEN_ABSENT 分别处理。运输不补行；无分组归约按其正式空袋语义执行。缺组不会因另一分支存在而执行自身的 COALESCE 或量化。
+多个定义可以各自具有来源关系前缀和核心归约、标量阶段，再按正式测量调用或 ALIGN 的身份映射汇合。同一精确来源的一条 SQL 通过 UNION ALL 运输各作用域独立的原袋或已证明的精确工作状态，不先 JOIN、去重或要求原袋唯一。每个作用域保留自己的实际载荷类型及存在标记；每条物理行恰好一个标记为 TRUE，其他作用域为 typed NULL payload 和 FALSE 标记。核心按原合同消费完整袋，或按编译计划完成工作状态，完成原定义后，才按本次正式映射的完整键和作者选择的 UNION、INTERSECTION 或 BASE 人口投影。键不能凭同名列、相同数据源或相似 SQL 猜测。一个分支在核心 POST_FILTER 后缺组，不影响其他分支；缺组、存在但值为 NULL，以及显式 ZERO_WHEN_ABSENT 分别处理。运输不补行；无分组归约按其正式空袋语义执行。缺组不会因另一分支存在而执行自身的 COALESCE 或量化。
 
 这条路径没有增加任意本地 JOIN 或跨来源执行。来源关系需要消费完整计算结果时，来源必须兑现该结果的算术、量化和人口合同，不能兑现则在提交前明确拒绝。已选择在核心计算或量化的值不会搬回来源；不因编译失败而移动切点、改执行位置或再发来源请求。解释中的 sourceOutputScopes 及每个根、阶段的 SOURCE／CORE 位置反映实际选择，包括同一作用域中的来源前缀和核心后缀。
 
 核心以精确有理数保存量化前的数值中间结果，在实际 NUMERIC、ROUND 或 CAST 节点按各自合同量化、检查容量；外层声明继承不等于把每次内层除法提前舍入。例如仅在最后量化的 `(1/3)*3` 仍为 1；明确对内层 `1/3` 量化为两位后再乘 3，则保留 0.99。NONE 遇到必须丢弃的数位时拒绝，不伪装成精确结果。DECIMAL(38,18) 只有 20 位整数容量，超出仍按 FAIL 处理。
 
-来源必须兑现切点之前的类型、聚合及无损交付保证，核心不能补回其已经丢失的数位，也不能把 UNKNOWN 读取基础提升为固定快照。来源返回后先交出实际读取事实；核心求值、容量核验或取消随后失败时保留来源结局，不重跑来源。核心完成结果沿用现有物化预算、正式保存和完整读取链路；大消息按现有规则自动完整保存，不另加行数额度或保存审批。
+来源必须兑现切点之前的类型、聚合及无损交付保证，核心不能补回其已经丢失的数位，也不能把 UNKNOWN 读取基础提升为固定快照。来源返回后先交出实际读取事实；核心求值、容量核验或取消随后失败时保留来源结局，不重跑来源。最终业务 Value 由结果 owner 按 resultRows／resultValues／resultBytes／resultDepth 物化限额核验；来源原袋和编译工作状态不提前消耗这份最终结果额度，仍受取消、原生内存和来源真实约束。正式保存和完整读取链路保持相同，大消息按现有规则自动完整保存，不另加行数额度或保存审批。
 
 ## 校验、解释与保存
 

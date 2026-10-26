@@ -1,6 +1,5 @@
 package com.olap.prototype.connector
 
-import com.olap.prototype.warehouse.ResultMaterializationBudget
 import com.olap.prototype.warehouse.WarehouseExecutionControl
 import com.olap.prototype.warehouse.WarehouseSourceInspection
 import com.olap.prototype.warehouse.contract.PhysicalDataContract
@@ -26,10 +25,11 @@ interface SourceAccess : WarehouseSourceInspection, AutoCloseable {
      * 原子 statement 内核验必须保证必要检查不因主结果为空、优化器裁剪或结果预算而跳过；
      * 一次 HTTP 或一个 SQL 外壳本身不证明检查已经执行，常量输入成功不证明真实物理路径可用。
      * 运输和物化保留主 SQL 的选行、NULL、重复度与行序，不以内部子查询排序推断外层聚合保序。
+     * 来源工作结果不消耗最终业务结果预算；取消和原生内存边界仍由本次访问兑现。
      * 不满足约束抛出 SourceGuaranteeException，不能兑现则准确拒绝对应能力。
      */
     fun execute(source: SourceConfiguration, request: SourceSqlRequest, control: WarehouseExecutionControl,
-        budget: ResultMaterializationBudget, nativeMemoryBytes: Long, stageNanos: (String, Long) -> Unit): SourceExecutionResult
+        nativeMemoryBytes: Long, stageNanos: (String, Long) -> Unit): SourceExecutionResult
 
     override fun discover(request: WarehouseSourceInspection.DiscoveryRequest, control: WarehouseExecutionControl): WarehouseSourceInspection.Discovery =
         unsupported(request.inspection.connection, "discover-source", SourceCapabilities.Capability.STRUCTURE_INSPECTION)

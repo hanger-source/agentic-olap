@@ -36,7 +36,7 @@ class JdbcSourceGuaranteeExecutionTest {
     private val connectors = TestConnectors.registry
     private val control = RuntimeDeploymentLimits.CONTROL
     private fun jdbc(spec: JdbcConnectionSpec) = (connectors.require(spec.connectorRef).access as JdbcAccess).jdbc
-    private fun execute(provider: JdbcProvider, request: SourceSqlRequest) = provider.executeFrame(request, control, RuntimeDeploymentLimits.budget(), RuntimeDeploymentLimits.nativeMemoryBytes) { _, _ -> }.frame
+    private fun execute(provider: JdbcProvider, request: SourceSqlRequest) = provider.executeFrame(request, control, RuntimeDeploymentLimits.nativeMemoryBytes) { _, _ -> }.frame
 
     @Test fun validatesSealedTemporalHistoryAndRejectsOverlapAndLaterDataDrift(@TempDir directory: Path) {
         val source = source("duckdb", directory.resolve("temporal.duckdb"))

@@ -52,7 +52,10 @@ class OlapEngine(private val semanticCompiler: OlapSemanticCompiler, private val
             val business = try {
                 val finalization = query.coreFinalizationPlan
                 (if (finalization == null) ExecutableBusinessResults.produce(frame, sql.outputLayout.scopes.getValue(com.olap.prototype.query.QueryStageAnalysis.ScopeId.root()).contract, sql.compilationSupport)
-                    else finalization.execute(frame, sql.compilationSupport, executionControl, resultLimits)).also { executionControl.checkCancellation() }
+                    else finalization.execute(frame, sql.compilationSupport, executionControl)).also {
+                        ExecutableBusinessResults.requireBudget(it, resultLimits, executionControl)
+                        executionControl.checkCancellation()
+                    }
             } catch (failure: CancellationException) { throw failure }
             catch (failure: RuntimeResourceLimitException) { throw failure }
             catch (failure: EngineExecutionException) { throw failure }

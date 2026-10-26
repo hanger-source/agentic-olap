@@ -13,8 +13,6 @@ import com.olap.prototype.query.QueryStageAnalysis.ScopeId
 import com.olap.prototype.query.ResultExpression.*
 import com.olap.prototype.query.ResultExpressionTree
 import com.olap.prototype.query.ScalarValueType
-import com.olap.prototype.warehouse.ResultMaterializationBudget
-import com.olap.prototype.warehouse.ResultMaterializationLimits
 import com.olap.prototype.warehouse.WarehouseExecutionControl
 import com.olap.prototype.runtime.RuntimeResourceLimitException
 import org.apache.calcite.rel.type.RelDataType
@@ -46,8 +44,7 @@ class CoreFinalizationPlan private constructor(private val sourceLayout: Executa
         data class Regroup(val computation: CoreRegroup) : Operation
     }
 
-    fun execute(frame: ResultFrame, support: CompilationSupport, control: WarehouseExecutionControl,
-        limits: ResultMaterializationLimits): ExecutableBusinessResult {
+    fun execute(frame: ResultFrame, support: CompilationSupport, control: WarehouseExecutionControl): ExecutableBusinessResult {
         control.checkCancellation()
         val source = try { sourceLayout.materialize(frame, support, control) }
         catch (failure: CancellationException) { throw failure }
@@ -60,12 +57,14 @@ class CoreFinalizationPlan private constructor(private val sourceLayout: Executa
         programs.forEach { program ->
             control.checkCancellation()
             val sourceValues = source[program.scope]?.map { row ->
-                sourceLayout.scopes.getValue(program.scope).contract.columns.mapIndexed { index, field ->
-                    field.symbol.name to input(row[index])
+                sourceLayout.scopes.getValue(program.scope).payload.mapIndexed { index, field ->
+                    field.name to input(row[index])
                 }.toMap(LinkedHashMap())
             }
             try {
-                completed[program.scope] = evaluate(program, sourceValues, completed, control)
+                val reduction = sourceLayout.scopes[program.scope]?.reduction
+                val values = if (reduction == null) sourceValues else reduction.complete(requireNotNull(sourceValues), control)
+                completed[program.scope] = evaluate(program, values, completed, control)
             } catch (failure: CoreFinalizationProblem) {
                 throw EngineExecutionException("CORE_FINALIZATION", failure.code, requireNotNull(failure.message), failure,
                     mapOf("fieldPath" to failure.fieldPath, "scope" to program.scope.path))
@@ -74,10 +73,8 @@ class CoreFinalizationPlan private constructor(private val sourceLayout: Executa
                     mapOf("scope" to program.scope.path))
             }
         }
-        val budget = ResultMaterializationBudget(limits)
         val rows = completed.getValue(ScopeId.root()).mapIndexed { rowIndex, values ->
             control.checkCancellation()
-            budget.row()
             outputContract.columns.map { field ->
                 val value = try { materialize(requireNotNull(values[field.symbol.name]), field.nativeType) }
                 catch (failure: CoreArithmeticFailure) {
@@ -86,7 +83,6 @@ class CoreFinalizationPlan private constructor(private val sourceLayout: Executa
                     throw EngineExecutionException("CORE_FINALIZATION", failure.code, requireNotNull(failure.message), failure,
                         mapOf("fieldPath" to path, "rowIndex" to rowIndex))
                 }
-                account(budget, value, 1)
                 value
             }
         }
@@ -217,16 +213,6 @@ class CoreFinalizationPlan private constructor(private val sourceLayout: Executa
         }
         is CoreValue.Preserved -> value.value
     }
-    private fun account(budget: ResultMaterializationBudget, value: ExecutableBusinessResult.Value, depth: Int) {
-        budget.value(depth)
-        when (value) {
-            is ExecutableBusinessResult.ScalarValue -> budget.scalar(value.value)
-            is ExecutableBusinessResult.ArrayValue -> value.value.forEach { account(budget, it, depth + 1) }
-            is ExecutableBusinessResult.RowValue -> value.value.forEach { account(budget, it, depth + 1) }
-            is ExecutableBusinessResult.NullValue -> Unit
-        }
-    }
-
     companion object {
         /** 在来源前缀编译之前拒绝不能留在此执行边界的阶段及表达节点。 */
         fun requireSupportedStages(analyses: Map<ScopeId, QueryStageAnalysis.Analysis>, graph: CoreFinalizationGraph) {
@@ -268,7 +254,7 @@ class CoreFinalizationPlan private constructor(private val sourceLayout: Executa
             require(graph.scopes.isNotEmpty() && graph.scopes.last() == ScopeId.root()) { "core execution scopes must end at the actual query root" }
             require(sourceLayout.scopes.keys == graph.sources.map { it.scope }.toSet()) { "core inputs differ from their actual source cuts" }
             requireSupportedStages(fullAnalyses, graph)
-            val sourceTypes = sourceLayout.scopes.mapValues { (_, layout) -> layout.contract.columns.associateTo(LinkedHashMap()) {
+            val sourceTypes = sourceLayout.scopes.mapValues { (_, layout) -> layout.reduction?.outputTypes ?: layout.contract.columns.associateTo(LinkedHashMap()) {
                 it.symbol.name to CoreFinalizationExpressions.sourceType(it.nativeType)
             } }
             val completedTypes = linkedMapOf<ScopeId, Map<String, CoreScalarType>>()
@@ -282,10 +268,14 @@ class CoreFinalizationPlan private constructor(private val sourceLayout: Executa
             graph.nodes.forEach { node ->
                 val scope = node.scope
                 val analysis = requireNotNull(fullAnalyses[scope])
-                val stages = analysis.stages.drop(node.stageStart)
+                val reduction = sourceLayout.scopes[scope]?.reduction
+                val stages = analysis.stages.drop(reduction?.let { it.stage.index + 1 } ?: node.stageStart)
                 val columns = linkedMapOf<String, MutableList<Binding>>()
                 val absentZero = linkedSetOf<String>()
                 val displays = linkedMapOf<String, String>()
+                (reduction?.stage?.operation as? PostOperationContract.Regroup)?.grouping?.aggregates?.forEach {
+                    displays[it.outputAlias] = it.outputDisplayName
+                }
                 fun project(dependency: ScopeId, outputSlots: Map<String, String>, projection: CoreFinalizationGraph.InputProjection? = null) {
                     val compiler = CoreFinalizationExpressions(completedTypes.getValue(dependency))
                     outputSlots.forEach { (alias, source) ->
@@ -348,7 +338,8 @@ class CoreFinalizationPlan private constructor(private val sourceLayout: Executa
                 val startingColumns = if (root == Root.Source) stages.firstOrNull()?.inputs ?: analysis.outputs else analysis.inputs
                 check(startingColumns.map { it.name } == types.keys.toList()) { "local input columns differ from the compiled source boundary" }
                 if (root == Root.Source) {
-                    check(sourceLayout.scopes.getValue(scope).contract.columns.map { it.symbol } == startingColumns) { "source prefix symbols differ from the actual local starting position" }
+                    val boundary = reduction?.stage?.outputs ?: sourceLayout.scopes.getValue(scope).contract.columns.map { it.symbol }
+                    check(boundary == startingColumns) { "source work symbols differ from the actual local starting position" }
                     check(inputs.containsKey(scope)) { "source scope must retain its native root input metadata" }
                 } else inputs[scope] = ExecutableOutputContract.ScopeInput(scope, analysis.inputs.map { symbol ->
                     ExecutableOutputContract.Field(symbol, requireNotNull(types.getValue(symbol.name).storage))
@@ -401,7 +392,7 @@ class CoreFinalizationPlan private constructor(private val sourceLayout: Executa
                 ExecutableOutputContract.Field(symbol, requireNotNull(types.getValue(symbol.name).storage))
             }, inputs.values.toList(), QueryStageAnalysis.symbols(fullAnalyses.values).values.toList(), ScopeId.root())
             return CoreFinalizationPlan(sourceLayout, contract, programs.toList(), completedDisplays.getValue(ScopeId.root()),
-                graph.sources.associate { it.scope to it.stageCount }, graph.scopes)
+                graph.sources.associate { it.scope to (sourceLayout.scopes.getValue(it.scope).reduction?.stage?.index ?: it.stageCount) }, graph.scopes)
         }
     }
 }

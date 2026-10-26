@@ -1165,7 +1165,7 @@ message ConnectorCapabilitiesAggregate { agentic.olap.semantic.v1.ConnectorRef c
 
 message NativeAggregateMapping { oneof kind { NativeAggregateMappingMapped mapped = 1; NativeAggregateMappingUnavailable unavailable = 2; } }
 
-message NativeAggregateMappingMapped { reserved 2; reserved "aggregation_rounding"; NativeValueType result_type = 1; agentic.olap.semantic.v1.NativeAverageBehavior average_behavior = 3; }
+message NativeAggregateMappingMapped { reserved 2; reserved "aggregation_rounding", "average_behavior"; NativeValueType result_type = 1; agentic.olap.semantic.v1.NativeAggregateBehavior behavior = 3; }
 
 message NativeAggregateMappingUnavailable { string code = 1; string message = 2; }
 

@@ -31,7 +31,7 @@ agentic-olap call describe-script-api --payload '{}'
 
 首次启动生成本机配置、随机令牌与持久目录，仅监听回环地址。已有远程服务可直接接入 MCP；CLI 使用 `--url https://actual-service/mcp --token-env OLAP_TOKEN`。令牌由实际服务方提供，不写入仓库或日志。模型账号、提示词与会话由外部客户端持有。
 
-配置与认证见[服务使用与部署](references/server.md)；连接业务源时再读[来源接入](references/connections.md)。服务、SDK 与插件须匹配实际服务披露的连接器 API；本仓库源码为 `agentic-olap-connector/v14-kotlin-mean-target-calcite-1.42`，存储格式为 `19`。安装不会自动重启原服务或转换旧持久根。
+配置与认证见[服务使用与部署](references/server.md)；连接业务源时再读[来源接入](references/connections.md)。服务、SDK 与插件须匹配实际服务披露的连接器 API；本仓库源码为 `agentic-olap-connector/v15-kotlin-aggregate-work-calcite-1.42`，存储格式为 `19`。安装不会自动重启原服务或转换旧持久根。
 
 ## 从服务发现 Kotlin API
 
@@ -48,10 +48,10 @@ agentic-olap call describe-script-api --payload '{"type":"com.olap.prototype.cal
 
 计算以共同 `Calculation.Scope` 为中心，直接构造、内联组合、引用定义以及成为更高层定义的计算体使用同一规则。`Computations` 的类型发现披露这些入口。具体集合、测量与完成结果直接组合；只有真实可替换输入才声明形式槽。`Computations.scope { ... }` 内用 `relation(id, computation, outputs)` 或 `member(...)` 一次登记完成输入并取得正式局部引用，供内联计算、算法或计算成员调用，不再分开填写 ROOT 与局部引用。已有身份、数量与键由引擎核验传播，作者明确期间、人口、列映射与缺失政策。成员必须具有实际来源与角色，不能将完成测量包装成属性。完整构造见[共同计算使用方式](https://github.com/hanger-source/agentic-olap/blob/main/docs/agent-usage.md#以计算及其结果继续组合)。
 
-`execute-script` 向持续 Kotlin 会话提交一个完整片段。DSL 为 `agentic-olap-kotlin-dsl/v9`，以服务发现结果为准。`executionId` 必填；不填 `sessionId` 创建会话，后续使用实际返回的会话 ID：
+`execute-script` 向持续 Kotlin 会话提交一个完整片段。DSL 为 `agentic-olap-kotlin-dsl/v10`，以服务发现结果为准。`executionId` 必填；不填 `sessionId` 创建会话，后续使用实际返回的会话 ID：
 
 ~~~sh
-agentic-olap call execute-script --payload '{"executionId":"sources-001","waitMillis":0,"source":"val sources = olap.sources.list(EmptyRequest)\nolap.output(sources)","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v9","parameters":{}}'
+agentic-olap call execute-script --payload '{"executionId":"sources-001","waitMillis":0,"source":"val sources = olap.sources.list(EmptyRequest)\nolap.output(sources)","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v10","parameters":{}}'
 agentic-olap call wait-script --payload '{"executionId":"sources-001","waitMillis":1000}'
 ~~~
 
@@ -79,7 +79,7 @@ agentic-olap call wait-script --payload '{"executionId":"sources-001","waitMilli
 
 报告 state 为 RUNNING／COMPLETED／COMPILE_FAILED／RUNTIME_FAILED／CANCELLED／LOST，只有最终 COMPLETED 且 success=true 才成功。sessionUsable 与执行成功分别判断；当前能否提交以 `read-script-session` 的 READY 为准。普通编译失败可以继续；不可恢复语言／进程故障必须显式 reset，不自动重建重放。正常语言历史类加载器保留至会话关闭。线程观察不证明泄漏，新增或未知活线程不因此改变会话可继续性；必要现场只进入有界私有诊断。
 
-普通值模型没有固定的节点、深度、文本、键或十进制容量阈值；目录等结构事实正常放入 `parameters`，脚本据此构造正式模型。用 `describe-script-api` 读取 `ScriptArguments/ScriptValue` 的 `rules.deploymentBudgets`，或读取 `describe-operation` 对 `execute-script` 披露的 `resourceBudgets`，取得实际输入预算与直接响应阈值。JSON 输入遵守 `requestBytes/inputNodes/inputDepth`：根为第 1 层且计节点，容器、标量与 NULL 计节点，键不计，节点与深度在首次越界拒绝。普通值与正式能力回执按正式 Protobuf 和实际返回体编码、读取，不设置独立输出容量或深度门槛。SQL 的 `resultRows/resultValues/resultBytes/resultDepth` 约束业务结果物化。不要为容量而默认展开源码、把目录编码成文本或自动拆分写入。表示、输入预算与交付细节见[普通参数与返回值容量](../../docs/agent-usage.md#普通参数与返回值容量)。
+普通值模型没有固定的节点、深度、文本、键或十进制容量阈值；目录等结构事实正常放入 `parameters`，脚本据此构造正式模型。用 `describe-script-api` 读取 `ScriptArguments/ScriptValue` 的 `rules.deploymentBudgets`，或读取 `describe-operation` 对 `execute-script` 披露的 `resourceBudgets`，取得实际输入预算与直接响应阈值。JSON 输入遵守 `requestBytes/inputNodes/inputDepth`：根为第 1 层且计节点，容器、标量与 NULL 计节点，键不计，节点与深度在首次越界拒绝。普通值与正式能力回执按正式 Protobuf 和实际返回体编码、读取，不设置独立输出容量或深度门槛。`resultRows/resultValues/resultBytes/resultDepth` 由结果 owner 核验最终业务 Value，不提前套用到来源原袋或编译工作状态；来源执行仍受取消、原生内存与自身真实约束。不要为容量而默认展开源码、把目录编码成文本或自动拆分写入。表示、输入预算与交付细节见[普通参数与返回值容量](../../docs/agent-usage.md#普通参数与返回值容量)。
 
 `calls[].effects` 独立于是否调用 output，保留治理写入及保存／修订查询的精确效果引用；用其 readOperation 在原权限下读取实际版本，不从没有输出或片段失败推断前面未提交，不选 latest。空 effects 不证明无副作用，失败、取消、reset 或 close 都不自动回滚既有提交；服务重启不提供这些执行观察的持久恢复。状态与输出边界见[脚本回执与继续执行](../../docs/agent-usage.md#脚本回执与继续执行)。
 
@@ -103,9 +103,11 @@ agentic-olap call wait-script --payload '{"executionId":"sources-001","waitMilli
 
 本次内联 Query 可以在 NUMERIC 的 `valueContract.unitEquations` 中显式声明名义单位方程，不必先创建 Metric，也不借用已发布 Metric 的输出合同授权方程。方程只作用于这个 NUMERIC 直接包住的运算；引擎核对实际单位、运算符、精确倍率及输出合同，场景对输入、节点和算子的权限继续生效。声明不登记或覆盖长期定义；需要复用完整口径时保存真实计算，不创建只有方程的空壳 Metric。成员出口和关系形参只声明数量事实，方程留在计算体。规则与可定位的单位错误见[数量合同与人口](https://github.com/hanger-source/agentic-olap/blob/main/docs/agent-usage.md#数量合同与人口)。
 
-均值由 `MeanTarget.MATHEMATICAL` 或 `SOURCE_NATIVE` 显式选择；作者声明最终数量与量化，不照填插件原生舍入。显式 CORE_FINALIZATION 支持完成关系 REGROUP 对 Exact 整数或固定 Decimal 原袋求 MATHEMATICAL AVG，各列独立处理 NULL、保留重复权重，在该节点一次最终量化，作者无需改成 SUM/COUNT。事实 AVG、窗口 AVG、快照 MEAN 和 SOURCE_NATIVE AVG 继续核对其实际来源节点，快照中间量化保留；DECIMAL 或精确算法不升级输入保证。来源 NativeCall、LEFT、形成观察的 CASE 保留在原来源前缀，不因拒绝自动切换位置或改 DOUBLE。完整语义与来源边界见[数量合同与人口](https://github.com/hanger-source/agentic-olap/blob/main/docs/agent-usage.md#数量合同与人口)及[来源接入](references/connections.md)。
+均值由 `MeanTarget.MATHEMATICAL` 或 `SOURCE_NATIVE` 显式选择；作者声明最终数量与量化，不照填插件原生舍入。显式 CORE_FINALIZATION 支持完成关系 REGROUP 对 Exact 整数或固定 Decimal 求 MATHEMATICAL AVG，各列独立处理 NULL、保留重复权重，在该节点一次最终量化。引擎可在完整输入域、工作容量和实际聚合行为均已证明时生成精确工作 SUM 与独立非 NULL 计数，最终除法和量化仍在 CORE；保证未知则交付原袋。作者无需改成 SUM／COUNT、重建 ROOT 或另存指标。事实 AVG、窗口 AVG、快照 MEAN 和 SOURCE_NATIVE AVG 继续核对其实际来源节点，快照中间量化保留；DECIMAL 或精确算法不升级输入保证。来源 NativeCall、LEFT、形成观察的 CASE 保留在原来源前缀，不因拒绝自动切换位置或改 DOUBLE。完整语义与来源边界见[数量合同与人口](https://github.com/hanger-source/agentic-olap/blob/main/docs/agent-usage.md#数量合同与人口)及[来源接入](references/connections.md)。
 
-核心按完整作用域关系执行。同一精确来源的一条 SQL 通过 UNION ALL 运输各自原袋、真实类型及独立存在标记，不用运输 JOIN 或假唯一键；各分支完成归约、原量化与过滤后，再按正式完整键和声明的 UNION／INTERSECTION／BASE 人口装配。运输不提供任意本地 JOIN、跨来源联邦或保存结果导入。单出口保持原生布局，缺组与存在但值为 NULL 分开，ZERO_WHEN_ABSENT 只在声明位置生效。
+聚合发现的 `behavior` 来自实际 `aggregateBehavior`；未声明为 NULL，不从 DECIMAL／BIGINT 推保证。`ExactOrFail` 要求实际 SUM／COUNT 保留分组身份、NULL 与袋人口，无中间量化或静默溢出，AVG 不能用它冒充均值行为。文本工作分组由 `textIdentityKey` 产生保 NULL 的精确二进制辅助键，与原文本共同分组后移除；未知 collation 不自动获得精确身份保证。H2 原生 COUNT、DuckDB SUM／COUNT 保持未声明，其他来源必须交出自身实际依据。
+
+核心按完整作用域关系执行。同一精确来源的一条 SQL 通过 UNION ALL 运输各自原袋或已证明的编译工作状态、实际类型及独立存在标记，不用运输 JOIN 或假唯一键；各分支完成归约、原量化与过滤后，再按正式完整键和声明的 UNION／INTERSECTION／BASE 人口装配。运输不提供任意本地 JOIN、跨来源联邦或保存结果导入。单出口保持实际载荷布局，缺组与存在但值为 NULL 分开，ZERO_WHEN_ABSENT 只在声明位置生效。
 
 `COUNT` 使用 `MetricValueContract.Fixed(MetricValueContract.ONE)`，对象身份及去重政策由测量本身表达，不能给计数另造实体单位。完整 COUNT、精确金额数量合同及人口合同读取示例见[数量合同与人口](https://github.com/hanger-source/agentic-olap/blob/main/docs/agent-usage.md#数量合同与人口)。
 

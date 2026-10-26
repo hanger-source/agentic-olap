@@ -29,7 +29,7 @@ class JdbcProvider(private val connectionSpec: JdbcConnectionSpec, private val c
     val bindingRef get() = connectionSpec.source().bindingRef()
     val connectorRef get() = connectionSpec.connectorRef
     val dialectId: String get() = connectionSpec.dialectId
-    fun executeFrame(request: SourceSqlRequest, control: WarehouseExecutionControl, budget: ResultMaterializationBudget, nativeMemoryBytes: Long, stageNanos: (String, Long) -> Unit): SourceExecutionResult {
+    fun executeFrame(request: SourceSqlRequest, control: WarehouseExecutionControl, nativeMemoryBytes: Long, stageNanos: (String, Long) -> Unit): SourceExecutionResult {
         log.info("JdbcProvider [Action]: 正在执行物理 SQL 并校验结果列契约...")
         val sql = request.sql
         var receipt = SourceRequestEvidence(null, SourceRequestAcceptance.NOT_SUBMITTED, SourceResponseState.NOT_RECEIVED, SourceExecutionState.NOT_SUBMITTED, "JDBC", null)
@@ -87,7 +87,7 @@ class JdbcProvider(private val connectionSpec: JdbcConnectionSpec, private val c
                                 receipt = SourceRequestEvidence(null, SourceRequestAcceptance.ACCEPTED, SourceResponseState.RECEIVED, SourceExecutionState.UNKNOWN, "JDBC", null)
                                 return observed("JDBC_MATERIALIZE", stageNanos) {
                                     try {
-                                        val frame = materialize(rows, request, control, budget)
+                                        val frame = materialize(rows, request, control)
                                         stage = "MATERIALIZE_RESULT"
                                         receipt = receipt.copy(execution = SourceExecutionState.SUCCEEDED)
                                         completedReadEvidence = SourceReadEvidence(bindingRef, readBasis, receipt)
@@ -125,7 +125,7 @@ class JdbcProvider(private val connectionSpec: JdbcConnectionSpec, private val c
             throw SourceExecutionFailures.exception(bindingRef, request.operation, stage, failure, control.cancellationEvidence(), receipt, completedReadEvidence)
         }
     }
-    private fun materialize(rows: ResultSet, request: SourceSqlRequest, control: WarehouseExecutionControl, budget: ResultMaterializationBudget): ResultFrame {
+    private fun materialize(rows: ResultSet, request: SourceSqlRequest, control: WarehouseExecutionControl): ResultFrame {
         val metadata = rows.metaData
         val columns = (1..metadata.columnCount).map { index ->
             val label = metadata.getColumnLabel(index)
@@ -137,8 +137,8 @@ class JdbcProvider(private val connectionSpec: JdbcConnectionSpec, private val c
         val result = mutableListOf<ResultRow>()
         val jdbc = connectionFactory.jdbc(connectionSpec)
         while (rows.next()) {
-            control.checkCancellation(); budget.row()
-            result += ResultRow(result.size, (1..metadata.columnCount).map { index -> ResultCell(alias(metadata.getColumnLabel(index), request.aliasMapping), JdbcResultValues.read(rows, index, control, budget, jdbc)) })
+            control.checkCancellation()
+            result += ResultRow(result.size, (1..metadata.columnCount).map { index -> ResultCell(alias(metadata.getColumnLabel(index), request.aliasMapping), JdbcResultValues.read(rows, index, control, jdbc)) })
         }
         return ResultFrame(columns, result)
     }

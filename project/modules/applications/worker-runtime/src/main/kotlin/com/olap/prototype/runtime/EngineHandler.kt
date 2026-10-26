@@ -141,7 +141,7 @@ internal class EngineHandler(private val connectors: ConnectorRegistry, private 
             finally { stages["COMPILE_AUTHORIZE"] = System.nanoTime() - authorizationStart }
             val sources = DeployedSources(configured, connectors)
             val engine = OlapEngine(OlapSemanticCompiler(CalciteRelCompiler(connectors)),
-                SourceExecutableSqlExecutor(sources::requireProvider, budgets.materialization, budgets.nativeMemoryBytes, command.readBasis), budgets.materialization)
+                SourceExecutableSqlExecutor(sources::requireProvider, budgets.nativeMemoryBytes, command.readBasis), budgets.materialization)
             sourceExecutionStarted = null
             val computation = engine.execute(publication.catalog, definition, observer(control) { evidence ->
                 completedReadEvidence = evidence

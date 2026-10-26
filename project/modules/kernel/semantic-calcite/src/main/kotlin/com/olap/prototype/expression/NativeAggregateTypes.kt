@@ -18,6 +18,7 @@ import org.apache.calcite.rel.logical.LogicalValues
 import org.apache.calcite.rel.type.RelDataType
 import org.apache.calcite.rex.*
 import org.apache.calcite.sql.SqlAggFunction
+import org.apache.calcite.sql.SqlKind
 import org.apache.calcite.sql.type.SqlTypeName
 import org.apache.calcite.sql.type.SqlTypeUtil
 import org.apache.calcite.tools.RelBuilder
@@ -58,7 +59,8 @@ object NativeAggregateTypes {
             val result = call.type
             requireDetermined(result)
             NativeAggregateMapping.Mapped(SemanticNativeTypes.describe(result),
-                if (aggregation == ResultAggregation.Kind.AVG) behavior(support, owner, call) else null)
+                if (aggregation in setOf(ResultAggregation.Kind.SUM, ResultAggregation.Kind.COUNT, ResultAggregation.Kind.COUNT_DISTINCT, ResultAggregation.Kind.AVG))
+                    behavior(support, owner, call) else support.aggregateBehavior(owner, call))
         } catch (failure: IllegalArgumentException) {
             unavailable(aggregation, type, failure)
         } catch (failure: UnsupportedOperationException) {
@@ -105,25 +107,49 @@ object NativeAggregateTypes {
         })
         val over = windows.singleOrNull() ?: reject(value.type, NativeAggregateMappingException.Reason.NATIVE_BEHAVIOR_UNAVAILABLE)
         val inputType = over.operands.single().type
-        val behavior = try { system.nativeSupport.averageBehavior(over) }
+        val behavior = try { system.nativeSupport.aggregateBehavior(over) }
         catch (failure: NativeAggregateMappingException) { throw failure }
         catch (failure: IllegalArgumentException) { throw NativeAggregateMappingException(MetricAggregation.AVG, inputType.fullTypeString, failure) }
         catch (failure: UnsupportedOperationException) { throw NativeAggregateMappingException(MetricAggregation.AVG, inputType.fullTypeString, failure) }
         requireTarget(inputType, over.type, behavior, target, contract, inputGuarantees)
     }
 
-    private fun behavior(support: CompilationSupport, owner: Aggregate, call: AggregateCall): NativeAverageBehavior {
-        val input = owner.input.rowType.fieldList[call.argList.single()].type
-        val inferred = call.aggregation.inferReturnType(call.createBinding(owner))
-        if (inferred == null || !SqlTypeUtil.equalSansNullability(owner.cluster.typeFactory, call.type, inferred))
-            reject(input, NativeAggregateMappingException.Reason.NATIVE_RESULT_TYPE_MISMATCH)
-        return try { support.averageBehavior(owner, call) }
-        catch (failure: NativeAggregateMappingException) { throw failure }
-        catch (failure: IllegalArgumentException) { throw NativeAggregateMappingException(MetricAggregation.AVG, input.fullTypeString, failure) }
-        catch (failure: UnsupportedOperationException) { throw NativeAggregateMappingException(MetricAggregation.AVG, input.fullTypeString, failure) }
+    /** 核验本次真实 SUM／COUNT 的工作保证；调用者继续核验所需的工作容量和业务输入保证。 */
+    fun requireExactWork(owner: Aggregate, call: AggregateCall) {
+        require(owner.aggCallList.contains(call)) { "exact work requires a call from its actual aggregate" }
+        require(call.aggregation.kind in setOf(SqlKind.SUM, SqlKind.COUNT)) { "exact work requires an actual SUM or COUNT" }
+        val support = (owner.cluster.typeFactory.typeSystem as SemanticCalciteTypeSystem).nativeSupport
+        val input = inputType(owner, call)
+        if (!SqlTypeUtil.isExactNumeric(call.type) || call.aggregation.kind == SqlKind.SUM &&
+            (call.argList.size != 1 || !SqlTypeUtil.isExactNumeric(input)))
+            reject(call, input, NativeAggregateMappingException.Reason.NATIVE_RESULT_TYPE_MISMATCH)
+        if (behavior(support, owner, call) != NativeAggregateBehavior.ExactOrFail)
+            reject(call, input, NativeAggregateMappingException.Reason.NATIVE_BEHAVIOR_UNAVAILABLE)
     }
 
-    private fun requireTarget(input: RelDataType, result: RelDataType, behavior: NativeAverageBehavior, target: MeanTarget,
+    private fun inputType(owner: Aggregate, call: AggregateCall): RelDataType =
+        call.argList.singleOrNull()?.let { owner.input.rowType.fieldList[it].type } ?: call.type
+
+    private fun behavior(support: CompilationSupport, owner: Aggregate, call: AggregateCall): NativeAggregateBehavior? {
+        val input = inputType(owner, call)
+        val inferred = try {
+            requireDetermined(call.type)
+            call.aggregation.inferReturnType(call.createBinding(owner))
+        } catch (failure: NativeAggregateMappingException) { throw failure }
+        catch (failure: IllegalArgumentException) {
+            throw NativeAggregateMappingException(aggregation(call), input.fullTypeString, failure, NativeAggregateMappingException.Reason.NATIVE_RESULT_TYPE_MISMATCH)
+        } catch (failure: UnsupportedOperationException) {
+            throw NativeAggregateMappingException(aggregation(call), input.fullTypeString, failure, NativeAggregateMappingException.Reason.NATIVE_RESULT_TYPE_MISMATCH)
+        }
+        if (inferred == null || !SqlTypeUtil.equalSansNullability(owner.cluster.typeFactory, call.type, inferred))
+            reject(call, input, NativeAggregateMappingException.Reason.NATIVE_RESULT_TYPE_MISMATCH)
+        return try { support.aggregateBehavior(owner, call) }
+        catch (failure: NativeAggregateMappingException) { throw failure }
+        catch (failure: IllegalArgumentException) { throw NativeAggregateMappingException(aggregation(call), input.fullTypeString, failure) }
+        catch (failure: UnsupportedOperationException) { throw NativeAggregateMappingException(aggregation(call), input.fullTypeString, failure) }
+    }
+
+    private fun requireTarget(input: RelDataType, result: RelDataType, behavior: NativeAggregateBehavior?, target: MeanTarget,
         contract: MetricValueContract, inputGuarantees: List<MetricValueContract.Arithmetic>) {
         requireDetermined(result)
         if (!SqlTypeUtil.isNumeric(result)) reject(input, NativeAggregateMappingException.Reason.NATIVE_RESULT_TYPE_MISMATCH)
@@ -137,7 +163,7 @@ object NativeAggregateTypes {
         })
             reject(input, NativeAggregateMappingException.Reason.APPROXIMATION_PROPAGATION_UNAVAILABLE)
         when (behavior) {
-            is NativeAverageBehavior.QuantizedMean -> {
+            is NativeAggregateBehavior.QuantizedMean -> {
                 if (result.sqlTypeName != SqlTypeName.DECIMAL) reject(input, NativeAggregateMappingException.Reason.NATIVE_RESULT_TYPE_MISMATCH)
                 if (target == MeanTarget.MATHEMATICAL && behavior.rounding != MetricValueContract.Rounding.NONE) {
                     val output = contract.result as? MetricValueContract.Decimal
@@ -145,12 +171,24 @@ object NativeAggregateTypes {
                         reject(input, NativeAggregateMappingException.Reason.MATHEMATICAL_QUANTIZATION_UNPROVED)
                 }
             }
-            NativeAverageBehavior.NativeFloating -> {
+            NativeAggregateBehavior.NativeFloating -> {
+                if (!SqlTypeUtil.isApproximateNumeric(result)) reject(input, NativeAggregateMappingException.Reason.NATIVE_RESULT_TYPE_MISMATCH)
                 if (target != MeanTarget.SOURCE_NATIVE) reject(input, NativeAggregateMappingException.Reason.MATHEMATICAL_QUANTIZATION_UNPROVED)
                 if (contract.arithmetic !is MetricValueContract.NativeFloating) reject(input, NativeAggregateMappingException.Reason.INPUT_GUARANTEE_UPGRADE)
             }
+            NativeAggregateBehavior.ExactOrFail, null -> reject(input, NativeAggregateMappingException.Reason.NATIVE_BEHAVIOR_UNAVAILABLE)
         }
     }
+
+    private fun aggregation(call: AggregateCall): MetricAggregation = when (call.aggregation.kind) {
+        SqlKind.SUM -> MetricAggregation.SUM
+        SqlKind.COUNT -> MetricAggregation.COUNT
+        SqlKind.AVG -> MetricAggregation.AVG
+        else -> error("aggregate behavior requires an actual SUM, COUNT or AVG")
+    }
+
+    private fun reject(call: AggregateCall, input: RelDataType, reason: NativeAggregateMappingException.Reason): Nothing =
+        throw NativeAggregateMappingException(aggregation(call), input.fullTypeString, null, reason)
 
     private fun reject(input: RelDataType, reason: NativeAggregateMappingException.Reason): Nothing =
         throw NativeAggregateMappingException(MetricAggregation.AVG, input.fullTypeString, null, reason)

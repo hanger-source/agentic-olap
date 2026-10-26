@@ -58,6 +58,7 @@ import org.apache.calcite.sql.type.OperandTypes
 import org.apache.calcite.sql.type.ReturnTypes
 import org.apache.calcite.sql.type.SqlTypeName
 import java.math.BigDecimal
+import java.math.BigInteger
 import java.math.RoundingMode
 import java.nio.file.Path
 
@@ -325,7 +326,7 @@ class MemberRelationExecutionTest {
     private fun regroup(keys: List<String>, aggregates: List<ResultAggregate>) = Regroup(ResultGrouping(keys, aggregates, null))
     private fun engine(warehouse: NativeWarehouse): OlapEngine {
         val source = com.olap.prototype.connector.SourceProvider(warehouse.spec.source(), TestConnectors.registry)
-        return OlapEngine(OlapSemanticCompiler(CalciteRelCompiler(TestConnectors.registry)), SourceExecutableSqlExecutor({ if (it == source.bindingRef) source else null }, RuntimeDeploymentLimits.result, RuntimeDeploymentLimits.nativeMemoryBytes, null), RuntimeDeploymentLimits.result)
+        return OlapEngine(OlapSemanticCompiler(CalciteRelCompiler(TestConnectors.registry)), SourceExecutableSqlExecutor({ if (it == source.bindingRef) source else null }, RuntimeDeploymentLimits.nativeMemoryBytes, null), RuntimeDeploymentLimits.result)
     }
     private fun execute(engine: OlapEngine, definitions: Definitions, computation: Calculation.Scope) = execute(engine, definitions.catalog(), computation)
     private fun execute(engine: OlapEngine, catalog: ExecutableCatalog, computation: Calculation.Scope): ExecutableBusinessResult = engine.execute(catalog,
@@ -410,12 +411,14 @@ class MemberRelationExecutionTest {
             }
             val registry = ConnectorRegistry(listOf(ResolvedConnector(deployed.ref, support, deployed.access)))
             val source = SourceProvider(warehouse.spec.source(), registry)
-            val delegate = SourceExecutableSqlExecutor({ if (it == source.bindingRef) source else null }, RuntimeDeploymentLimits.result,
+            val delegate = SourceExecutableSqlExecutor({ if (it == source.bindingRef) source else null },
                 RuntimeDeploymentLimits.nativeMemoryBytes, null)
             var submissions = 0
+            var sourceRows = 0
             val engine = OlapEngine(OlapSemanticCompiler(CalciteRelCompiler(registry)), ExecutableSqlExecutor { lowering, context, control ->
-                submissions++; delegate.execute(lowering, context, control)
-            }, RuntimeDeploymentLimits.result)
+                submissions++
+                delegate.execute(lowering, context, control).also { sourceRows = it.frame.rows.size }
+            }, RuntimeDeploymentLimits.result.copy(rows = 3))
             fun query(grouped: Boolean, policy: ResultAggregation.NullPolicy, empty: Boolean = false): Calculation.Scope {
                 val raw = Calculation.Members("score_records", Calculation.MemberSource(MemberRef("orders", 1)), listOf(
                     Calculation.MemberProjection("customer", "customer", Calculation.PublishedDimension(ScopedInputContract.DimensionRef("customers", "1", "customer")))) +
@@ -433,6 +436,8 @@ class MemberRelationExecutionTest {
                     catalog.manifest.catalogId, query, QueryExecutionMode.CORE_FINALIZATION), observer, RuntimeDeploymentLimits.CONTROL)
                 assertEquals(before + 1, submissions, "$dialect: 六个独立均值只提交一次来源，不能因原生AVG拒绝改算法或重试")
                 assertEquals(SourceExecutionState.SUCCEEDED, result.sourceReadEvidence.request.execution)
+                if (dialect == "h2") assertEquals(result.businessResult.rows.size, sourceRows,
+                    "精确工作映射应在来源先按真实键归约，不把每条观察运回核心")
                 return result.businessResult
             }
             val twoThirds = BigDecimal("2").divide(BigDecimal("3"), 18, RoundingMode.HALF_UP)
@@ -453,6 +458,84 @@ class MemberRelationExecutionTest {
             assertEquals(1, emptyGlobal.rows.size)
             assertTrue(emptyGlobal.rows.single().all { it is ExecutableBusinessResult.NullValue }, "$dialect: 空全局均值仍有一行NULL")
             assertTrue(execute(query(true, ResultAggregation.NullPolicy.IGNORE, true)).rows.isEmpty(), "$dialect: 空有键总体不制造组")
+        }
+    }
+
+    @Test fun reducesLargeExactWorkBeforeTransportWithoutCollapsingTextIdentities(@TempDir directory: Path) {
+        NativeWarehouse(directory, "h2", listOf(
+            "SET COLLATION ENGLISH STRENGTH PRIMARY",
+            "CREATE TABLE orders(id INTEGER PRIMARY KEY,customer INTEGER,period INTEGER,kind INTEGER,amount BIGINT,region VARCHAR(64))",
+            """INSERT INTO orders
+                SELECT x,1,1,0,
+                    CASE WHEN MOD(x,7)=0 THEN NULL WHEN MOD(x,2)=0 THEN 9223372036854775807 ELSE -9223372036854775808 END,
+                    CASE MOD(x,6) WHEN 0 THEN 'A' WHEN 1 THEN 'a' WHEN 2 THEN 'A ' WHEN 3 THEN 'é' WHEN 4 THEN 'é' ELSE NULL END
+                FROM SYSTEM_RANGE(1,12000) AS generated(x)""".trimIndent())).use { warehouse ->
+            val definitions = observationCatalog(warehouse)
+            declareUnits(definitions, "orders", mapOf("region" to ScalarValueType.TEXT))
+            val columns = listOf("id", "customer", "period", "kind", "amount", "region")
+            definitions.physical["orders@1"] = warehouse.adopt("orders", columns.associate { "orders.$it" to it })
+            val integer = MetricValueContract(money.unit, MetricValueContract.Exact(), MetricValueContract.Integer(64), emptyMap(), money.overflow)
+            val total = MetricValueContract(money.unit, MetricValueContract.Exact(), MetricValueContract.Decimal(38, 0, MetricValueContract.Rounding.NONE), emptyMap(), money.overflow)
+            val mean = MetricValueContract(money.unit, MetricValueContract.Exact(), MetricValueContract.Decimal(37, 18, MetricValueContract.Rounding.HALF_UP), emptyMap(), money.overflow)
+            val original = definitions.members.getValue("orders@1") as MemberSource.Projection
+            val declared = original.definition.result
+            definitions.members["orders@1"] = MemberSource.Projection("orders", 1, MemberSourceDefinition.Projection(original.definition.event,
+                MemberResult(declared.entity, declared.role, MemberShape.RAW_BAG, emptyList(), declared.outputs + mapOf(
+                    "region" to property("组", "region", ScalarValueType.TEXT, "orders.region"),
+                    "amount" to property("观测", "amount", ScalarValueType.NUMBER, "orders.amount", contract = integer)),
+                    declared.filterOperators, null, emptyMap(), null)), original.outputExpressions +
+                ("region" to SemanticExpression.Reference(SemanticExpression.ReferenceKind.LOGIC_UNIT, "orders.region", 1)))
+            val deployed = TestConnectors.registry.require(warehouse.spec.connectorRef)
+            val support = object : CompilationSupport by deployed.compilation {
+                override fun nativeAggregate(kind: SqlKind): SqlAggFunction {
+                    if (kind == SqlKind.AVG) throw UnsupportedOperationException("native AVG is deliberately unavailable")
+                    return deployed.compilation.nativeAggregate(kind)
+                }
+            }
+            val registry = ConnectorRegistry(listOf(ResolvedConnector(deployed.ref, support, deployed.access)))
+            val source = SourceProvider(warehouse.spec.source(), registry)
+            val delegate = SourceExecutableSqlExecutor({ if (it == source.bindingRef) source else null }, RuntimeDeploymentLimits.nativeMemoryBytes, null)
+            var submissions = 0
+            var transported = 0
+            val engine = OlapEngine(OlapSemanticCompiler(CalciteRelCompiler(registry)), ExecutableSqlExecutor { sql, context, control ->
+                submissions++
+                delegate.execute(sql, context, control).also { transported = it.frame.rows.size }
+            }, com.olap.prototype.warehouse.ResultMaterializationLimits(5, 20, 1024, 8))
+            val raw = Calculation.Members("records", Calculation.MemberSource(MemberRef("orders", 1)), listOf(
+                Calculation.MemberProjection("region", "region", null), Calculation.MemberProjection("amount", "amount", null)),
+                null, emptyMap(), MemberCondition.Unrestricted(), emptyMap(), emptyMap(), emptyMap())
+            val query = Calculation.Scope(raw, emptyMap(), listOf(
+                PostFilter(ResultOperation(ResultOperator.NOT, listOf(ResultOperation(ResultOperator.IS_NULL, listOf(ResultSymbol("region")))))),
+                regroup(listOf("region"), listOf(
+                    reduction("amount", ResultAggregation.Average(mean, ResultAggregation.NullPolicy.IGNORE, MeanTarget.MATHEMATICAL), "average"),
+                    reduction("amount", ResultAggregation.Sum(total, ResultAggregation.NullPolicy.IGNORE), "total"),
+                    reduction("amount", ResultAggregation.Count(false, ResultAggregation.NullPolicy.IGNORE), "known")))))
+            warehouse.finishSetup()
+            val catalog = definitions.catalog()
+            fun request(mode: QueryExecutionMode) = ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION, "large-work-$mode",
+                catalog.manifest.catalogId, query, mode)
+            val result = engine.execute(catalog, request(QueryExecutionMode.CORE_FINALIZATION), observer, RuntimeDeploymentLimits.CONTROL)
+            val labels = listOf("A", "a", "A ", "é", "é")
+            val actual = result.businessResult.rows.associate { row -> (row[0] as ExecutableBusinessResult.ScalarValue).value to
+                row.drop(1).map { BigDecimal((it as ExecutableBusinessResult.ScalarValue).value) } }
+            val expected = labels.mapIndexed { index, label ->
+                val values = (1..12000).filter { it % 6 == index && it % 7 != 0 }.map {
+                    if (it % 2 == 0) BigInteger.valueOf(Long.MAX_VALUE) else BigInteger.valueOf(Long.MIN_VALUE)
+                }
+                val sum = values.fold(BigInteger.ZERO, BigInteger::add)
+                label to listOf(BigDecimal(sum).divide(BigDecimal(values.size), 18, RoundingMode.HALF_UP), BigDecimal(sum), BigDecimal(values.size))
+            }.toMap()
+            assertEquals(expected.keys, actual.keys, "原生不区分大小写/组合字符的collation不能折叠精确身份")
+            expected.forEach { (key, values) -> assertEquals(values.map { it.stripTrailingZeros() }, actual.getValue(key).map { it.stripTrailingZeros() }) }
+            assertEquals(5, transported, "12000条观察只运输五组工作状态，原NULL过滤仍在同一来源请求中")
+            assertEquals(1, submissions)
+            assertEquals(SourceExecutionState.SUCCEEDED, result.sourceReadEvidence.request.execution)
+            // 相同小最终配额仍应约束真实的大业务结果，不因为来源工作配额退出而失效。
+            val ungrouped = Calculation.Scope(raw, emptyMap(), emptyList())
+            val oversized = ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION, "large-final-result", catalog.manifest.catalogId, ungrouped)
+            val failure = assertThrows(EngineExecutionException::class.java) { engine.execute(catalog, oversized, observer, RuntimeDeploymentLimits.CONTROL) }
+            assertEquals("RESULT_ROWS_EXCEEDED", failure.code)
+            assertEquals(SourceExecutionState.SUCCEEDED, requireNotNull(failure.sourceReadEvidence).request.execution)
         }
     }
 
@@ -517,7 +600,7 @@ class MemberRelationExecutionTest {
             }
             val registry = ConnectorRegistry(listOf(ResolvedConnector(deployed.ref, support, deployed.access)))
             val source = SourceProvider(warehouse.spec.source(), registry)
-            val delegate = SourceExecutableSqlExecutor({ if (it == source.bindingRef) source else null }, RuntimeDeploymentLimits.result,
+            val delegate = SourceExecutableSqlExecutor({ if (it == source.bindingRef) source else null },
                 RuntimeDeploymentLimits.nativeMemoryBytes, null)
             var submissions = 0
             val engine = OlapEngine(OlapSemanticCompiler(CalciteRelCompiler(registry)), ExecutableSqlExecutor { lowering, context, control ->
@@ -751,7 +834,7 @@ class MemberRelationExecutionTest {
                     Calculation.AlignedValue("${name}_mean", "${name}_mean", Calculation.NoMatch.ZERO_WHEN_ABSENT)))
             }
             val source = com.olap.prototype.connector.SourceProvider(warehouse.spec.source(), TestConnectors.registry)
-            val delegate = SourceExecutableSqlExecutor({ if (it == source.bindingRef) source else null }, RuntimeDeploymentLimits.result, RuntimeDeploymentLimits.nativeMemoryBytes, null)
+            val delegate = SourceExecutableSqlExecutor({ if (it == source.bindingRef) source else null }, RuntimeDeploymentLimits.nativeMemoryBytes, null)
             var submissions = 0
             val engine = OlapEngine(OlapSemanticCompiler(CalciteRelCompiler(TestConnectors.registry)), ExecutableSqlExecutor { lowering, context, control ->
                 submissions++
@@ -803,7 +886,7 @@ class MemberRelationExecutionTest {
         coreNumbers(directory).use { warehouse ->
             val definitions = coreDefinitions(warehouse)
             val source = com.olap.prototype.connector.SourceProvider(warehouse.spec.source(), TestConnectors.registry)
-            val delegate = SourceExecutableSqlExecutor({ if (it == source.bindingRef) source else null }, RuntimeDeploymentLimits.result, RuntimeDeploymentLimits.nativeMemoryBytes, null)
+            val delegate = SourceExecutableSqlExecutor({ if (it == source.bindingRef) source else null }, RuntimeDeploymentLimits.nativeMemoryBytes, null)
             var submissions = 0
             val engine = OlapEngine(OlapSemanticCompiler(CalciteRelCompiler(TestConnectors.registry)), ExecutableSqlExecutor { lowering, context, control ->
                 submissions++
@@ -865,7 +948,7 @@ class MemberRelationExecutionTest {
                 Calculation.Measures(listOf(call), (listOf("customer")).map { Calculation.DimensionParameter(it) }, emptyList(), null, emptyMap(), Calculation.Condition(DimensionCondition.Unrestricted()), DimensionCondition.Unrestricted(), emptyList(), RowPopulationContract.calls(listOf("filtered")), null),
                 emptyMap(), emptyList()))
             val source = com.olap.prototype.connector.SourceProvider(warehouse.spec.source(), TestConnectors.registry)
-            val delegate = SourceExecutableSqlExecutor({ if (it == source.bindingRef) source else null }, RuntimeDeploymentLimits.result, RuntimeDeploymentLimits.nativeMemoryBytes, null)
+            val delegate = SourceExecutableSqlExecutor({ if (it == source.bindingRef) source else null }, RuntimeDeploymentLimits.nativeMemoryBytes, null)
             var submissions = 0
             val engine = OlapEngine(OlapSemanticCompiler(CalciteRelCompiler(TestConnectors.registry)), ExecutableSqlExecutor { lowering, context, control ->
                 submissions++
@@ -895,7 +978,7 @@ class MemberRelationExecutionTest {
         coreNumbers(directory).use { warehouse ->
             val definitions = coreDefinitions(warehouse)
             val source = com.olap.prototype.connector.SourceProvider(warehouse.spec.source(), TestConnectors.registry)
-            val delegate = SourceExecutableSqlExecutor({ if (it == source.bindingRef) source else null }, RuntimeDeploymentLimits.result, RuntimeDeploymentLimits.nativeMemoryBytes, null)
+            val delegate = SourceExecutableSqlExecutor({ if (it == source.bindingRef) source else null }, RuntimeDeploymentLimits.nativeMemoryBytes, null)
             var submissions = 0
             val engine = OlapEngine(OlapSemanticCompiler(CalciteRelCompiler(TestConnectors.registry)), ExecutableSqlExecutor { lowering, context, control ->
                 submissions++

@@ -147,7 +147,7 @@ class ManagedProcesses(val config: JsonNode, distribution: Path) : AutoCloseable
         }
     }
     companion object {
-        const val PROTOCOL = "agentic-olap-runtime/v12"
+        const val PROTOCOL = "agentic-olap-runtime/v13"
         internal fun positive(node: JsonNode, name: String): Int = node.required(name).let {
             require(it.isIntegralNumber && it.canConvertToInt() && it.intValue() > 0) { "positive exact $name is required" }; it.intValue()
         }

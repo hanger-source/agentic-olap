@@ -131,7 +131,7 @@ object Kernel {
             val provider = SourceProvider(spec.source(), registry)
             val resultLimits = ResultMaterializationLimits(1_000, 20_000, 2_097_152, 16)
             val engine = OlapEngine(OlapSemanticCompiler(CalciteRelCompiler(registry)), SourceExecutableSqlExecutor(
-                { binding -> provider.takeIf { it.bindingRef == binding } }, resultLimits, nativeMemoryBytes, null), resultLimits)
+                { binding -> provider.takeIf { it.bindingRef == binding } }, nativeMemoryBytes, null), resultLimits)
             val completed = engine.execute(catalog, request, observer(output, "normal"), control)
             save(output.resolve("business-result.json"), completed.businessResult)
             save(output.resolve("compiled-query.json"), completed.compiledQuery)

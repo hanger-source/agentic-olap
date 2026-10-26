@@ -20,7 +20,7 @@ internal class JvmDistribution(directory: Path) {
     val script = classpath(manifest.path("scripting").path("runtime").path("classpath"))
     val dsl = classpath(manifest.path("scripting").path("dsl"))
     val dslVersion = manifest.path("scripting").path("dslApiVersion").asText().also {
-        require(it == "agentic-olap-kotlin-dsl/v9") { "exact deployed DSL API is required" }
+        require(it == "agentic-olap-kotlin-dsl/v10") { "exact deployed DSL API is required" }
     }
     private fun main(node: JsonNode, expected: String) = node.path("mainClass").asText().also {
         require(it == expected) { "unexpected JVM distribution entry point" }

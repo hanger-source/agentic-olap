@@ -2,7 +2,7 @@
 
 完整 MCP 服务通过来源插件访问数据。使用方提供与其网络、鉴权和查询协议相符的插件，服务负责语义管理、发布、规划、SQL 生成、执行要求检查及结果合同校验。HTTP 查询服务是来源访问实现，不需要数据库端口、JDBC URL、数据库凭据或 catalog 权限。业务公式、资格规则和指标组合仍通过语义定义和 Query 表达。
 
-本文描述源码中的来源访问合同：连接器 API 为 `agentic-olap-connector/v14-kotlin-mean-target-calcite-1.42`，元数据存储格式为 `19`。产品运行构件按同一发行装配；独立插件核对目标宿主的连接器合同与实际运行要求，产品版或 SDK 坐标变化本身不要求重构原插件，具体采用规则见[安装与发布](installation-release.md)。旧存储格式明确拒绝，服务不会自动改写已有持久根。
+本文描述源码中的来源访问合同：连接器 API 为 `agentic-olap-connector/v15-kotlin-aggregate-work-calcite-1.42`，元数据存储格式为 `19`。产品运行构件按同一发行装配；独立插件核对目标宿主的连接器合同与实际运行要求，产品版或 SDK 坐标变化本身不要求重构原插件，具体采用规则见[安装与发布](installation-release.md)。旧存储格式明确拒绝，服务不会自动改写已有持久根。
 
 ## 配置来源
 
@@ -85,7 +85,7 @@ JDBC 实现的 `identityParameters` 为 `jdbcUrl`、可选 `username` 和 `drive
 
 `sourceRequirements` 持有稳定 `dataContract`、明确选定的 `adoption`、本次实际使用的 `columns` 与 `constraintUses`。前者给出 P 的精确列和约束要求，后者给出实际绑定、连接器、方言、表坐标及该 S 的冻结证据；不能从 P 的原出处推导执行来源。`NOT_NULL.name` 直接标识列，其他约束项定位 P 的实际键或规则，插件无需解析 SQL 猜测来源列。`relationChecks` 另行给出 SQL、类型参数与违例码。两者都属于执行合同，参数顺序、比较语义与检查范围必须保留。
 
-API v14 的插件按上述两个正式对象实现纯能力声明及执行核验，不自行登记或选择采用。`adoption.requireContract(dataContract)` 只核冻结证据能否兑现 P，`requireDeployment(source)` 只核当前精确绑定；实际保证仍由本次 `execute` 兑现。`JdbcSourceRequirement.snapshotUniqueKeys` 来自 P，`sourceCollections` 只选取兑现 P 声明的登记，不能把 B 的其他观察自动提升为查询要求。可选 `JdbcSupport.supportsColumnInspection` 和 `supportsConstraintSnapshot` 接收 `PhysicalSourceEvidence`，核验使用所选 S 的出处和数据库／驱动观察，不沿用 P 原出处的技术信息。完整签名与字段责任见[连接器 API](../project/modules/kernel/connector-api/README.md#数据合同与兑现采用)。
+API v15 的插件按上述两个正式对象实现纯能力声明及执行核验，不自行登记或选择采用。`adoption.requireContract(dataContract)` 只核冻结证据能否兑现 P，`requireDeployment(source)` 只核当前精确绑定；实际保证仍由本次 `execute` 兑现。`JdbcSourceRequirement.snapshotUniqueKeys` 来自 P，`sourceCollections` 只选取兑现 P 声明的登记，不能把 B 的其他观察自动提升为查询要求。可选 `JdbcSupport.supportsColumnInspection` 和 `supportsConstraintSnapshot` 接收 `PhysicalSourceEvidence`，核验使用所选 S 的出处和数据库／驱动观察，不沿用 P 原出处的技术信息。完整签名与字段责任见[连接器 API](../project/modules/kernel/connector-api/README.md#数据合同与兑现采用)。
 
 源端原生强制约束可以免去同一非空条件的数据扫描，但插件必须核验约束确实作用于本次精确来源和列、覆盖已有数据与本次可读数据，而且在主查询期间不会因 DDL、表替换或连接切换失效。仅约束名称相同、目录返回 `nullable=false`、只约束后续写入、一次历史 catalog 观察或 `DECLARED` 结构都不足以证明这些条件。核验与使用之间的 schema 稳定性应由来源实际机制保证，例如同一受保护事务或 statement 的稳定 schema；不能靠先查目录再独立提交查询推断。源端只兑现非空约束时，也不能据此声明可以为优化器兑现所有冻结 PK／UK 等约束。
 
@@ -101,9 +101,11 @@ API v14 的插件按上述两个正式对象实现纯能力声明及执行核验
 
 `MeanTarget.MATHEMATICAL` 对实际参与值求数学均值，再完成该节点声明的最终量化；`SOURCE_NATIVE` 有意采用本发布所选实现的原生均值，再应用输出合同。目标与 `Exact / Approximate / NativeFloating` 独立，结果表示为 DECIMAL 不会恢复输入已失去的保证。作者声明人口、NULL、单位、结果容量和最终舍入，不填写后端原生舍入。所选执行位置无法兑现目标时明确拒绝，不改变业务目标或自动换算法。
 
-显式选择 CORE_FINALIZATION 后，完成关系 REGROUP 的 MATHEMATICAL AVG 可接收来源无损交付的 Exact 整数或固定 Decimal 原袋，在核心按组保留重复权重与各列独立 NULL 人口，并在该 AVG 节点应用一次最终量化。此节点不调用插件的原生 AVG；来源仍须兑现输入类型及算术保证。来源 NativeCall、LEFT 与用于形成观察的 CASE 保留在原来源前缀，不能由核心重做或用样本补保证。事实 AVG、窗口 AVG、快照 MEAN 和 SOURCE_NATIVE AVG 不因此成为核心执行能力；它们在来源执行时仍核验实际原生节点。
+显式选择 CORE_FINALIZATION 后，完成关系 REGROUP 的 MATHEMATICAL AVG 可消费 Exact 整数或固定 Decimal，在核心完成最终除法和该节点的一次量化。引擎可以按完整输入域、工作容量及实际聚合行为证明，生成来源精确工作 SUM 和每列独立非 NULL 计数状态；需要 PROPAGATE 时还保留总次数。工作输入在聚合前无损转换为足够容量，不能在已经舍入或溢出的 SUM 后补 CAST。状态保留原袋重复、各列 NULL 人口及精确分组键，不是新增业务指标；作者仍提交原 Average，无需手写 SUM／COUNT 或重包 ROOT。没有充分保证时保留原袋运输，由核心归约，不在失败后换计划。两条路径都不调用未知原生 AVG。来源 NativeCall、LEFT 与用于形成观察的 CASE 保留在原来源前缀，不能由核心重做或用样本补保证。事实 AVG、窗口 AVG、快照 MEAN 和 SOURCE_NATIVE AVG 不因此成为核心执行能力；它们在来源执行时仍核验实际原生节点。
 
-连接器的 `averageBehavior(Aggregate, AggregateCall)` 与 `averageBehavior(RexOver)` 读取实际节点的输入、原生结果类型、分组／窗口、FILTER 和 DISTINCT。`QuantizedMean(rounding)` 说明精确累加与计数、仅最后向实际原生 DECIMAL scale 量化；`NativeFloating` 不提供误差上界。类型系统、原生函数及真实调用的结果容量必须一致。内核在真实节点形成后、最终量化前核验目标，不用空人口全局聚合代替本次形态，也不把声明相同舍入或多保留几位当作一次最终量化的证明。
+连接器的 `aggregateBehavior(Aggregate, AggregateCall)` 与 `aggregateBehavior(RexOver)` 读取实际节点的输入、原生结果类型、分组／窗口、FILTER 和 DISTINCT，返回 `NativeAggregateBehavior?`；未声明为 null。`ExactOrFail` 表示本次 SUM／COUNT 的工作过程精确、无中间量化或静默溢出，同时保留 actual owner 分组键的精确值身份、NULL 与袋人口，不能让原生文本 collation 合并不同身份。实际返回容量仍由 call.type 界定，不能由声明推成无限容量。`QuantizedMean(rounding)` 表示 AVG 精确累加与计数后，仅向实际原生 DECIMAL scale 量化一次；`NativeFloating` 不提供误差上界。AVG 不能用 ExactOrFail 冒充均值行为。内核核验真实调用的类型推导与适用行为，不用空人口全局聚合代替本次形态，也不把 DECIMAL 类型、舍入名相同或多保留几位当作证明。
+
+H2 的精确 SUM 声明仅覆盖已核实的输入和实际分组键域；未知文本 collation 不据 VARCHAR 标签准入。需要文本分组时，引擎可把原文本与插件提供的精确二进制身份键共同分组，只输出原文本；实际 owner 的每个分组集合都必须保留对应身份键。H2 原生 COUNT 没有可声明的溢出失败保证，DuckDB 原生 SUM 的未检查合并形态也不声明 ExactOrFail。独立计数状态可由有保证的精确 SUM 形成，不借未声明的 COUNT 保证；其他来源也须对本次实际形态交出依据，不能以另一后端的成功代替。
 
 原生 AVG 静默算错或已有越界证据时，合法的最终容量、有限返回值及 Overflow.FAIL 不会修复其实际算法。该路径不能声明 Exact，SOURCE_NATIVE 和扩大最终 Decimal 也不能洗掉已有精度损失或工作溢出。已知错误或尚无数值依据的映射明确拒绝，返回 `NATIVE_AGGREGATE_MAPPING_UNAVAILABLE`、实际输入类型和受控 `reason`；不猜 DECIMAL、不转 DOUBLE、不在客户端补算。H2 已有依据的精确路径允许声明 QuantizedMean(HALF_DOWN)，数学目标的支持范围仍须与实际最终量化相容；这不是所有来源的通用数值政策。
 
@@ -146,7 +148,7 @@ olap.output(olap.sources.connectorCapabilities(
 
 `aggregation` 使用正式聚合枚举；`inputType` 是传入聚合的表达式原生类型，包含实际可空性和完整容量，不是最终业务结果合同。DECIMAL 必须指定 precision、scale，有长度的文本必须指定 precision；类型或容量不能被后端类型工厂静默改写。`grouped=false` 表示没有分组键的全局聚合，`true` 表示存在普通分组键；分组集合中的空分组按全局方式查询。该上下文用于原生结果可空性推导。
 
-响应的 `aggregate.mapping` 为 `MAPPED` 时给出 `resultType`；AVG 另给出 `averageBehavior`，非 AVG 为 null。发现与真实编译消费同一原生行为声明。`UNAVAILABLE` 携带受控不可用原因，不返回猜测的容量或数值行为。精确连接器必须属于本主体获准的来源。
+响应的 `aggregate.mapping` 为 `MAPPED` 时给出 `resultType` 和可空的 `behavior`。SUM／COUNT／AVG 通过同一实际行为入口披露该发现形态的声明；null 不代表精确工作已获证明，MAPPED 也不等于可做工作归约。发现与真实编译消费同一行为合同。`UNAVAILABLE` 携带受控不可用原因，不返回猜测的容量或数值行为。精确连接器必须属于本主体获准的来源。
 
 发现只读取明确请求的普通全局或分组映射，不连接来源、不执行 SQL，不证明后端环境、任意 grouping sets、窗口或完整 Query 已可执行。作者以 `meanTarget` 与非空 `valueContract` 表达所需含义；真实 Query 的实际 Aggregate／RexOver、输入保证及最终量化共同决定能否兑现。原生均值行为不直接成为作者的业务目标，SOURCE_NATIVE 也不承诺不同实现返回相同值。
 
@@ -157,6 +159,8 @@ olap.output(olap.sources.connectorCapabilities(
 中立类型校验和来源编译使用一致的 Unicode 文本类型与默认 collation，作者可直接使用普通文本字面量。插件显式提供的原生字符集和 collation 保留其声明；内部 Unicode 元数据不证明后端的比较行为。原生参数、SQL 字面量及文本运算仍由精确插件兑现，无需作者在逻辑字段请求中填写字符集。
 
 `textIdentityEquals(builder,left,right)` 接收两个保留真实类型的操作数，为文本身份 EQ、NE、IN 提供完整的 BOOLEAN 比较表达式，遵循 SQL 三值逻辑，不能隐式忽略大小写、尾空格或做 Unicode 归一。原生文本等号是否等价取决于实际类型、编码与 collation；样本相等和估算成本下降都不足以证明普遍等价。插件直接映射完整比较，不必将文本冒充二进制，也不必在 SQL 字符串中寻找操作数。数据库、列或比较策略中影响该保证的条件属于身份与来源保证，不能放入运行参数。这个合同不重新定义所有 CHAR、GROUP BY 或 ORDER BY 行为。
+
+`textIdentityKey(builder,value)` 为 CORE 工作归约提供保 NULL、注入式精确的 BINARY／VARBINARY 身份表达式，未支持返回 NULL。它是确定的纯映射；引擎把该表达式与原文本共同分组，不让原生文本 collation 合并不同精确身份，完成后移除辅助键。`NativeAggregateKeys.preservesExactIdentity` 核验实际 Project 表达式及每个分组集合中的对应关系，不依据字段名称或后端默认值猜测。内置 H2 复用 RAWTOHEX／STRINGTOUTF8，DuckDB 复用 ENCODE。此入口不把业务文本改为二进制输出，也不单独证明聚合工作精确；精确工作仍须通过实际 `aggregateBehavior` 和容量核验。
 
 插件的原生 Rex 函数还须诚实声明 NULL 传播，供 Calcite 分析真实过滤条件。返回类型可空不等于严格 NULL 传播；仅当函数严格传播 NULL 且非 NULL 输入不产生 NULL 时，才可用正式 `SqlOperator.getStrongPolicyInference()` 声明 `Strong.Policy.ANY`。内置 DuckDB `ENCODE` 和 H2 `RAWTOHEX/STRINGTOUTF8` 使用这一声明，原生 SQL 与身份比较语义不变。无法证明时，核心仍保留运行关系检查，不据插件函数名或可空类型免除 NULL、人口、重复度与数量边界。
 
@@ -204,7 +208,7 @@ HTTP 服务的分页、截断或未完成状态由插件识别；必须按明确
 
 精确数值使用 `BigDecimal`、`BigInteger` 或有界整数，不经过 JSON 浮点转换。日期、时间和带偏移时间使用对应 Java 时间类型。集合和记录使用通用 `SqlResultValues.ArrayValue`、`RowValue`；保留 NULL 集合、空集合、NULL 元素、重复元素和记录字段顺序。不能把集合编码成字符串或把 NULL 当零。
 
-插件在读取过程中遵守共享结果预算及取消控制；宿主对返回结果再次检查预算，并按编译合同递归核验形态、精度、容量、NULL 和数量含义。收到响应不等于结果已通过语义合同校验。
+`SourceAccess.execute(source, request, control, nativeMemoryBytes, stageNanos)` 不接收最终业务结果限额。插件兑现取消、原生内存和来源自身真实约束，完整交付来源工作结果；不能按最终 resultRows／resultValues／resultBytes／resultDepth 截断原袋或工作状态。宿主按编译合同递归核验来源形态、精度、容量、NULL 和数量含义，再由结果 owner 对最终 `ExecutableBusinessResult.Value` 计量并执行业务结果限额。来源行数、工作状态和最终业务行数不混用，工作表示不因此获得无界资源承诺。收到响应不等于最终业务结果已通过核验或物化。
 
 ## 执行事实、读基础与重放
 

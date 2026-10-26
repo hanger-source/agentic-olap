@@ -369,11 +369,11 @@ internal fun NativeAggregateMappingFromProto(value: com.olap.prototype.wire.gove
 
 internal fun NativeAggregateMappingMappedToProto(value: com.olap.prototype.expression.NativeAggregateMapping.Mapped): com.olap.prototype.wire.governance.NativeAggregateMappingMapped = com.olap.prototype.wire.governance.NativeAggregateMappingMapped.newBuilder().apply {
     setResultType(NativeValueTypeToProto(value.resultType))
-    value.averageBehavior?.let { setAverageBehavior(SemanticProto.toProto(it)) }
+    value.behavior?.let { setBehavior(SemanticProto.toProto(it)) }
 }.build()
 internal fun NativeAggregateMappingMappedFromProto(value: com.olap.prototype.wire.governance.NativeAggregateMappingMapped): com.olap.prototype.expression.NativeAggregateMapping.Mapped = com.olap.prototype.expression.NativeAggregateMapping.Mapped(
     resultType = required(value.hasResultType(), "NativeAggregateMappingMapped.resultType") { NativeValueTypeFromProto(value.getResultType()) },
-    averageBehavior = if (value.hasAverageBehavior()) SemanticProto.fromProto(value.getAverageBehavior()) else null
+    behavior = if (value.hasBehavior()) SemanticProto.fromProto(value.getBehavior()) else null
 )
 
 internal fun NativeAggregateMappingUnavailableToProto(value: com.olap.prototype.expression.NativeAggregateMapping.Unavailable): com.olap.prototype.wire.governance.NativeAggregateMappingUnavailable = com.olap.prototype.wire.governance.NativeAggregateMappingUnavailable.newBuilder().apply {

@@ -33,8 +33,7 @@ class HttpSqlService(jdbc: JdbcSupport, source: JdbcConnectionSpec) : AutoClosea
                         val metadata = rows.metaData
                         output.writeInt(metadata.columnCount)
                         (1..metadata.columnCount).forEach { HttpSqlConnector.writeText(output, metadata.getColumnLabel(it)) }
-                        val budget = ResultMaterializationBudget(ResultMaterializationLimits(10000, 100000, 16000000, 32))
-                        while (rows.next()) { budget.row(); output.writeBoolean(true); (1..metadata.columnCount).forEach { HttpSqlConnector.writeValue(output, JdbcResultValues.read(rows, it, control, budget, jdbc)) } }
+                        while (rows.next()) { control.checkCancellation(); output.writeBoolean(true); (1..metadata.columnCount).forEach { HttpSqlConnector.writeValue(output, JdbcResultValues.read(rows, it, control, jdbc)) } }
                         output.writeBoolean(false)
                     }
                     queryCount.incrementAndGet()

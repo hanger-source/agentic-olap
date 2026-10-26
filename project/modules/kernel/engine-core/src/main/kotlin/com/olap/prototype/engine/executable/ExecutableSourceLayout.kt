@@ -24,10 +24,14 @@ class ExecutableSourceLayout(fields: List<Field>, scopes: Map<ScopeId, Scope>) {
         @get:JsonProperty("type") val type: ResultValueType get() = SemanticNativeTypes.resultType(nativeType)
     }
 
-    class Scope(val contract: ExecutableOutputContract, columns: Map<String, String>, val presenceColumn: String?) {
+    class Scope internal constructor(val contract: ExecutableOutputContract, columns: Map<String, String>, val presenceColumn: String?,
+        val payload: List<Field> = contract.columns.map { Field(it.symbol.name, it.nativeType) },
+        @get:JsonIgnore internal val reduction: CoreSourceReduction? = null) {
         val columns: Map<String, String> = Collections.unmodifiableMap(LinkedHashMap(columns))
+        val representation: String get() = if (reduction == null) "OBSERVATION_BAG" else "EXACT_AGGREGATE_WORK"
+        val reductionStage: Int? get() = reduction?.stage?.index
         init {
-            require(this.columns.keys.toList() == contract.columns.map { it.symbol.name }) { "source layout must map every actual scope output in order" }
+            require(this.columns.keys.toList() == payload.map { it.name }) { "source layout must map every actual payload field in order" }
             require(this.columns.values.all(String::isNotBlank) && this.columns.values.distinct().size == this.columns.size) { "scope outputs require distinct physical columns" }
             require(presenceColumn == null || presenceColumn.isNotBlank() && presenceColumn !in this.columns.values) { "source presence must be a separate physical column" }
         }
@@ -47,8 +51,8 @@ class ExecutableSourceLayout(fields: List<Field>, scopes: Map<ScopeId, Scope>) {
         this.scopes.forEach { (scope, output) ->
             require(output.contract.outputScope == scope) { "source layout scope differs from its actual output contract" }
             require(physical.keys.containsAll(output.columns.values)) { "scope output is absent from the source physical layout" }
-            output.contract.columns.forEach { field ->
-                val type = physical.getValue(output.columns.getValue(field.symbol.name)).nativeType
+            output.payload.forEach { field ->
+                val type = physical.getValue(output.columns.getValue(field.name)).nativeType
                 require(SqlTypeUtil.equalSansNullability(field.nativeType, type)) { "source transport must retain each scope output's actual native type" }
             }
             output.presenceColumn?.let { name ->
@@ -92,11 +96,11 @@ class ExecutableSourceLayout(fields: List<Field>, scopes: Map<ScopeId, Scope>) {
             scopes.forEach { (other, absent) ->
                 if (other != scope) check(absent.columns.values.all { cells.getValue(it) == null }) { "absent source scope has a nonnull transport payload" }
             }
-            val values = output.contract.columns.map { field ->
-                val raw = cells.getValue(output.columns.getValue(field.symbol.name))
+            val values = output.payload.map { field ->
+                val raw = cells.getValue(output.columns.getValue(field.name))
                 ExecutableResultTypes.requireValue(field.nativeType, raw)
                 ExecutableBusinessResults.value(raw, field.nativeType)
-            }.also { ExecutableQuantityValues.require(columns.getValue(scope), it) }
+            }.also { if (output.reduction == null) ExecutableQuantityValues.require(columns.getValue(scope), it) }
             materialized.getValue(scope).add(java.util.List.copyOf(values))
         }
         control.checkCancellation()

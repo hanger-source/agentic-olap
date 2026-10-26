@@ -128,7 +128,7 @@ class JdbcWarehouseInspectorTest {
                 val aliases = linkedMapOf("business_day" to "day", "recorded_at" to "recorded", "instant_at" to "instant", "absent_at" to "absent")
                 val sql = "SELECT * FROM clock_test.records WHERE recorded_at = ?"
                 val types = TestConnectors.sqlOutputTypes(spec, sql, aliases, mapOf("day" to true, "recorded" to true, "instant" to true, "absent" to true))
-                val frame = provider.executeFrame(SourceSqlRequest("execute-query", sql, listOf(JdbcParameter.of(java.sql.Types.TIMESTAMP, "TIMESTAMP", 9, 0, local)), aliases, aliases, types, emptyList(), emptyList(), null), control, RuntimeDeploymentLimits.budget(), RuntimeDeploymentLimits.nativeMemoryBytes) { _, _ -> }.frame
+                val frame = provider.executeFrame(SourceSqlRequest("execute-query", sql, listOf(JdbcParameter.of(java.sql.Types.TIMESTAMP, "TIMESTAMP", 9, 0, local)), aliases, aliases, types, emptyList(), emptyList(), null), control, RuntimeDeploymentLimits.nativeMemoryBytes) { _, _ -> }.frame
                 assertEquals(1, frame.rows.size)
                 val cells = frame.rows[0].cells
                 assertEquals(LocalDate.parse("2026-03-08"), cells[0].value); assertEquals(local, cells[1].value)
@@ -153,7 +153,7 @@ class JdbcWarehouseInspectorTest {
         val binding = TestConnectors.physical(ExecutablePhysicalExecutionBinding("clock-source", "1", null, null, null, null, "clock-source", "1", emptyList(),
             contract, TestConnectors.adoption(contract, spec.source(), evidence), logicUnitBindings = mapOf("value@1" to physical), physicalColumnBindings = names, physicalColumnTypes = types))
         val sql = CandidateValueCompiler.compile(binding, logical, 0, 10, mutableListOf(), connectors)
-        return provider.executeFrame(sql, control, RuntimeDeploymentLimits.budget(), RuntimeDeploymentLimits.nativeMemoryBytes) { _, _ -> }.frame.rows.map { it.cells.first().value }.onEach { type.candidate(it) }
+        return provider.executeFrame(sql, control, RuntimeDeploymentLimits.nativeMemoryBytes) { _, _ -> }.frame.rows.map { it.cells.first().value }.onEach { type.candidate(it) }
     }
 
     @Test fun discoversDescribesAndPreviewsARealJdbcSchema() {

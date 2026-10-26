@@ -15,7 +15,7 @@ import com.olap.prototype.query.ResultAggregation
 /** 实际来源前缀与核心后缀的依赖图；运输人口与各节点最终人口分别计算。 */
 class CoreFinalizationGraph private constructor(sources: List<SourceCut>, nodes: List<Node>) {
     data class SourceCut(val scope: ScopeId, val stageCount: Int)
-    data class SourceInput(val cut: SourceCut)
+    data class SourceInput(val cut: SourceCut, val analysis: Analysis)
     data class Node(val scope: ScopeId, val root: Root, val stageStart: Int)
     data class Population(val kind: Calculation.PopulationKind, val scopes: List<ScopeId>)
     sealed interface Root {
@@ -49,7 +49,7 @@ class CoreFinalizationGraph private constructor(sources: List<SourceCut>, nodes:
                 positions = projection.keys
             }
         }
-        return this.sources.map(::SourceInput)
+        return this.sources.map { SourceInput(it, analyses.getValue(it.scope)) }
     }
 
     class InputProjection(val inputScope: ScopeId, outputSlots: Map<String, String>, identitySlots: Map<String, String>,

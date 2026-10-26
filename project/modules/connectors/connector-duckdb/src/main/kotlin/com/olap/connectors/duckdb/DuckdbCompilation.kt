@@ -4,7 +4,7 @@ import com.olap.prototype.connector.CompilationSupport
 import com.olap.prototype.connector.StandardJdbcTypes
 import com.olap.prototype.contract.*
 import com.olap.prototype.expression.NativeScalarFunction
-import com.olap.prototype.expression.NativeAverageBehavior
+import com.olap.prototype.expression.NativeAggregateBehavior
 import com.olap.prototype.metric.MetricValueContract
 import org.apache.calcite.plan.Strong
 import org.apache.calcite.rel.type.*
@@ -49,17 +49,21 @@ internal class DuckdbCompilation : CompilationSupport {
         CompilationSupport.Capability.SAMPLE_STDDEV, CompilationSupport.Capability.RECURSIVE_ANCESTORS, CompilationSupport.Capability.ELAPSED_TIMESTAMPDIFF,
         CompilationSupport.Capability.WIDE_INTEGER, CompilationSupport.Capability.TIMESTAMP_PARAMETER_NATIVE_CAST, CompilationSupport.Capability.ROUND_KEEPS_INPUT_PRECISION,
         CompilationSupport.Capability.CORRELATED_DERIVED_PROJECTION)
-    override fun averageBehavior(owner: Aggregate, call: AggregateCall): NativeAverageBehavior {
+    override fun aggregateBehavior(owner: Aggregate, call: AggregateCall): NativeAggregateBehavior? {
+        // v1.5.6 SumState<hugeint_t>::Combine 使用未检查溢出的 operator+=；
+        // HUGEINT 结果类型本身不足以声明所有 SUM 形态的 ExactOrFail，COUNT 也不据 BIGINT 标签推保证。
+        if (call.aggregation.kind != SqlKind.AVG) return null
         require(call.aggregation == nativeAggregate(SqlKind.AVG) && call.argList.size == 1 && !call.isDistinct) { "DuckDB requires its actual scalar AVG mapping" }
-        return averageBehavior(owner.input.rowType.fieldList[call.argList.single()].type, call.type)
+        return meanBehavior(owner.input.rowType.fieldList[call.argList.single()].type, call.type)
     }
-    override fun averageBehavior(over: RexOver): NativeAverageBehavior {
+    override fun aggregateBehavior(over: RexOver): NativeAggregateBehavior? {
+        if (over.aggOperator.kind != SqlKind.AVG) return null
         require(over.aggOperator == nativeAggregate(SqlKind.AVG) && over.operands.size == 1 && !over.isDistinct) { "DuckDB requires its actual scalar window AVG mapping" }
-        return averageBehavior(over.operands.single().type, over.type)
+        return meanBehavior(over.operands.single().type, over.type)
     }
-    private fun averageBehavior(input: RelDataType, result: RelDataType): NativeAverageBehavior {
+    private fun meanBehavior(input: RelDataType, result: RelDataType): NativeAggregateBehavior {
         require(SqlTypeUtil.isNumeric(input) && result.sqlTypeName == SqlTypeName.DOUBLE) { "DuckDB AVG requires its actual DOUBLE result mapping" }
-        return NativeAverageBehavior.NativeFloating
+        return NativeAggregateBehavior.NativeFloating
     }
     override fun sortCollection(builder: RelBuilder, value: RexNode, descending: Boolean, nullsFirst: Boolean): RexNode = collectionCall(builder, "LIST_SORT", value.type,
         listOf(value, builder.literal(if (descending) "DESC" else "ASC"), builder.literal(if (nullsFirst) "NULLS FIRST" else "NULLS LAST")))
@@ -94,6 +98,7 @@ internal class DuckdbCompilation : CompilationSupport {
         return StandardJdbcTypes.resolve(factory, resolved)
     }
     override fun textIdentityEquals(builder: RelBuilder, left: RexNode, right: RexNode): RexNode = builder.equals(codeBytes(builder, left), codeBytes(builder, right))
+    override fun textIdentityKey(builder: RelBuilder, value: RexNode): RexNode = codeBytes(builder, value)
     override fun expandCollection(outputType: RelDataType, tableAlias: String): CompilationSupport.CollectionExpansion = CompilationSupport.CollectionExpansion.Relation { collection ->
         val position = SqlParserPos.ZERO
         val element = outputType.fieldList[0]

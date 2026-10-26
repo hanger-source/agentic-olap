@@ -20,7 +20,7 @@ agentic-olap sdk --repository
 
 HTTP 或其他后端由使用方提供匹配其 SQL 后端及实际协议的插件；SQL 协议兼容不证明类型、数值、时间或一致性映射已经成立。业务 Agent 通过正式 MCP 使用已配置的来源。
 
-本仓库源码的连接器 API 为 `agentic-olap-connector/v14-kotlin-mean-target-calcite-1.42`；安装发行物时以实际服务及 `agentic-olap sdk` 披露的 API 为准。`connectorRef` 是 manifest 中实际的 `{id,version,sha256}`，数据源逐项引用该完整对象。服务核验 API 和摘要，驱动只由 JDBC 实现核验。
+本仓库源码的连接器 API 为 `agentic-olap-connector/v15-kotlin-aggregate-work-calcite-1.42`；安装发行物时以实际服务及 `agentic-olap sdk` 披露的 API 为准。`connectorRef` 是 manifest 中实际的 `{id,version,sha256}`，数据源逐项引用该完整对象。服务核验 API 和摘要，驱动只由 JDBC 实现核验。
 
 产品版本或 SDK Maven 坐标变化本身不要求重新构建既有插件。原插件与目标宿主的连接器 API 相同、所用公共接口的二进制合同及 JVM、Kotlin、Calcite 要求满足时，可原样保留完整插件组。宿主仍逐项核验原 manifest、JAR 摘要、完整 `connectorRef` 和 provider 身份；不因产品升级改写它们。API 字符串相同和装载成功都不能单独证明尚未调用的分支成立，升级须用原精确插件完成实际使用能力的查询验证。原字节和来源身份配置均未改变时，来源绑定也不变，无需仅为产品版本重登记目录或修订资产。
 
@@ -94,11 +94,13 @@ olap.output(olap.sources.connectorCapabilities(ConnectorCapabilitiesRequest(aggr
 
 `connectors` 返回精确 `connectorRef`、原生标量函数、编译能力、参数提交策略和参数角色声明。声明不代替真实后端验证。若编译返回 `NATIVE_COMPILATION_CAPABILITY_MISSING`，按其 capability/operation 检查精确插件；例如数值绑定要求的相关派生投影与普通 EXISTS 条件相关是不同能力。
 
-需要来源原生 AVG 等聚合时，可用 `ConnectorCapabilitiesRequest.Aggregate(connectorRef, aggregation, inputType, grouped)` 读取该输入的正式映射。`aggregation` 是 `ResultAggregation.Kind`；`inputType` 是 `NativeValueType`，给出实际类型、容量和可空性，不能拿最终输出合同代替。DECIMAL 须明确 precision/scale。全局聚合用 `grouped=false`，普通非空分组键用 true，空分组集合按全局处理。`mapping` 区分插件已经兑现的结果类型与 AVG 的 `averageBehavior`，以及明确未实现的映射；此读取不证明整个查询可执行。
+需要来源 SUM、COUNT、AVG 等聚合时，可用 `ConnectorCapabilitiesRequest.Aggregate(connectorRef, aggregation, inputType, grouped)` 读取该输入的正式映射。`aggregation` 是 `ResultAggregation.Kind`；`inputType` 是 `NativeValueType`，给出实际类型、容量和可空性，不能拿最终输出合同代替。DECIMAL 须明确 precision/scale。全局聚合用 `grouped=false`，普通非空分组键用 true，空分组集合按全局处理。`mapping` 给出 `resultType` 和可空 `behavior`；类型映射成功但行为未知，不证明精确工作可用。发现不连接来源，也不代替真实 Query 的实际 owner、分组、FILTER、DISTINCT 及类型核验。
+
+`aggregateBehavior(Aggregate,AggregateCall)` 与 `aggregateBehavior(RexOver)` 返回实际节点的 `NativeAggregateBehavior?`。`ExactOrFail` 表示本次 SUM／COUNT 保留真实键身份、NULL 与袋人口，无中间量化或静默溢出，实际容量仍由调用类型界定；AVG 只按其适用的 `QuantizedMean` 或 `NativeFloating` 行为核验，不能用 ExactOrFail 冒充。文本工作分组可通过 `textIdentityKey` 的保 NULL、注入式 BINARY／VARBINARY 辅助键与原键共同分组，完成后只输出原键；未提供精确身份映射时不能猜原生 collation。H2 原生 COUNT、DuckDB SUM／COUNT 均未声明精确工作保证，其他来源不得照抄后端名称或 DECIMAL／BIGINT 标签。
 
 `MeanTarget.MATHEMATICAL` 对实际参与值求数学均值，再完成该节点声明的最终量化；`SOURCE_NATIVE` 有意采用本发布所选实现的原生均值，再应用输出合同。目标与 `Exact / Approximate / NativeFloating` 独立，结果表示为 DECIMAL 不会恢复输入已失去的保证。作者声明人口、NULL、单位、结果容量和最终舍入，不填写后端原生舍入。所选执行位置无法兑现目标时明确拒绝，不改变业务目标或自动换算法。 AVG 的 `valueContract` 与 `meanTarget` 必填，快照 MEAN 的 `meanValueContract` 是该实体时间归约自己的量化，外层聚合继续独立。发现的原生行为供理解实现范围，真实 Query 才检查实际形态和目标。
 
-显式 CORE_FINALIZATION 支持完成关系 REGROUP 对来源无损交付的 Exact 整数或固定 Decimal 原袋求 MATHEMATICAL AVG；它按各列独立 NULL 人口、重复权重及一次节点最终量化执行，不要求插件映射该核心 AVG，也不要求作者改成 SUM/COUNT。形成观察的来源 NativeCall、LEFT、CASE 仍由来源兑现。事实、窗口、快照及 SOURCE_NATIVE 的均值不自动移入核心，来源原生 AVG 仍须有实际行为和容量依据；已有精度损失或越界证据不能因最终改 Decimal 或选择 SOURCE_NATIVE 而变 Exact。
+显式 CORE_FINALIZATION 支持完成关系 REGROUP 对来源无损交付的 Exact 整数或固定 Decimal 求 MATHEMATICAL AVG；它按各列独立 NULL 人口、重复权重及一次节点最终量化执行。引擎可在完整输入域、工作容量与实际行为已证明时生成精确工作 SUM 和独立非 NULL 计数状态，最终除法和量化仍在 CORE；保证未知则运输原袋，不调用未知原生 AVG。作者无需改成 SUM／COUNT、重建 ROOT 或另存指标。来源原袋和编译状态不消费最终业务结果限额，来源执行仍受取消、原生内存及自身真实约束，最终业务 Value 由结果 owner 统一计量。形成观察的来源 NativeCall、LEFT、CASE 仍由来源兑现。事实、窗口、快照及 SOURCE_NATIVE 的均值不自动移入核心，来源原生 AVG 仍须有实际行为和容量依据；已有精度损失或越界证据不能因最终改 Decimal 或选择 SOURCE_NATIVE 而变 Exact。
 
 精确 Decimal 当前为固定 precision／scale；NUMERIC 标签或缺失 p/s 不代表支持可变尺度输入，未知工作容量不代表无限容量。输入解析、聚合工作和节点最终容量是不同保证：单值可容纳不证明 SUM 可容纳，38,20 比38,18多两位小数、少两位整数，并非全面无损扩大。完整边界见[来源接入的数值职责](https://github.com/hanger-source/agentic-olap/blob/main/docs/source-access.md)。
 

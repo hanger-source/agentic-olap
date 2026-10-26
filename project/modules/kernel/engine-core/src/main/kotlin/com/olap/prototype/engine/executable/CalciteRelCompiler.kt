@@ -50,40 +50,49 @@ class CalciteRelCompiler private constructor(val connectors: ConnectorRegistry, 
                 val input = requireNotNull(graph.scope(source.cut.scope)) { "core source cut is outside the bound input graph" }
                 relations.compile(input, source.cut.scope)
             }
+            val contracts = completed.mapValues { (source, output) -> relations.contract(source.cut.scope, output.relation.rowType) }
+            val reductions = completed.mapValues { (source, output) ->
+                CoreSourceReduction.compile(builder, source, output.relation, relations.parameters, relations.native)
+            }
+            val payloads = completed.mapValues { (source, output) -> reductions[source]?.relation ?: output.relation }
             if (sources.size == 1) {
                 val source = sources.single()
                 val output = completed.getValue(source)
-                // 单一来源出口直接保留原袋，不为运输增加唯一键要求或关联。
-                SourceOutput(output.relation, output.displayNames) { type -> ExecutableSourceLayout.single(relations.contract(source.cut.scope, type)) }
+                val reduction = reductions[source]?.reduction
+                val payload = reduction?.fields ?: contracts.getValue(source).columns.map { ExecutableSourceLayout.Field(it.symbol.name, it.nativeType) }
+                SourceOutput(payloads.getValue(source), payload.associate { it.name to (output.displayNames[it.name] ?: it.name) }) { type -> ExecutableSourceLayout(
+                    type.fieldList.map { ExecutableSourceLayout.Field(it.name, it.type) },
+                    mapOf(source.cut.scope to ExecutableSourceLayout.Scope(contracts.getValue(source), payload.associate { it.name to it.name }, null, payload, reduction))) }
             } else {
-                val contracts = completed.mapValues { (source, output) -> relations.contract(source.cut.scope, output.relation.rowType) }
-                val occupied = completed.values.flatMapTo(linkedSetOf()) { it.relation.rowType.fieldNames }
+                val occupied = payloads.values.flatMapTo(linkedSetOf()) { it.rowType.fieldNames }
                 val scopes = linkedMapOf<ScopeId, ExecutableSourceLayout.Scope>()
                 val display = linkedMapOf<String, String>()
                 sources.forEach { source ->
                     val output = completed.getValue(source)
                     val contract = contracts.getValue(source)
+                    val reduction = reductions[source]?.reduction
+                    val payload = reduction?.fields ?: contract.columns.map { ExecutableSourceLayout.Field(it.symbol.name, it.nativeType) }
                     val columns = linkedMapOf<String, String>()
-                    contract.columns.forEach { field ->
+                    payload.forEach { field ->
                         val physical = SemanticNativeTypes.internalAlias(occupied, "__core_value_")
-                        columns[field.symbol.name] = physical
-                        display[physical] = output.displayNames[field.symbol.name] ?: field.symbol.name
+                        columns[field.name] = physical
+                        display[physical] = output.displayNames[field.name] ?: field.name
                     }
                     val presence = SemanticNativeTypes.internalAlias(occupied, "__core_presence_")
                     display[presence] = "core source row present"
-                    scopes[source.cut.scope] = ExecutableSourceLayout.Scope(contract, columns, presence)
+                    scopes[source.cut.scope] = ExecutableSourceLayout.Scope(contract, columns, presence, payload, reduction)
                 }
                 val branches = sources.map { source ->
-                    builder.push(completed.getValue(source).relation)
+                    builder.push(payloads.getValue(source))
                     val expressions = mutableListOf<RexNode>()
                     val names = mutableListOf<String>()
                     scopes.forEach { (scope, output) ->
                         val present = scope == source.cut.scope
-                        output.contract.columns.forEach { field ->
+                        output.payload.forEach { field ->
                             val type = builder.typeFactory.createTypeWithNullability(field.nativeType, true)
-                            expressions += if (present) builder.rexBuilder.makeCast(type, builder.field(field.symbol.name))
+                            expressions += if (present) builder.rexBuilder.makeCast(type, builder.field(field.name))
                                 else builder.rexBuilder.makeNullLiteral(type)
-                            names += output.columns.getValue(field.symbol.name)
+                            names += output.columns.getValue(field.name)
                         }
                         expressions += builder.literal(present)
                         names += requireNotNull(output.presenceColumn)
@@ -162,7 +171,7 @@ class CalciteRelCompiler private constructor(val connectors: ConnectorRegistry, 
 
     /** 一次lowering共享参数/检查，scope结果只按实际输入和分析作用域复用。 */
     private inner class Relations(private val graph: ExecutableInputGraph, private val builder: RelBuilder,
-        private val analyses: Map<ScopeId, Analysis>, resolved: ResolvedInputSources, private val native: NativeExpressionScope) {
+        private val analyses: Map<ScopeId, Analysis>, resolved: ResolvedInputSources, val native: NativeExpressionScope) {
         val parameters = mutableListOf<JdbcParameter>()
         val relationChecks = mutableListOf<RelationalCheck>()
         private val facts = FactRelationCompiler(SourceRelationCompiler(resolved))

@@ -21,6 +21,19 @@ internal class CoreRegroup private constructor(
 ) {
     val outputTypes: Map<String, CoreScalarType> = Collections.unmodifiableMap(LinkedHashMap(outputTypes))
 
+    /** 来源只交付精确充分统计；共同State仍负责NULL政策、除法及唯一一次业务量化。 */
+    data class Partial(val count: BigInteger, val sum: CoreExactNumber?, val sawNull: Boolean)
+    fun complete(keys: Map<String, CoreValue>, partials: List<Partial>, control: WarehouseExecutionControl): Map<String, CoreValue> {
+        check(partials.size == aggregates.size) { "source work states differ from the formal aggregate list" }
+        return LinkedHashMap(keys).also { output -> aggregates.zip(partials).forEach { (aggregate, partial) ->
+            control.checkCancellation()
+            val state = State(aggregate)
+            state.merge(partial)
+            val value = state.value()
+            output[aggregate.alias] = aggregate.quantize?.evaluate(mapOf(aggregate.alias to value), control) ?: value
+        } }
+    }
+
     fun execute(rows: List<Map<String, CoreValue>>, control: WarehouseExecutionControl): List<Map<String, CoreValue>> {
         val groups = linkedMapOf<List<CoreValueKeys.Key>, Group>()
         if (grouping.groupBy.isEmpty()) groups[emptyList()] = Group(emptyMap())
@@ -55,6 +68,19 @@ internal class CoreRegroup private constructor(
         private var sum = zero
         private var extremum: CoreExactNumber? = null
         private val distinct = if ((aggregate.aggregation as? ResultAggregation.Count)?.distinct == true) hashSetOf<CoreValueKeys.Key>() else null
+
+        fun merge(partial: Partial) {
+            check(distinct == null && aggregate.aggregation is ResultAggregation.Count ||
+                aggregate.aggregation is ResultAggregation.Sum || aggregate.aggregation is ResultAggregation.Average) {
+                "source work states cannot represent this aggregation"
+            }
+            check(partial.count.signum() >= 0 && partial.count <= BigInteger.valueOf(Long.MAX_VALUE)) { "source work count exceeds its exact INTEGER64 domain" }
+            if (aggregate.aggregation !is ResultAggregation.Count)
+                check((partial.count.signum() == 0) == (partial.sum == null)) { "source work sum and nonnull population disagree" }
+            sawNull = partial.sawNull
+            count = partial.count
+            sum = partial.sum ?: zero
+        }
 
         fun accept(value: CoreValue) {
             if (value == CoreValue.Missing) { sawNull = true; return }

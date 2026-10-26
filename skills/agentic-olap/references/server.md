@@ -4,9 +4,9 @@
 
 ## 安装与启动
 
-本仓库源码的连接器 API 为 `agentic-olap-connector/v14-kotlin-mean-target-calcite-1.42`，存储格式为 `19`。服务、连接器和 SDK 使用同轮交付构件；安装发行物时以实际服务及 `agentic-olap sdk` 披露的 API 为准。独立插件须使用对应正式 Maven SDK 重新构建，集合展开实现与精确绑定要求见[连接说明](connections.md)。
+本仓库源码的连接器 API 为 `agentic-olap-connector/v15-kotlin-aggregate-work-calcite-1.42`，存储格式为 `19`。服务、连接器和 SDK 使用同轮交付构件；安装发行物时以实际服务及 `agentic-olap sdk` 披露的 API 为准。独立插件须使用对应正式 Maven SDK 重新构建，集合展开实现与精确绑定要求见[连接说明](connections.md)。
 
-代码会话使用 `agentic-olap-kotlin-dsl/v9`，实际跨进程通信为 `agentic-olap-runtime/v12`。Kotlin 主服务直接持有正式应用、权威元数据和运行管理；语言会话在固定 REPL JVM 中保留真实 Kotlin 历史，来源工作进程承担调查、规划与执行。模型对话与账号由外部客户端持有。
+代码会话使用 `agentic-olap-kotlin-dsl/v10`，实际跨进程通信为 `agentic-olap-runtime/v13`。Kotlin 主服务直接持有正式应用、权威元数据和运行管理；语言会话在固定 REPL JVM 中保留真实 Kotlin 历史，来源工作进程承担调查、规划与执行。模型对话与账号由外部客户端持有。
 
 需要 Node.js 20 或更高版本。macOS arm64 产品通过一个 npm 包交付 JRE、自包含安装引导与命令入口；npm 安装脚本用包内 JRE 从 JitPack 取得自有 Kotlin 运行构件和内置连接器，从 Maven Central 取得第三方 JVM 库和 H2／DuckDB 驱动，全部按发行清单锁定，完成摘要校验及本地安装。需要允许该安装脚本，下载失败会使安装失败。安装完成后启动只使用本地文件，不再下载依赖。SDK 的正式 Maven 坐标和文档由 `agentic-olap sdk` 读取。使用者无需安装编译工具或自行编译产品源码：
 
@@ -22,7 +22,7 @@ agentic-olap info
 agentic-olap tools
 agentic-olap call list-data-sources --payload '{}'
 agentic-olap call describe-script-api --payload '{}'
-agentic-olap call execute-script --payload '{"executionId":"sources-001","waitMillis":0,"source":"val sources = olap.sources.list(EmptyRequest)\nolap.output(sources)","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v9","parameters":{}}'
+agentic-olap call execute-script --payload '{"executionId":"sources-001","waitMillis":0,"source":"val sources = olap.sources.list(EmptyRequest)\nolap.output(sources)","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v10","parameters":{}}'
 agentic-olap call wait-script --payload '{"executionId":"sources-001","waitMillis":1000}'
 ~~~
 
@@ -101,7 +101,7 @@ agentic-olap call wait-script --payload '{"executionId":"sources-001","waitMilli
 
 ~~~sh
 agentic-olap call describe-script-api --payload '{"operation":"inspect-warehouse"}'
-agentic-olap call execute-script --payload '{"executionId":"sources-after-config","waitMillis":0,"source":"olap.output(olap.sources.list(EmptyRequest))","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v9","parameters":{}}'
+agentic-olap call execute-script --payload '{"executionId":"sources-after-config","waitMillis":0,"source":"olap.output(olap.sources.list(EmptyRequest))","sourceName":"sources.olap.kts","dslApiVersion":"agentic-olap-kotlin-dsl/v10","parameters":{}}'
 agentic-olap call wait-script --payload '{"executionId":"sources-after-config","waitMillis":1000}'
 ~~~
 
@@ -174,7 +174,7 @@ workerOutcome／workerDisposition／recycleReasons 描述实际进程处理，�
 | --- | --- |
 | `requestBytes/inputNodes/inputDepth` | 实际 JSON 输入。根为第 1 层且计节点，容器、标量和 NULL 计节点，键不计；节点和深度在首次越界拒绝 |
 | `responseBytes` | 官方 SDK 生成的完整最终 JSON/MCP 消息的直接返回阈值。超过时自动完整存档并给出位置和 `read-response`，不据此把原执行改为失败 |
-| `resultRows/resultValues/resultBytes/resultDepth` | SQL 业务结果物化。与 JSON 输入及完整消息交付独立，不以 `resultDepth` 限制普通 `ScriptValue` |
+| `resultRows/resultValues/resultBytes/resultDepth` | 结果 owner 对最终业务 Value 的物化限额。与 JSON 输入及完整消息交付独立，不提前套用到来源原袋或编译工作状态，不以 `resultDepth` 限制普通 `ScriptValue` |
 
 普通值模型不另设固定的节点、深度、文本、键或十进制容量阈值，结构目录通过 `parameters` 是正常输入路径。普通值与正式能力回执使用正式 Protobuf 编码和实际消息读取，不设置独立响应深度门槛。完整内部 Protobuf 帧超过管道帧阈值时通过进程私有文件交接同一消息；`pendingOutputBytes` 约束在途管道帧和背压，不作为完整业务返回的容量上限。工作进程按需使用，预算不是每个进程可以同时无限占用资源的承诺；预算调整由部署方决定，业务 Agent 不会自行扩大。诊断与计数细节见[普通参数与返回值容量](../../../docs/agent-usage.md#普通参数与返回值容量)。
 

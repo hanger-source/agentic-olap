@@ -623,6 +623,6 @@ K 是本合成问题的显式输入选择，不是从所选结果列反推的 DI
 
 本组账本原袋／tuple 调查不计算解析金额。`scaled` 的文本转 DOUBLE 不等于“归属后插件 Exact 解析→有界 Exact SUM→完成后显式 NativeFloating 混合”；后者仍需真实插件声明及 NULL、非法输入和容量护栏的完整正式用法。SQL 文本复用不证明物理只求值一次、单扫描或同一快照。
 
-已有四个 Computed、两个实际计数和独立消费者链，不等于“两层 Computed＋五个完整 Metric（含两个精确均值）”的完整消费；既有 daily 关系参数模板也不替代那组保存 owner。六个独立名义评分单位、各自 NULL 人口的 RAW_BAG 数学 AVG，同样未由本例的每日完成计数相除证明。完成关系 REGROUP 的 Exact 整数／固定 Decimal 数学 AVG 可选择 CORE_FINALIZATION，保留各列独立 NULL 人口、原袋权重和一次节点最终量化，详见[数量合同与人口](../../docs/agent-usage.md#数量合同与人口)；本例未执行那组六评分查询，也不证明其他后端的真实业务已验收。事实 AVG、窗口、快照及来源函数仍按各自实际执行边界核验，不以改 SOURCE_NATIVE、降 Double、自动 SUM／COUNT 或展开保存 Metric 伪装同图成功。
+已有四个 Computed、两个实际计数和独立消费者链，不等于“两层 Computed＋五个完整 Metric（含两个精确均值）”的完整消费；既有 daily 关系参数模板也不替代那组保存 owner。六个独立名义评分单位、各自 NULL 人口的 RAW_BAG 数学 AVG，同样未由本例的每日完成计数相除证明。完成关系 REGROUP 的 Exact 整数／固定 Decimal 数学 AVG 可选择 CORE_FINALIZATION，保留各列独立 NULL 人口、原袋权重和一次节点最终量化。引擎可在完整输入域、精确分组身份、工作容量及实际聚合行为已证明时生成工作 SUM 与独立非 NULL 计数，最终除法及量化仍在 CORE；保证未知则运输原袋，无需作者改写计算。详见[数量合同与人口](../../docs/agent-usage.md#数量合同与人口)；本例未执行那组六评分查询，也不证明其他后端的真实业务已验收。事实 AVG、窗口、快照及来源函数仍按各自实际执行边界核验，不以改 SOURCE_NATIVE、降 Double、要求作者改成 SUM／COUNT 或展开保存 Metric 伪装同图成功。
 
 正常使用方式见[作者使用指引](../../docs/agent-usage.md)，部署、认证和预算见[服务说明](../../skills/agentic-olap/references/server.md)。本用法不要求业务项目读服务器私有文件、放宽合同、改写生成 SQL 或维护外围计算器。

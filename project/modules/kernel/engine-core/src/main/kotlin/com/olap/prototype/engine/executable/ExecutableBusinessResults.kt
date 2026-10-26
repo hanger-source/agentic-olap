@@ -4,6 +4,8 @@ import com.olap.prototype.api.ResultFrame
 import com.olap.prototype.api.SqlResultValues
 import com.olap.prototype.connector.CompilationSupport
 import com.olap.prototype.warehouse.WarehouseExecutionControl
+import com.olap.prototype.warehouse.ResultMaterializationBudget
+import com.olap.prototype.warehouse.ResultMaterializationLimits
 import com.olap.prototype.engine.executable.ExecutableBusinessResult.*
 import com.olap.prototype.engine.executable.ExecutableBusinessResult.ValueKind.*
 import org.apache.calcite.rel.type.RelDataType
@@ -14,6 +16,21 @@ import java.time.*
 
 /** 按编译输出合同核验来源列，再无损物化与核验数量。 */
 object ExecutableBusinessResults {
+    /** 最终业务值拥有结果预算；来源工作行、原生状态及lookahead不消费此预算。 */
+    fun requireBudget(result: ExecutableBusinessResult, limits: ResultMaterializationLimits, control: WarehouseExecutionControl) {
+        val budget = ResultMaterializationBudget(limits)
+        fun account(value: Value, depth: Int) {
+            control.checkCancellation()
+            budget.value(depth)
+            when (value) {
+                is ScalarValue -> budget.scalar(value.value)
+                is ArrayValue -> value.value.forEach { account(it, depth + 1) }
+                is RowValue -> value.value.forEach { account(it, depth + 1) }
+                is NullValue -> Unit
+            }
+        }
+        result.rows.forEach { row -> control.checkCancellation(); budget.row(); row.forEach { account(it, 1) } }
+    }
     fun produce(frame: ResultFrame, contract: ExecutableOutputContract, support: CompilationSupport): ExecutableBusinessResult {
         val aliases = contract.columns.map { it.symbol.name }
         check(aliases == frame.columns.map { it.name }) { "source result columns differ from compiled output contract or order" }

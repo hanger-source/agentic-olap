@@ -23,40 +23,29 @@ class RuntimeResourceExecutionTest {
         ResultValueType.Field("C1", ResultValueType.Scalar("INTEGER", 10, 0, false)),
         ResultValueType.Field("C2", ResultValueType.Scalar("VARCHAR", null, null, true))), false), false)
 
-    private fun read(provider: SourceProvider, sql: String, aliases: Map<String, String>, limits: ResultMaterializationLimits,
-        types: Map<String, ResultValueType>, control: WarehouseExecutionControl = RuntimeDeploymentLimits.CONTROL): ResultFrame =
+    private fun read(provider: SourceProvider, sql: String, aliases: Map<String, String>, types: Map<String, ResultValueType>,
+        control: WarehouseExecutionControl = RuntimeDeploymentLimits.CONTROL): ResultFrame =
         provider.execute(SourceSqlRequest("execute-query", sql, emptyList(), aliases, aliases, types, emptyList(), emptyList(), null),
-            control, limits, RuntimeDeploymentLimits.nativeMemoryBytes) { _, _ -> }.frame
+            control, RuntimeDeploymentLimits.nativeMemoryBytes) { _, _ -> }.frame
 
-    @Test fun materializesCompleteNestedValuesOrRejectsTheirActualCapacity(@TempDir directory: Path) {
+    @Test fun materializesCompleteNestedValuesAndPreservesNullsAndRows(@TempDir directory: Path) {
         for (dialect in listOf("h2", "duckdb")) NativeWarehouse(directory, dialect, listOf(
             "CREATE TABLE observations(id INTEGER, label VARCHAR)", "INSERT INTO observations VALUES (1,'é'),(2,NULL),(3,'é')")).use { source ->
             source.finishSetup()
             val provider = SourceProvider(source.spec.source(), TestConnectors.registry)
             val nested = "SELECT ARRAY[ROW(1,'é'),ROW(1,CAST(NULL AS VARCHAR))] AS payload"
             val types = mapOf("payload" to nestedType)
-            val complete = read(provider, nested, mapOf("payload" to "payload"), ResultMaterializationLimits(1, 7, 4, 3), types)
+            val complete = read(provider, nested, mapOf("payload" to "payload"), types)
             val array = complete.rows.first().cells.first().value as SqlResultValues.ArrayValue
             assertEquals(2, array.elements.size)
             val first = array.elements[0] as SqlResultValues.RowValue
             val second = array.elements[1] as SqlResultValues.RowValue
             assertEquals(1, (first.fields[0] as Number).toInt()); assertEquals("é", first.fields[1])
             assertEquals(1, (second.fields[0] as Number).toInt()); assertNull(second.fields[1])
-            val pressures = mapOf("RESULT_VALUES_EXCEEDED" to ResultMaterializationLimits(1, 6, 100, 4),
-                "RESULT_BYTES_EXCEEDED" to ResultMaterializationLimits(1, 100, 3, 4),
-                "RESULT_DEPTH_EXCEEDED" to ResultMaterializationLimits(1, 100, 100, 2))
-            pressures.forEach { (expected, limits) ->
-                assertEquals(expected, assertThrows(SourceExecutionException::class.java, {
-                    read(provider, nested, mapOf("payload" to "payload"), limits, types)
-                }, dialect).failure.code)
-            }
             val records = "SELECT id, label FROM observations ORDER BY id"
             val aliases = mapOf("id" to "id", "label" to "label")
             val output = TestConnectors.sqlOutputTypes(source.spec, records, aliases, mapOf("id" to true, "label" to true))
-            assertEquals("RESULT_ROWS_EXCEEDED", assertThrows(SourceExecutionException::class.java) {
-                read(provider, records, aliases, ResultMaterializationLimits(2, 100, 100, 4), output)
-            }.failure.code)
-            val after = read(provider, records, aliases, ResultMaterializationLimits(3, 6, 7, 1), output)
+            val after = read(provider, records, aliases, output)
             assertEquals(listOf("é", null, "é"), after.rows.map { it.cells[1].value })
         }
     }
@@ -70,18 +59,17 @@ class RuntimeResourceExecutionTest {
             val aliases = mapOf("id" to "id")
             val types = TestConnectors.sqlOutputTypes(source.spec, sql, aliases, mapOf("id" to true))
             val stages = mutableListOf<Pair<String, Long>>()
-            val request = SourceSqlRequest("execute-query", sql, emptyList(), aliases, aliases, types, emptyList(), emptyList(), null)
+            val request = SourceSqlRequest("execute-query", "SELECT id AS unexpected_id FROM observations ORDER BY id", emptyList(), aliases, aliases, types, emptyList(), emptyList(), null)
             val failure = assertThrows(SourceExecutionException::class.java) {
-                provider.execute(request, RuntimeDeploymentLimits.CONTROL, ResultMaterializationLimits(2, 10, 100, 1),
-                    RuntimeDeploymentLimits.nativeMemoryBytes) { name, nanos -> stages += name to nanos }
+                provider.execute(request, RuntimeDeploymentLimits.CONTROL, RuntimeDeploymentLimits.nativeMemoryBytes) { name, nanos -> stages += name to nanos }
             }
-            assertEquals("RESULT_ROWS_EXCEEDED", failure.failure.code)
+            assertEquals("EXECUTABLE_SOURCE_RESULT_FAILED", failure.failure.code)
             val names = stages.map { it.first }
             assertTrue(names.indexOf("JDBC_EXECUTE_QUERY") >= 0, dialect)
             assertTrue(names.indexOf("JDBC_MATERIALIZE") > names.indexOf("JDBC_EXECUTE_QUERY"), dialect)
             assertTrue(names.indexOf("JDBC_ROLLBACK") > names.indexOf("JDBC_MATERIALIZE"), dialect)
             assertTrue(stages.all { it.second >= 0 }, dialect)
-            val after = read(provider, sql, aliases, ResultMaterializationLimits(3, 10, 100, 1), types)
+            val after = read(provider, sql, aliases, types)
             assertEquals(listOf(1, 2, 3), after.rows.map { (it.cells.single().value as Number).toInt() }, dialect)
         }
     }
@@ -95,7 +83,7 @@ class RuntimeResourceExecutionTest {
             val warm = "SELECT SUM(SIN(x)) AS total FROM ${range(1000)}"
             val aliases = mapOf("total" to "total")
             val types = TestConnectors.sqlOutputTypes(source.spec, warm, aliases, mapOf("total" to true))
-            read(provider, warm, aliases, RuntimeDeploymentLimits.result, types)
+            read(provider, warm, aliases, types)
             val calls = AtomicInteger()
             DeadlineExecutionControl(500).use { deadline ->
                 val observed = object : WarehouseExecutionControl {
@@ -106,7 +94,7 @@ class RuntimeResourceExecutionTest {
                 }
                 val long = "SELECT SUM(SIN(x)) AS total FROM ${range(1_000_000_000)}"
                 val interrupted = assertThrows(SourceExecutionException::class.java) {
-                    read(provider, long, aliases, RuntimeDeploymentLimits.result, types, observed)
+                    read(provider, long, aliases, types, observed)
                 }
                 assertNotEquals(SourceExecutionState.CANCELLED, interrupted.failure.request.execution)
                 assertFalse(interrupted.failure.cancellation is SourceCancellationEvidence.NotRequested)
@@ -114,7 +102,7 @@ class RuntimeResourceExecutionTest {
             }
             assertTrue(calls.get() > 0, "实际驱动取消动作必须被调用：$dialect")
             val afterSql = "SELECT SUM(x) AS total FROM ${range(if (dialect == "h2") 3 else 4)}"
-            val after = read(provider, afterSql, aliases, RuntimeDeploymentLimits.result,
+            val after = read(provider, afterSql, aliases,
                 TestConnectors.sqlOutputTypes(source.spec, afterSql, aliases, mapOf("total" to true)))
             assertEquals(6, (after.rows.first().cells.first().value as Number).toInt())
         }

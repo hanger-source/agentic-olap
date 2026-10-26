@@ -73,7 +73,9 @@ class OlapSemanticCompiler(private val compiler: CalciteRelCompiler) {
                     CoreFinalizationPlan.compile(relational.lowering.outputLayout, analyses, coreGraph)
                 }
             }
-            context.addAuditLog("Core finalization: sourceCuts=${coreGraph.sources.map { it.scope.path to it.stageCount }}, localScopes=${coreGraph.scopes.map { it.path }}")
+            context.addAuditLog("Core finalization: sourceCuts=${relational.lowering.outputLayout.scopes.map { (scope, output) ->
+                mapOf("scope" to scope.path, "representation" to output.representation, "reductionStage" to output.reductionStage)
+            }}, localScopes=${coreGraph.scopes.map { it.path }}")
             observed = observed.copy(coreFinalizationPlan = core)
         }
         return timed(context, "COMPILE_PLAN_EVIDENCE") {

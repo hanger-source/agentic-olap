@@ -89,13 +89,13 @@ class PublishedSourceBindingTest {
             val providers = authorized.mapValues { SourceProvider(it.value, f.connectors) }
             listOf("150", "970").forEachIndexed { index, expected ->
                 val plan = compile(publication((index + 1).toString()), computation)
-                val frame = SourceExecutableSqlExecutor(providers::get, RuntimeDeploymentLimits.result, RuntimeDeploymentLimits.nativeMemoryBytes, null)
+                val frame = SourceExecutableSqlExecutor(providers::get, RuntimeDeploymentLimits.nativeMemoryBytes, null)
                     .execute(plan, OlapQueryContext("binding-query-$index"), RuntimeDeploymentLimits.CONTROL).frame
                 assertEquals(0, BigDecimal(expected).compareTo(BigDecimal(frame.rows.single().cells.single().value.toString())))
             }
             val unavailable = assertThrows(SourceExecutionException::class.java) {
                 SourceExecutableSqlExecutor({ reference -> providers[reference]?.takeIf { it.bindingRef == alternate.source().bindingRef() } },
-                    RuntimeDeploymentLimits.result, RuntimeDeploymentLimits.nativeMemoryBytes, null)
+                    RuntimeDeploymentLimits.nativeMemoryBytes, null)
                     .execute(compile(publication("1"), computation), OlapQueryContext("binding-missing"), RuntimeDeploymentLimits.CONTROL)
             }
             assertEquals("SOURCE_BINDING_NOT_DEPLOYED", unavailable.failure.code)

@@ -21,9 +21,9 @@ class JdbcSourceAccess(private val identity: ConnectorRef, compilation: Compilat
         JdbcConnectionSpec.from(source)
     }
     override fun capabilities(source: SourceConfiguration): SourceCapabilities { validateConfiguration(source); return jdbc.capabilities(source) }
-    override fun execute(source: SourceConfiguration, request: SourceSqlRequest, control: WarehouseExecutionControl, budget: ResultMaterializationBudget, nativeMemoryBytes: Long, stageNanos: (String, Long) -> Unit): SourceExecutionResult {
+    override fun execute(source: SourceConfiguration, request: SourceSqlRequest, control: WarehouseExecutionControl, nativeMemoryBytes: Long, stageNanos: (String, Long) -> Unit): SourceExecutionResult {
         validateConfiguration(source)
-        return JdbcProvider(JdbcConnectionSpec.from(source), registry).executeFrame(request, control, budget, nativeMemoryBytes, stageNanos)
+        return JdbcProvider(JdbcConnectionSpec.from(source), registry).executeFrame(request, control, nativeMemoryBytes, stageNanos)
     }
     override fun discover(request: WarehouseSourceInspection.DiscoveryRequest, control: WarehouseExecutionControl): WarehouseSourceInspection.Discovery = inspection.discover(request, control)
     override fun preview(request: WarehousePreviewRequest, control: WarehouseExecutionControl): WarehousePreview = inspection.preview(request, control)

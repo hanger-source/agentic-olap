@@ -120,7 +120,7 @@ class HttpSourceAccessTest {
                 val request = SourceSqlRequest("execute-query", sql.sql, CalciteSqlRendering.orderedParameters(sql, parameters), aliases, aliases,
                     plan.rowType.fieldList.associate { it.name to SemanticNativeTypes.resultType(it.type) }, emptyList(), emptyList(), null)
                 return DeadlineExecutionControl(10000).use { control -> SourceProvider(source, loaded.registry)
-                    .execute(request, control, RuntimeDeploymentLimits.result, RuntimeDeploymentLimits.nativeMemoryBytes) { _, _ -> }
+                    .execute(request, control, RuntimeDeploymentLimits.nativeMemoryBytes) { _, _ -> }
                     .frame.rows.map { row -> row.cells.map { it.value } } }
             }
             val displayed = joined + listOf(Project(listOf("id", "days")), Sort(listOf(OrderKey("id", "ASC", "LAST"), OrderKey("days", "ASC", "LAST"))))
@@ -207,7 +207,7 @@ class HttpSourceAccessTest {
             assertEquals(source.bindingRef(), JdbcSourceRequirement.requireSingleBinding(plan.sourceRequirements))
             listOf("2026-01-03", "2026-01-04").forEach { expected ->
                 DeadlineExecutionControl(10000).use { control ->
-                    assertEquals(listOf(expected), provider.execute(plan, control, ResultMaterializationLimits(100, 1000, 100000, 16), 1000000) { _, _ -> }.frame.rows.map { it.cells.first().value })
+                    assertEquals(listOf(expected), provider.execute(plan, control, 1000000) { _, _ -> }.frame.rows.map { it.cells.first().value })
                 }
                 assertEquals(++requests, server.queries, "函数与查询必须在同一条来源 SQL 中执行")
                 if (expected == "2026-01-03") TestConnectors.open("duckdb", url).use { writer -> writer.createStatement().use { it.execute("INSERT INTO fixture_partitions VALUES ('main.orders','2026-01-04','OPEN')") } }
@@ -229,7 +229,7 @@ class HttpSourceAccessTest {
             } }
             DeadlineExecutionControl(10000).use { control ->
                 val failure = assertThrows(SourceExecutionException::class.java) {
-                    provider.execute(plan, control, ResultMaterializationLimits(100, 1000, 100000, 16), 1000000) { _, _ -> }
+                    provider.execute(plan, control, 1000000) { _, _ -> }
                 }
                 assertEquals("SOURCE_NOT_NULL_VIOLATION", failure.failure.code)
             }
@@ -255,32 +255,30 @@ class HttpSourceAccessTest {
             val request = SourceSqlRequest("execute-query", "SELECT amount AS amount, [CAST(NULL AS DECIMAL(38,2)), amount] AS items, ROW(amount, CAST(NULL AS VARCHAR)) AS record FROM amounts ORDER BY amount NULLS LAST", emptyList(), aliases, aliases,
                 mapOf("amount" to scalar, "items" to ResultValueType.Array(scalar, true), "record" to ResultValueType.Row(listOf(ResultValueType.Field("amount", scalar), ResultValueType.Field("empty", ResultValueType.Scalar("VARCHAR", 65536, 0, true))), true)), emptyList(), emptyList(), null)
             DeadlineExecutionControl(10000).use { control ->
-                val limits = ResultMaterializationLimits(100, 1000, 100000, 16)
-                typedLiterals(provider, loaded.registry.require(ref).compilation, control, limits)
-                val frame = provider.execute(request, control, limits, 1000000) { _, _ -> }.frame
+                typedLiterals(provider, loaded.registry.require(ref).compilation, control)
+                val frame = provider.execute(request, control, 1000000) { _, _ -> }.frame
                 assertEquals(BigDecimal("1234567890123456789012345.67"), frame.rows.first()["amount"])
                 assertNull(frame.rows[1]["amount"])
                 val items = frame.rows.first()["items"] as SqlResultValues.ArrayValue
                 assertNull(items.elements.first()); assertEquals(frame.rows.first()["amount"], items.elements[1])
                 assertNull((frame.rows.first()["record"] as SqlResultValues.RowValue).fields[1])
-                val candidates = provider.execute(SourceSqlRequest("read-candidate-values", "SELECT amount FROM amounts WHERE amount IS NOT NULL", emptyList(), mapOf("amount" to "candidate"), mapOf("amount" to "候选金额"), mapOf("candidate" to scalar), emptyList(), emptyList(), null), control, limits, 1000000) { _, _ -> }.frame.rows.map { it.cells.first().value }
+                val candidates = provider.execute(SourceSqlRequest("read-candidate-values", "SELECT amount FROM amounts WHERE amount IS NOT NULL", emptyList(), mapOf("amount" to "candidate"), mapOf("amount" to "候选金额"), mapOf("candidate" to scalar), emptyList(), emptyList(), null), control, 1000000) { _, _ -> }.frame.rows.map { it.cells.first().value }
                 assertEquals(listOf(BigDecimal("1234567890123456789012345.67")), candidates)
-                assertEquals(listOf(1.25), provider.execute(SourceSqlRequest("read-candidate-values", "SELECT CAST(1.25 AS DOUBLE) AS candidate", emptyList(), mapOf("candidate" to "candidate"), mapOf("candidate" to "候选值"), mapOf("candidate" to ResultValueType.Scalar("DOUBLE", 15, null, false)), emptyList(), emptyList(), null), control, limits, 1000000) { _, _ -> }.frame.rows.map { it.cells.first().value })
+                assertEquals(listOf(1.25), provider.execute(SourceSqlRequest("read-candidate-values", "SELECT CAST(1.25 AS DOUBLE) AS candidate", emptyList(), mapOf("candidate" to "candidate"), mapOf("candidate" to "候选值"), mapOf("candidate" to ResultValueType.Scalar("DOUBLE", 15, null, false)), emptyList(), emptyList(), null), control, 1000000) { _, _ -> }.frame.rows.map { it.cells.first().value })
                 TestConnectors.open("duckdb", url).use { writer -> writer.createStatement().use { it.execute("INSERT INTO amounts VALUES (2.01)") } }
-                assertEquals(3, provider.execute(request, control, limits, 1000000) { _, _ -> }.frame.rows.size)
+                assertEquals(3, provider.execute(request, control, 1000000) { _, _ -> }.frame.rows.size)
             }
             val noSnapshot = SourceProvider(SourceConfiguration(source.dataSourceId, ref, source.dialectId, mapOf("endpoint" to server.endpoint, "consistentChecks" to false), source.runtimeParameters, source.credentialEnvironmentVariables), loaded.registry)
             DeadlineExecutionControl(10000).use { control ->
-                val limits = ResultMaterializationLimits(100, 1000, 100000, 16)
-                assertEquals(3, noSnapshot.execute(request, control, limits, 1000000) { _, _ -> }.frame.rows.size)
+                assertEquals(3, noSnapshot.execute(request, control, 1000000) { _, _ -> }.frame.rows.size)
                 val checked = SourceSqlRequest(request.operation, request.sql, request.parameters, request.aliasMapping, request.aliasDisplayNames, request.outputTypes, emptyList(), listOf(JdbcRelationCheck("RELATION_CHECK_FAILED", "SELECT 1 WHERE FALSE", emptyList())), null)
                 val requestsBeforeRejection = server.queries
-                val unavailable = assertThrows(SourceExecutionException::class.java) { noSnapshot.execute(checked, control, limits, 1000000) { _, _ -> }.frame }
+                val unavailable = assertThrows(SourceExecutionException::class.java) { noSnapshot.execute(checked, control, 1000000) { _, _ -> }.frame }
                 assertEquals(SourceCapabilities.Capability.CONSISTENT_READ.name, unavailable.failure.capability)
                 assertEquals("execute-query", unavailable.failure.operation)
                 assertEquals(requestsBeforeRejection, server.queries, "能力不足必须在发送 HTTP 前拒绝")
                 val rejected = SourceSqlRequest(checked.operation, "SELECT amount FROM amounts WHERE FALSE", emptyList(), mapOf("amount" to "amount"), mapOf("amount" to "amount"), mapOf("amount" to scalar), emptyList(), listOf(JdbcRelationCheck("EMPTY_RESULT_STILL_REQUIRES_CHECK", "SELECT 1", emptyList())), null)
-                val violation = assertThrows(SourceExecutionException::class.java) { provider.execute(rejected, control, limits, 1000000) { _, _ -> }.frame }
+                val violation = assertThrows(SourceExecutionException::class.java) { provider.execute(rejected, control, 1000000) { _, _ -> }.frame }
                 assertEquals("EMPTY_RESULT_STILL_REQUIRES_CHECK", violation.failure.code)
             }
             val missing = assertThrows(SourceCapabilityException::class.java) { loaded.registry.require(ref).access.snapshot(WarehouseSchemaSnapshotRequest(source, null, "main", null, emptyList(), 10), RuntimeDeploymentLimits.CONTROL) }
@@ -291,7 +289,7 @@ class HttpSourceAccessTest {
                 setOf(JdbcSourceRequirement.Use.ROWS), setOf(JdbcSourceRequirement.ConstraintUse(JdbcSourceRequirement.ConstraintKind.PRIMARY_KEY, null)))
             val guarded = SourceSqlRequest(request.operation, request.sql, request.parameters, request.aliasMapping, request.aliasDisplayNames, request.outputTypes, listOf(requirement), emptyList(), null)
             DeadlineExecutionControl(10000).use { control ->
-                val rejected = assertThrows(SourceExecutionException::class.java) { provider.execute(guarded, control, ResultMaterializationLimits(100, 1000, 100000, 16), 1000000) { _, _ -> }.frame }
+                val rejected = assertThrows(SourceExecutionException::class.java) { provider.execute(guarded, control, 1000000) { _, _ -> }.frame }
                 assertEquals("SOURCE_PRIMARY_KEY_VIOLATION", rejected.failure.code)
             }
         } }
@@ -313,9 +311,8 @@ class HttpSourceAccessTest {
             val sql = "SELECT amount FROM amounts ORDER BY amount"
             val request = SourceSqlRequest("execute-query", sql, emptyList(), mapOf("amount" to "amount"),
                 mapOf("amount" to "金额"), types, emptyList(), emptyList(), null)
-            val limits = ResultMaterializationLimits(10, 100, 1000, 4)
             DeadlineExecutionControl(10000).use { control ->
-                val complete = provider.execute(request, control, limits, 1000000) { _, _ -> }
+                val complete = provider.execute(request, control, 1000000) { _, _ -> }
                 assertEquals(listOf(1, 2), complete.frame.rows.map { it.cells.single().value })
                 assertEquals(SourceExecutionState.SUCCEEDED, complete.request.execution)
                 assertInstanceOf(SourceReadBasis.Unknown::class.java, complete.readBasis)
@@ -325,7 +322,7 @@ class HttpSourceAccessTest {
                     mapOf("missing_label" to "金额"), types, emptyList(), emptyList(), null)
                 val beforeMaterialization = server.queries
                 val materialization = assertThrows(SourceExecutionException::class.java) {
-                    provider.execute(incompatible, control, limits, 1000000) { _, _ -> }
+                    provider.execute(incompatible, control, 1000000) { _, _ -> }
                 }
                 assertEquals(beforeMaterialization + 1, server.queries)
                 assertEquals("EXECUTABLE_SOURCE_RESULT_FAILED", materialization.failure.code)
@@ -340,25 +337,11 @@ class HttpSourceAccessTest {
                 assertEquals(materialization.failure.request, read.request)
                 assertInstanceOf(SourceReadBasis.Unknown::class.java, read.basis)
 
-                val beforeBudget = server.queries
-                val budget = assertThrows(SourceExecutionException::class.java) {
-                    provider.execute(request, control, ResultMaterializationLimits(1, 100, 1000, 4), 1000000) { _, _ -> }
-                }
-                assertEquals(beforeBudget + 1, server.queries)
-                assertEquals("RESULT_ROWS_EXCEEDED", budget.failure.code)
-                assertEquals("READ_RESULT", budget.failure.stage)
-                assertEquals(SourceFailureCategory.RESOURCE_LIMIT, budget.failure.category)
-                assertEquals(SourceResponseState.RECEIVED, budget.failure.request.response)
-                assertEquals(SourceExecutionState.UNKNOWN, budget.failure.request.execution)
-                assertEquals("HTTP", budget.failure.request.protocol)
-                assertEquals("200", budget.failure.request.status)
-                assertNull(budget.readEvidence)
-
                 val pin = SourceSqlRequest(request.operation, sql, emptyList(), request.aliasMapping, request.aliasDisplayNames,
                     types, emptyList(), emptyList(), SourceReadBasis.Versioned("fixture-owner", "requested-version", emptyMap(), SourcePinning.EXACT_VERSION))
                 val beforePin = server.queries
                 val unsupported = assertThrows(SourceExecutionException::class.java) {
-                    provider.execute(pin, control, limits, 1000000) { _, _ -> }
+                    provider.execute(pin, control, 1000000) { _, _ -> }
                 }
                 assertEquals(beforePin, server.queries, "pin能力缺失必须在来源请求发出前拒绝")
                 assertEquals("SOURCE_CAPABILITY_MISSING", unsupported.failure.code)
@@ -372,7 +355,7 @@ class HttpSourceAccessTest {
         } }
     }
 
-    private fun typedLiterals(provider: SourceProvider, support: CompilationSupport, control: WarehouseExecutionControl, limits: ResultMaterializationLimits) {
+    private fun typedLiterals(provider: SourceProvider, support: CompilationSupport, control: WarehouseExecutionControl) {
         val builder = CalciteCompilation.builder(support, Frameworks.createRootSchema(true))
         builder.values(arrayOf("seed"), 1)
         val names = listOf("text", "amount", "date", "timestamp", "enabled", "double_zero", "real_zero", "subnormal")
@@ -387,7 +370,7 @@ class HttpSourceAccessTest {
         val aliases = names.associateWith { it }
         val outputs = plan.rowType.fieldList.associate { it.name to SemanticNativeTypes.resultType(it.type) }
         val request = SourceSqlRequest("execute-query", sql.sql, CalciteSqlRendering.orderedParameters(sql, parameters), aliases, aliases, outputs, emptyList(), emptyList(), null)
-        val frame = provider.execute(request, control, limits, 1000000) { _, _ -> }.frame
+        val frame = provider.execute(request, control, 1000000) { _, _ -> }.frame
         names.indices.forEach { assertEquals(expected[it], frame.rows.first()[names[it]]) }
     }
 

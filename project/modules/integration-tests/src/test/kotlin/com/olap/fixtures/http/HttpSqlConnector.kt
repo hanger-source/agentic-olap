@@ -116,10 +116,10 @@ class HttpSqlConnector : OlapConnector {
                 else -> throw SourceCapabilityException(source.dataSourceId, "verify-constraint/${use.kind}", SourceCapabilities.Capability.CONSTRAINT_VERIFICATION)
             }
         } }
-        override fun execute(source: SourceConfiguration, request: SourceSqlRequest, control: WarehouseExecutionControl, budget: ResultMaterializationBudget, nativeMemoryBytes: Long, stageNanos: (String, Long) -> Unit): SourceExecutionResult {
+        override fun execute(source: SourceConfiguration, request: SourceSqlRequest, control: WarehouseExecutionControl, nativeMemoryBytes: Long, stageNanos: (String, Long) -> Unit): SourceExecutionResult {
             val response = try {
                 request.requireCapabilities(source.dataSourceId, capabilities(source))
-                query(source, request.operation, request.sql, request.parameters, constraints(source, request.sourceRequirements) + request.relationChecks, control, budget)
+                query(source, request.operation, request.sql, request.parameters, constraints(source, request.sourceRequirements) + request.relationChecks, control)
             } catch (failure: Exception) {
                 throw SourceExecutionFailures.exception(source.bindingRef(), request.operation, "PREPARE_SOURCE", failure, control.cancellationEvidence(),
                     SourceRequestEvidence(null, SourceRequestAcceptance.NOT_SUBMITTED, SourceResponseState.NOT_RECEIVED,
@@ -144,7 +144,7 @@ class HttpSqlConnector : OlapConnector {
             is ResultValueType.Scalar -> JdbcColumnType(when (type.name) { "HUGEINT" -> Types.OTHER; "TIMESTAMP_NS", "TIMESTAMP_MS", "TIMESTAMP_S" -> Types.TIMESTAMP; else -> SqlTypeName.valueOf(type.name).jdbcOrdinal }, type.name, type.precision, type.scale, type.nullable)
         }
         private data class Response(val labels: List<String>, val values: List<List<Any?>>, val request: SourceRequestEvidence)
-        private fun query(source: SourceConfiguration, operation: String, sql: String, parameters: List<JdbcParameter>, checks: List<JdbcRelationCheck>, control: WarehouseExecutionControl, budget: ResultMaterializationBudget): Response {
+        private fun query(source: SourceConfiguration, operation: String, sql: String, parameters: List<JdbcParameter>, checks: List<JdbcRelationCheck>, control: WarehouseExecutionControl): Response {
             var receipt = SourceRequestEvidence(null, SourceRequestAcceptance.NOT_SUBMITTED, SourceResponseState.NOT_RECEIVED, SourceExecutionState.NOT_SUBMITTED, "HTTP", null)
             var stage = "PREPARE_SOURCE"
             try {
@@ -172,9 +172,9 @@ class HttpSqlConnector : OlapConnector {
                     val rows = mutableListOf<List<Any?>>()
                     var previous = 0L
                     while (input.readBoolean()) {
-                        control.checkCancellation(); budget.row()
-                        val sequence = readValue(input, budget, 1) as Number
-                        val violation = readValue(input, budget, 1)
+                        control.checkCancellation()
+                        val sequence = readValue(input, control) as Number
+                        val violation = readValue(input, control)
                         if (sequence.toLong() == 0L) {
                             if (violation !is String) throw IOException("invalid guarantee outcome")
                             stage = "VERIFY_SOURCE"
@@ -182,7 +182,7 @@ class HttpSqlConnector : OlapConnector {
                         }
                         if (sequence.toLong() <= previous || violation != null) throw IOException("invalid ordered result outcome")
                         previous = sequence.toLong()
-                        rows += (2 until count).map { readValue(input, budget, 1) }
+                        rows += (2 until count).map { readValue(input, control) }
                     }
                     receipt = receipt.copy(acceptance = SourceRequestAcceptance.ACCEPTED, execution = SourceExecutionState.SUCCEEDED)
                     return Response(labels, rows, receipt)
@@ -215,19 +215,18 @@ class HttpSqlConnector : OlapConnector {
                 else -> { output.writeByte(3); writeText(output, value.javaClass.simpleName); writeText(output, value.toString()) }
             }
         }
-        fun readValue(input: DataInputStream, budget: ResultMaterializationBudget, depth: Int): Any? {
-            budget.value(depth)
+        fun readValue(input: DataInputStream, control: WarehouseExecutionControl): Any? {
+            control.checkCancellation()
             val tag = input.readByte().toInt()
             if (tag == 0) return null
             if (tag == 1 || tag == 2) {
                 val count = input.readInt()
                 if (count < 0) throw IOException("negative collection size")
-                budget.requireMinimumValues(count.toLong())
-                val elements = (0 until count).map { readValue(input, budget, depth + 1) }
+                val elements = (0 until count).map { readValue(input, control) }
                 return if (tag == 1) SqlResultValues.ArrayValue(elements) else SqlResultValues.RowValue(elements)
             }
             if (tag != 3) throw IOException("unknown value tag")
-            val type = readText(input); val text = readText(input); budget.scalar(text)
+            val type = readText(input); val text = readText(input)
             return when (type) {
                 "BigDecimal" -> BigDecimal(text); "BigInteger" -> BigInteger(text); "Long" -> text.toLong(); "Integer" -> text.toInt(); "Short" -> text.toShort(); "Byte" -> text.toByte()
                 "Double" -> text.toDouble(); "Float" -> text.toFloat(); "Boolean" -> text.toBoolean(); "String" -> text

@@ -7,8 +7,6 @@ import com.olap.prototype.contract.NativeValueType
 import com.olap.prototype.integration.TestConnectors
 import com.olap.prototype.util.OlapJsonUtils
 import com.olap.prototype.warehouse.DeadlineExecutionControl
-import com.olap.prototype.warehouse.ResultMaterializationBudget
-import com.olap.prototype.warehouse.ResultMaterializationLimits
 import com.olap.prototype.warehouse.contract.JdbcConnectionSpec
 import com.olap.prototype.warehouse.jdbc.JdbcResultValues
 import org.apache.calcite.jdbc.JavaTypeFactoryImpl
@@ -36,13 +34,12 @@ class ConnectorPluginExecutionTest {
             val sql = "SELECT ARRAY[DATE '2026-01-02',NULL], ARRAY[$instant], ROW(DATE '2026-01-02',$instant)"
             TestConnectors.open(backend, url).use { connection -> connection.createStatement().use { statement -> statement.executeQuery(sql).use { rows -> DeadlineExecutionControl(10000).use { control ->
                 assertTrue(rows.next())
-                val budget = ResultMaterializationBudget(ResultMaterializationLimits(1, 20, 4096, 8))
-                val dates = JdbcResultValues.read(rows, 1, control, budget, jdbc) as SqlResultValues.ArrayValue
+                val dates = JdbcResultValues.read(rows, 1, control, jdbc) as SqlResultValues.ArrayValue
                 assertEquals(listOf(LocalDate.parse("2026-01-02"), null), dates.elements)
                 val expected = OffsetDateTime.parse("2026-01-01T19:04:05.123456Z")
-                val instants = JdbcResultValues.read(rows, 2, control, budget, jdbc) as SqlResultValues.ArrayValue
+                val instants = JdbcResultValues.read(rows, 2, control, jdbc) as SqlResultValues.ArrayValue
                 assertEquals(listOf(expected), instants.elements)
-                val row = JdbcResultValues.read(rows, 3, control, budget, jdbc) as SqlResultValues.RowValue
+                val row = JdbcResultValues.read(rows, 3, control, jdbc) as SqlResultValues.RowValue
                 assertEquals(listOf(LocalDate.parse("2026-01-02"), expected), row.fields)
             } } } }
         }

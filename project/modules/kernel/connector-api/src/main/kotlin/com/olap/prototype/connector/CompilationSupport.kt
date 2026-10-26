@@ -4,7 +4,7 @@ import com.olap.prototype.contract.JdbcColumnType
 import com.olap.prototype.contract.JdbcParameter
 import com.olap.prototype.contract.NativeValueType
 import com.olap.prototype.expression.NativeScalarFunction
-import com.olap.prototype.expression.NativeAverageBehavior
+import com.olap.prototype.expression.NativeAggregateBehavior
 import org.apache.calcite.rel.type.RelDataType
 import org.apache.calcite.rel.type.RelDataTypeFactory
 import org.apache.calcite.rel.type.RelDataTypeSystem
@@ -87,6 +87,13 @@ interface CompilationSupport {
     /** SQL 三值逻辑的精确文本身份相等；NULL 不匹配，不能折叠大小写、空白或 Unicode 差异。 */
     fun textIdentityEquals(builder: RelBuilder, left: RexNode, right: RexNode): RexNode
     /**
+     * 纯映射本次文本表达式的精确身份，未支持时返回 null。
+     * 返回 BINARY／VARBINARY，NULL 当且仅当输入为 NULL；非 NULL 编码须为注入映射，
+     * 不折叠大小写、空白或 Unicode 差异。相同表达式应生成相同 Rex 结构。
+     * 核心可将原文本与此辅助键共同分组，辅助键不成为业务输出或改变业务键。
+     */
+    fun textIdentityKey(builder: RelBuilder, value: RexNode): RexNode?
+    /**
      * outputType 依次声明完整元素与从 1 开始的位置，保留有序 ROW 和递归 NULL 类型。
      * 原生放置计划只映射生成与取值；完整输入、透传列、INNER/OUTER 和缺行标记由核心构造。
      * 回调只取得当前作用域的 ARRAY/生成值表达式，不取得输入关系或 SQL 改写权限。
@@ -107,10 +114,10 @@ interface CompilationSupport {
     data class CollectionValues(val element: SqlNode, val ordinal: SqlNode)
     fun sortCollection(builder: RelBuilder, value: RexNode, descending: Boolean, nullsFirst: Boolean): RexNode
     fun collectionText(builder: RelBuilder, value: RexNode, delimiter: String, nullReplacement: String?): RexNode
-    /** 描述该真实聚合调用的原生行为，包含实际分组、FILTER、DISTINCT 及输入／结果类型；未知时明确拒绝。 */
-    fun averageBehavior(owner: Aggregate, call: AggregateCall): NativeAverageBehavior
-    /** 描述该真实窗口调用的原生行为，不用普通全局聚合的推导代替实际窗口。 */
-    fun averageBehavior(over: RexOver): NativeAverageBehavior
+    /** 描述真实聚合的分组、FILTER、DISTINCT 及输入／结果类型对应的行为；未声明返回 null，类型不代替工作保证。 */
+    fun aggregateBehavior(owner: Aggregate, call: AggregateCall): NativeAggregateBehavior?
+    /** 描述真实窗口调用的行为，不用普通全局聚合的声明代替实际窗口；未声明返回 null。 */
+    fun aggregateBehavior(over: RexOver): NativeAggregateBehavior?
     fun numericFailure(value: SqlNode, type: RelDataType, position: SqlParserPos): SqlNode
     fun parameter(type: RelDataType, value: Any?): JdbcParameter
     fun requireNativeCast(target: RelDataType)

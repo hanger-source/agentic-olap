@@ -41,7 +41,7 @@ data class ApiOverview(val formatVersion: String, val dslApiVersion: String, val
 
 /** 结构来自真实公开声明；局部语义规则只读取已知模型自身合同，不执行任意 getter 或工厂。 */
 object ApiDiscovery {
-    const val VERSION = "agentic-olap-kotlin-dsl/v9"
+    const val VERSION = "agentic-olap-kotlin-dsl/v10"
     val imports: List<String> = listOf("com.olap.prototype.dsl.*", "com.olap.prototype.governance.contract.*",
         "com.olap.prototype.governance.contract.GovernanceReadRequests.AssetVersionRequest",
         "com.olap.prototype.governance.contract.GovernanceReadRequests.DefinitionDependenciesRequest",
@@ -214,17 +214,20 @@ object ApiDiscovery {
                 "meanTarget" to "REQUIRED_WITH_MEAN_VALUE_CONTRACT_FOR_MEAN_ABSENT_FOR_FIRST_AND_LAST",
                 "nullPolicy" to "MEAN_REQUIRES_IGNORE_OR_PROPAGATE_FIRST_AND_LAST_PRESERVE_SELECTED",
             )
-            com.olap.prototype.expression.NativeAverageBehavior::class -> mapOf(
+            com.olap.prototype.expression.NativeAggregateBehavior::class -> mapOf(
                 "owner" to "EXACT_CONNECTOR_ACTUAL_AGGREGATE_OR_WINDOW_IMPLEMENTATION",
+                "exactOrFail" to "EXACT_SUM_OR_COUNT_WITHOUT_INTERMEDIATE_QUANTIZATION_OR_SILENT_OVERFLOW_ACTUAL_RESULT_CAPACITY_REMAINS_SEPARATE_NOT_AN_AVG_BEHAVIOR",
+                "groupIdentity" to "EXACT_OR_FAIL_ALSO_PRESERVES_ACTUAL_OWNER_GROUP_KEYS_NULLS_AND_BAG_POPULATION_NO_NATIVE_TEXT_COLLATION_FOLDING_UNKNOWN_KEY_DOMAINS_UNDECLARED",
+                "textIdentityKey" to "CONNECTOR_PURE_NULL_PRESERVING_INJECTIVE_BINARY_COMPILATION_KEY_GROUPED_WITH_ORIGINAL_TEXT_NOT_A_BUSINESS_OUTPUT_OR_NATIVE_COLLATION_PROOF_NULL_WHEN_UNSUPPORTED",
                 "quantizedMean" to "EXACT_ACCUMULATION_AND_COUNT_THEN_ONE_QUANTIZATION_TO_ACTUAL_NATIVE_DECIMAL_SCALE",
-                "nativeFloating" to "NATIVE_FLOATING_MEAN_WITHOUT_UNKNOWN_DECIMAL_OR_BUSINESS_ERROR_GUARANTEES",
+                "nativeFloating" to "NATIVE_FLOATING_AGGREGATE_WITHOUT_BUSINESS_ERROR_GUARANTEES",
                 "meanTarget" to "IMPLEMENTATION_FACT_NOT_AUTHOR_TARGET_COMPILER_CHECKS_TARGET_AGAINST_ACTUAL_INPUT_AND_RESULT",
             )
             com.olap.prototype.source.contract.ConnectorCapabilitiesRequest.Aggregate::class,
             com.olap.prototype.source.contract.ConnectorCapabilities.Aggregate::class -> mapOf(
                 "groupedFalse" to "GLOBAL_AGGREGATE_WITHOUT_GROUPING_KEYS",
                 "groupedTrue" to "ORDINARY_AGGREGATE_WITH_ONE_GROUPING_KEY",
-                "averageBehavior" to "DECLARATION_FOR_THIS_DISCOVERY_SHAPE_ONLY_NOT_ALL_WINDOW_OR_GROUPING_SHAPES",
+                "behavior" to "NULL_WHEN_UNDECLARED_ACTUAL_SUM_COUNT_OR_AVG_DECLARATION_FOR_THIS_DISCOVERY_SHAPE_ONLY_NOT_ALL_WINDOW_OR_GROUPING_SHAPES",
                 "execution" to "NO_SOURCE_QUERY_OR_BACKEND_VALIDATION_REAL_QUERY_CHECKS_ACTUAL_AGGREGATE_OR_REXOVER",
             )
             Calculation.ObservationStatistics::class -> Calculation.ObservationStatistics.contract()

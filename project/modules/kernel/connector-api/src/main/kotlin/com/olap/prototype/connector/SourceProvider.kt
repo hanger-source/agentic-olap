@@ -1,7 +1,5 @@
 package com.olap.prototype.connector
 
-import com.olap.prototype.warehouse.ResultMaterializationBudget
-import com.olap.prototype.warehouse.ResultMaterializationLimits
 import com.olap.prototype.warehouse.WarehouseExecutionControl
 import com.olap.prototype.warehouse.contract.SourceConfiguration
 import com.olap.prototype.warehouse.contract.SourceBindingRef
@@ -23,7 +21,7 @@ class SourceProvider(private val source: SourceConfiguration, registry: Connecto
     val dialectId: String get() = source.dialectId
     val capabilities: SourceCapabilities get() = access.capabilities(source)
 
-    fun execute(request: SourceSqlRequest, control: WarehouseExecutionControl, limits: ResultMaterializationLimits,
+    fun execute(request: SourceSqlRequest, control: WarehouseExecutionControl,
         nativeMemoryBytes: Long, stageNanos: (String, Long) -> Unit): SourceExecutionResult {
         var enteredAccess = false
         var completed: SourceExecutionResult? = null
@@ -36,11 +34,10 @@ class SourceProvider(private val source: SourceConfiguration, registry: Connecto
             request.requireCapabilities(dataSourceId, capabilities)
             enteredAccess = true
             stage = "EXECUTE_SQL"
-            val result = access.execute(source, request, control, ResultMaterializationBudget(limits), nativeMemoryBytes, stageNanos)
+            val result = access.execute(source, request, control, nativeMemoryBytes, stageNanos)
             completed = result
             stage = "MATERIALIZE_RESULT"
             control.checkCancellation()
-            ResultMaterializationBudget(limits).frame(result.frame)
             stage = "VERIFY_SOURCE"
             request.expectedReadBasis?.let { expected ->
                 if (result.readBasis != expected) throw com.olap.prototype.warehouse.SourceGuaranteeException("SOURCE_READ_BASIS_MISMATCH")

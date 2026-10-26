@@ -28,6 +28,7 @@ import com.olap.prototype.query.QueryStageAnalysis
 import com.olap.prototype.query.ScalarValueType
 import com.olap.prototype.query.contract.*
 import com.olap.prototype.warehouse.WarehouseExecutionControl
+import com.olap.prototype.warehouse.ResultMaterializationBudget
 import com.olap.prototype.warehouse.contract.SourceConfiguration
 import com.olap.prototype.warehouse.contract.SourceBindingRef
 import com.olap.prototype.warehouse.contract.SourceReadEvidence
@@ -157,7 +158,12 @@ internal class CandidateHandler(private val connectors: ConnectorRegistry, priva
             is MemberPlan -> executeMember(plan, selected.lookahead, control)
         }
         val more = actual.values.size > selected.limit
-        val values = actual.values.take(selected.limit).map { Calculation.Scalar(plan.valueType, plan.valueType.candidate(it).toString()) }
+        val budget = ResultMaterializationBudget(budgets.materialization)
+        val values = actual.values.take(selected.limit).map {
+            control.checkCancellation()
+            budget.row(); budget.value(1)
+            Calculation.Scalar(plan.valueType, plan.valueType.candidate(it).toString()).also { value -> budget.scalar(value.value) }
+        }
         val nextOffset = if (more) {
             val next = selected.offset.toLong() + values.size
             if (next > Int.MAX_VALUE) throw InputContractException.pagination("nextOffset", next, 0, Int.MAX_VALUE.toLong())
@@ -170,8 +176,7 @@ internal class CandidateHandler(private val connectors: ConnectorRegistry, priva
 
     private fun executeDimension(plan: DimensionPlan, lookahead: Long, control: WarehouseExecutionControl): CandidatePage {
         val provider = sources.requireProvider(JdbcSourceRequirement.requireSingleBinding(plan.sourceRequirements))
-        val result = provider.execute(plan.request, control, budgets.materialization.copy(depth = 1),
-            budgets.nativeMemoryBytes) { _, _ -> }
+        val result = provider.execute(plan.request, control, budgets.nativeMemoryBytes) { _, _ -> }
         return candidateResult(result, provider.bindingRef, plan.request.operation, control) { frame ->
             require(frame.columns.size == 1) { "candidate plan requires exactly one output column" }
             val expected = plan.request.outputTypes["candidate"] as? ResultValueType.Scalar
@@ -191,8 +196,7 @@ internal class CandidateHandler(private val connectors: ConnectorRegistry, priva
     }
 
     private fun executeMember(plan: MemberPlan, lookahead: Long, control: WarehouseExecutionControl): CandidatePage {
-        val result = SourceExecutableSqlExecutor(sources::requireProvider,
-            budgets.materialization.copy(depth = 1), budgets.nativeMemoryBytes, null)
+        val result = SourceExecutableSqlExecutor(sources::requireProvider, budgets.nativeMemoryBytes, null)
             .execute(plan.lowering, OlapQueryContext(plan.requestId), control)
         return candidateResult(result, JdbcSourceRequirement.requireSingleBinding(plan.sourceRequirements), "execute-query", control) { frame ->
             ExecutableBusinessResults.produce(frame, plan.lowering.outputLayout.scopes.getValue(QueryStageAnalysis.ScopeId.root()).contract, plan.lowering.compilationSupport)

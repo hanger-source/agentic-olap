@@ -82,15 +82,17 @@ internal class NativeWarehouse(directory: Path, dialect: String, statements: Lis
     }
     fun execute(compiled: ExecutableLoweringResult): List<List<Any?>> {
         val frame = frame(compiled)
-        ExecutableBusinessResults.produce(frame, compiled.outputLayout.scopes.values.single().contract, compiled.compilationSupport)
+        val result = ExecutableBusinessResults.produce(frame, compiled.outputLayout.scopes.values.single().contract, compiled.compilationSupport)
+        ExecutableBusinessResults.requireBudget(result, RuntimeDeploymentLimits.result, RuntimeDeploymentLimits.CONTROL)
         return frame.rows.map { row -> row.cells.map { it.value } }
     }
     fun business(compiled: ExecutableLoweringResult): ExecutableBusinessResult =
         ExecutableBusinessResults.produce(frame(compiled), compiled.outputLayout.scopes.values.single().contract, compiled.compilationSupport)
+            .also { ExecutableBusinessResults.requireBudget(it, RuntimeDeploymentLimits.result, RuntimeDeploymentLimits.CONTROL) }
 
     private fun frame(compiled: ExecutableLoweringResult): ResultFrame = DeadlineExecutionControl(120_000).use { control ->
         SourceProvider(spec.source(), TestConnectors.registry).execute(compiled.toSourceRequest("execute-query", null),
-            control, RuntimeDeploymentLimits.result, RuntimeDeploymentLimits.nativeMemoryBytes) { _, _ -> }.frame
+            control, RuntimeDeploymentLimits.nativeMemoryBytes) { _, _ -> }.frame
     }
     override fun close() { connection.close() }
 }
