@@ -235,18 +235,27 @@ class CoreFinalizationGraph private constructor(sources: List<SourceCut>, nodes:
             val stages = analyses.getValue(scope).stages
             val mean = stages.indexOfFirst { isCoreMean(it.operation) }
             if (mean >= 0 || scope in sourceRequired) return mean
-            val sourceEnd = stages.indexOfLast { stage -> when (val operation = stage.operation) {
-                is PostOperationContract.Project, is PostOperationContract.Regroup -> false
-                is PostOperationContract.Derive -> CoreFinalizationExpressions.needsSource(operation.expression)
-                is PostOperationContract.PostFilter -> CoreFinalizationExpressions.needsSource(operation.expression)
-                else -> true
-            } }
+            val sourceEnd = sourceStageCount(scope) - 1
             return stages.indices.firstOrNull { it > sourceEnd && exactRegroup(stages[it]) } ?: -1
         }
 
-        private fun exactRegroup(stage: QueryStageAnalysis.Stage): Boolean {
+        /** 需求收集只读实际来源操作，不提前选择本scope或子scope的可选CORE切点。 */
+        private fun sourceStageCount(scope: ScopeId): Int = analyses.getValue(scope).stages.indexOfLast { stage ->
+            when (val operation = stage.operation) {
+                is PostOperationContract.Project -> false
+                is PostOperationContract.Regroup -> !coreRegroup(stage)
+                is PostOperationContract.Derive -> CoreFinalizationExpressions.needsSource(operation.expression)
+                is PostOperationContract.PostFilter -> CoreFinalizationExpressions.needsSource(operation.expression)
+                else -> true
+            }
+        } + 1
+
+        private fun exactRegroup(stage: QueryStageAnalysis.Stage): Boolean =
+            coreRegroup(stage) && (stage.operation as PostOperationContract.Regroup).grouping.aggregates.any { it.aggregation !is ResultAggregation.Count }
+
+        private fun coreRegroup(stage: QueryStageAnalysis.Stage): Boolean {
             val grouping = (stage.operation as? PostOperationContract.Regroup)?.grouping ?: return false
-            if (grouping.groupingLevels != null || grouping.aggregates.none { it.aggregation !is ResultAggregation.Count }) return false
+            if (grouping.groupingLevels != null) return false
             return grouping.aggregates.all { aggregate ->
                 val input = stage.inputs.first { it.name == aggregate.input }.quantity?.declaration
                 when (val aggregation = aggregate.aggregation) {
@@ -255,7 +264,10 @@ class CoreFinalizationGraph private constructor(sources: List<SourceCut>, nodes:
                         input.result !is MetricValueContract.BinaryFloat && aggregation.valueContract.arithmetic is MetricValueContract.Exact &&
                         aggregation.valueContract.result !is MetricValueContract.BinaryFloat
                     is ResultAggregation.Minimum, is ResultAggregation.Maximum -> input?.arithmetic is MetricValueContract.Exact && input.result !is MetricValueContract.BinaryFloat
-                    is ResultAggregation.Average, is ResultAggregation.SampleDeviation, is ResultAggregation.Collect -> false
+                    is ResultAggregation.Average -> aggregation.meanTarget == MeanTarget.MATHEMATICAL &&
+                        input?.arithmetic is MetricValueContract.Exact && input.result !is MetricValueContract.BinaryFloat &&
+                        aggregation.valueContract.arithmetic is MetricValueContract.Exact && aggregation.valueContract.result !is MetricValueContract.BinaryFloat
+                    is ResultAggregation.SampleDeviation, is ResultAggregation.Collect -> false
                 }
             }
         }
@@ -271,7 +283,7 @@ class CoreFinalizationGraph private constructor(sources: List<SourceCut>, nodes:
         }
 
         private fun needsSourceRoot(scope: ScopeId, input: ExecutableInputScope): Boolean {
-            if (nativeStageCount(scope) > 0 || input.additionalInputs.values.any { it.inputMode != "ROOT" } ||
+            if (sourceStageCount(scope) > 0 || input.additionalInputs.values.any { it.inputMode != "ROOT" } ||
                 input.objectRestrictions.isNotEmpty() || input.metrics.any { it.objectRestrictions.isNotEmpty() }) return true
             return when (val root = input.root) {
                 is ExecutableInputRoot.ObjectMeasure, is ExecutableInputRoot.ObservationStatistics,

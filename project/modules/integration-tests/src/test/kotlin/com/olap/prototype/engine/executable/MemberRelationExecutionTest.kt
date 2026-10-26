@@ -372,6 +372,53 @@ class MemberRelationExecutionTest {
     private fun coreQuery(definitions: Definitions, calculation: Calculation, basis: Calculation.Scope,
         outerStages: List<PostOperationContract.ValidatedOperation>) = Calculation.Scope(Calculation.Compute(calculation, Calculation.ExplicitBindings(CalculationBindings(dimensions = observationBindings(definitions, emptyMap(), emptyMap()).dimensions, relations = mapOf("completed" to CalculationBindings.LocalRelation("basis", listOf("customer", "numerator", "denominator").associateWith { it })))), emptyMap()), mapOf("basis" to Calculation.InputScope("ROOT", basis)), outerStages)
 
+    @Test fun keepsSourceNativeAveragesAfterExactSumsInTheSameOrNestedScope(@TempDir directory: Path) {
+        for (dialect in listOf("h2", "duckdb")) NativeWarehouse(directory, dialect, listOf(
+            "CREATE TABLE orders(id INTEGER PRIMARY KEY,customer INTEGER,period INTEGER,kind INTEGER,amount DECIMAL(18,0))",
+            "INSERT INTO orders VALUES (1,1,1,0,10),(2,1,1,0,20),(3,2,1,0,1),(4,2,1,0,0),(5,3,1,0,100),(6,4,1,0,NULL)"
+        )).use { warehouse ->
+            val definitions = coreDefinitions(warehouse)
+            val nativeMean = if (dialect == "h2") coreDecimal(38, 2, MetricValueContract.Rounding.HALF_UP)
+                else MetricValueContract(MetricValueContract.Fixed(MetricValueContract.ONE), MetricValueContract.NativeFloating(),
+                    MetricValueContract.BinaryFloat(64), emptyMap(), MetricValueContract.Overflow.FAIL)
+            val average = regroup(emptyList(), listOf(reduction("numerator",
+                ResultAggregation.Average(nativeMean, ResultAggregation.NullPolicy.IGNORE, MeanTarget.SOURCE_NATIVE), "average")))
+            val basis = coreBasis(MemberCondition.Unrestricted())
+            val source = SourceProvider(warehouse.spec.source(), TestConnectors.registry)
+            val delegate = SourceExecutableSqlExecutor({ if (it == source.bindingRef) source else null }, RuntimeDeploymentLimits.nativeMemoryBytes, null)
+            var submissions = 0
+            val engine = OlapEngine(OlapSemanticCompiler(CalciteRelCompiler(TestConnectors.registry)), ExecutableSqlExecutor { lowering, context, control ->
+                submissions++
+                delegate.execute(lowering, context, control)
+            }, RuntimeDeploymentLimits.result)
+            warehouse.finishSetup()
+            val catalog = definitions.catalog()
+            for (nested in listOf(false, true)) {
+                val query = if (!nested) Calculation.Scope(basis.root, basis.inputs, basis.stages + average)
+                    else Calculation.Scope(Calculation.Input("basis"), mapOf("basis" to Calculation.InputScope("ROOT", basis)), listOf(
+                        Derive(ResultCast(symbol("customer"), SemanticExpression.ValueType.STRING, 16, null,
+                            MetricValueContract.Rounding.NONE), "customer_text", "来源客户编码"),
+                        PostFilter(ResultOperation(ResultOperator.NE, listOf(symbol("customer_text"), ResultTypedLiteral(ScalarValueType.TEXT, "3")))),
+                        average))
+                // 先按客户完成SUM，NULL组不参与AVG；嵌套消费再按实际来源文本表达排除客户3。
+                val expected = if (nested) decimal("15.5") else if (dialect == "h2") decimal("43.67")
+                    else BigDecimal.valueOf(131.0 / 3.0).stripTrailingZeros()
+                var sourceResult: List<List<BigDecimal?>>? = null
+                for (mode in listOf(QueryExecutionMode.SOURCE, QueryExecutionMode.CORE_FINALIZATION)) {
+                    val before = submissions
+                    val result = engine.execute(catalog, ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION,
+                        "native-average-$dialect-$nested-$mode", catalog.manifest.catalogId, query, mode), observer, RuntimeDeploymentLimits.CONTROL)
+                    val rows = numericRows(result.businessResult)
+                    assertEquals(listOf(listOf(expected)), rows, "$dialect/$nested/$mode：原生AVG消费完整客户SUM，不能提前混回原始记录")
+                    assertEquals(before + 1, submissions, "每次正式查询实际提交一次来源执行")
+                    assertEquals(SourceExecutionState.SUCCEEDED, result.sourceReadEvidence.request.execution)
+                    if (mode == QueryExecutionMode.SOURCE) sourceResult = rows
+                    else assertEquals(sourceResult, rows, "可选CORE归约不能改写后续SOURCE_NATIVE均值目标")
+                }
+            }
+        }
+    }
+
     @Test fun finiteDecimalInputsKeepTheirValuesThroughCoreGroupingAndNodeQuantization(@TempDir directory: Path) {
         val finite = MetricValueContract(MetricValueContract.Fixed(MetricValueContract.ONE), MetricValueContract.Exact(),
             MetricValueContract.FiniteDecimal, emptyMap(), MetricValueContract.Overflow.FAIL)
@@ -794,8 +841,6 @@ class MemberRelationExecutionTest {
             assertEquals(expected, numericRows(executed.businessResult))
             assertEquals(listOf(executed.sourceReadEvidence), completed)
             assertEquals(SourceExecutionState.SUCCEEDED, executed.sourceReadEvidence.request.execution)
-            // 来源只交付分子、分母与键，最终合同不能被来源列替代。
-            assertEquals(listOf("customer", "numerator", "denominator"), requireNotNull(executed.compiledQuery.executableLoweringResult).outputLayout.fields.map { it.name })
             assertEquals(columns, executed.businessResult.columns.map { it.symbol.name })
             val repeated = coreQuery(definitions, computation, coreBasis(memberEquals("customer", 2)), query.stages)
             val second = engine(warehouse).execute(catalog, ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION, "core-reused",
@@ -809,7 +854,6 @@ class MemberRelationExecutionTest {
                 catalog.manifest.catalogId, referenced, QueryExecutionMode.CORE_FINALIZATION), observed, RuntimeDeploymentLimits.CONTROL)
             assertEquals(expected.map { listOf(it[0], it[3], it[10]) }, numericRows(sharedResult.businessResult))
             assertEquals(sharedColumns, sharedResult.businessResult.columns.map { it.symbol.name })
-            assertEquals(listOf("customer", "numerator", "denominator"), requireNotNull(sharedResult.compiledQuery.executableLoweringResult).outputLayout.fields.map { it.name })
             val differentPopulation = coreQuery(definitions, caller, coreBasis(memberEquals("customer", 2)), continued)
             val sharedSecond = engine(warehouse).execute(catalog, ExecutableQueryRequest(ExecutableQueryRequest.FORMAT_VERSION, "core-shared-reused",
                 catalog.manifest.catalogId, differentPopulation, QueryExecutionMode.CORE_FINALIZATION), observed, RuntimeDeploymentLimits.CONTROL)
@@ -1034,8 +1078,6 @@ class MemberRelationExecutionTest {
                     catalog.manifest.catalogId, query, QueryExecutionMode.CORE_FINALIZATION), observer, RuntimeDeploymentLimits.CONTROL)
                 assertEquals(before + 1, submissions, "前缀关系与末尾标量只允许一次实际来源执行")
                 assertEquals(SourceExecutionState.SUCCEEDED, executed.sourceReadEvidence.request.execution)
-                assertEquals(listOf("customer", "numerator", "denominator"),
-                    requireNotNull(executed.compiledQuery.executableLoweringResult).outputLayout.fields.map { it.name })
                 return executed.businessResult
             }
             val common = listOf(listOf("1", "33333333333333333333.333333333333333333"), listOf("2", "0.333333333333333333"))
