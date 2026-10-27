@@ -31,7 +31,7 @@ agentic-olap call describe-script-api --payload '{}'
 
 首次启动生成本机配置、随机令牌与持久目录，仅监听回环地址。已有远程服务可直接接入 MCP；CLI 使用 `--url https://actual-service/mcp --token-env OLAP_TOKEN`。令牌由实际服务方提供，不写入仓库或日志。模型账号、提示词与会话由外部客户端持有。
 
-配置与认证见[服务使用与部署](references/server.md)；连接业务源时再读[来源接入](references/connections.md)。服务、SDK 与插件须匹配实际服务披露的连接器 API；本仓库源码为 `agentic-olap-connector/v18-kotlin-native-scalar-expression-calcite-1.42`，存储格式为 `19`。安装不会自动重启原服务或转换旧持久根。
+配置与认证见[服务使用与部署](references/server.md)；连接业务源时再读[来源接入](references/connections.md)。服务、SDK 与插件须匹配实际服务披露的连接器 API；本仓库源码为 `agentic-olap-connector/v19-kotlin-aggregate-reduction-calcite-1.42`，存储格式为 `19`。安装不会自动重启原服务或转换旧持久根。
 
 ## 从服务发现 Kotlin API
 

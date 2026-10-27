@@ -2,7 +2,7 @@
 
 `connector-api` 为独立后端实现提供共同合同和 Calcite 1.42.0 的公开类型。它不依赖治理、服务应用或内部编译实现。连接器实现已定义语义的原生映射与来源访问，业务指标、对象资格、数量、NULL 与查询组织仍由语义定义和共同内核拥有。
 
-SDK 按精确发行标签发布到 JitPack。`agentic-olap sdk` 返回本版 API、随包文档、Maven 仓库及 `artifacts` 中的完整坐标；`sdk --repository` 只输出仓库地址。构件使用 `com.github.hanger-source.agentic-olap` group，版本为 `v` 加产品版本，公开入口为 `connector-api`，可复用 JDBC 支持为 `warehouse-jdbc`，应用装载器为 `connector-loader`。新建或确需重新构建的插件使用目标宿主命令返回的精确坐标，不使用 SNAPSHOT。API 标识为 `agentic-olap-connector/v18-kotlin-native-scalar-expression-calcite-1.42`。插件须实现该 API 的实际公开签名，不能仅改 manifest 的版本标签。
+SDK 按精确发行标签发布到 JitPack。`agentic-olap sdk` 返回本版 API、随包文档、Maven 仓库及 `artifacts` 中的完整坐标；`sdk --repository` 只输出仓库地址。构件使用 `com.github.hanger-source.agentic-olap` group，版本为 `v` 加产品版本，公开入口为 `connector-api`，可复用 JDBC 支持为 `warehouse-jdbc`，应用装载器为 `connector-loader`。新建或确需重新构建的插件使用目标宿主命令返回的精确坐标，不使用 SNAPSHOT。API 标识为 `agentic-olap-connector/v19-kotlin-aggregate-reduction-calcite-1.42`。插件须实现该 API 的实际公开签名，不能仅改 manifest 的版本标签。
 
 SDK 的 JAR、POM 由插件工程的 Gradle 从 JitPack 匿名取得，第三方传递依赖从 Maven Central 取得。插件开发仍需 Kotlin/Gradle 工具链；运行产品无需这些构建工具。部署到其他服务前核对该服务的实际 API，不能把本地安装版本当作远程运行版本。
 
@@ -21,7 +21,7 @@ SDK 的 JAR、POM 由插件工程的 Gradle 从 JitPack 匿名取得，第三方
 ```json
 {
   "connectorRef": {"id": "backend", "version": "1.0.0", "sha256": "完整插件组摘要"},
-  "apiVersion": "agentic-olap-connector/v18-kotlin-native-scalar-expression-calcite-1.42",
+  "apiVersion": "agentic-olap-connector/v19-kotlin-aggregate-reduction-calcite-1.42",
   "jars": [
     {"file": "connector-backend.jar", "sha256": "该JAR摘要"},
     {"file": "backend-jdbc.jar", "sha256": "该JAR摘要"}
@@ -86,12 +86,18 @@ fun aggregateSql(
     call: AggregateCall,
     arguments: List<SqlNode>,
     expression: SqlNode
-): SqlNode
+): AggregateSql
 ```
 
 `owner` 和 `call` 是本次实际普通聚合，输入类型从 `owner.input` 按 `call.argList` 读取，结果类型为 `call.type`。`arguments` 严格按 `call.argList` 顺序提供当前 SQL 作用域中的输入列表达式，不能用另一层的列引用替代。`expression` 是 Calcite 已完成 DISTINCT、FILTER、聚合内排序及方言基础改写的整项标准聚合表达式，不含最外层 AS；输出别名由共同转换器保留。插件据本次实际类型和形态返回 SQL AST，必须保留分组、人口、NULL、重复及排序含义；不能重写整个关系、引入另一来源、解析最终 SQL 字符串或在类型推导时缓存渲染状态。
 
-所有实现都须显式提供此方法；普通映射直接 `return expression`，接口没有默认实现或失败后替换路线。特殊映射不能因为取得原始参数就忽略 `expression` 中已组织的 FILTER、DISTINCT 或排序；尚不能兑现的形态应明确拒绝。窗口不经过该普通 Aggregate 入口；窗口的映射和行为保证仍分别核验。
+所有实现都须显式提供此方法；普通映射直接 `return AggregateSql.Direct(expression)`，接口没有默认实现或失败后替换路线。特殊映射不能因为取得原始参数就忽略 `expression` 中已组织的 FILTER、DISTINCT 或排序；尚不能兑现的形态应明确拒绝。窗口不经过该普通 Aggregate 入口；窗口的映射和行为保证仍分别核验。
+
+需要分组工作值再完成归约的来源，可以返回 `AggregateSql.Reduction(aggregate, reduce)`。核心将 `aggregate` 放在原 GROUP BY 中，与所有普通聚合一起完成；工作值的载体可以不同于最终类型。随后每项取得一份独立工作关系，回调签名为 `(work: SqlIdentifier, groups: List<SqlIdentifier>, value: SqlIdentifier) -> SqlNode`。`work` 是核心命名的关系，`groups` 和 `value` 是其中的简单列名。回调只消费该工作关系，返回组列原序及一个最终值，不引用外层行、捕获原 arguments 或重建业务 FROM/JOIN。返回树保持可遍历的 SQL AST，不隐藏整段 SQL 文本。
+
+每个工作组必须恰好返回一行，组列保持原值、类型和 NULL，空工作关系不凭空生成组。核心保留原 SIMPLE 分组的全部技术键，包括精确文本身份辅助列，按逐键 NULL 一致相等回接；不用无序 ROW_NUMBER、哈希或 CTE 物化假设代替身份。全局聚合的内部常量键在原聚合完成后添加，空输入仍有原本的一行；普通分组空输入仍为零行。NULL／空工作值如何完成，由实际聚合的语义决定，不能丢组或截断工作袋。多个归约分别消费自身工作值，普通聚合只透传原完成值，不交叉展开原始贡献。来源可自行优化 SQL；有名 CTE 不承诺物理只执行一次或固定数据版本。
+
+`Reduction` 当前只支持 SIMPLE 分组，其他分组形态明确拒绝该映射，`Direct` 保持原有分组能力。后续筛选、排序及再次归约消费最终完成列，筛选不放回工作聚合的 HAVING。这个扩展不增加作者阶段或自动更换 SOURCE／CORE；真实累计、合并、NULL 及超域失败保证仍由精确插件实现并通过 `aggregateBehavior` 声明。提供工作关系不证明某个后端的完整数值算法可执行或已被采用验收。
 
 该入口只提供类型化 SQL 映射位置，`nativeAggregate` 的返回类型推导和 `aggregateBehavior` 的实际算术保证继续独立。提供 hook 不证明任何后端的 TO_NUMBER 有限解析、跨 scale SUM 或 NUMERIC→TEXT 无损往返；Hologres 候选必须分别取得真实映射与采用证据，不能由接口存在、类型标签或少量正常值推成支持。
 

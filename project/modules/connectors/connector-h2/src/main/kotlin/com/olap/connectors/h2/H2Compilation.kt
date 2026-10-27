@@ -1,6 +1,7 @@
 package com.olap.connectors.h2
 
 import com.olap.prototype.connector.CompilationSupport
+import com.olap.prototype.connector.AggregateSql
 import com.olap.prototype.connector.FiniteDecimalTypes
 import com.olap.prototype.connector.NativeAggregateKeys
 import com.olap.prototype.connector.StandardJdbcTypes
@@ -50,7 +51,8 @@ internal class H2Compilation : CompilationSupport {
     override val maximumDeclaredDecimalPrecision: Int = 100000
     override fun supports(capability: CompilationSupport.Capability): Boolean = capability in setOf(CompilationSupport.Capability.COLLECTION_RESULTS,
         CompilationSupport.Capability.NUMERIC_FAILURE, CompilationSupport.Capability.NUMERIC_ROUNDING, CompilationSupport.Capability.SAMPLE_STDDEV)
-    override fun aggregateSql(owner: Aggregate, call: AggregateCall, arguments: List<SqlNode>, expression: SqlNode): SqlNode = expression
+    override fun aggregateSql(owner: Aggregate, call: AggregateCall, arguments: List<SqlNode>, expression: SqlNode): AggregateSql =
+        AggregateSql.Direct(expression)
     override fun aggregateBehavior(owner: Aggregate, call: AggregateCall): NativeAggregateBehavior? {
         val kind = call.aggregation.kind
         if (kind !in setOf(SqlKind.SUM, SqlKind.AVG)) return null

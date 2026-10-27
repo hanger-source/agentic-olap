@@ -4,7 +4,7 @@
 
 ## 安装与启动
 
-本仓库源码的连接器 API 为 `agentic-olap-connector/v18-kotlin-native-scalar-expression-calcite-1.42`，存储格式为 `19`。服务、连接器和 SDK 使用同轮交付构件；安装发行物时以实际服务及 `agentic-olap sdk` 披露的 API 为准。独立插件须使用对应正式 Maven SDK 重新构建，集合展开实现与精确绑定要求见[连接说明](connections.md)。
+本仓库源码的连接器 API 为 `agentic-olap-connector/v19-kotlin-aggregate-reduction-calcite-1.42`，存储格式为 `19`。服务、连接器和 SDK 使用同轮交付构件；安装发行物时以实际服务及 `agentic-olap sdk` 披露的 API 为准。独立插件须使用对应正式 Maven SDK 重新构建，集合展开实现与精确绑定要求见[连接说明](connections.md)。
 
 API v18 的 `nativeScalarExpression(builder,function,call)` 是必需实现，直接 SQL 映射显式返回 call，纯 typed 树映射保原类型、已授权实参及语句内稳定性。普通聚合的 aggregateSql 合同保持，无特殊映射时显式返回 expression；不能只改旧插件 manifest 的 API 标签。接口不改变 DSL、内部运行协议或持久格式，也不替代插件实际类型、算术与来源访问保证。
 

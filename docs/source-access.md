@@ -2,7 +2,7 @@
 
 完整 MCP 服务通过来源插件访问数据。使用方提供与其网络、鉴权和查询协议相符的插件，服务负责语义管理、发布、规划、SQL 生成、执行要求检查及结果合同校验。HTTP 查询服务是来源访问实现，不需要数据库端口、JDBC URL、数据库凭据或 catalog 权限。业务公式、资格规则和指标组合仍通过语义定义和 Query 表达。
 
-本文描述源码中的来源访问合同：连接器 API 为 `agentic-olap-connector/v18-kotlin-native-scalar-expression-calcite-1.42`，元数据存储格式为 `19`。产品运行构件按同一发行装配；独立插件核对目标宿主的连接器合同与实际运行要求，产品版或 SDK 坐标变化本身不要求重构原插件，具体采用规则见[安装与发布](installation-release.md)。旧存储格式明确拒绝，服务不会自动改写已有持久根。
+本文描述源码中的来源访问合同：连接器 API 为 `agentic-olap-connector/v19-kotlin-aggregate-reduction-calcite-1.42`，元数据存储格式为 `19`。产品运行构件按同一发行装配；独立插件核对目标宿主的连接器合同与实际运行要求，产品版或 SDK 坐标变化本身不要求重构原插件，具体采用规则见[安装与发布](installation-release.md)。旧存储格式明确拒绝，服务不会自动改写已有持久根。
 
 ## 配置来源
 
@@ -103,7 +103,9 @@ API v18 的插件按上述两个正式对象实现纯能力声明及执行核验
 
 显式选择 CORE_FINALIZATION 后，完成关系 REGROUP 的 MATHEMATICAL AVG 可消费 Exact 整数、固定 Decimal 或 FiniteDecimal，在核心完成最终除法和该节点的一次量化。引擎可以按完整输入域、工作容量及实际聚合行为证明，生成来源精确工作 SUM 和每列独立非 NULL 计数状态；需要 PROPAGATE 时还保留总次数。工作输入在聚合前无损转换为足够容量，不能在已经舍入或溢出的 SUM 后补 CAST。FiniteDecimal 本身不提供共同容量，不能据此生成某个足够宽的工作 CAST。状态保留原袋重复、各列 NULL 人口及精确分组键，不是新增业务指标；作者仍提交原 Average，无需手写 SUM／COUNT 或重包 ROOT。没有充分工作保证时，该显式 CORE 计划保留原袋运输，由核心归约，不在失败后换计划。两条路径都不调用未知原生 AVG。来源 NativeCall、LEFT 与用于形成观察的 CASE 保留在原来源前缀，不能由核心重做或用样本补保证。事实 AVG、窗口 AVG、快照 MEAN 和 SOURCE_NATIVE AVG 不因此成为核心执行能力；它们在来源执行时仍核验实际原生节点。
 
-普通聚合在 SQL 发射时调用必需的 `aggregateSql(owner: Aggregate, call: AggregateCall, arguments: List<SqlNode>, expression: SqlNode): SqlNode`。插件可读取本次 owner 输入及 call 结果的真实类型；arguments 严格对应 call.argList 顺序，是当前 SQL 作用域中的输入列表达式。expression 已包含 Calcite 完成的 DISTINCT、FILTER、聚合内排序及方言基础改写，不含最外层 AS，别名由共同转换器保留。普通映射显式返回 expression，特殊映射须保留全部人口、NULL、重复与排序含义，不能只映射函数名而丢弃修饰。接口没有默认实现，不通过类型推导保存渲染状态，也不解析最终 SQL 或失败后改换策略；窗口不经过此普通 Aggregate 入口。
+普通聚合在 SQL 发射时调用必需的 `aggregateSql(owner: Aggregate, call: AggregateCall, arguments: List<SqlNode>, expression: SqlNode): AggregateSql`。插件可读取本次 owner 输入及 call 结果的真实类型；arguments 严格对应 call.argList 顺序，是当前 SQL 作用域中的输入列表达式。expression 已包含 Calcite 完成的 DISTINCT、FILTER、聚合内排序及方言基础改写，不含最外层 AS，别名由共同转换器保留。普通映射返回 `AggregateSql.Direct(expression)`，特殊映射须保留全部人口、NULL、重复与排序含义，不能只映射函数名而丢弃修饰。接口没有默认实现，不通过类型推导保存渲染状态，也不解析最终 SQL 或失败后改换策略；窗口不经过此普通 Aggregate 入口。
+
+来源需要先聚合工作值再完成数值归约时，使用 `AggregateSql.Reduction`。核心保留原输入、SIMPLE 分组完整技术键、普通聚合、空组及最终列合同；插件只取得“完整组键＋该项工作值”的独立工作关系，并返回同组键及完成值。回调不取得业务 FROM/JOIN 或外层变量。核心按完整组键逐列 NULL 一致相等回接，不以扫描顺序、哈希或 CTE 物化代替组身份；多个归约不交叉展开原袋。全局空输入一行和分组空输入零行保持。最终筛选、排序和再次归约位于完成边界之后。接口本身不证明后端支持算法、精确累加或跨 scale 合并，仍需插件的实际声明和来源采用证据；完整合同见[连接器接口](../project/modules/kernel/connector-api/README.md)。
 
 该 SQL 映射与 `nativeAggregate` 的返回类型推导、`aggregateBehavior` 的实际算术保证分别负责。Hologres 候选 TO_NUMBER、跨 scale SUM 和 NUMERIC→TEXT 保真仍需由精确插件与真实来源分别兑现，不能从 hook 已交付推成已支持或业务已验收。
 

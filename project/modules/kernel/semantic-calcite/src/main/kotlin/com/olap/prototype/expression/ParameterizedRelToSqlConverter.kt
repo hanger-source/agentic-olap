@@ -1,6 +1,7 @@
 package com.olap.prototype.expression
 
 import com.olap.prototype.connector.CompilationSupport
+import com.olap.prototype.connector.AggregateSql
 import com.olap.prototype.connector.FiniteDecimalTypes
 import com.olap.prototype.connector.NativeCompilationCapabilityException
 import org.apache.calcite.rel.RelNode
@@ -33,6 +34,7 @@ class ParameterizedRelToSqlConverter(private val support: CompilationSupport, pr
     }
     private val shared = IdentityHashMap<RelNode, SqlIdentifier>()
     private val definitions = mutableListOf<SqlNode>()
+    private val occupiedRelations = mutableSetOf<String>()
     private var defining: RelNode? = null
 
     override fun aliasContext(aliases: Map<String, RelDataType>, qualified: Boolean): Context =
@@ -174,11 +176,11 @@ class ParameterizedRelToSqlConverter(private val support: CompilationSupport, pr
 
     internal fun statement(plan: RelNode): SqlNode {
         val graph = SqlStatementRelations.analyze(plan, evaluationBoundaries)
-        val occupied = graph.occupiedNames.toMutableSet()
+        occupiedRelations.addAll(graph.occupiedNames)
         var index = 0
         graph.namedRelations.forEach { node ->
             var name: String
-            do { name = "__r${index++}" } while (!occupied.add(name.lowercase(Locale.ROOT)))
+            do { name = "__r${index++}" } while (!occupiedRelations.add(name.lowercase(Locale.ROOT)))
             emitNamedRelation(node, name)
         }
         return requireNotNull(withDefinitions(convertRoot(plan).asStatement()).accept(object : SqlShuttle() {
@@ -224,6 +226,32 @@ class ParameterizedRelToSqlConverter(private val support: CompilationSupport, pr
         shared[node] = identity
     }
 
+    private fun declareAggregateRelation(suggested: String, columns: List<String>, query: SqlNode): SqlIdentifier {
+        var name: String
+        do {
+            name = SqlValidatorUtil.uniquify(suggested, aliasSet, SqlValidatorUtil.EXPR_SUGGESTER)
+        } while (!occupiedRelations.add(name.lowercase(Locale.ROOT)))
+        val identity = SqlIdentifier(name, POS)
+        var body = query
+        while (body is SqlWith || body is SqlOrderBy) body = when (body) {
+            is SqlWith -> body.body
+            is SqlOrderBy -> body.query
+            else -> error("unreachable aggregate query wrapper")
+        }
+        val selected = requireNotNull(body as? SqlSelect) { "native aggregate work query requires an explicit final SELECT" }
+        val outputs = requireNotNull(selected.selectList)
+        require(outputs.size == columns.size && outputs.none { it is SqlIdentifier && it.isStar }) {
+            "native aggregate work query must return all technical group columns and one value"
+        }
+        // 定义自身交付实际列名，不依赖消费者重新解释 WITH 的列名覆盖。
+        selected.selectList = SqlNodeList(outputs.mapIndexed { index, output ->
+            val value = if (output is SqlCall && output.kind == SqlKind.AS) output.operand<SqlNode>(0) else output
+            Ops.AS.createCall(POS, value, SqlIdentifier(columns[index], POS))
+        }, POS)
+        definitions.add(SqlWithItem(POS, identity, null, query, SqlLiteral.createBoolean(false, POS)))
+        return identity
+    }
+
     private fun convertRoot(plan: RelNode): Result {
         // Calcite visitRoot 会隐式再次规划并重建节点；这里只建立转换根的访问 frame。
         val holder = object : SingleRel(plan.cluster, plan.traitSet, plan) {
@@ -245,8 +273,10 @@ class ParameterizedRelToSqlConverter(private val support: CompilationSupport, pr
         super.result(node, if (relation is Window) TreeSet(clauses).apply { add(Clause.SELECT) } else clauses, relation, aliases)
 
     override fun visit(filter: Filter): Result {
-        if (!shared.containsKey(filter.input) && filter.rowType.fieldNames == filter.input.rowType.fieldNames) return super.visit(filter)
-        // CTE的完成关系外建立WHERE；显式恢复本Filter已有的列合同。
+        if (filter.input !is Aggregate && !shared.containsKey(filter.input) &&
+            filter.rowType.fieldNames == filter.input.rowType.fieldNames) return super.visit(filter)
+        // Filter 消费完成关系。聚合可能包含独立原生归约，不能将完成值条件塞回其内层 HAVING。
+        // 让原 Filter 继续走 Calcite 的普通 WHERE 路径，并恢复本来已有的列合同。
         val input = filter.input
         val references = (0 until input.rowType.fieldCount).map { input.cluster.rexBuilder.makeInputRef(input, it) }
         val named = LogicalProject.create(input, emptyList(), references, filter.rowType.fieldNames, emptySet())
@@ -269,18 +299,29 @@ class ParameterizedRelToSqlConverter(private val support: CompilationSupport, pr
         check(selectList.size == firstAggregate + aggregate.aggCallList.size) {
             "aggregate SQL outputs differ from the actual aggregate calls"
         }
-        aggregate.aggCallList.forEachIndexed { index, call ->
+        val mappings = aggregate.aggCallList.mapIndexed { index, call ->
             val output = selectList[firstAggregate + index]
             val alias = (output as? SqlCall)?.takeIf { it.kind == SqlKind.AS }
             val expression = alias?.operand<SqlNode>(0) ?: output
             val arguments = call.argList.map(builder.context::field)
             val mapped = support.aggregateSql(aggregate, call, arguments, expression)
-            selectList[firstAggregate + index] = if (alias == null) mapped else
+            val value = when (mapped) {
+                is AggregateSql.Direct -> mapped.expression
+                is AggregateSql.Reduction -> mapped.aggregate
+            }
+            selectList[firstAggregate + index] = if (alias == null) value else
                 alias.operator.createCall(alias.functionQuantifier, alias.parserPosition,
-                    *(listOf(mapped) + alias.operandList.drop(1)).toTypedArray())
+                    *(listOf(value) + alias.operandList.drop(1)).toTypedArray())
+            mapped
         }
         completed.setSelect(SqlNodeList(selectList, POS))
-        return completed
+        if (mappings.none { it is AggregateSql.Reduction }) return completed
+        check(firstAggregate == aggregate.groupCount) { "native aggregate reduction requires the complete technical group prefix" }
+        val reduced = AggregateSqlReduction.complete(aggregate, completed.result().asSelect(), mappings, ::declareAggregateRelation)
+        // 这里仍在 Aggregate 自身的访问 frame 内，不能把预期属于父消费者的 Result
+        // 再当作本 Aggregate 的输入 builder；直接完成同一 owner 的新 SQL Builder。
+        return Builder(aggregate, listOf(Clause.FROM, Clause.SELECT), reduced,
+            selectListContext(requireNotNull(reduced.selectList), false), isAnon, null)
     }
 
     override fun visit(project: Project): Result {

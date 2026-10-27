@@ -20,7 +20,7 @@ agentic-olap sdk --repository
 
 HTTP 或其他后端由使用方提供匹配其 SQL 后端及实际协议的插件；SQL 协议兼容不证明类型、数值、时间或一致性映射已经成立。业务 Agent 通过正式 MCP 使用已配置的来源。
 
-本仓库源码的连接器 API 为 `agentic-olap-connector/v18-kotlin-native-scalar-expression-calcite-1.42`；安装发行物时以实际服务及 `agentic-olap sdk` 披露的 API 为准。`connectorRef` 是 manifest 中实际的 `{id,version,sha256}`，数据源逐项引用该完整对象。服务核验 API 和摘要，驱动只由 JDBC 实现核验。
+本仓库源码的连接器 API 为 `agentic-olap-connector/v19-kotlin-aggregate-reduction-calcite-1.42`；安装发行物时以实际服务及 `agentic-olap sdk` 披露的 API 为准。`connectorRef` 是 manifest 中实际的 `{id,version,sha256}`，数据源逐项引用该完整对象。服务核验 API 和摘要，驱动只由 JDBC 实现核验。
 
 产品版本或 SDK Maven 坐标变化本身不要求重新构建既有插件。原插件与目标宿主的连接器 API 相同、所用公共接口的二进制合同及 JVM、Kotlin、Calcite 要求满足时，可原样保留完整插件组。宿主仍逐项核验原 manifest、JAR 摘要、完整 `connectorRef` 和 provider 身份；不因产品升级改写它们。API 字符串相同和装载成功都不能单独证明尚未调用的分支成立，升级须用原精确插件完成实际使用能力的查询验证。原字节和来源身份配置均未改变时，来源绑定也不变，无需仅为产品版本重登记目录或修订资产。
 
@@ -96,7 +96,7 @@ olap.output(olap.sources.connectorCapabilities(ConnectorCapabilitiesRequest(aggr
 
 需要来源 SUM、COUNT、AVG 等聚合时，可用 `ConnectorCapabilitiesRequest.Aggregate(connectorRef, aggregation, inputType, grouped)` 读取该输入的正式映射。`aggregation` 是 `ResultAggregation.Kind`；`inputType` 是 `NativeValueType`，给出实际类型、容量和可空性，不能拿最终输出合同代替。DECIMAL 须明确 precision/scale。全局聚合用 `grouped=false`，普通非空分组键用 true，空分组集合按全局处理。`mapping` 给出 `resultType` 和可空 `behavior`；类型映射成功但行为未知，不证明精确工作可用。发现不连接来源，也不代替真实 Query 的实际 owner、分组、FILTER、DISTINCT 及类型核验。
 
-普通聚合的必需入口为 `aggregateSql(owner: Aggregate, call: AggregateCall, arguments: List<SqlNode>, expression: SqlNode): SqlNode`。本次输入类型从 owner.input 按 call.argList 读取，结果类型为 call.type；arguments 严格按 call.argList 顺序提供当前 SQL 作用域中的输入列表达式。expression 是 Calcite 已组织 DISTINCT、FILTER、排序及方言基础改写后的整项表达式，不含最外层 AS。插件保留这些含义与原分组人口，普通映射显式返回 expression；不缓存类型推导状态、不解析最终 SQL、不提供默认实现或失败后切换。窗口不经过此普通 Aggregate 入口。具体签名及责任见[连接器 API](../../../project/modules/kernel/connector-api/README.md)。
+普通聚合的必需入口为 `aggregateSql(owner: Aggregate, call: AggregateCall, arguments: List<SqlNode>, expression: SqlNode): AggregateSql`。本次输入类型从 owner.input 按 call.argList 读取，结果类型为 call.type；arguments 严格按 call.argList 顺序提供当前 SQL 作用域中的输入列表达式。expression 是 Calcite 已组织 DISTINCT、FILTER、排序及方言基础改写后的整项表达式，不含最外层 AS。普通映射显式返回 `AggregateSql.Direct(expression)`；需要工作归约时返回 `AggregateSql.Reduction`，只消费核心提供的完整组键与该项工作值关系，不引用外层变量或重建业务 FROM/JOIN。核心保留 SIMPLE 分组、NULL 组、全局空输入、普通聚合与最终完成边界；工作累计的真实保证仍由插件兑现。双方不缓存类型推导状态、不解析最终 SQL、不提供默认实现或失败后切换。窗口不经过此普通 Aggregate 入口。具体签名及责任见[连接器 API](../../../project/modules/kernel/connector-api/README.md)。
 
 `aggregateBehavior(Aggregate,AggregateCall)` 与 `aggregateBehavior(RexOver)` 返回实际节点的 `NativeAggregateBehavior?`，独立于上述 SQL 映射。`ExactOrFail` 表示本次 SUM／COUNT 保留真实键身份、NULL 与袋人口，无中间量化或静默溢出，实际容量仍由调用类型界定；AVG 只按其适用的 `QuantizedMean` 或 `NativeFloating` 行为核验，不能用 ExactOrFail 冒充。文本工作分组可通过 `textIdentityKey` 的保 NULL、注入式 BINARY／VARBINARY 辅助键与原键共同分组，完成后只输出原键；未提供精确身份映射时不能猜原生 collation。H2 原生 COUNT、DuckDB SUM／COUNT 均未声明精确工作保证，其他来源不得照抄后端名称或 DECIMAL／BIGINT 标签。该入口的交付不证明 Hologres TO_NUMBER、跨 scale SUM 或 NUMERIC→TEXT 已保真，实际候选仍需真实映射及采用证据。
 

@@ -3,6 +3,7 @@ package com.olap.prototype.engine.executable
 import com.olap.prototype.expression.ScalarFunction
 
 import com.olap.prototype.connector.JdbcAccess
+import com.olap.prototype.connector.AggregateSql
 import com.olap.prototype.connector.CompilationSupport
 import com.olap.prototype.connector.FiniteDecimalTypes
 import com.olap.prototype.connector.NativeCompilationCapabilityException
@@ -216,9 +217,9 @@ class CalciteSqlConversionExecutionTest {
                         baseSupport.dialect.quoteStringLiteral(builder, charsetName, value)
                 }
                 override fun nativeAggregate(kind: SqlKind): SqlAggFunction = if (kind == SqlKind.SUM) sum else baseSupport.nativeAggregate(kind)
-                override fun aggregateSql(owner: Aggregate, call: AggregateCall, arguments: List<SqlNode>, expression: SqlNode): SqlNode {
+                override fun aggregateSql(owner: Aggregate, call: AggregateCall, arguments: List<SqlNode>, expression: SqlNode): AggregateSql {
                     if (call.aggregation.kind != SqlKind.SUM ||
-                        !FiniteDecimalTypes.isFinite(owner.input.rowType.fieldList[call.argList.single()].type)) return expression
+                        !FiniteDecimalTypes.isFinite(owner.input.rowType.fieldList[call.argList.single()].type)) return AggregateSql.Direct(expression)
                     require(FiniteDecimalTypes.isFinite(call.type) && arguments.size == 1 && !call.isDistinct &&
                         !call.hasFilter() && call.collation.fieldCollations.isEmpty())
                     val pos = SqlParserPos.ZERO
@@ -230,7 +231,7 @@ class CalciteSqlConversionExecutionTest {
                     val rejected = Ops.CAST.createCall(pos, Ops.CONCAT.createCall(pos,
                         SqlLiteral.createCharString("finite aggregate input outside trial domain:", pos),
                         Ops.CAST.createCall(pos, largest, text)), decimal)
-                    return SqlCase(pos, null, SqlNodeList(listOf(accepted), pos), SqlNodeList(listOf(expression), pos), rejected)
+                    return AggregateSql.Direct(SqlCase(pos, null, SqlNodeList(listOf(accepted), pos), SqlNodeList(listOf(expression), pos), rejected))
                 }
             }
             val binding = source.adopt("observations", emptyMap())
@@ -293,6 +294,74 @@ class CalciteSqlConversionExecutionTest {
             val ordinary = rows(source, b.build(), support = support)
             assertEquals(listOf("A", "B", "C"), ordinary.map { it[0] })
             decimal(ordinary[0][1], "3000"); assertNull(ordinary[1][1]); decimal(ordinary[2][1], "10000")
+        }
+    }
+    @Test fun aggregateReductionPreservesCompletedGroupsBagsAndEmptyPopulations(@TempDir directory: Path) {
+        for (dialect in listOf("h2", "duckdb")) source(directory, dialect).use { source ->
+            source.connection.createStatement().use {
+                it.execute("DELETE FROM observations")
+                it.execute("INSERT INTO observations VALUES (1,'A',1),(1,'A',1),(3,'A',2),(NULL,'B',NULL),(NULL,'B',NULL),(6,NULL,4),(6,NULL,4),(7,'C',0)")
+            }
+            val baseSupport = TestConnectors.registry.require(source.spec.connectorRef).compilation
+            // 原SUM放入一个数组工作值，再从中取回，实际工作载体与最终数值类型不同；这里只验证SQL装配，
+            // 不声明任一来源具有无界Finite累加保证。
+            val support = object : CompilationSupport by baseSupport {
+                override fun aggregateSql(owner: Aggregate, call: AggregateCall, arguments: List<SqlNode>, expression: SqlNode): AggregateSql {
+                    if (call.aggregation.kind != SqlKind.SUM) return AggregateSql.Direct(expression)
+                    require(arguments.size == 1 && !call.isDistinct && !call.hasFilter() && call.collation.fieldCollations.isEmpty())
+                    val packed = Ops.ARRAY_VALUE_CONSTRUCTOR.createCall(expression.parserPosition, expression)
+                    return AggregateSql.Reduction(packed) { work, groups, value ->
+                        val pos = SqlParserPos.ZERO
+                        val reduced = Ops.AS.createCall(pos,
+                            Ops.ITEM.createCall(pos, value, SqlLiteral.createExactNumeric("1", pos)), value)
+                        SqlSelect(pos, null, SqlNodeList(groups + reduced, pos), work, null,
+                            null,
+                            null, null, null, null, null, null, null)
+                    }
+                }
+            }
+            val b = builder(source)
+            val input = b.build()
+            fun complete(empty: Boolean, grouped: Boolean): RelNode {
+                b.push(input)
+                if (empty) b.filter(b.lessThan(b.field("id"), b.literal(0)))
+                b.aggregate(if (grouped) b.groupKey(b.field("region")) else b.groupKey(),
+                    b.sum(false, "amount_total", b.field("amount")),
+                    b.sum(false, "id_total", b.field("id")),
+                    b.count(false, "records"))
+                return b.build()
+            }
+            val completed = complete(empty = false, grouped = true)
+            val result = rows(source, completed, support = support)
+            assertEquals(4, result.size)
+            val grouped = result.associateBy { it[0] }
+            assertEquals(setOf("A", "B", "C", null), grouped.keys)
+            val expected = mapOf(
+                "A" to listOf("4", "5", "3"),
+                "B" to listOf(null, null, "2"),
+                "C" to listOf("0", "7", "1"),
+                null to listOf("8", "12", "2")
+            )
+            expected.forEach { (region, values) -> values.forEachIndexed { column, value ->
+                val actual = grouped.getValue(region)[column + 1]
+                if (value == null) assertNull(actual) else decimal(actual, value)
+            } }
+
+            b.push(completed).filter(b.greaterThan(b.field("amount_total"), b.literal(0))).sort(b.field("id_total"))
+            val selected = b.build()
+            assertEquals(listOf("A", null), rows(source, selected, support = support).map { it[0] })
+            b.push(selected).aggregate(b.groupKey(),
+                b.sum(false, "amount_again", b.field("amount_total")),
+                b.sum(false, "ids_again", b.field("id_total")),
+                b.sum(false, "records_again", b.field("records")))
+            val reduced = rows(source, b.build(), support = support).single()
+            listOf("12", "17", "5").forEachIndexed { column, value -> decimal(reduced[column], value) }
+
+            assertTrue(rows(source, complete(empty = true, grouped = true), support = support).isEmpty())
+            val emptyGlobal = rows(source, complete(empty = true, grouped = false), support = support).single()
+            assertNull(emptyGlobal[0]); assertNull(emptyGlobal[1]); decimal(emptyGlobal[2], "0")
+            val global = rows(source, complete(empty = false, grouped = false), support = support).single()
+            listOf("12", "24", "8").forEachIndexed { column, value -> decimal(global[column], value) }
         }
     }
     @Test fun fourConsumersShareStatementStableQualificationBeforeIndependentAggregates(@TempDir directory: Path) {

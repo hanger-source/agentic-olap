@@ -27,7 +27,7 @@ repositories {
     }
 }
 dependencies {
-    compileOnly("com.github.hanger-source.agentic-olap:connector-api:v0.31.7")
+    compileOnly("com.github.hanger-source.agentic-olap:connector-api:v0.31.8")
 }
 ```
 
@@ -47,11 +47,11 @@ dependencies {
 
 一次语言会话固定产品构建、Kotlin 版本、DSL、classpath、默认 imports 与 JVM 目标，不在存活会话里替换 JAR。升级沿明确停止服务、安装并启动的现有入口进行；旧语言内存结束，持久业务资产按各自格式和授权继续读取，不承诺跨版本搬运 JVM 对象。
 
-产品 0.31.7 的公开作者环境为 `agentic-olap-kotlin-dsl/v12`，内部进程合同为 `agentic-olap-runtime/v15`。创建场景阶段规则必须提供作者显式选择的 `authorization`；历史分页使用 `Long` 坐标和正 `Int` 页长，治理目录、解释及结果元数据按实际内存列表使用非负 `Int` 坐标和正 `Int` 页长，准确类型与默认行为通过服务发现。提交源码使用目标服务披露的 DSL，不自动改用旧作者合同。连接器 API 为 `agentic-olap-connector/v18-kotlin-native-scalar-expression-calcite-1.42`，元数据库格式为 19、Query intent 为 v10；查询定义制品 v14、结果封套 v6、记录 v9 和发行清单 v4 各自保持实际格式职责。FiniteDecimal 使用正式数量合同的显式 JSON／Protobuf 变体，技术类型明确为 FINITE_DECIMAL；既有固定域编码与读取规则保持，不因新增变体要求重建原固定域资产。支持这些格式的旧发行不因此自动认识 Finite 新变体。Query 即时计算仍只编码一份完整实际绑定；定义的 ParentSlots、持久采用及已保存结果继续使用各自的精确格式规则。
+本仓库源码的公开作者环境为 `agentic-olap-kotlin-dsl/v12`，内部进程合同为 `agentic-olap-runtime/v15`。创建场景阶段规则必须提供作者显式选择的 `authorization`；历史分页使用 `Long` 坐标和正 `Int` 页长，治理目录、解释及结果元数据按实际内存列表使用非负 `Int` 坐标和正 `Int` 页长，准确类型与默认行为通过服务发现。提交源码使用目标服务披露的 DSL，不自动改用旧作者合同。连接器 API 为 `agentic-olap-connector/v19-kotlin-aggregate-reduction-calcite-1.42`，元数据库格式为 19、Query intent 为 v10；查询定义制品 v14、结果封套 v6、记录 v9 和发行清单 v4 各自保持实际格式职责。FiniteDecimal 使用正式数量合同的显式 JSON／Protobuf 变体，技术类型明确为 FINITE_DECIMAL；既有固定域编码与读取规则保持，不因新增变体要求重建原固定域资产。支持这些格式的旧发行不因此自动认识 Finite 新变体。Query 即时计算仍只编码一份完整实际绑定；定义的 ParentSlots、持久采用及已保存结果继续使用各自的精确格式规则。
 
-来源访问插件通过 API v18 分别取得物理数据合同要求和发布选定的兑现采用，按随产品提供的 SDK 构建。替换插件或精确来源绑定后，先为原数据合同登记新采用，再由新发布显式选择其 references；没有变化的业务定义继续引用自身精确版本。旧发布的采用不自动切换，当前部署未提供其精确实现时返回不可用原因。采用登记不承诺来源快照、历史数据重放或后端行为等价。
+来源访问插件通过 API v19 分别取得物理数据合同要求和发布选定的兑现采用，按随产品提供的 SDK 构建。替换插件或精确来源绑定后，先为原数据合同登记新采用，再由新发布显式选择其 references；没有变化的业务定义继续引用自身精确版本。旧发布的采用不自动切换，当前部署未提供其精确实现时返回不可用原因。采用登记不承诺来源快照、历史数据重放或后端行为等价。
 
-API v18 要求所有 `CompilationSupport` 实现提供 `nativeScalarExpression(builder,function,call)`；直接 SQL 映射显式返回 call，纯 typed 树映射须保原类型、实参与稳定性边界。普通聚合的 `aggregateSql(owner,call,arguments,expression)` 合同保持，没有特殊映射时仍显式返回 expression。两者没有默认实现或失败后切换路线，窗口不经过普通 Aggregate 入口。独立插件采用本版精确 SDK 实现并重新构建完整插件组，不能只将旧 manifest 改为新 API 字符串；标量叶子继续由 nativeScalarCall 渲染，返回类型推导及实际算术保证分别兑现。新插件字节及采用继续按上述精确绑定流程处理，接口变化本身不要求修改未变化的业务定义或持久格式；签名见[连接器 API](../project/modules/kernel/connector-api/README.md)。
+API v19 的 `aggregateSql(owner,call,arguments,expression)` 返回 `AggregateSql`：普通映射显式使用 `Direct(expression)`；需要独立工作归约时使用 `Reduction`，由核心保留原分组、工作关系与最终输出，插件不接管业务关系。所有实现仍提供 `nativeScalarExpression(builder,function,call)`；直接标量映射返回 call，纯 typed 树映射须保原类型、实参与稳定性。两者没有默认实现或失败后切换路线，窗口不经过普通 Aggregate 入口。独立插件采用本版精确 SDK 实现并重新构建完整插件组，不能只将旧 manifest 改为新 API 字符串；标量叶子继续由 nativeScalarCall 渲染，返回类型推导及实际算术保证分别兑现。新插件字节及采用继续按上述精确绑定流程处理，接口变化本身不要求修改未变化的业务定义或持久格式；签名见[连接器 API](../project/modules/kernel/connector-api/README.md)。
 
 保存查询中的 `QuerySource.dslApiVersion` 是原源码的真实溯源信息，不改写成当前 DSL。读取保存查询或通过其精确引用执行使用正式保存模型，不重新编译该源码；把源码再次交给 `execute-script` 时，须显式采用当前作者合同并调整相应调用。DSL 与内部进程版本不代替持久格式核验，也不触发资产转换。
 
