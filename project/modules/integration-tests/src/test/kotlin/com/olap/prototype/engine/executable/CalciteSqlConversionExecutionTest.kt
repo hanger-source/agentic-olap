@@ -312,11 +312,17 @@ class CalciteSqlConversionExecutionTest {
                     val packed = Ops.ARRAY_VALUE_CONSTRUCTOR.createCall(expression.parserPosition, expression)
                     return AggregateSql.Reduction(packed) { work, groups, value ->
                         val pos = SqlParserPos.ZERO
+                        val outputName = SqlIdentifier("native_result", pos)
                         val reduced = Ops.AS.createCall(pos,
-                            Ops.ITEM.createCall(pos, value, SqlLiteral.createExactNumeric("1", pos)), value)
-                        SqlSelect(pos, null, SqlNodeList(groups + reduced, pos), work, null,
+                            Ops.ITEM.createCall(pos, value, SqlLiteral.createExactNumeric("1", pos)), outputName)
+                        val order = SqlNodeList(listOf(outputName), pos)
+                        val selected = SqlSelect(pos, null, SqlNodeList(groups + reduced, pos), work, null,
                             null,
                             null, null, null, null, null, null, null)
+                        if (owner.aggCallList.indexOf(call) == 0) {
+                            selected.setOrderBy(order)
+                            selected
+                        } else SqlOrderBy(pos, selected, order, null, null)
                     }
                 }
             }

@@ -232,17 +232,8 @@ class ParameterizedRelToSqlConverter(private val support: CompilationSupport, pr
             name = SqlValidatorUtil.uniquify(suggested, aliasSet, SqlValidatorUtil.EXPR_SUGGESTER)
         } while (!occupiedRelations.add(name.lowercase(Locale.ROOT)))
         val identity = SqlIdentifier(name, POS)
-        var body = query
-        while (body is SqlWith || body is SqlOrderBy) body = when (body) {
-            is SqlWith -> body.body
-            is SqlOrderBy -> body.query
-            else -> error("unreachable aggregate query wrapper")
-        }
-        val selected = requireNotNull(body as? SqlSelect) { "native aggregate work query requires an explicit final SELECT" }
+        val selected = AggregateSqlReduction.projection(query, columns.size)
         val outputs = requireNotNull(selected.selectList)
-        require(outputs.size == columns.size && outputs.none { it is SqlIdentifier && it.isStar }) {
-            "native aggregate work query must return all technical group columns and one value"
-        }
         // 定义自身交付实际列名，不依赖消费者重新解释 WITH 的列名覆盖。
         selected.selectList = SqlNodeList(outputs.mapIndexed { index, output ->
             val value = if (output is SqlCall && output.kind == SqlKind.AS) output.operand<SqlNode>(0) else output

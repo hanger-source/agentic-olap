@@ -36,7 +36,7 @@ internal object AggregateSqlReduction {
             val names = groups.map { it.simple } + value.simple
             val work = declare("__aggregate_work", names, select(inputs, base))
             val reduced = declare("__aggregate_reduced", names,
-                mapping.reduce(work, java.util.List.copyOf(groups), value))
+                namedOutput(mapping.reduce(work, java.util.List.copyOf(groups), value), names))
             val conditions = groups.indices.map { key ->
                 Ops.IS_NOT_DISTINCT_FROM.createCall(pos,
                     if (groupCount == 0) SqlLiteral.createExactNumeric("0", pos) else field(base, columns[key]),
@@ -59,4 +59,27 @@ internal object AggregateSqlReduction {
     private fun alias(value: SqlNode, name: String) = Ops.AS.createCall(pos, value, SqlIdentifier(name, pos))
     private fun select(columns: List<SqlNode>, from: SqlNode) = SqlSelect(pos, null, SqlNodeList(columns, pos),
         from, null, null, null, null, null, null, null, null, null)
+
+    internal fun projection(query: SqlNode, width: Int): SqlSelect {
+        var body = query
+        while (body is SqlWith || body is SqlOrderBy) body = when (body) {
+            is SqlWith -> body.body
+            is SqlOrderBy -> body.query
+            else -> error("unreachable aggregate query wrapper")
+        }
+        val selected = requireNotNull(body as? SqlSelect) { "native aggregate work query requires an explicit final SELECT" }
+        val outputs = requireNotNull(selected.selectList)
+        require(outputs.size == width && outputs.none { it is SqlIdentifier && it.isStar }) {
+            "native aggregate work query must return all technical group columns and one value"
+        }
+        return selected
+    }
+
+    private fun namedOutput(query: SqlNode, columns: List<String>): SqlSelect {
+        projection(query, columns.size)
+        // 来源程序自己的 ORDER BY/HAVING 等仍引用它自己的输出名；核心只在外层按列序命名。
+        val name = SqlIdentifier("__native_aggregate", pos)
+        val source = Ops.AS.createCall(pos, query, name, *columns.map { SqlIdentifier(it, pos) }.toTypedArray())
+        return select(columns.map { alias(field(name, it), it) }, source)
+    }
 }
