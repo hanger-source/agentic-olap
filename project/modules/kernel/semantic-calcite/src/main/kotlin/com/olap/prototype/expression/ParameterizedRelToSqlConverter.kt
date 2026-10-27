@@ -94,6 +94,20 @@ class ParameterizedRelToSqlConverter(private val support: CompilationSupport, pr
 
     fun visit(spool: TableSpool): Result = visitInput(spool, 0)
 
+    override fun visit(scan: TableScan): Result {
+        val input = super.visit(scan)
+        val context = input.qualifiedContext()
+        val columns = mutableListOf<SqlNode>()
+        scan.rowType.fieldNames.indices.forEach { addSelect(columns, context.field(it), scan.rowType) }
+        // 冻结扫描可以只声明物理表的部分列，且顺序与物理 ordinal 不同；不能用 * 读取宽表。
+        // 零列扫描仍保留每个原袋行，供 COUNT(*) 等消费，不暴露物理表的其他列。
+        if (columns.isEmpty()) columns.add(Ops.AS.createCall(POS,
+            SqlLiteral.createExactNumeric("1", POS), SqlIdentifier("__row", POS)))
+        val selected = SqlSelect(POS, null, SqlNodeList(columns, POS), input.asFrom(),
+            null, null, null, null, null, null, null, null, null)
+        return result(selected, listOf(Clause.FROM, Clause.SELECT), scan, null)
+    }
+
     fun visit(expansion: CollectionExpansionRel): Result {
         val input = visitInput(expansion, 0).resetAlias()
         val context = input.qualifiedContext()
@@ -221,7 +235,8 @@ class ParameterizedRelToSqlConverter(private val support: CompilationSupport, pr
                 }
             }, POS)
             null
-        } else SqlNodeList(node.rowType.fieldNames.map { SqlIdentifier(it, POS) }, POS)
+        } else if (node.rowType.fieldCount == 0) null
+        else SqlNodeList(node.rowType.fieldNames.map { SqlIdentifier(it, POS) }, POS)
         definitions.add(SqlWithItem(POS, identity, columns, query, SqlLiteral.createBoolean(false, POS)))
         shared[node] = identity
     }

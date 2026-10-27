@@ -145,6 +145,50 @@ class CalciteSqlConversionExecutionTest {
             decimal(result[0][1], "3"); assertNull(result[1][1]); decimal(result[2][1], "10")
         }
     }
+    @Test fun frozenColumnSubsetAndOrderSurviveSharedWideTableConsumers(@TempDir directory: Path) {
+        for (dialect in listOf("h2", "duckdb")) NativeWarehouse(directory, dialect, listOf(
+            "CREATE TABLE wide_observations(extra_key INTEGER,extra_amount INTEGER,keep_amount INTEGER,keep_key INTEGER,keep_gate INTEGER,extra_tail INTEGER)",
+            "INSERT INTO wide_observations VALUES (900,800,10,2,1,700),(901,801,20,2,1,701),(902,802,NULL,4,1,702),(903,803,7,4,0,703),(904,804,5,NULL,1,704),(905,805,100,6,1,705)"
+        )).use { source ->
+            val adopted = source.adopt("wide_observations", emptyMap())
+            val selected = listOf("keep_gate", "keep_key", "keep_amount").associateTo(linkedMapOf()) { name ->
+                adopted.physicalColumnBindings.entries.single { it.value == name }.toPair()
+            }
+            // 保留真实宽表合同及采用，只让本次精确绑定读取这三列，顺序也不同于物理表。
+            val binding = adopted.copy(physicalColumnBindings = selected,
+                physicalColumnTypes = selected.keys.associateWith { adopted.physicalColumnTypes.getValue(it) })
+            val b = builder(source, binding)
+            b.filter(b.equals(b.field("keep_gate"), b.literal(1)))
+            val gated = b.build()
+            b.push(gated).project(listOf(b.field("keep_key"), b.field("keep_amount"), b.field("keep_gate")),
+                listOf("keep_key", "keep_amount", "keep_gate"), true)
+                .filter(b.or(b.isNull(b.field("keep_amount")), b.lessThan(b.field("keep_amount"), b.literal(50))))
+            val shared = b.build()
+            b.push(shared).aggregate(b.groupKey(b.field("keep_key")), b.sum(false, "total", b.field("keep_amount")))
+            b.project(listOf(b.field("keep_key"), b.field("total")), listOf("amount_key", "total"), true)
+            val amounts = b.build()
+            b.push(shared).aggregate(b.groupKey(b.field("keep_key")),
+                b.count(false, "source_rows"), b.count(false, "known_amounts", b.field("keep_amount")))
+            b.project(listOf(b.field("keep_key"), b.field("source_rows"), b.field("known_amounts")),
+                listOf("count_key", "source_rows", "known_amounts"), true)
+            val counts = b.build()
+            b.push(amounts).push(counts).join(JoinRelType.INNER,
+                b.call(Ops.IS_NOT_DISTINCT_FROM, b.field(2, 0, "amount_key"), b.field(2, 1, "count_key")))
+            b.project(listOf(b.field("amount_key"), b.field("total"), b.field("source_rows"), b.field("known_amounts")),
+                listOf("key", "total", "source_rows", "known_amounts"), true)
+                .sort(b.call(Ops.COALESCE, b.field("key"), b.literal(-1)))
+            val result = rows(source, b.build())
+            assertEquals(3, result.size)
+            assertNull(result[0][0]); decimal(result[0][1], "5"); decimal(result[0][2], "1"); decimal(result[0][3], "1")
+            decimal(result[1][0], "2"); decimal(result[1][1], "30"); decimal(result[1][2], "2"); decimal(result[1][3], "2")
+            decimal(result[2][0], "4"); assertNull(result[2][1]); decimal(result[2][2], "1"); decimal(result[2][3], "0")
+
+            // 不读取业务列的扫描仍表示真实行袋；COUNT(*)不能因零列投影失去或合并行。
+            val zeroColumns = builder(source, adopted.copy(physicalColumnBindings = emptyMap(), physicalColumnTypes = emptyMap()))
+            zeroColumns.aggregate(zeroColumns.groupKey(), zeroColumns.count(false, "source_rows"))
+            decimal(rows(source, zeroColumns.build()).single().single(), "6")
+        }
+    }
     @Test fun semiAndAntiDoNotCaptureProjectedLeftFieldsInTheRightScope(@TempDir directory: Path) {
         for (dialect in listOf("h2", "duckdb")) source(directory, dialect).use { source ->
             source.connection.createStatement().use { it.execute("DELETE FROM observations"); it.execute("INSERT INTO observations VALUES (0,'左''🧭',1),(1,'左''🧭',2),(1,'左''🧭',3),(NULL,'左''🧭',4),(2,'右''🧭',9)") }

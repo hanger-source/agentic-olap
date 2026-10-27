@@ -178,6 +178,8 @@ RAW_BAG 没有记录身份并保留重复出现；RECORDS 具有经过实际来�
 
 原生十进制加、乘、除及取模的返回类型推导显式委托当前连接器的 typeSystem；中立语义推导与 Finite 结果的无损映射核验仍由共同类型系统分别负责。Finite NULL 由共同 Rex 构造器直接生成可空的 typed 字面量，保留有限类型标记，供 CASE 及共享投影使用。
 
+SQL 物理扫描按冻结行合同逐项选择实际列并保持其次序；该合同可以是物理宽表的子集，不能用整表星号或 CTE 列头改名代替投影。筛选、共享关系及后续计算只消费这些列，未选择的物理列不成为额外输出。零列扫描用行存在值保留原袋基数，供 COUNT(*) 等运算消费，不把物理表的其他列加入语义合同。
+
 公开 Rel 编译入口先在关系准备阶段展开 Calc 程序，按所属程序还原局部引用后，再核验原生标量、实参及展开树的语句内稳定性；没有程序上下文的 LocalRef 不按稳定输入处理。
 
 原生标量在关系方言 prepare 之后、`SqlEvaluationProjection` 之前通过插件必需的 `nativeScalarExpression(builder: RexBuilder, function: NativeScalarFunction, call: RexCall): RexNode` 下沉，结果不再送回后续 Hep 优化或折叠链。直接 SQL 映射显式返回原 call；需要暴露内部纯中间值时返回完整 typed Rex 树。call.operands 只有本次已授权的有序 SCALAR 实参，PHYSICAL_TABLE 精确身份仍由原调用持有。返回 type 必须与原 type 完全相等，不新增输入、参数、表、子查询、相关依赖、窗口或聚合。原函数、实参及展开树必须 statement-stable，VOLATILE 不因替换为纯树而取得更强保证。
